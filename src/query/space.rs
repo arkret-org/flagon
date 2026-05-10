@@ -13,9 +13,8 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::{enumeration::pad_to, enumeration::MIN_RESPONSE_LATENCY, result::ResultEnvelope},
+    filter::{enumeration::MIN_RESPONSE_LATENCY, enumeration::pad_to, result::ResultEnvelope},
     ingest::{DiscoverabilityWire, ResourceKindWire},
-    schema::directory_resources,
     state::AppState,
 };
 
@@ -64,10 +63,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
 
     match result {
         Ok(rows) => {
-            let envelopes: Vec<ResultEnvelope> = rows
-                .into_iter()
-                .map(envelope_from_row)
-                .collect();
+            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
             res.render(Json(json!({
                 "results": envelopes,
                 "next_cursor": JsonValue::Null,

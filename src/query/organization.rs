@@ -8,7 +8,7 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::{enumeration::pad_to, enumeration::MIN_RESPONSE_LATENCY, result::ResultEnvelope},
+    filter::{enumeration::MIN_RESPONSE_LATENCY, enumeration::pad_to, result::ResultEnvelope},
     ingest::{DiscoverabilityWire, ResourceKindWire},
     state::AppState,
 };
@@ -45,7 +45,9 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     match result {
         Ok(rows) => {
             let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(json!({ "results": envelopes, "next_cursor": JsonValue::Null })));
+            res.render(Json(
+                json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
+            ));
         }
         Err(e) => ErrorCode::InternalError.render(res, format!("org search: {e}")),
     }
@@ -164,7 +166,10 @@ async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgR
 fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
-        obj.insert("organization_did".into(), JsonValue::String(row.resource_id));
+        obj.insert(
+            "organization_did".into(),
+            JsonValue::String(row.resource_id),
+        );
         obj.insert(
             "discoverability".into(),
             JsonValue::String(row.discoverability.as_pg().to_string()),

@@ -47,6 +47,10 @@ in-scope but their handlers are scaffold-only at this stage; see
 ## Quick start
 
 ```bash
+# Option A: local dev Postgres via Docker Compose
+scripts/dev-up.sh
+
+# Option B: manual setup
 # 1. Install Rust 1.85+, PostgreSQL 14+, and diesel CLI
 cargo install diesel_cli --no-default-features --features postgres
 
@@ -62,6 +66,12 @@ cargo run --release
 
 The server then exposes `/api/v1/directory/*` per the spec. Health probe at
 `GET /health`. OpenAPI doc at `GET /.well-known/contrix/openapi.{json,yaml}`.
+
+Container builds use the local SDK path dependency as a named context:
+
+```bash
+docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t chadex .
+```
 
 ## Architecture
 

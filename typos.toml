@@ -1,0 +1,31 @@
+# Project-specific dictionary for `crate-ci/typos`.
+
+[default]
+extend-ignore-re = [
+  "(?s)\"sha256:[0-9a-f]{64}\"",
+  "(?s)\"cx:[a-z]+:[A-Za-z0-9_]{8,}\"",
+  "z[1-9A-HJ-NP-Za-km-z]{20,}",
+]
+
+[default.extend-words]
+chadex = "chadex"
+coauth = "coauth"
+contrix = "contrix"
+Contrix = "Contrix"
+didcomm = "didcomm"
+keypackage = "keypackage"
+mimi = "mimi"
+MIMI = "MIMI"
+oapi = "oapi"
+plc = "plc"
+salvo = "salvo"
+Salvo = "Salvo"
+soland = "soland"
+webvh = "webvh"
+
+[files]
+extend-exclude = [
+  "Cargo.lock",
+  "target/**",
+  "*.lock",
+]

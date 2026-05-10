@@ -5,11 +5,13 @@
 //! `cx.{kind}.discovery` state from the resource Principal Server using
 //! the standard `cx.events.query` shape:
 //!
-//!     GET /api/v1/events
-//!         ?subject={resource_id}
-//!         &kind=cx.{...}.discovery
-//!         &state_only=true
-//!         &after_revision={last_known_revision}
+//! ```text
+//! GET /api/v1/events
+//!   ?subject={resource_id}
+//!   &kind=cx.{...}.discovery
+//!   &state_only=true
+//!   &after_revision={last_known_revision}
+//! ```
 //!
 //! On success: rerun the verify chain (§8.5) and update the row exactly as
 //! a fresh announce would. On failure: increment `consecutive_failures`,
@@ -27,10 +29,7 @@ use diesel::prelude::*;
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::{
-    schema::directory_resources,
-    state::AppState,
-};
+use crate::state::AppState;
 
 pub struct PullWorker {
     state: AppState,
@@ -46,7 +45,10 @@ impl PullWorker {
     /// drop to detach (the task itself exits when the runtime is dropped).
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            info!(period_seconds = self.period.as_secs(), "chadex pull worker started");
+            info!(
+                period_seconds = self.period.as_secs(),
+                "chadex pull worker started"
+            );
             let mut tick = interval(self.period);
             loop {
                 tick.tick().await;

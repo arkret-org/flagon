@@ -11,7 +11,7 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::{enumeration::pad_to, enumeration::MIN_RESPONSE_LATENCY, result::ResultEnvelope},
+    filter::{enumeration::MIN_RESPONSE_LATENCY, enumeration::pad_to, result::ResultEnvelope},
     ingest::{DiscoverabilityWire, ResourceKindWire},
     state::AppState,
 };
@@ -48,7 +48,9 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     match result {
         Ok(rows) => {
             let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(json!({ "results": envelopes, "next_cursor": JsonValue::Null })));
+            res.render(Json(
+                json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
+            ));
         }
         Err(e) => ErrorCode::InternalError.render(res, format!("actor search: {e}")),
     }

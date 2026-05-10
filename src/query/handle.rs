@@ -7,7 +7,7 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::{enumeration::pad_to, enumeration::MIN_RESPONSE_LATENCY},
+    filter::enumeration::{MIN_RESPONSE_LATENCY, pad_to},
     ingest::{DiscoverabilityWire, ResourceKindWire},
     state::AppState,
 };
@@ -64,7 +64,11 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
         .optional()?;
     match row {
         Some((resource_id, projection, disc)) if disc.is_directory_visible() => {
-            let did = projection.get("did").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let did = projection
+                .get("did")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let claims = projection.get("claims").cloned().unwrap_or(JsonValue::Null);
             Ok(Some(json!({
                 "did": did,

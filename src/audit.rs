@@ -12,10 +12,7 @@ use serde_json::Value as JsonValue;
 
 use crate::{
     db::Db,
-    schema::{
-        directory_audit,
-        sql_types::{AuditEventKind as SqlAuditEventKind, ResourceKind as SqlResourceKind},
-    },
+    schema::{directory_audit, sql_types::AuditEventKind as SqlAuditEventKind},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]

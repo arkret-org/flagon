@@ -25,7 +25,6 @@ use crate::{
     db::Db,
     error::ErrorCode,
     ingest::{ResourceKindWire, announce::AnnounceRequest},
-    schema::{accept_allowlist, withdrawals},
 };
 
 #[derive(Debug)]
@@ -57,7 +56,10 @@ impl<'a> VerifyContext<'a> {
     /// Run all five steps. Returns `Err((code, msg))` on rejection — caller
     /// renders that via `ErrorCode::render`. Returns `Ok(VerifyOutcome)` on
     /// acceptance with the derived facts the announce handler needs.
-    pub async fn verify(&self, req: &AnnounceRequest) -> Result<VerifyOutcome, (ErrorCode, String)> {
+    pub async fn verify(
+        &self,
+        req: &AnnounceRequest,
+    ) -> Result<VerifyOutcome, (ErrorCode, String)> {
         // --- Step 1: transport — assumed enforced by middleware. -----------
 
         // --- Step 0 (housekeeping): freshness window. ----------------------
@@ -115,8 +117,9 @@ impl<'a> VerifyContext<'a> {
         self.enforce_accept_policy(req)?;
 
         // --- Cross-checks: takedown-in-force --------------------------------
-        if let Some(effective_at) = previously_withdrawn(self.db, req.resource_kind, &req.resource_id)
-            .map_err(|e| (ErrorCode::InternalError, format!("withdrawal check: {e}")))?
+        if let Some(effective_at) =
+            previously_withdrawn(self.db, req.resource_kind, &req.resource_id)
+                .map_err(|e| (ErrorCode::InternalError, format!("withdrawal check: {e}")))?
         {
             if req.as_of <= effective_at {
                 return Err((
@@ -152,12 +155,12 @@ impl<'a> VerifyContext<'a> {
             req.resource_kind,
             ResourceKindWire::Organization | ResourceKindWire::Actor | ResourceKindWire::Applet
         ) {
-            let method = did_method(&req.resource_id).unwrap_or("");
+            let method = did_method(&req.resource_id).unwrap_or_default();
             if !self
                 .config
                 .accepted_did_methods
                 .iter()
-                .any(|m| m.eq_ignore_ascii_case(method))
+                .any(|m| m.eq_ignore_ascii_case(&method))
             {
                 return Err((
                     ErrorCode::AcceptPolicyDenied,
@@ -231,10 +234,7 @@ fn verify_discovery_proof_shape(discovery_state: &JsonValue) -> Result<(), (Erro
         ));
     }
     if proof.get("jws").and_then(JsonValue::as_str).is_none() {
-        return Err((
-            ErrorCode::SignatureInvalid,
-            "proof.jws missing".into(),
-        ));
+        return Err((ErrorCode::SignatureInvalid, "proof.jws missing".into()));
     }
     // TODO M2-T2 — actually verify the JWS against the resolved key.
     Ok(())
@@ -277,7 +277,10 @@ fn read_discoverability(
 }
 
 fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) -> Vec<String> {
-    if let Some(arr) = discovery_state.get("via_services").and_then(JsonValue::as_array) {
+    if let Some(arr) = discovery_state
+        .get("via_services")
+        .and_then(JsonValue::as_array)
+    {
         let v: Vec<_> = arr
             .iter()
             .filter_map(JsonValue::as_str)
@@ -290,14 +293,10 @@ fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) 
     vec![principal_server_did.to_string()]
 }
 
-fn did_method(did: &str) -> Option<&str> {
+fn did_method(did: &str) -> Option<String> {
     let trimmed = did.strip_prefix("did:")?;
-    Some(&trimmed[..trimmed.find(':').unwrap_or(trimmed.len())])
-        .map(|m| {
-            // Re-prepend `did:` to match the CHADEX_ACCEPTED_DID_METHODS format.
-            // Caller compares case-insensitively.
-            Box::leak(format!("did:{m}").into_boxed_str()) as &str
-        })
+    let end = trimmed.find(':').unwrap_or(trimmed.len());
+    Some(format!("did:{}", &trimmed[..end]))
 }
 
 fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {
@@ -326,7 +325,3 @@ fn previously_withdrawn(
         .optional()?;
     Ok(row)
 }
-
-// Make `accept_allowlist` and `withdrawals` schema imports usable above.
-#[allow(unused_imports)]
-use crate::schema::{accept_allowlist::table as _aa, withdrawals::table as _wd};

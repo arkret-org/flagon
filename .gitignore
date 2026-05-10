@@ -1,0 +1,12 @@
+/target
+
+# Local development overrides. Real secrets must never be committed.
+.env
+.env.local
+
+# Editor / OS files.
+.idea/
+.vscode/
+*.swp
+.DS_Store
+.claude/

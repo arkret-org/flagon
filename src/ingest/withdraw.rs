@@ -18,7 +18,6 @@ use crate::{
     error::ErrorCode,
     ids::{IdClass, new_id},
     ingest::{ResourceKindWire, WithdrawalKindWire},
-    schema::{directory_resources, withdrawals},
     state::AppState,
 };
 
@@ -85,13 +84,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let acked_at = Utc::now();
     let effective_at = body.effective_at.unwrap_or(acked_at);
 
-    if let Err(e) = persist_withdraw(
-        &state,
-        &body,
-        &withdraw_id,
-        acked_at,
-        effective_at,
-    ) {
+    if let Err(e) = persist_withdraw(&state, &body, &withdraw_id, acked_at, effective_at) {
         ErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
         return;
     }
@@ -110,28 +103,38 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }),
     );
 
-    res.render(Json(WithdrawResponse { withdraw_id, acked_at }));
+    res.render(Json(WithdrawResponse {
+        withdraw_id,
+        acked_at,
+    }));
 }
 
 fn verify_governance_proof_shape(proof: &JsonValue) -> Result<(), (ErrorCode, String)> {
-    let kind = proof
-        .get("kind")
-        .and_then(JsonValue::as_str)
-        .ok_or((ErrorCode::SignatureInvalid, "governance_proof.kind missing".into()))?;
+    let kind = proof.get("kind").and_then(JsonValue::as_str).ok_or((
+        ErrorCode::SignatureInvalid,
+        "governance_proof.kind missing".into(),
+    ))?;
     if kind != "detached_jws" {
         return Err((
             ErrorCode::SignatureInvalid,
             format!("unsupported governance_proof.kind {kind}"),
         ));
     }
-    if proof.get("verification_method").and_then(JsonValue::as_str).is_none() {
+    if proof
+        .get("verification_method")
+        .and_then(JsonValue::as_str)
+        .is_none()
+    {
         return Err((
             ErrorCode::SignatureInvalid,
             "governance_proof.verification_method missing".into(),
         ));
     }
     if proof.get("jws").and_then(JsonValue::as_str).is_none() {
-        return Err((ErrorCode::SignatureInvalid, "governance_proof.jws missing".into()));
+        return Err((
+            ErrorCode::SignatureInvalid,
+            "governance_proof.jws missing".into(),
+        ));
     }
     Ok(())
 }
@@ -143,10 +146,7 @@ fn persist_withdraw(
     acked_at: chrono::DateTime<Utc>,
     effective_at: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
-    use crate::schema::{
-        directory_resources::dsl as r,
-        withdrawals::dsl as w,
-    };
+    use crate::schema::{directory_resources::dsl as r, withdrawals::dsl as w};
 
     let mut conn = state.db().get()?;
     conn.transaction::<_, diesel::result::Error, _>(|conn| {

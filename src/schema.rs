@@ -4,27 +4,27 @@
 // Run `diesel print-schema` after every migration to keep it honest.
 
 pub mod sql_types {
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "resource_kind"))]
     pub struct ResourceKind;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "discoverability"))]
     pub struct Discoverability;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "ingest_mode"))]
     pub struct IngestMode;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "accept_policy_kind"))]
     pub struct AcceptPolicyKind;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "withdrawal_kind"))]
     pub struct WithdrawalKind;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "audit_event_kind"))]
     pub struct AuditEventKind;
 }

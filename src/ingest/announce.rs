@@ -17,11 +17,7 @@ use crate::{
     db::Db,
     error::ErrorCode,
     ids::{IdClass, new_id},
-    ingest::{
-        IngestModeWire, ResourceKindWire,
-        verify::VerifyContext,
-    },
-    schema::{directory_resources, ingest_announces},
+    ingest::{IngestModeWire, ResourceKindWire, verify::VerifyContext},
     state::AppState,
 };
 
@@ -91,10 +87,14 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
 
     // Idempotency on (resource_id, as_of) per §8.6.
-    if let Some(existing) =
-        find_announce_by_natural_key(state.db(), body.resource_kind, &body.resource_id, body.as_of)
-            .ok()
-            .flatten()
+    if let Some(existing) = find_announce_by_natural_key(
+        state.db(),
+        body.resource_kind,
+        &body.resource_id,
+        body.as_of,
+    )
+    .ok()
+    .flatten()
     {
         let response = AnnounceResponse {
             announce_id: existing.announce_id,
@@ -109,13 +109,17 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }
 
     // Reject as_of older than the most recent indexed entry (§8.10 rollback).
-    if let Some(latest) =
-        latest_as_of_for(state.db(), body.resource_kind, &body.resource_id).ok().flatten()
+    if let Some(latest) = latest_as_of_for(state.db(), body.resource_kind, &body.resource_id)
+        .ok()
+        .flatten()
     {
         if body.as_of < latest {
             ErrorCode::PolicyRevisionRollback.render(
                 res,
-                format!("incoming as_of {} is older than indexed {latest}", body.as_of),
+                format!(
+                    "incoming as_of {} is older than indexed {latest}",
+                    body.as_of
+                ),
             );
             return;
         }
@@ -177,10 +181,16 @@ fn validate_request_shape(
         return Err((ErrorCode::MissingParam, "resource_id is required".into()));
     }
     if req.principal_server_did.is_empty() {
-        return Err((ErrorCode::MissingParam, "principal_server_did is required".into()));
+        return Err((
+            ErrorCode::MissingParam,
+            "principal_server_did is required".into(),
+        ));
     }
     if !req.discovery_state.is_object() {
-        return Err((ErrorCode::SchemaViolation, "discovery_state must be an object".into()));
+        return Err((
+            ErrorCode::SchemaViolation,
+            "discovery_state must be an object".into(),
+        ));
     }
     if let Some(ttl) = req.ttl_seconds {
         if ttl <= 0 || ttl > max_ttl.as_secs() as i64 {
@@ -244,7 +254,11 @@ fn find_announce_by_natural_key(
         .filter(dsl::resource_kind.eq(kind))
         .filter(dsl::resource_id.eq(resource_id))
         .filter(dsl::as_of.eq(as_of))
-        .select((dsl::announce_id, dsl::indexed_at, dsl::effective_ttl_seconds))
+        .select((
+            dsl::announce_id,
+            dsl::indexed_at,
+            dsl::effective_ttl_seconds,
+        ))
         .first(&mut conn)
         .optional()?;
     Ok(row)
@@ -278,16 +292,14 @@ fn upsert_resource_and_audit(
     request_digest: Vec<u8>,
     public_projection: JsonValue,
 ) -> anyhow::Result<()> {
-    use crate::schema::{
-        directory_resources::dsl as r,
-        ingest_announces::dsl as a,
-    };
+    use crate::schema::{directory_resources::dsl as r, ingest_announces::dsl as a};
 
+    let announce_id_ref: &str = announce_id;
     let mut conn = db.get()?;
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
         diesel::insert_into(a::ingest_announces)
             .values((
-                a::announce_id.eq(announce_id),
+                a::announce_id.eq(announce_id_ref),
                 a::resource_kind.eq(body.resource_kind),
                 a::resource_id.eq(&body.resource_id),
                 a::principal_server_did.eq(&body.principal_server_did),
@@ -319,7 +331,7 @@ fn upsert_resource_and_audit(
                 r::stale.eq(false),
                 r::divergent.eq(false),
                 r::via_services.eq(&verified.via_services),
-                r::last_announce_id.eq(Some(announce_id)),
+                r::last_announce_id.eq(Some(announce_id_ref)),
             ))
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
@@ -336,7 +348,7 @@ fn upsert_resource_and_audit(
                 r::next_revalidation_after.eq(next_revalidation),
                 r::stale.eq(false),
                 r::via_services.eq(&verified.via_services),
-                r::last_announce_id.eq(Some(announce_id)),
+                r::last_announce_id.eq(Some(announce_id_ref)),
             ))
             .execute(conn)?;
 
