@@ -1,0 +1,182 @@
+//! Organization search and resolve. Spec §9.
+
+use chrono::{DateTime, Utc};
+use diesel::prelude::*;
+use salvo::prelude::*;
+use serde::Deserialize;
+use serde_json::{Value as JsonValue, json};
+
+use crate::{
+    error::ErrorCode,
+    filter::{enumeration::pad_to, enumeration::MIN_RESPONSE_LATENCY, result::ResultEnvelope},
+    ingest::{DiscoverabilityWire, ResourceKindWire},
+    state::AppState,
+};
+
+#[derive(Debug, Default, Deserialize)]
+pub struct SearchOrgsRequest {
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub claims: Option<JsonValue>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[handler]
+pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(s) => s.clone(),
+        Err(_) => {
+            ErrorCode::InternalError.render(res, "AppState not injected");
+            return;
+        }
+    };
+    let body: SearchOrgsRequest = req.parse_json().await.unwrap_or_default();
+
+    let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
+    let result = pad_to(MIN_RESPONSE_LATENCY, async {
+        run_org_search(&state, limit).await
+    })
+    .await;
+
+    match result {
+        Ok(rows) => {
+            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
+            res.render(Json(json!({ "results": envelopes, "next_cursor": JsonValue::Null })));
+        }
+        Err(e) => ErrorCode::InternalError.render(res, format!("org search: {e}")),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveOrgRequest {
+    #[serde(default)]
+    pub organization_did: Option<String>,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub proofs: Vec<String>,
+}
+
+#[handler]
+pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(s) => s.clone(),
+        Err(_) => {
+            ErrorCode::InternalError.render(res, "AppState not injected");
+            return;
+        }
+    };
+    let body: ResolveOrgRequest = match req.parse_json().await {
+        Ok(b) => b,
+        Err(e) => {
+            ErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
+            return;
+        }
+    };
+    let key = body.organization_did.or(body.handle);
+    let key = match key {
+        Some(k) if !k.is_empty() => k,
+        _ => {
+            ErrorCode::MissingParam.render(res, "organization_did or handle is required");
+            return;
+        }
+    };
+
+    let row = pad_to(MIN_RESPONSE_LATENCY, async {
+        load_org_row(&state, &key).await
+    })
+    .await;
+
+    match row {
+        Ok(Some(r)) if r.discoverability.is_directory_visible() => {
+            res.render(Json(envelope_from_row(r)));
+        }
+        _ => ErrorCode::NotFound.render(res, "not found"),
+    }
+}
+
+#[derive(Debug, Queryable)]
+struct OrgRow {
+    resource_id: String,
+    public_projection: JsonValue,
+    discoverability: DiscoverabilityWire,
+    as_of: DateTime<Utc>,
+    source_refs: Vec<String>,
+    policy_revision: Option<String>,
+    stale: bool,
+    divergent: bool,
+    via_services: Vec<String>,
+}
+
+async fn run_org_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<OrgRow>> {
+    use crate::schema::directory_resources::dsl as r;
+    let mut conn = state.db().get()?;
+    let rows: Vec<OrgRow> = r::directory_resources
+        .filter(r::resource_kind.eq(ResourceKindWire::Organization))
+        .filter(
+            r::discoverability
+                .eq(DiscoverabilityWire::Public)
+                .or(r::discoverability.eq(DiscoverabilityWire::Listed)),
+        )
+        .order(r::indexed_at.desc())
+        .limit(limit)
+        .select((
+            r::resource_id,
+            r::public_projection,
+            r::discoverability,
+            r::as_of,
+            r::source_refs,
+            r::policy_revision,
+            r::stale,
+            r::divergent,
+            r::via_services,
+        ))
+        .load(&mut conn)?;
+    Ok(rows)
+}
+
+async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgRow>> {
+    use crate::schema::directory_resources::dsl as r;
+    let mut conn = state.db().get()?;
+    let row: Option<OrgRow> = r::directory_resources
+        .filter(r::resource_kind.eq(ResourceKindWire::Organization))
+        .filter(r::resource_id.eq(key))
+        .select((
+            r::resource_id,
+            r::public_projection,
+            r::discoverability,
+            r::as_of,
+            r::source_refs,
+            r::policy_revision,
+            r::stale,
+            r::divergent,
+            r::via_services,
+        ))
+        .first(&mut conn)
+        .optional()?;
+    Ok(row)
+}
+
+fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
+    let mut payload = row.public_projection;
+    if let Some(obj) = payload.as_object_mut() {
+        obj.insert("organization_did".into(), JsonValue::String(row.resource_id));
+        obj.insert(
+            "discoverability".into(),
+            JsonValue::String(row.discoverability.as_pg().to_string()),
+        );
+    }
+    ResultEnvelope::from_row(
+        payload,
+        row.as_of,
+        row.source_refs,
+        row.policy_revision,
+        row.stale,
+        row.divergent,
+        row.via_services,
+    )
+}
