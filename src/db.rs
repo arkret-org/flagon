@@ -35,7 +35,9 @@ impl Db {
     }
 
     pub fn get(&self) -> anyhow::Result<PgPooledConnection> {
-        self.pool.get().map_err(|e| anyhow::anyhow!("acquire pg conn: {e}"))
+        self.pool
+            .get()
+            .map_err(|e| anyhow::anyhow!("acquire pg conn: {e}"))
     }
 
     pub fn pool(&self) -> &PgPool {

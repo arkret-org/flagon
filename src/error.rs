@@ -1,4 +1,4 @@
-//! Wire-form error codes for chadex.
+//! Wire-form error codes for teabay.
 //!
 //! The query-side uses Contrix canonical codes (`not_found`, `rate_limited`,
 //! `unauthenticated`, etc.). The ingest side adds the §8 / §8.10 ingest-
@@ -17,7 +17,9 @@ pub enum ErrorCode {
     SchemaViolation,
     MissingParam,
     InvalidParam,
+    InvalidResponse,
     InvalidSignature,
+    Unauthenticated,
     NotFound,
     UnrecognizedEndpoint,
     MethodNotAllowed,
@@ -59,7 +61,9 @@ impl ErrorCode {
             Self::SchemaViolation => "schema_violation",
             Self::MissingParam => "missing_param",
             Self::InvalidParam => "invalid_param",
+            Self::InvalidResponse => "invalid_response",
             Self::InvalidSignature => "invalid_signature",
+            Self::Unauthenticated => "unauthenticated",
             Self::NotFound => "not_found",
             Self::UnrecognizedEndpoint => "unrecognized_endpoint",
             Self::MethodNotAllowed => "method_not_allowed",
@@ -87,9 +91,11 @@ impl ErrorCode {
     pub fn http_status(self) -> StatusCode {
         match self {
             Self::BadJson | Self::BadQuery | Self::SchemaViolation => StatusCode::BAD_REQUEST,
-            Self::MissingParam | Self::InvalidParam | Self::InvalidSignature => {
-                StatusCode::BAD_REQUEST
-            }
+            Self::MissingParam
+            | Self::InvalidParam
+            | Self::InvalidSignature
+            | Self::InvalidResponse => StatusCode::BAD_REQUEST,
+            Self::Unauthenticated => StatusCode::UNAUTHORIZED,
             Self::NotFound | Self::UnrecognizedEndpoint => StatusCode::NOT_FOUND,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::Conflict => StatusCode::CONFLICT,

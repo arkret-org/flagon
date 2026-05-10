@@ -1,21 +1,21 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM rust:1.85-bookworm AS builder
+FROM --platform=$BUILDPLATFORM rust:1.88-bookworm AS builder
 
 WORKDIR /workspace
 
-# chadex depends on the local Contrix SDK by path. Build with:
-# docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t chadex .
+# teabay depends on the local Contrix SDK by path. Build with:
+# docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay .
 COPY --from=contrix-rust-sdk . ./contrix-rust-sdk
-COPY . ./chadex
+COPY . ./teabay
 
-WORKDIR /workspace/chadex
+WORKDIR /workspace/teabay
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/workspace/chadex/target \
+    --mount=type=cache,target=/workspace/teabay/target \
     cargo build --locked --release && \
-    cp target/release/chadex /usr/local/bin/chadex
+    cp target/release/teabay /usr/local/bin/teabay
 
 FROM debian:bookworm-slim AS runtime
 
@@ -23,12 +23,12 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/local/bin/chadex /usr/local/bin/chadex
+COPY --from=builder /usr/local/bin/teabay /usr/local/bin/teabay
 
 USER 10001:10001
-WORKDIR /var/lib/chadex
+WORKDIR /var/lib/teabay
 
-ENV CHADEX_BIND=0.0.0.0:7781
+ENV TEABAY_BIND=0.0.0.0:7781
 EXPOSE 7781
 
-ENTRYPOINT ["/usr/local/bin/chadex"]
+ENTRYPOINT ["/usr/local/bin/teabay"]

@@ -120,6 +120,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    psi_epoch_keys (epoch) {
+        epoch -> Text,
+        profile -> Text,
+        server_key -> Bytea,
+        public_key -> Bytea,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     accept_allowlist (resource_did) {
         resource_did -> Text,
         added_by -> Text,
@@ -149,6 +160,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     withdrawals,
     pull_subscriptions,
     webhook_subscriptions,
+    psi_epoch_keys,
     accept_allowlist,
     directory_audit,
 );

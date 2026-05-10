@@ -16,9 +16,15 @@ use crate::{
     audit::{self, AuditEventKind},
     db::Db,
     error::ErrorCode,
+    filter::enumeration::{bucket_member_count, is_valid_member_count_bucket},
     ids::{IdClass, new_id},
-    ingest::{IngestModeWire, ResourceKindWire, verify::VerifyContext},
-    state::AppState,
+    ingest::{
+        IngestModeWire, ResourceKindWire,
+        rate_limit::enforce_ingest_rate_limit,
+        subscribe::{AcceptedIngestEvent, fanout_accepted_ingest},
+        verify::VerifyContext,
+    },
+    state::{AppState, CachedAnnounceResponse},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +39,8 @@ pub struct AnnounceRequest {
     pub ttl_seconds: Option<i64>,
     #[serde(default)]
     pub supersedes_announce_id: Option<String>,
+    #[serde(default)]
+    pub trust_root_attestation: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +73,21 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     if let Err((code, msg)) = validate_request_shape(&body, state.config().max_ttl) {
         code.render(res, msg);
+        return;
+    }
+    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+        return;
+    }
+
+    let request_digest = digest_request(&body);
+    if let Some(cached) = state.cached_announce_replay(&request_digest) {
+        res.render(Json(AnnounceResponse {
+            announce_id: cached.announce_id,
+            indexed_at: cached.indexed_at,
+            effective_ttl_seconds: cached.effective_ttl_seconds,
+            next_revalidation_after: cached.next_revalidation_after,
+            warnings: vec!["digest_replay_cache".into()],
+        }));
         return;
     }
 
@@ -104,6 +127,15 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 + chrono::Duration::seconds(existing.effective_ttl_seconds as i64),
             warnings: vec!["idempotent_replay".into()],
         };
+        state.remember_announce_replay(
+            request_digest,
+            CachedAnnounceResponse {
+                announce_id: response.announce_id.clone(),
+                indexed_at: response.indexed_at,
+                effective_ttl_seconds: response.effective_ttl_seconds,
+                next_revalidation_after: response.next_revalidation_after,
+            },
+        );
         res.render(Json(response));
         return;
     }
@@ -129,20 +161,25 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let announce_id = new_id(IdClass::Announce);
     let indexed_at = Utc::now();
     let next_revalidation = indexed_at + chrono::Duration::seconds(effective_ttl);
-    let request_digest = digest_request(&body);
-
-    let public_projection = derive_public_projection(&body.discovery_state);
+    let public_projection = match derive_public_projection(&body.discovery_state) {
+        Ok(projection) => projection,
+        Err((code, msg)) => {
+            code.render(res, msg);
+            return;
+        }
+    };
 
     let insert_outcome = upsert_resource_and_audit(
         state.db(),
         &body,
         &verified,
+        IngestModeWire::Push,
         &announce_id,
         indexed_at,
         effective_ttl,
         next_revalidation,
-        request_digest,
-        public_projection,
+        request_digest.clone(),
+        public_projection.clone(),
     );
 
     if let Err(e) = insert_outcome {
@@ -162,6 +199,33 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             "discoverability": verified.discoverability.as_pg(),
             "policy_revision": verified.policy_revision,
         }),
+    );
+
+    fanout_accepted_ingest(
+        state.clone(),
+        AcceptedIngestEvent {
+            announce_id: announce_id.clone(),
+            ingest_mode: IngestModeWire::Push,
+            resource_kind: body.resource_kind,
+            resource_id: body.resource_id.clone(),
+            principal_server_did: body.principal_server_did.clone(),
+            indexed_at,
+            as_of: body.as_of,
+            source_refs: body.source_refs.clone(),
+            policy_revision: verified.policy_revision.clone(),
+            public_projection,
+        },
+    )
+    .await;
+
+    state.remember_announce_replay(
+        request_digest,
+        CachedAnnounceResponse {
+            announce_id: announce_id.clone(),
+            indexed_at,
+            effective_ttl_seconds: effective_ttl,
+            next_revalidation_after: next_revalidation,
+        },
     );
 
     res.render(Json(AnnounceResponse {
@@ -203,7 +267,10 @@ fn validate_request_shape(
     Ok(())
 }
 
-fn effective_ttl_seconds(requested: Option<i64>, config: &crate::config::AppConfig) -> i64 {
+pub(crate) fn effective_ttl_seconds(
+    requested: Option<i64>,
+    config: &crate::config::AppConfig,
+) -> i64 {
     let requested = requested
         .map(|t| t.max(1))
         .unwrap_or_else(|| config.default_ttl.as_secs() as i64);
@@ -211,7 +278,9 @@ fn effective_ttl_seconds(requested: Option<i64>, config: &crate::config::AppConf
     requested.min(cap)
 }
 
-fn derive_public_projection(discovery_state: &JsonValue) -> JsonValue {
+pub(crate) fn derive_public_projection(
+    discovery_state: &JsonValue,
+) -> Result<JsonValue, (ErrorCode, String)> {
     // Strict subset suitable for indexing — drop the proof envelope and
     // anything else that could leak governance internals.
     //
@@ -221,11 +290,37 @@ fn derive_public_projection(discovery_state: &JsonValue) -> JsonValue {
     if let Some(obj) = clone.as_object_mut() {
         obj.remove("proof");
         obj.remove("directory_services");
+        normalize_member_count_projection(obj)?;
     }
-    clone
+    Ok(clone)
 }
 
-fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
+fn normalize_member_count_projection(
+    obj: &mut serde_json::Map<String, JsonValue>,
+) -> Result<(), (ErrorCode, String)> {
+    if let Some(bucket) = obj.get("member_count_bucket").and_then(JsonValue::as_str) {
+        if !is_valid_member_count_bucket(bucket) {
+            return Err((
+                ErrorCode::InvalidResponse,
+                format!("member_count_bucket {bucket} is outside the normative bucket grid"),
+            ));
+        }
+    }
+
+    if let Some(exact) = obj.remove("member_count") {
+        let count = exact.as_i64().ok_or((
+            ErrorCode::InvalidResponse,
+            "member_count must be an integer when present".into(),
+        ))?;
+        obj.insert(
+            "member_count_bucket".into(),
+            JsonValue::String(bucket_member_count(count).to_string()),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
     // Canonical SHA-256 of the wire body — used for replay detection in
     // `ingest_announces.request_digest`.
     let mut h = Sha256::new();
@@ -264,7 +359,7 @@ fn find_announce_by_natural_key(
     Ok(row)
 }
 
-fn latest_as_of_for(
+pub(crate) fn latest_as_of_for(
     db: &Db,
     kind: ResourceKindWire,
     resource_id: &str,
@@ -281,10 +376,11 @@ fn latest_as_of_for(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn upsert_resource_and_audit(
+pub(crate) fn upsert_resource_and_audit(
     db: &Db,
     body: &AnnounceRequest,
     verified: &super::verify::VerifyOutcome,
+    ingest_mode: IngestModeWire,
     announce_id: &str,
     indexed_at: DateTime<Utc>,
     effective_ttl: i64,
@@ -294,16 +390,15 @@ fn upsert_resource_and_audit(
 ) -> anyhow::Result<()> {
     use crate::schema::{directory_resources::dsl as r, ingest_announces::dsl as a};
 
-    let announce_id_ref: &str = announce_id;
     let mut conn = db.get()?;
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        diesel::insert_into(a::ingest_announces)
+    conn.transaction::<_, anyhow::Error, _>(|conn| {
+        let inserted = diesel::insert_into(a::ingest_announces)
             .values((
-                a::announce_id.eq(announce_id_ref),
+                a::announce_id.eq(announce_id),
                 a::resource_kind.eq(body.resource_kind),
                 a::resource_id.eq(&body.resource_id),
                 a::principal_server_did.eq(&body.principal_server_did),
-                a::ingest_mode.eq(IngestModeWire::Push),
+                a::ingest_mode.eq(ingest_mode),
                 a::discovery_state.eq(&body.discovery_state),
                 a::source_refs.eq(&body.source_refs),
                 a::as_of.eq(body.as_of),
@@ -312,7 +407,29 @@ fn upsert_resource_and_audit(
                 a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
                 a::request_digest.eq(&request_digest),
             ))
+            .on_conflict((a::resource_kind, a::resource_id, a::as_of))
+            .do_nothing()
             .execute(conn)?;
+
+        let stored_announce_id = if inserted == 0 {
+            let (stored_announce_id, stored_state, stored_source_refs) = a::ingest_announces
+                .filter(a::resource_kind.eq(body.resource_kind))
+                .filter(a::resource_id.eq(&body.resource_id))
+                .filter(a::as_of.eq(body.as_of))
+                .select((a::announce_id, a::discovery_state, a::source_refs))
+                .first::<(String, JsonValue, Vec<String>)>(conn)?;
+            if stored_state != body.discovery_state || stored_source_refs != body.source_refs {
+                anyhow::bail!(
+                    "natural-key conflict for ({}, {}, {}) carries different signed state",
+                    body.resource_kind.as_pg(),
+                    body.resource_id,
+                    body.as_of
+                );
+            }
+            stored_announce_id
+        } else {
+            announce_id.to_owned()
+        };
 
         diesel::insert_into(r::directory_resources)
             .values((
@@ -331,7 +448,7 @@ fn upsert_resource_and_audit(
                 r::stale.eq(false),
                 r::divergent.eq(false),
                 r::via_services.eq(&verified.via_services),
-                r::last_announce_id.eq(Some(announce_id_ref)),
+                r::last_announce_id.eq(Some(stored_announce_id.as_str())),
             ))
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
@@ -348,7 +465,7 @@ fn upsert_resource_and_audit(
                 r::next_revalidation_after.eq(next_revalidation),
                 r::stale.eq(false),
                 r::via_services.eq(&verified.via_services),
-                r::last_announce_id.eq(Some(announce_id_ref)),
+                r::last_announce_id.eq(Some(stored_announce_id.as_str())),
             ))
             .execute(conn)?;
 

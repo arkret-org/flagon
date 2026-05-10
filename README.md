@@ -1,8 +1,8 @@
-# chadex
+# teabay
 
 Reference Contrix v1 **Directory Service** implementation.
 
-chadex is the *discovery entry layer* of the Contrix protocol stack: it accepts
+teabay is the *discovery entry layer* of the Contrix protocol stack: it accepts
 signed `cx.{space,organization,actor,applet,handle}.discovery` state from
 resource Principal Servers, indexes the public-metadata projection, and
 serves authorized search / resolve queries — all while enforcing the
@@ -28,9 +28,9 @@ defined by the Contrix v1 spec — concretely:
   equalization)
 - **§12** Conformance test matrix (query face + ingest face)
 
-Sections 6 (Private Contact Discovery) and 10 (Parent Space) are
-in-scope but their handlers are scaffold-only at this stage; see
-`_todos.md` milestone M5.
+Section 6 (Private Contact Discovery) is implemented with RFC 9497 VOPRF
+blind / match flows. Parent Space semantics are represented through scope
+filters and membership hints where the Directory profile needs them.
 
 ## Tech stack
 
@@ -42,7 +42,7 @@ in-scope but their handlers are scaffold-only at this stage; see
 | Database    | PostgreSQL 14+                                             |
 | Crypto      | `ed25519-dalek`, plus the verify chain from `contrix-sdk`  |
 | Migrations  | `diesel_migrations` (auto-applied at boot)                 |
-| Admin UI    | Dioxus (planned — `_todos.md` milestone M7; not yet built) |
+| Admin UI    | Dioxus 0.7 web console in `teabay-admin/`                   |
 
 ## Quick start
 
@@ -51,13 +51,13 @@ in-scope but their handlers are scaffold-only at this stage; see
 scripts/dev-up.sh
 
 # Option B: manual setup
-# 1. Install Rust 1.85+, PostgreSQL 14+, and diesel CLI
+# 1. Install Rust 1.88+, PostgreSQL 14+, and diesel CLI
 cargo install diesel_cli --no-default-features --features postgres
 
 # 2. Provision the database
-createdb chadex
+createdb teabay
 cp .env.example .env
-# Edit .env: at minimum set DATABASE_URL and CHADEX_SERVICE_DID
+# Edit .env: at minimum set DATABASE_URL and TEABAY_SERVICE_DID
 
 # 3. Run migrations and start
 diesel setup
@@ -70,8 +70,37 @@ The server then exposes `/api/v1/directory/*` per the spec. Health probe at
 Container builds use the local SDK path dependency as a named context:
 
 ```bash
-docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t chadex .
+docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay .
 ```
+
+## Admin console
+
+The Dioxus web console lives in `teabay-admin/` and talks to
+`/api/admin/v1/{resources,allowlist,takedown,audit}` with the
+`TEABAY_ADMIN_TOKEN` bearer token.
+
+```bash
+cd teabay-admin
+dx serve --platform web --port 8080
+```
+
+## Validation
+
+GitHub Actions runs the same checks expected locally:
+
+```bash
+cargo fmt --check
+cargo check --all-targets
+cargo test
+cargo check --manifest-path teabay-testing/Cargo.toml
+cargo check --manifest-path teabay-admin/Cargo.toml --target wasm32-unknown-unknown
+TEABAY_RUN_DOCKER_TESTS=1 cargo test --test it -- --nocapture
+cargo deny check
+```
+
+The Docker-gated conformance test starts PostgreSQL with Testcontainers and
+covers describe, query / resolve, signed push announce against a mock Principal
+Server, PSI blind / match, and the admin operator surface.
 
 ## Architecture
 
@@ -113,8 +142,11 @@ client / SDK  ──────▶   |  Salvo router              |
 ## Project layout
 
 ```
-chadex/
+teabay/
+├── .github/workflows/ci.yml - fmt/check/test/conformance/supply-chain CI
 ├── migrations/        - Diesel schema migrations (auto-applied at boot)
+├── teabay-admin/      - Dioxus operator console
+├── teabay-testing/    - shared SQL fixtures for teabay and cotest
 ├── src/
 │   ├── main.rs        - tokio entry, signal handling
 │   ├── lib.rs         - service composition
@@ -137,12 +169,13 @@ chadex/
 │   │   ├── organization.rs- search-organizations / resolve-organization
 │   │   ├── actor.rs       - search-actors / search-users
 │   │   ├── handle.rs      - resolve-handle
-│   │   └── psi.rs         - private-contact-discovery (PSI; scaffold)
+│   │   └── psi.rs         - private-contact-discovery (PSI)
 │   └── filter/
 │       ├── enumeration.rs - bucketing, blinded not_found, timing
 │       └── result.rs      - §9.1 normative result envelope
 └── tests/
-    └── health.rs
+    ├── health.rs
+    └── it/conformance.rs
 ```
 
 ## License

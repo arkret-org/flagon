@@ -13,7 +13,7 @@ struct DescribeResponse<'a> {
     service_did: &'a str,
     public_base_url: &'a str,
     resource_types: &'static [&'static str],
-    discovery_profiles: &'static [&'static str],
+    discovery_profiles: Vec<&'static str>,
     restricted_query_proof: bool,
     // §8.9 ingest fields:
     ingest_modes: Vec<&'static str>,
@@ -39,18 +39,16 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
         }
     };
     let cfg = state.config();
+    let mut discovery_profiles = vec!["cx.profile.directory_service.v1"];
+    if cfg.private_contact_discovery_enabled {
+        discovery_profiles.push("cx.private_contact_discovery.v1");
+    }
 
     let body = DescribeResponse {
         service_did: &cfg.service_did,
         public_base_url: &cfg.public_base_url,
-        resource_types: &[
-            "space",
-            "organization",
-            "actor",
-            "applet",
-            "handle",
-        ],
-        discovery_profiles: &["cx.profile.directory_service.v1"],
+        resource_types: &["space", "organization", "actor", "applet", "handle"],
+        discovery_profiles,
         restricted_query_proof: true,
         ingest_modes: cfg.ingest_modes.iter().map(|m| m.as_str()).collect(),
         accept_policy_kind: accept_policy_str(cfg),
@@ -67,6 +65,11 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
         takedown_contact: cfg.takedown_contact.as_deref(),
         rate_limits: json!({
             "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
+            "max_psi_queries_per_epoch": cfg.max_psi_queries_per_epoch,
+            "psi_epoch_seconds": cfg.psi_epoch_seconds,
+            "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
+            "query_latency_floor_ms": cfg.query_latency_floor.as_millis(),
+            "query_latency_jitter_ms": cfg.query_latency_jitter.as_millis(),
         }),
     };
     res.render(Json(body));

@@ -2,18 +2,18 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: chadex
-      POSTGRES_PASSWORD: chadex
-      POSTGRES_DB: chadex
+      POSTGRES_USER: teabay
+      POSTGRES_PASSWORD: teabay
+      POSTGRES_DB: teabay
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chadex -d chadex"]
+      test: ["CMD-SHELL", "pg_isready -U teabay -d teabay"]
       interval: 2s
       timeout: 5s
       retries: 30
     volumes:
-      - chadex-postgres:/var/lib/postgresql/data
+      - teabay-postgres:/var/lib/postgresql/data
 
 volumes:
-  chadex-postgres:
+  teabay-postgres:

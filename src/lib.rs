@@ -1,12 +1,9 @@
-//! chadex — Contrix v1 Directory Service reference implementation.
+//! teabay — Contrix v1 Directory Service reference implementation.
 //!
 //! Crate-level entry: re-export the public surface so `main.rs` and tests
 //! can compose the service in one line.
 
 #![recursion_limit = "256"]
-
-#[macro_use]
-extern crate diesel;
 
 pub mod audit;
 pub mod config;

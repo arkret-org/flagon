@@ -17,11 +17,11 @@ use crate::{
     audit::{self, AuditEventKind},
     error::ErrorCode,
     ids::{IdClass, new_id},
-    ingest::{ResourceKindWire, WithdrawalKindWire},
+    ingest::{ResourceKindWire, WithdrawalKindWire, rate_limit::enforce_ingest_rate_limit, verify},
     state::AppState,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct WithdrawRequest {
     pub resource_kind: ResourceKindWire,
     pub resource_id: String,
@@ -63,6 +63,9 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         ErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
+    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+        return;
+    }
     if body.reason.trim().is_empty() {
         ErrorCode::MissingParam.render(res, "reason is required");
         return;
@@ -72,10 +75,20 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         return;
     }
 
-    // TODO M2-T2: verify governance_proof against the resolved DID document
-    // (same chain as `verify::verify_discovery_proof_shape`, then real JWS
-    // verification). For now we accept structurally-valid envelopes.
-    if let Err((code, msg)) = verify_governance_proof_shape(&body.governance_proof) {
+    let canonical_payload = match withdraw_payload_without_jws(&body) {
+        Ok(payload) => payload,
+        Err((code, msg)) => {
+            code.render(res, msg);
+            return;
+        }
+    };
+    if let Err((code, msg)) = verify::verify_governance_proof_payload(
+        &canonical_payload,
+        &body.governance_proof,
+        body.resource_kind,
+        &body.resource_id,
+        state.config(),
+    ) {
         code.render(res, msg);
         return;
     }
@@ -109,34 +122,27 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }));
 }
 
-fn verify_governance_proof_shape(proof: &JsonValue) -> Result<(), (ErrorCode, String)> {
-    let kind = proof.get("kind").and_then(JsonValue::as_str).ok_or((
-        ErrorCode::SignatureInvalid,
-        "governance_proof.kind missing".into(),
-    ))?;
-    if kind != "detached_jws" {
+fn withdraw_payload_without_jws(body: &WithdrawRequest) -> Result<JsonValue, (ErrorCode, String)> {
+    let mut payload = serde_json::to_value(body).map_err(|e| {
+        (
+            ErrorCode::InternalError,
+            format!("serialize withdraw payload: {e}"),
+        )
+    })?;
+    let proof = payload
+        .get_mut("governance_proof")
+        .and_then(JsonValue::as_object_mut)
+        .ok_or((
+            ErrorCode::SignatureInvalid,
+            "governance_proof object missing".to_owned(),
+        ))?;
+    if proof.remove("jws").is_none() {
         return Err((
             ErrorCode::SignatureInvalid,
-            format!("unsupported governance_proof.kind {kind}"),
+            "governance_proof.jws missing".to_owned(),
         ));
     }
-    if proof
-        .get("verification_method")
-        .and_then(JsonValue::as_str)
-        .is_none()
-    {
-        return Err((
-            ErrorCode::SignatureInvalid,
-            "governance_proof.verification_method missing".into(),
-        ));
-    }
-    if proof.get("jws").and_then(JsonValue::as_str).is_none() {
-        return Err((
-            ErrorCode::SignatureInvalid,
-            "governance_proof.jws missing".into(),
-        ));
-    }
-    Ok(())
+    Ok(payload)
 }
 
 fn persist_withdraw(

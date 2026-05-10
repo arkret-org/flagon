@@ -16,9 +16,20 @@
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
 
+use std::{net::IpAddr, time::Duration};
+
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Utc};
+use contrix_sdk::identity::{DidResolver, DidWebvhResolver, ResolverPolicy};
+use contrix_sdk::{
+    CompositeDidResolver, DID_WEB_MAX_DOCUMENT_BYTES, Did, DidKeyResolver, DidWebResolver,
+    HttpDidResolver,
+};
 use diesel::prelude::*;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use reqwest::Client;
 use serde_json::Value as JsonValue;
+use url::Url;
 
 use crate::{
     config::{AcceptPolicyKind, AppConfig},
@@ -77,18 +88,12 @@ impl<'a> VerifyContext<'a> {
         }
 
         // --- Step 2: discovery proof verification. -------------------------
-        // Real implementation must:
-        //   (a) extract `discovery_state.proof.verification_method` DID URL,
-        //   (b) resolve the controlling DID document at `req.resource_id`,
-        //   (c) confirm the verification method is currently authoritative
-        //       under the DID method's key history (webvh witnesses, etc.),
-        //   (d) verify the detached JWS against the canonical
-        //       `discovery_state` minus `proof.jws`.
-        //
-        // We delegate to `contrix-sdk` once the resolver chain is wired in
-        // (see _todos.md M2-T2). For now, perform structural checks that
-        // catch the common shape errors and short-circuit obvious garbage.
-        verify_discovery_proof_shape(&req.discovery_state)?;
+        verify_discovery_proof(
+            &req.discovery_state,
+            req.resource_kind,
+            &req.resource_id,
+            self.config,
+        )?;
 
         // --- Step 3: directory authorization (this DID listed). ------------
         let listed = directory_services_lists_self(&req.discovery_state, &self.config.service_did);
@@ -102,15 +107,17 @@ impl<'a> VerifyContext<'a> {
             ));
         }
 
-        // --- Step 4: source-ref sanity (deferred — TODO M2-T3). -----------
-        // For first ingest of this resource we should pull at least one
-        // anchor from `principal_server_did` to confirm `source_refs[0]`
-        // resolves. Today we only structurally check non-emptiness.
+        // --- Step 4: source-ref sanity. ------------------------------------
         if req.source_refs.is_empty() {
             return Err((
                 ErrorCode::SourceRefsUnverifiable,
                 "source_refs MUST contain at least one anchor event id".into(),
             ));
+        }
+        if !resource_already_indexed(self.db, req.resource_kind, &req.resource_id)
+            .map_err(|e| (ErrorCode::InternalError, format!("source-ref gate: {e}")))?
+        {
+            verify_first_source_ref_resolves(req, self.config).await?;
         }
 
         // --- Step 5: accept policy enforcement. ----------------------------
@@ -164,7 +171,7 @@ impl<'a> VerifyContext<'a> {
             {
                 return Err((
                     ErrorCode::AcceptPolicyDenied,
-                    format!("DID method {method} not in CHADEX_ACCEPTED_DID_METHODS"),
+                    format!("DID method {method} not in TEABAY_ACCEPTED_DID_METHODS"),
                 ));
             }
         }
@@ -183,14 +190,7 @@ impl<'a> VerifyContext<'a> {
                     ))
                 }
             }
-            AcceptPolicyKind::TrustRootSigned => {
-                // TODO M2-T4 — verify a trust-root attestation (separate VC
-                // / governance signature) accompanies the announce.
-                Err((
-                    ErrorCode::AcceptPolicyDenied,
-                    "trust_root_signed accept policy not yet implemented".into(),
-                ))
-            }
+            AcceptPolicyKind::TrustRootSigned => verify_trust_root_attestation(req, self.config),
             AcceptPolicyKind::OperatorReview => {
                 // Operator-review mode requires out-of-band approval; the
                 // queue lives in the audit log + operator UI. For now we
@@ -208,11 +208,150 @@ impl<'a> VerifyContext<'a> {
     }
 }
 
-fn verify_discovery_proof_shape(discovery_state: &JsonValue) -> Result<(), (ErrorCode, String)> {
+fn verify_trust_root_attestation(
+    req: &AnnounceRequest,
+    config: &AppConfig,
+) -> Result<(), (ErrorCode, String)> {
+    let attestation = req.trust_root_attestation.as_ref().ok_or((
+        ErrorCode::AcceptPolicyDenied,
+        "trust_root_signed requires trust_root_attestation".to_owned(),
+    ))?;
+    let issuer = attestation
+        .get("issuer")
+        .and_then(JsonValue::as_str)
+        .filter(|issuer| !issuer.is_empty())
+        .ok_or((
+            ErrorCode::AcceptPolicyDenied,
+            "trust_root_attestation.issuer missing".to_owned(),
+        ))?;
+    if !trust_root_allowed(config, issuer) {
+        return Err((
+            ErrorCode::AcceptPolicyDenied,
+            format!("trust root issuer `{issuer}` is not allowed by TEABAY_ACCEPT_POLICY_REF"),
+        ));
+    }
+    let subject_ok = attestation
+        .get("subject")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|subject| subject == req.resource_id)
+        || attestation
+            .get("resource_id")
+            .and_then(JsonValue::as_str)
+            .is_some_and(|subject| subject == req.resource_id)
+        || attestation
+            .get("resources")
+            .and_then(JsonValue::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(JsonValue::as_str)
+            .any(|subject| subject == req.resource_id);
+    if !subject_ok {
+        return Err((
+            ErrorCode::AcceptPolicyDenied,
+            "trust_root_attestation does not cover resource_id".to_owned(),
+        ));
+    }
+    if let Some(expires_at) = attestation.get("expires_at").and_then(JsonValue::as_str) {
+        let expires_at = DateTime::parse_from_rfc3339(expires_at)
+            .map_err(|e| {
+                (
+                    ErrorCode::AcceptPolicyDenied,
+                    format!("trust_root_attestation.expires_at invalid: {e}"),
+                )
+            })?
+            .with_timezone(&Utc);
+        if expires_at <= Utc::now() {
+            return Err((
+                ErrorCode::AcceptPolicyDenied,
+                "trust_root_attestation expired".to_owned(),
+            ));
+        }
+    }
+
+    let proof = attestation.get("proof").ok_or((
+        ErrorCode::AcceptPolicyDenied,
+        "trust_root_attestation.proof missing".to_owned(),
+    ))?;
+    let canonical = canonical_payload_without_jws(attestation, "proof")?;
+    let DetachedProof {
+        verification_method,
+        jws,
+    } = detached_proof(proof)?;
+    let signer_did = verification_method
+        .split_once('#')
+        .map(|(did, _)| did)
+        .unwrap_or(&verification_method);
+    if signer_did != issuer {
+        return Err((
+            ErrorCode::AcceptPolicyDenied,
+            "trust_root_attestation proof signer does not match issuer".to_owned(),
+        ));
+    }
+    verify_jws_ed25519(&canonical, &jws, &verification_method, config)
+        .map_err(|msg| (ErrorCode::AcceptPolicyDenied, msg))
+}
+
+fn trust_root_allowed(config: &AppConfig, issuer: &str) -> bool {
+    config
+        .accept_policy_ref
+        .as_deref()
+        .map(|refs| {
+            refs.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .any(|value| value == issuer)
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn verify_discovery_proof(
+    discovery_state: &JsonValue,
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+    config: &AppConfig,
+) -> Result<(), (ErrorCode, String)> {
     let proof = discovery_state.get("proof").ok_or((
         ErrorCode::SignatureInvalid,
         "discovery_state.proof is missing".into(),
     ))?;
+    let canonical = canonical_payload_without_jws(discovery_state, "proof")?;
+    verify_detached_jws_payload(&canonical, proof, resource_kind, resource_id, config)
+}
+
+pub(crate) fn verify_governance_proof_payload(
+    canonical_payload_without_jws: &JsonValue,
+    proof: &JsonValue,
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+    config: &AppConfig,
+) -> Result<(), (ErrorCode, String)> {
+    let canonical = canonical_json_bytes(canonical_payload_without_jws)
+        .map_err(|msg| (ErrorCode::SignatureInvalid, msg))?;
+    verify_detached_jws_payload(&canonical, proof, resource_kind, resource_id, config)
+}
+
+fn verify_detached_jws_payload(
+    canonical_bytes: &[u8],
+    proof: &JsonValue,
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+    config: &AppConfig,
+) -> Result<(), (ErrorCode, String)> {
+    let DetachedProof {
+        verification_method,
+        jws,
+    } = detached_proof(proof)?;
+    enforce_governance_method_binding(resource_kind, resource_id, &verification_method)?;
+    verify_jws_ed25519(canonical_bytes, &jws, &verification_method, config)
+        .map_err(|msg| (ErrorCode::SignatureInvalid, msg))
+}
+
+struct DetachedProof {
+    verification_method: String,
+    jws: String,
+}
+
+fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ErrorCode, String)> {
     let kind = proof
         .get("kind")
         .and_then(JsonValue::as_str)
@@ -223,21 +362,495 @@ fn verify_discovery_proof_shape(discovery_state: &JsonValue) -> Result<(), (Erro
             format!("unsupported proof.kind {kind}; expected detached_jws"),
         ));
     }
-    if proof
+    let verification_method = proof
         .get("verification_method")
         .and_then(JsonValue::as_str)
-        .is_none()
-    {
-        return Err((
+        .filter(|value| !value.trim().is_empty())
+        .ok_or((
             ErrorCode::SignatureInvalid,
             "proof.verification_method missing".into(),
-        ));
-    }
-    if proof.get("jws").and_then(JsonValue::as_str).is_none() {
+        ))?
+        .to_owned();
+    let jws = proof
+        .get("jws")
+        .and_then(JsonValue::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or((ErrorCode::SignatureInvalid, "proof.jws missing".into()))?
+        .to_owned();
+    Ok(DetachedProof {
+        verification_method,
+        jws,
+    })
+}
+
+fn canonical_payload_without_jws(
+    payload: &JsonValue,
+    proof_key: &str,
+) -> Result<Vec<u8>, (ErrorCode, String)> {
+    let mut unsigned = payload.clone();
+    let proof = unsigned
+        .get_mut(proof_key)
+        .and_then(JsonValue::as_object_mut)
+        .ok_or((
+            ErrorCode::SignatureInvalid,
+            format!("{proof_key} proof object missing"),
+        ))?;
+    if proof.remove("jws").is_none() {
         return Err((ErrorCode::SignatureInvalid, "proof.jws missing".into()));
     }
-    // TODO M2-T2 — actually verify the JWS against the resolved key.
+    canonical_json_bytes(&unsigned).map_err(|msg| (ErrorCode::SignatureInvalid, msg))
+}
+
+fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
+    let mut out = String::new();
+    write_canonical_json(value, &mut out)?;
+    Ok(out.into_bytes())
+}
+
+fn write_canonical_json(value: &JsonValue, out: &mut String) -> Result<(), String> {
+    match value {
+        JsonValue::Null => out.push_str("null"),
+        JsonValue::Bool(true) => out.push_str("true"),
+        JsonValue::Bool(false) => out.push_str("false"),
+        JsonValue::Number(number) => out.push_str(&number.to_string()),
+        JsonValue::String(value) => {
+            out.push_str(&serde_json::to_string(value).map_err(|e| e.to_string())?)
+        }
+        JsonValue::Array(values) => {
+            out.push('[');
+            for (idx, item) in values.iter().enumerate() {
+                if idx > 0 {
+                    out.push(',');
+                }
+                write_canonical_json(item, out)?;
+            }
+            out.push(']');
+        }
+        JsonValue::Object(map) => {
+            out.push('{');
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            for (idx, key) in keys.into_iter().enumerate() {
+                if idx > 0 {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(key).map_err(|e| e.to_string())?);
+                out.push(':');
+                write_canonical_json(&map[key], out)?;
+            }
+            out.push('}');
+        }
+    }
     Ok(())
+}
+
+fn verify_jws_ed25519(
+    canonical_bytes: &[u8],
+    jws: &str,
+    verification_method: &str,
+    config: &AppConfig,
+) -> Result<(), String> {
+    if canonical_bytes.is_empty() {
+        return Err("empty canonical bytes".to_owned());
+    }
+    let (protected_b64, signature_b64) = parse_detached_jws(jws)?;
+
+    let header_bytes = URL_SAFE_NO_PAD
+        .decode(protected_b64)
+        .map_err(|e| format!("JWS header is not base64url: {e}"))?;
+    let header: JsonValue = serde_json::from_slice(&header_bytes)
+        .map_err(|e| format!("JWS header is not JSON: {e}"))?;
+    let alg = header.get("alg").and_then(JsonValue::as_str).unwrap_or("");
+    if alg != "EdDSA" {
+        return Err(format!("JWS alg `{alg}` is not EdDSA"));
+    }
+
+    if signature_b64.bytes().all(|b| b == b'A') {
+        return Err("JWS signature is the all-zero sentinel".to_owned());
+    }
+    let signature_bytes = URL_SAFE_NO_PAD
+        .decode(signature_b64)
+        .map_err(|e| format!("JWS signature is not base64url: {e}"))?;
+    if signature_bytes.len() != 64 {
+        return Err(format!(
+            "Ed25519 signature must be 64 bytes, got {}",
+            signature_bytes.len()
+        ));
+    }
+    let signature_array: [u8; 64] = signature_bytes
+        .try_into()
+        .expect("signature length checked above");
+    let signature = Signature::from_bytes(&signature_array);
+
+    let public_key = resolve_ed25519_pubkey(config, verification_method)?;
+    let signing_input = format!(
+        "{protected_b64}.{}",
+        URL_SAFE_NO_PAD.encode(canonical_bytes)
+    );
+    public_key
+        .verify(signing_input.as_bytes(), &signature)
+        .map_err(|e| format!("Ed25519 verify failed: {e}"))
+}
+
+fn parse_detached_jws(jws: &str) -> Result<(&str, &str), String> {
+    if jws.is_empty() {
+        return Err("empty JWS string".to_owned());
+    }
+    let parts = jws.split('.').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(format!(
+            "JWS must have 3 dot-separated segments, got {}",
+            parts.len()
+        ));
+    }
+    if !parts[1].is_empty() {
+        return Err("detached JWS payload segment must be empty".to_owned());
+    }
+    if parts[2].is_empty() {
+        return Err("JWS signature segment is empty".to_owned());
+    }
+    Ok((parts[0], parts[2]))
+}
+
+fn resolve_ed25519_pubkey(
+    config: &AppConfig,
+    verification_method: &str,
+) -> Result<VerifyingKey, String> {
+    let (did_str, fragment) = verification_method
+        .split_once('#')
+        .map(|(did, fragment)| (did, Some(fragment)))
+        .unwrap_or((verification_method, None));
+    let did = Did::new(did_str.to_owned()).map_err(|e| format!("invalid DID `{did_str}`: {e}"))?;
+    let resolver = did_resolver_chain(config)?;
+    let document = resolver
+        .resolve_did(&did)
+        .map_err(|e| format!("DID resolve failed for `{did_str}`: {e}"))?;
+
+    let fragment_key = fragment.map(|fragment| fragment.to_owned());
+    let hash_fragment_key = fragment_key.as_ref().map(|fragment| format!("#{fragment}"));
+    let did_fragment_key = fragment_key
+        .as_ref()
+        .map(|fragment| format!("{did_str}#{fragment}"));
+    let multibase = document
+        .verification_methods
+        .get(verification_method)
+        .or_else(|| {
+            did_fragment_key
+                .as_ref()
+                .and_then(|key| document.verification_methods.get(key))
+        })
+        .or_else(|| {
+            hash_fragment_key
+                .as_ref()
+                .and_then(|key| document.verification_methods.get(key))
+        })
+        .or_else(|| {
+            fragment_key
+                .as_ref()
+                .and_then(|key| document.verification_methods.get(key))
+        })
+        .or_else(|| {
+            (document.verification_methods.len() == 1)
+                .then(|| document.verification_methods.values().next())
+                .flatten()
+        })
+        .ok_or_else(|| {
+            format!(
+                "verification_method `{verification_method}` not found in DID document for `{did_str}`"
+            )
+        })?;
+    decode_ed25519_multibase(multibase)
+}
+
+fn did_resolver_chain(config: &AppConfig) -> Result<CompositeDidResolver, String> {
+    let policy = ResolverPolicy {
+        allowed_methods: config
+            .accepted_did_methods
+            .iter()
+            .map(|method| normalize_did_method_prefix(method))
+            .collect(),
+        ..ResolverPolicy::default()
+    };
+    let http = HttpDidResolver::with_policy(policy.clone())
+        .map_err(|e| format!("HTTP DID resolver init failed: {e}"))?;
+    let mut resolver = CompositeDidResolver::new().with_policy(policy);
+    resolver.push(DidKeyResolver::new());
+    resolver.push(http);
+    Ok(resolver)
+}
+
+fn normalize_did_method_prefix(method: &str) -> String {
+    let trimmed = method.trim();
+    if trimmed.ends_with(':') {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed}:")
+    }
+}
+
+fn decode_ed25519_multibase(multibase: &str) -> Result<VerifyingKey, String> {
+    let stripped = multibase
+        .strip_prefix('z')
+        .ok_or_else(|| format!("public key multibase missing `z` prefix: `{multibase}`"))?;
+    let decoded = bs58::decode(stripped)
+        .into_vec()
+        .map_err(|e| format!("base58btc decode failed: {e}"))?;
+    if decoded.len() < 2 || decoded[0] != 0xed || decoded[1] != 0x01 {
+        return Err("expected ed25519-pub multicodec prefix 0xed 0x01".to_owned());
+    }
+    let key_bytes = &decoded[2..];
+    if key_bytes.len() != 32 {
+        return Err(format!(
+            "Ed25519 public key must be 32 bytes, got {}",
+            key_bytes.len()
+        ));
+    }
+    let key_array: [u8; 32] = key_bytes
+        .try_into()
+        .map_err(|_| "Ed25519 public key array conversion failed".to_owned())?;
+    VerifyingKey::from_bytes(&key_array)
+        .map_err(|e| format!("Ed25519 public key parse failed: {e}"))
+}
+
+fn enforce_governance_method_binding(
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+    verification_method: &str,
+) -> Result<(), (ErrorCode, String)> {
+    let did = verification_method
+        .split_once('#')
+        .map(|(did, _)| did)
+        .unwrap_or(verification_method);
+    if matches!(
+        resource_kind,
+        ResourceKindWire::Organization | ResourceKindWire::Actor | ResourceKindWire::Applet
+    ) && did != resource_id
+    {
+        return Err((
+            ErrorCode::GovernanceKeyInvalid,
+            format!("verification_method DID `{did}` does not control `{resource_id}`"),
+        ));
+    }
+    Ok(())
+}
+
+fn resource_already_indexed(
+    db: &Db,
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+) -> anyhow::Result<bool> {
+    use crate::schema::directory_resources::dsl;
+    let mut conn = db.get()?;
+    let count: i64 = dsl::directory_resources
+        .filter(dsl::resource_kind.eq(resource_kind))
+        .filter(dsl::resource_id.eq(resource_id))
+        .count()
+        .get_result(&mut conn)?;
+    Ok(count > 0)
+}
+
+async fn verify_first_source_ref_resolves(
+    req: &AnnounceRequest,
+    config: &AppConfig,
+) -> Result<(), (ErrorCode, String)> {
+    let source_ref = req
+        .source_refs
+        .first()
+        .ok_or((
+            ErrorCode::SourceRefsUnverifiable,
+            "source_refs MUST contain at least one anchor event id".to_owned(),
+        ))?
+        .clone();
+    let http = strict_http_client().map_err(|e| {
+        (
+            ErrorCode::InternalError,
+            format!("source-ref HTTP client: {e}"),
+        )
+    })?;
+    let endpoint = resolve_principal_server_endpoint(config, &req.principal_server_did, &http)
+        .await
+        .map_err(|e| {
+            (
+                ErrorCode::SourceRefsUnverifiable,
+                format!("principal_server_did did not resolve to events endpoint: {e}"),
+            )
+        })?;
+    let url = endpoint_child(&endpoint, &format!("events/{source_ref}")).map_err(|e| {
+        (
+            ErrorCode::SourceRefsUnverifiable,
+            format!("source-ref URL: {e}"),
+        )
+    })?;
+    let response = http.get(url).send().await.map_err(|e| {
+        (
+            ErrorCode::SourceRefsUnverifiable,
+            format!("source-ref fetch failed: {e:?}"),
+        )
+    })?;
+    if !response.status().is_success() {
+        return Err((
+            ErrorCode::SourceRefsUnverifiable,
+            format!("source-ref fetch returned {}", response.status()),
+        ));
+    }
+    let body = response.json::<JsonValue>().await.map_err(|e| {
+        (
+            ErrorCode::SourceRefsUnverifiable,
+            format!("source-ref response was not JSON: {e}"),
+        )
+    })?;
+    let returned_id = body
+        .pointer("/event/event_id")
+        .or_else(|| body.get("event_id"))
+        .and_then(JsonValue::as_str)
+        .ok_or((
+            ErrorCode::SourceRefsUnverifiable,
+            "source-ref response did not contain event_id".to_owned(),
+        ))?;
+    if returned_id != source_ref {
+        return Err((
+            ErrorCode::SourceRefsUnverifiable,
+            format!("source-ref response returned `{returned_id}`, expected `{source_ref}`"),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) async fn resolve_principal_server_endpoint(
+    config: &AppConfig,
+    principal_server_did: &str,
+    http: &Client,
+) -> anyhow::Result<Url> {
+    let did = Did::new(principal_server_did.to_owned())
+        .map_err(|e| anyhow::anyhow!("invalid DID `{principal_server_did}`: {e}"))?;
+    if !did_method_allowed(config, principal_server_did) {
+        anyhow::bail!("DID method is outside TEABAY_ACCEPTED_DID_METHODS");
+    }
+
+    let mut doc_url = did_document_url(&did)?;
+    let dev_loopback = config.development_mode && is_loopback_url(&doc_url);
+    if dev_loopback {
+        doc_url
+            .set_scheme("http")
+            .map_err(|_| anyhow::anyhow!("failed to rewrite loopback DID URL to HTTP"))?;
+    } else {
+        let resolver = did_resolver_chain(config).map_err(|e| anyhow::anyhow!(e))?;
+        resolver
+            .resolve_did(&did)
+            .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;
+    }
+
+    let document = fetch_did_document_json(http, doc_url.clone(), config.development_mode).await?;
+    if document.get("id").and_then(JsonValue::as_str) != Some(principal_server_did) {
+        anyhow::bail!("DID document id does not match requested DID");
+    }
+    let services = document
+        .get("service")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
+    let service = services
+        .iter()
+        .find(|service| service_type_matches(service, "ContrixPrincipalServer"))
+        .ok_or_else(|| anyhow::anyhow!("DID document has no ContrixPrincipalServer service"))?;
+    let endpoint = service
+        .get("serviceEndpoint")
+        .and_then(JsonValue::as_str)
+        .filter(|endpoint| !endpoint.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("ContrixPrincipalServer serviceEndpoint is missing"))?;
+    service_endpoint_url(&doc_url, endpoint, config.development_mode)
+}
+
+pub(crate) fn endpoint_child(base: &Url, child: &str) -> anyhow::Result<Url> {
+    let mut url = base.clone();
+    let base_path = url.path().trim_end_matches('/');
+    url.set_path(&format!("{base_path}/{}", child.trim_start_matches('/')));
+    Ok(url)
+}
+
+pub(crate) fn strict_http_client() -> anyhow::Result<Client> {
+    Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| anyhow::anyhow!("build reqwest client: {e}"))
+}
+
+fn did_method_allowed(config: &AppConfig, did: &str) -> bool {
+    config
+        .accepted_did_methods
+        .iter()
+        .map(|method| method.trim().trim_end_matches(':'))
+        .any(|method| did.starts_with(&format!("{method}:")))
+}
+
+fn did_document_url(did: &Did) -> anyhow::Result<Url> {
+    let url = match did.method() {
+        "web" => DidWebResolver::document_url(did)?,
+        "webvh" => DidWebvhResolver::document_url(did)?,
+        other => anyhow::bail!("unsupported Principal Server DID method did:{other}"),
+    };
+    Url::parse(&url).map_err(|e| anyhow::anyhow!("invalid DID document URL `{url}`: {e}"))
+}
+
+async fn fetch_did_document_json(
+    http: &Client,
+    url: Url,
+    development_mode: bool,
+) -> anyhow::Result<JsonValue> {
+    if url.scheme() != "https"
+        && !(development_mode && url.scheme() == "http" && is_loopback_url(&url))
+    {
+        anyhow::bail!("DID document URL must be HTTPS");
+    }
+    let response = http.get(url.clone()).send().await?;
+    if !response.status().is_success() {
+        anyhow::bail!("DID document fetch returned {}", response.status());
+    }
+    let bytes = response.bytes().await?;
+    if bytes.len() > DID_WEB_MAX_DOCUMENT_BYTES {
+        anyhow::bail!("DID document exceeds maximum size");
+    }
+    serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("DID document JSON parse: {e}"))
+}
+
+fn service_type_matches(service: &JsonValue, expected: &str) -> bool {
+    match service.get("type") {
+        Some(JsonValue::String(value)) => value == expected,
+        Some(JsonValue::Array(values)) => values
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .any(|value| value == expected),
+        _ => false,
+    }
+}
+
+fn service_endpoint_url(
+    doc_url: &Url,
+    endpoint: &str,
+    development_mode: bool,
+) -> anyhow::Result<Url> {
+    let parsed = if endpoint.starts_with('/') {
+        let mut url = doc_url.clone();
+        url.set_path(endpoint);
+        url.set_query(None);
+        url.set_fragment(None);
+        url
+    } else {
+        Url::parse(endpoint).map_err(|e| anyhow::anyhow!("invalid serviceEndpoint URL: {e}"))?
+    };
+    if parsed.scheme() != "https"
+        && !(development_mode && parsed.scheme() == "http" && is_loopback_url(&parsed))
+    {
+        anyhow::bail!("serviceEndpoint must be HTTPS");
+    }
+    Ok(parsed)
+}
+
+fn is_loopback_url(url: &Url) -> bool {
+    match url.host_str() {
+        Some("localhost") => true,
+        Some(host) => host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback()),
+        None => false,
+    }
 }
 
 fn directory_services_lists_self(discovery_state: &JsonValue, self_did: &str) -> bool {

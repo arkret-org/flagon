@@ -7,7 +7,7 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::enumeration::{MIN_RESPONSE_LATENCY, pad_to},
+    filter::enumeration::{LatencyBudget, pad_to_budget},
     ingest::{DiscoverabilityWire, ResourceKindWire},
     state::AppState,
 };
@@ -42,7 +42,11 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let row = pad_to(MIN_RESPONSE_LATENCY, async {
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    let row = pad_to_budget(budget, "cx.directory.resolve_handle", &body.handle, async {
         load_handle_row(&state, &body.handle).await
     })
     .await;

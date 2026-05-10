@@ -1,4 +1,4 @@
--- chadex initial schema (spec discovery-directory.md §7-§9 / §11).
+-- teabay initial schema (spec discovery-directory.md §7-§9 / §11).
 --
 -- Storage model:
 --   * `directory_resources` is the *current effective entry* per resource —

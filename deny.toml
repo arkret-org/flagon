@@ -11,7 +11,14 @@ targets = [
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+  # Dev-only Testcontainers chain. tokio-tar is archived and has no safe
+  # upgrade path in testcontainers 0.25.x.
+  "RUSTSEC-2025-0111",
+  # Dev-only Testcontainers / bollard chain. rustls-pemfile is archived; no
+  # safe upgrade is available through current testcontainers.
+  "RUSTSEC-2025-0134",
+]
 
 [licenses]
 allow = [
@@ -20,15 +27,13 @@ allow = [
   "MIT",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  "BSL-1.0",
   "ISC",
   "Unicode-3.0",
-  "Unicode-DFS-2016",
   "Zlib",
-  "MPL-2.0",
   "0BSD",
-  "CC0-1.0",
   "CDLA-Permissive-2.0",
-  "OpenSSL",
+  "PostgreSQL",
 ]
 confidence-threshold = 0.8
 
@@ -37,7 +42,7 @@ name = "ring"
 allow = ["OpenSSL", "ISC", "MIT"]
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "allow"
 wildcards = "deny"
 deny = []
 skip = []

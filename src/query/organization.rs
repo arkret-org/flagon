@@ -8,7 +8,10 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::{enumeration::MIN_RESPONSE_LATENCY, enumeration::pad_to, result::ResultEnvelope},
+    filter::{
+        enumeration::{LatencyBudget, pad_to_budget},
+        result::ResultEnvelope,
+    },
     ingest::{DiscoverabilityWire, ResourceKindWire},
     state::AppState,
 };
@@ -37,9 +40,21 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     let body: SearchOrgsRequest = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
-    let result = pad_to(MIN_RESPONSE_LATENCY, async {
-        run_org_search(&state, limit).await
-    })
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    let privacy_key = format!(
+        "q={};cursor={};limit={limit}",
+        body.query.as_deref().unwrap_or_default(),
+        body.cursor.as_deref().unwrap_or_default(),
+    );
+    let result = pad_to_budget(
+        budget,
+        "cx.directory.search_organizations",
+        &privacy_key,
+        async { run_org_search(&state, limit).await },
+    )
     .await;
 
     match result {
@@ -88,7 +103,11 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
 
-    let row = pad_to(MIN_RESPONSE_LATENCY, async {
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    let row = pad_to_budget(budget, "cx.directory.resolve_organization", &key, async {
         load_org_row(&state, &key).await
     })
     .await;

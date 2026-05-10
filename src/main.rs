@@ -1,7 +1,9 @@
-use chadex::{
-    AppConfig, AppState, Db, ingest::pull_worker::PullWorker, service,
-};
 use salvo::prelude::*;
+use teabay::{
+    AppConfig, AppState, Db,
+    ingest::{divergence_worker::DivergenceWorker, pull_worker::PullWorker},
+    service,
+};
 use tokio::signal;
 use tracing::info;
 
@@ -30,6 +32,9 @@ async fn main() -> anyhow::Result<()> {
     if let Some(period) = config.pull_interval {
         let _worker = PullWorker::new(state.clone(), period).spawn();
     }
+    if let Some(period) = config.divergence_interval {
+        let _worker = DivergenceWorker::new(state.clone(), period).spawn();
+    }
 
     let acceptor = TcpListener::new(config.bind.to_string()).bind().await;
     info!(
@@ -38,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
         service_did = %config.service_did,
         accept_policy = ?config.accept_policy_kind,
         development_mode = config.development_mode,
-        "chadex starting"
+        "teabay starting"
     );
 
     let server = Server::new(acceptor);
@@ -48,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
         handle.stop_graceful(None);
     });
     server.serve(service(state)).await;
-    info!("chadex stopped");
+    info!("teabay stopped");
     Ok(())
 }
 

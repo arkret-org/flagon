@@ -8,7 +8,9 @@ extend-ignore-re = [
 ]
 
 [default.extend-words]
-chadex = "chadex"
+teabay = "teabay"
+Teabay = "Teabay"
+TEABAY = "TEABAY"
 coauth = "coauth"
 contrix = "contrix"
 Contrix = "Contrix"

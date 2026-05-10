@@ -1,6 +1,6 @@
-//! ULID-prefixed identifiers used by chadex.
+//! ULID-prefixed identifiers used by teabay.
 //!
-//! All chadex-issued ids are `cx:<class>:<ULID>`. The ULID is monotonic
+//! All teabay-issued ids are `cx:<class>:<ULID>`. The ULID is monotonic
 //! within a single process, which gives us natural ordering for audit logs
 //! without a separate sequence column.
 

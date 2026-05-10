@@ -12,11 +12,12 @@ use serde_json::json;
 use crate::{error::ErrorCode, ingest, query, state::AppState};
 
 #[derive(Clone)]
-pub struct ChadexOpenApiDoc(pub OpenApi);
+pub struct TeabayOpenApiDoc(pub OpenApi);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
     let directory = directory_router();
+    let admin = admin_router();
     let doc = openapi(&directory);
 
     let mut root = Router::new().hoop(affix_state::inject(state));
@@ -25,10 +26,11 @@ pub fn router(state: AppState) -> Router {
     }
     root.push(Router::with_path("health").get(health))
         .push(directory)
+        .push(admin)
         .push(doc.clone().into_router(".well-known/contrix/openapi.json"))
         .push(
             Router::with_path(".well-known/contrix/openapi.yaml")
-                .hoop(affix_state::inject(ChadexOpenApiDoc(doc)))
+                .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
         .push(
@@ -40,6 +42,19 @@ pub fn router(state: AppState) -> Router {
 
 pub fn service(state: AppState) -> Service {
     Service::new(router(state))
+}
+
+fn admin_router() -> Router {
+    Router::with_path("api/admin/v1")
+        .push(Router::with_path("audit").get(query::admin::audit_feed))
+        .push(
+            Router::with_path("allowlist")
+                .get(query::admin::allowlist_list)
+                .post(query::admin::allowlist_upsert)
+                .delete(query::admin::allowlist_delete),
+        )
+        .push(Router::with_path("resources").get(query::admin::resources_browser))
+        .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
 }
 
 fn directory_router() -> Router {
@@ -65,7 +80,7 @@ fn directory_router() -> Router {
         // Ingest face — §8.
         .push(Router::with_path("announce").post(ingest::announce::announce))
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
-        .push(Router::with_path("subscribe").post(subscribe_stub))
+        .push(Router::with_path("subscribe").post(ingest::subscribe::subscribe))
 }
 
 #[handler]
@@ -75,7 +90,7 @@ async fn health(res: &mut Response) {
 
 #[handler]
 async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
-    let doc = match depot.obtain::<ChadexOpenApiDoc>() {
+    let doc = match depot.obtain::<TeabayOpenApiDoc>() {
         Ok(doc) => doc,
         Err(_) => {
             ErrorCode::InternalError.render(res, "OpenAPI document not injected");
@@ -83,7 +98,7 @@ async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
         }
     };
     let spec = doc.0.to_yaml().unwrap_or_else(|error| {
-        tracing::error!(%error, "failed to render chadex OpenAPI yaml");
+        tracing::error!(%error, "failed to render teabay OpenAPI yaml");
         "{}\n".to_owned()
     });
     res.headers_mut().insert(
@@ -111,23 +126,6 @@ async fn api_not_found(res: &mut Response) {
     })));
 }
 
-/// Webhook subscription stub (spec §8.4 + §9 `cx.directory.subscribe`).
-///
-/// Today this just records the subscription row so operators can observe
-/// requested fanout topology; actual webhook dispatch is M2-T6 in
-/// `_todos.md`.
-#[handler]
-async fn subscribe_stub(res: &mut Response) {
-    res.status_code(StatusCode::NOT_IMPLEMENTED);
-    res.render(Json(json!({
-        "ok": false,
-        "error": {
-            "code": "unsupported_feature",
-            "message": "cx.directory.subscribe webhook fanout pending — see chadex _todos.md M2-T6",
-        }
-    })));
-}
-
 fn cors_handler_for_origin(origin: String) -> CorsHandler {
     Cors::new()
         .allow_origin(vec![origin.as_str()])
@@ -145,9 +143,9 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
         .into_handler()
 }
 
-/// Build the OpenAPI document for chadex's Directory Service surface.
+/// Build the OpenAPI document for teabay's Directory Service surface.
 pub fn openapi(router: &Router) -> OpenApi {
-    let mut doc = OpenApi::new("chadex", env!("CARGO_PKG_VERSION"))
+    let mut doc = OpenApi::new("teabay", env!("CARGO_PKG_VERSION"))
         .add_extension(
             "x-contrix-profile",
             json!({
@@ -157,19 +155,67 @@ pub fn openapi(router: &Router) -> OpenApi {
         )
         .merge_router(router);
     register_contrix_oapi_components(&mut doc.components);
-    register_chadex_operations(&mut doc);
+    register_teabay_operations(&mut doc);
     doc
 }
 
-fn register_chadex_operations(doc: &mut OpenApi) {
+fn register_teabay_operations(doc: &mut OpenApi) {
     let routes = [
         (
             "/health",
             PathItemType::Get,
-            "chadex.health",
+            "teabay.health",
             "health",
             "Health check",
             "Process liveness probe.",
+        ),
+        (
+            "/api/admin/v1/audit",
+            PathItemType::Get,
+            "teabay.admin.audit_feed",
+            "admin",
+            "List Audit Events",
+            "Return the append-only directory audit feed for operator dashboards.",
+        ),
+        (
+            "/api/admin/v1/allowlist",
+            PathItemType::Get,
+            "teabay.admin.allowlist_list",
+            "admin",
+            "List Allowlist Entries",
+            "Return operator-managed accept-policy allowlist entries.",
+        ),
+        (
+            "/api/admin/v1/allowlist",
+            PathItemType::Post,
+            "teabay.admin.allowlist_upsert",
+            "admin",
+            "Upsert Allowlist Entry",
+            "Add or update an operator-managed accept-policy allowlist entry.",
+        ),
+        (
+            "/api/admin/v1/allowlist",
+            PathItemType::Delete,
+            "teabay.admin.allowlist_delete",
+            "admin",
+            "Delete Allowlist Entry",
+            "Remove an operator-managed accept-policy allowlist entry.",
+        ),
+        (
+            "/api/admin/v1/resources",
+            PathItemType::Get,
+            "teabay.admin.resources_browser",
+            "admin",
+            "Browse Directory Resources",
+            "Return indexed resources with kind, stale, divergent, and text filters.",
+        ),
+        (
+            "/api/admin/v1/takedown",
+            PathItemType::Post,
+            "teabay.admin.operator_takedown",
+            "admin",
+            "Operator Takedown",
+            "Admin-only operator takedown path for §8.7 path 3.",
         ),
         (
             "/api/v1/directory/describe",
@@ -225,7 +271,7 @@ fn register_chadex_operations(doc: &mut OpenApi) {
             "cx.directory.search_users",
             "query",
             "Search Users",
-            "Common-Space gated user search; currently returns an empty result set.",
+            "Common-Space gated user search using indexed membership hints.",
         ),
         (
             "/api/v1/directory/resolve-handle",
@@ -241,7 +287,7 @@ fn register_chadex_operations(doc: &mut OpenApi) {
             "cx.directory.private_contact_discovery",
             "query",
             "Private Contact Discovery",
-            "PSI/VOPRF endpoint scaffold; feature-complete implementation is tracked in M5.",
+            "RFC 9497 VOPRF two-phase private contact discovery.",
         ),
         (
             "/api/v1/directory/announce",
@@ -265,7 +311,7 @@ fn register_chadex_operations(doc: &mut OpenApi) {
             "cx.directory.subscribe",
             "ingest",
             "Subscribe To Directory Updates",
-            "Webhook subscription endpoint scaffold; fanout is tracked in M2-T6.",
+            "Register an HMAC-signed webhook subscription for accepted ingest updates.",
         ),
     ];
 

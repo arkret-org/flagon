@@ -1,0 +1,92 @@
+name: teabay-ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  TEABAY_TEST_POSTGRES_TAG: 16-alpine
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: teabay
+
+    steps:
+      - name: Checkout teabay
+        uses: actions/checkout@v4
+        with:
+          path: teabay
+
+      - name: Checkout Contrix Rust SDK
+        uses: actions/checkout@v4
+        with:
+          repository: contrix-dev/contrix-rust-sdk
+          path: contrix-rust-sdk
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - name: Format
+        run: |
+          cargo fmt --check
+          cargo fmt --manifest-path teabay-admin/Cargo.toml --check
+          cargo fmt --manifest-path teabay-testing/Cargo.toml --check
+
+      - name: Check teabay
+        run: cargo check --locked --all-targets
+
+      - name: Test teabay
+        run: cargo test --locked
+
+      - name: Check shared fixtures
+        run: cargo check --manifest-path teabay-testing/Cargo.toml
+
+      - name: Check admin wasm
+        run: cargo check --locked --manifest-path teabay-admin/Cargo.toml --target wasm32-unknown-unknown
+
+      - name: Docker conformance
+        env:
+          TEABAY_RUN_DOCKER_TESTS: "1"
+        run: cargo test --locked --test it -- --nocapture
+
+  supply-chain:
+    name: Supply-chain policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: teabay
+
+    steps:
+      - name: Checkout teabay
+        uses: actions/checkout@v4
+        with:
+          path: teabay
+
+      - name: Checkout Contrix Rust SDK
+        uses: actions/checkout@v4
+        with:
+          repository: contrix-dev/contrix-rust-sdk
+          path: contrix-rust-sdk
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Check advisories, licenses, bans, and sources
+        run: cargo deny check

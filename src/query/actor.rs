@@ -11,7 +11,10 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{
     error::ErrorCode,
-    filter::{enumeration::MIN_RESPONSE_LATENCY, enumeration::pad_to, result::ResultEnvelope},
+    filter::{
+        enumeration::{LatencyBudget, pad_to_budget},
+        result::ResultEnvelope,
+    },
     ingest::{DiscoverabilityWire, ResourceKindWire},
     state::AppState,
 };
@@ -30,6 +33,18 @@ pub struct SearchActorsRequest {
     pub limit: Option<u32>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct SearchUsersQuery {
+    #[serde(default, alias = "q")]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub requester: Option<String>,
+    #[serde(default)]
+    pub space_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
 #[handler]
 pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {
@@ -41,7 +56,18 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     };
     let body: SearchActorsRequest = req.parse_json().await.unwrap_or_default();
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
-    let result = pad_to(MIN_RESPONSE_LATENCY, async {
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    let privacy_key = format!(
+        "q={};space={};org={};cursor={};limit={limit}",
+        body.query.as_deref().unwrap_or_default(),
+        body.space_id.as_deref().unwrap_or_default(),
+        body.organization_did.as_deref().unwrap_or_default(),
+        body.cursor.as_deref().unwrap_or_default(),
+    );
+    let result = pad_to_budget(budget, "cx.directory.search_actors", &privacy_key, async {
         run_actor_search(&state, limit).await
     })
     .await;
@@ -57,18 +83,58 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
 }
 
 #[handler]
-pub async fn search_users(_req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let _ = match depot.obtain::<AppState>() {
+pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
-    // Mention-autocomplete is intentionally `not_yet_implemented` until the
-    // index supports common-Space gating (M3-T6 in _todos.md). Until then
-    // return an empty result rather than leaking unfiltered actor lists.
-    res.render(Json(json!({ "results": [] })));
+
+    let query: SearchUsersQuery = match req.parse_queries() {
+        Ok(query) => query,
+        Err(error) => {
+            ErrorCode::BadQuery.render(res, format!("malformed search_users query: {error}"));
+            return;
+        }
+    };
+    let requester = match query.requester.as_deref().filter(|value| !value.is_empty()) {
+        Some(requester) => requester,
+        None => {
+            ErrorCode::MissingParam.render(res, "requester is required");
+            return;
+        }
+    };
+    let space_id = match query.space_id.as_deref().filter(|value| !value.is_empty()) {
+        Some(space_id) => space_id,
+        None => {
+            ErrorCode::MissingParam.render(res, "space_id is required");
+            return;
+        }
+    };
+    let limit = query.limit.unwrap_or(20).min(100).max(1) as i64;
+    let needle = query.query.unwrap_or_default();
+
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    let privacy_key = format!("q={needle};requester={requester};space={space_id};limit={limit}");
+    let result = pad_to_budget(budget, "cx.directory.search_users", &privacy_key, async {
+        run_user_search(&state, &needle, requester, space_id, limit).await
+    })
+    .await;
+
+    match result {
+        Ok(rows) => {
+            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
+            res.render(Json(
+                json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
+            ));
+        }
+        Err(error) => ErrorCode::InternalError.render(res, format!("user search: {error}")),
+    }
 }
 
 #[derive(Debug, Queryable)]
@@ -107,6 +173,46 @@ async fn run_actor_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<Ac
     Ok(rows)
 }
 
+async fn run_user_search(
+    state: &AppState,
+    needle: &str,
+    requester: &str,
+    space_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<ActorRow>> {
+    use crate::schema::directory_resources::dsl as r;
+    let mut conn = state.db().get()?;
+    let rows: Vec<ActorRow> = r::directory_resources
+        .filter(r::resource_kind.eq(ResourceKindWire::Actor))
+        .filter(r::discoverability.eq(DiscoverabilityWire::Public))
+        .order(r::indexed_at.desc())
+        .limit(500)
+        .select((
+            r::resource_id,
+            r::public_projection,
+            r::discoverability,
+            r::as_of,
+            r::source_refs,
+            r::policy_revision,
+            r::stale,
+            r::divergent,
+            r::via_services,
+        ))
+        .load(&mut conn)?;
+
+    let needle = needle.trim().to_ascii_lowercase();
+    Ok(rows
+        .into_iter()
+        .filter(|row| {
+            row.resource_id == requester || actor_lists_space(&row.public_projection, space_id)
+        })
+        .filter(|row| {
+            needle.is_empty() || actor_matches(&row.public_projection, &row.resource_id, &needle)
+        })
+        .take(limit as usize)
+        .collect())
+}
+
 fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
@@ -125,4 +231,36 @@ fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
         row.divergent,
         row.via_services,
     )
+}
+
+fn actor_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {
+    resource_id.to_ascii_lowercase().contains(needle)
+        || ["handle", "name", "display_name", "summary", "bio"]
+            .iter()
+            .filter_map(|key| projection.get(*key).and_then(JsonValue::as_str))
+            .any(|value| value.to_ascii_lowercase().contains(needle))
+}
+
+fn actor_lists_space(projection: &JsonValue, space_id: &str) -> bool {
+    ["space_id", "common_space_id", "primary_space_id"]
+        .iter()
+        .filter_map(|key| projection.get(*key).and_then(JsonValue::as_str))
+        .any(|value| value == space_id)
+        || [
+            "space_ids",
+            "common_space_ids",
+            "member_of_spaces",
+            "memberships",
+            "spaces",
+        ]
+        .iter()
+        .filter_map(|key| projection.get(*key).and_then(JsonValue::as_array))
+        .flatten()
+        .any(|value| match value {
+            JsonValue::String(value) => value == space_id,
+            JsonValue::Object(obj) => ["space_id", "id"]
+                .iter()
+                .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(space_id)),
+            _ => false,
+        })
 }
