@@ -1,13 +1,13 @@
 [package]
-name = "teabay-admin"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.88"
+name = "admin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 publish = false
 
 [dependencies]
-dioxus = { version = "0.7.9", features = ["web"] }
-dioxus-free-icons = { version = "0.10.0", features = ["lucide"] }
-gloo-net = "0.7.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+dioxus.workspace = true
+dioxus-free-icons.workspace = true
+gloo-net.workspace = true
+serde.workspace = true
+serde_json.workspace = true

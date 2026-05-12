@@ -53,12 +53,12 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
         std::env::set_var("TEABAY_QUERY_LATENCY_JITTER_MS", "0");
     }
 
-    let config = teabay::AppConfig::from_env()?;
-    let db = teabay::Db::connect(&database_url)?;
+    let config = server::AppConfig::from_env()?;
+    let db = server::Db::connect(&database_url)?;
     db.run_migrations()?;
     seed_directory_fixture(&db)?;
 
-    let service = teabay::service(teabay::AppState::new(config, db));
+    let service = server::service(server::AppState::new(config, db));
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -73,7 +73,7 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn seed_directory_fixture(db: &teabay::Db) -> anyhow::Result<()> {
+fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
     let mut conn = db.get()?;
     diesel::sql_query(teabay_testing::DIRECTORY_FIXTURE_SQL).execute(&mut conn)?;
     Ok(())
@@ -329,6 +329,8 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
 }
 
 async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> {
+    let managed_resource_id = "did:web:admin-managed.example";
+
     let res = TestClient::get("http://local/api/admin/v1/resources?limit=5")
         .send(service)
         .await;
@@ -370,18 +372,43 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"][0]["resource_did"], "did:web:principal.test");
 
-    let mut res = TestClient::get("http://local/api/admin/v1/audit?limit=20")
+    let mut res = TestClient::post("http://local/api/admin/v1/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
+        .json(&json!({
+            "resource_kind": "organization",
+            "resource_id": managed_resource_id,
+            "principal_server_did": "did:web:directory.test",
+            "public_projection": {
+                "organization_did": managed_resource_id,
+                "name": "Admin Managed Directory Row",
+                "summary": "Inserted through the admin data manager"
+            },
+            "discoverability": "listed",
+            "as_of": Utc::now(),
+            "source_refs": ["admin:test"],
+            "policy_revision": "admin-r1",
+            "effective_ttl_seconds": 3600,
+            "via_services": ["did:web:directory.test"]
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert_eq!(body["item"]["resource_id"], managed_resource_id);
+    assert_eq!(body["item"]["policy_revision"], "admin-r1");
+
+    let mut res = TestClient::post("http://local/api/v1/directory/search-organizations")
+        .json(&json!({ "query": "Admin Managed", "limit": 10 }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert!(
-        body["events"]
+        body["results"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|event| event["kind"] == "allowlist_added")
+            .any(|result| result["organization_did"] == managed_resource_id)
     );
 
     let mut res = TestClient::post("http://local/api/admin/v1/takedown")
@@ -421,6 +448,54 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["deleted"], 1);
+
+    let mut res = TestClient::delete(
+        "http://local/api/admin/v1/resources?resource_kind=organization&resource_id=did:web:admin-managed.example",
+    )
+    .add_header("authorization", "Bearer cotest-admin", true)
+    .send(service)
+    .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert_eq!(body["deleted"], 1);
+
+    let mut res = TestClient::get(
+        "http://local/api/admin/v1/resources?resource_kind=organization&q=admin-managed&limit=10",
+    )
+    .add_header("authorization", "Bearer cotest-admin", true)
+    .send(service)
+    .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert_eq!(body["items"].as_array().unwrap().len(), 0);
+
+    let mut res = TestClient::get("http://local/api/admin/v1/audit?limit=50")
+        .add_header("authorization", "Bearer cotest-admin", true)
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert!(
+        body["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "allowlist_added")
+    );
+    assert!(
+        body["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "admin_resource_upserted")
+    );
+    assert!(
+        body["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "admin_resource_deleted")
+    );
     Ok(())
 }
 

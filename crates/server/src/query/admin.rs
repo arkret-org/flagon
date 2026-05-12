@@ -10,7 +10,7 @@ use serde_json::{Value as JsonValue, json};
 use crate::{
     audit::{self, AuditEventKind},
     error::ErrorCode,
-    ingest::{DiscoverabilityWire, ResourceKindWire},
+    ingest::{DiscoverabilityWire, ResourceKindWire, announce::effective_ttl_seconds},
     state::AppState,
 };
 
@@ -101,11 +101,48 @@ struct ResourcesQuery {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ResourceUpsertRequest {
+    resource_kind: ResourceKindWire,
+    resource_id: String,
+    principal_server_did: String,
+    #[serde(default)]
+    discovery_state: JsonValue,
+    #[serde(default)]
+    public_projection: JsonValue,
+    discoverability: DiscoverabilityWire,
+    #[serde(default)]
+    as_of: Option<DateTime<Utc>>,
+    #[serde(default)]
+    source_refs: Vec<String>,
+    #[serde(default)]
+    policy_revision: Option<String>,
+    #[serde(default)]
+    effective_ttl_seconds: Option<i64>,
+    #[serde(default)]
+    stale: Option<bool>,
+    #[serde(default)]
+    divergent: Option<bool>,
+    #[serde(default)]
+    via_services: Vec<String>,
+    #[serde(default)]
+    last_announce_id: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ResourceDeleteQuery {
+    #[serde(default)]
+    resource_kind: Option<ResourceKindWire>,
+    #[serde(default)]
+    resource_id: Option<String>,
+}
+
 #[derive(Debug, Queryable)]
 struct ResourceAdminRow {
     resource_kind: ResourceKindWire,
     resource_id: String,
     principal_server_did: String,
+    discovery_state: JsonValue,
     public_projection: JsonValue,
     discoverability: DiscoverabilityWire,
     as_of: DateTime<Utc>,
@@ -125,6 +162,7 @@ struct ResourceAdminItem {
     resource_kind: &'static str,
     resource_id: String,
     principal_server_did: String,
+    discovery_state: JsonValue,
     public_projection: JsonValue,
     discoverability: &'static str,
     as_of: DateTime<Utc>,
@@ -135,6 +173,14 @@ struct ResourceAdminItem {
     next_revalidation_after: DateTime<Utc>,
     stale: bool,
     divergent: bool,
+    via_services: Vec<String>,
+    last_announce_id: Option<String>,
+}
+
+#[derive(Debug)]
+struct ResourceDeleteAudit {
+    principal_server_did: String,
+    policy_revision: Option<String>,
     via_services: Vec<String>,
     last_announce_id: Option<String>,
 }
@@ -317,6 +363,156 @@ pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut R
     }
 }
 
+#[handler]
+pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match admin_state(req, depot, res) {
+        Some(state) => state,
+        None => return,
+    };
+    let body: ResourceUpsertRequest = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ErrorCode::BadJson.render(res, format!("malformed resource body: {error}"));
+            return;
+        }
+    };
+
+    if body.resource_id.trim().is_empty() {
+        ErrorCode::MissingParam.render(res, "resource_id is required");
+        return;
+    }
+    if body.principal_server_did.trim().is_empty() {
+        ErrorCode::MissingParam.render(res, "principal_server_did is required");
+        return;
+    }
+    if !body.public_projection.is_object() {
+        ErrorCode::SchemaViolation.render(res, "public_projection must be an object");
+        return;
+    }
+
+    let source_refs = {
+        let refs = normalize_string_list(&body.source_refs);
+        if refs.is_empty() {
+            vec!["admin:manual".to_string()]
+        } else {
+            refs
+        }
+    };
+    let via_services = {
+        let services = normalize_string_list(&body.via_services);
+        if services.is_empty() {
+            vec![body.principal_server_did.trim().to_string()]
+        } else {
+            services
+        }
+    };
+    let public_projection =
+        normalized_public_projection(&body.public_projection, body.discoverability);
+    let discovery_state = match normalized_discovery_state(
+        &body,
+        &public_projection,
+        &via_services,
+    ) {
+        Ok(state) => state,
+        Err(message) => {
+            ErrorCode::SchemaViolation.render(res, message);
+            return;
+        }
+    };
+    let effective_ttl = effective_ttl_seconds(body.effective_ttl_seconds, state.config());
+    let indexed_at = Utc::now();
+    let next_revalidation_after = indexed_at + chrono::Duration::seconds(effective_ttl);
+
+    match upsert_managed_resource(
+        &state,
+        &body,
+        discovery_state,
+        public_projection,
+        source_refs,
+        via_services,
+        indexed_at,
+        effective_ttl as i32,
+        next_revalidation_after,
+    )
+    .await
+    {
+        Ok(item) => {
+            let _ = audit::record(
+                state.db(),
+                AuditEventKind::AdminResourceUpserted,
+                Some(body.resource_kind),
+                Some(&body.resource_id),
+                Some(&state.config().service_did),
+                json!({
+                    "principal_server_did": body.principal_server_did.as_str(),
+                    "discoverability": body.discoverability.as_pg(),
+                    "policy_revision": body.policy_revision.as_deref(),
+                    "effective_ttl_seconds": effective_ttl,
+                    "source_refs": item.source_refs,
+                    "via_services": item.via_services,
+                }),
+            );
+            res.render(Json(json!({ "item": item })));
+        }
+        Err(error) => ErrorCode::InternalError.render(res, format!("resource upsert: {error}")),
+    }
+}
+
+#[handler]
+pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match admin_state(req, depot, res) {
+        Some(state) => state,
+        None => return,
+    };
+    let query: ResourceDeleteQuery = match req.parse_queries() {
+        Ok(query) => query,
+        Err(error) => {
+            ErrorCode::BadQuery.render(res, format!("malformed resource delete query: {error}"));
+            return;
+        }
+    };
+    let resource_kind = match query.resource_kind {
+        Some(kind) => kind,
+        None => {
+            ErrorCode::MissingParam.render(res, "resource_kind query parameter is required");
+            return;
+        }
+    };
+    let resource_id = match query
+        .resource_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(resource_id) => resource_id,
+        None => {
+            ErrorCode::MissingParam.render(res, "resource_id query parameter is required");
+            return;
+        }
+    };
+
+    match delete_managed_resource(&state, resource_kind, resource_id).await {
+        Ok(Some(detail)) => {
+            let _ = audit::record(
+                state.db(),
+                AuditEventKind::AdminResourceDeleted,
+                Some(resource_kind),
+                Some(resource_id),
+                Some(&state.config().service_did),
+                json!({
+                    "principal_server_did": detail.principal_server_did,
+                    "policy_revision": detail.policy_revision,
+                    "via_services": detail.via_services,
+                    "last_announce_id": detail.last_announce_id,
+                }),
+            );
+            res.render(Json(json!({ "deleted": 1 })));
+        }
+        Ok(None) => res.render(Json(json!({ "deleted": 0 }))),
+        Err(error) => ErrorCode::InternalError.render(res, format!("resource delete: {error}")),
+    }
+}
+
 fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<AppState> {
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
@@ -468,6 +664,7 @@ async fn load_resources(
             r::resource_kind,
             r::resource_id,
             r::principal_server_did,
+            r::discovery_state,
             r::public_projection,
             r::discoverability,
             r::as_of,
@@ -483,6 +680,201 @@ async fn load_resources(
         ))
         .load(&mut conn)?;
     Ok(rows.into_iter().map(ResourceAdminItem::from).collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upsert_managed_resource(
+    state: &AppState,
+    body: &ResourceUpsertRequest,
+    discovery_state: JsonValue,
+    public_projection: JsonValue,
+    source_refs: Vec<String>,
+    via_services: Vec<String>,
+    indexed_at: DateTime<Utc>,
+    effective_ttl_seconds: i32,
+    next_revalidation_after: DateTime<Utc>,
+) -> anyhow::Result<ResourceAdminItem> {
+    use crate::schema::directory_resources::dsl as r;
+
+    let mut conn = state.db().get()?;
+    diesel::insert_into(r::directory_resources)
+        .values((
+            r::resource_kind.eq(body.resource_kind),
+            r::resource_id.eq(body.resource_id.trim()),
+            r::principal_server_did.eq(body.principal_server_did.trim()),
+            r::discovery_state.eq(&discovery_state),
+            r::public_projection.eq(&public_projection),
+            r::discoverability.eq(body.discoverability),
+            r::as_of.eq(body.as_of.unwrap_or(indexed_at)),
+            r::source_refs.eq(&source_refs),
+            r::policy_revision.eq(trimmed_option(body.policy_revision.as_deref())),
+            r::indexed_at.eq(indexed_at),
+            r::effective_ttl_seconds.eq(effective_ttl_seconds),
+            r::next_revalidation_after.eq(next_revalidation_after),
+            r::stale.eq(body.stale.unwrap_or(false)),
+            r::divergent.eq(body.divergent.unwrap_or(false)),
+            r::via_services.eq(&via_services),
+            r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
+        ))
+        .on_conflict((r::resource_kind, r::resource_id))
+        .do_update()
+        .set((
+            r::principal_server_did.eq(body.principal_server_did.trim()),
+            r::discovery_state.eq(&discovery_state),
+            r::public_projection.eq(&public_projection),
+            r::discoverability.eq(body.discoverability),
+            r::as_of.eq(body.as_of.unwrap_or(indexed_at)),
+            r::source_refs.eq(&source_refs),
+            r::policy_revision.eq(trimmed_option(body.policy_revision.as_deref())),
+            r::indexed_at.eq(indexed_at),
+            r::effective_ttl_seconds.eq(effective_ttl_seconds),
+            r::next_revalidation_after.eq(next_revalidation_after),
+            r::stale.eq(body.stale.unwrap_or(false)),
+            r::divergent.eq(body.divergent.unwrap_or(false)),
+            r::via_services.eq(&via_services),
+            r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
+        ))
+        .execute(&mut conn)?;
+
+    load_resource(state, body.resource_kind, body.resource_id.trim()).await
+}
+
+async fn load_resource(
+    state: &AppState,
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+) -> anyhow::Result<ResourceAdminItem> {
+    use crate::schema::directory_resources::dsl as r;
+
+    let mut conn = state.db().get()?;
+    let row: ResourceAdminRow = r::directory_resources
+        .filter(r::resource_kind.eq(resource_kind))
+        .filter(r::resource_id.eq(resource_id))
+        .select((
+            r::resource_kind,
+            r::resource_id,
+            r::principal_server_did,
+            r::discovery_state,
+            r::public_projection,
+            r::discoverability,
+            r::as_of,
+            r::source_refs,
+            r::policy_revision,
+            r::indexed_at,
+            r::effective_ttl_seconds,
+            r::next_revalidation_after,
+            r::stale,
+            r::divergent,
+            r::via_services,
+            r::last_announce_id,
+        ))
+        .first(&mut conn)?;
+    Ok(row.into())
+}
+
+async fn delete_managed_resource(
+    state: &AppState,
+    resource_kind: ResourceKindWire,
+    resource_id: &str,
+) -> anyhow::Result<Option<ResourceDeleteAudit>> {
+    use crate::schema::directory_resources::dsl as r;
+
+    let mut conn = state.db().get()?;
+    conn.transaction::<_, anyhow::Error, _>(|conn| {
+        let existing = r::directory_resources
+            .filter(r::resource_kind.eq(resource_kind))
+            .filter(r::resource_id.eq(resource_id))
+            .select((
+                r::principal_server_did,
+                r::policy_revision,
+                r::via_services,
+                r::last_announce_id,
+            ))
+            .first::<(String, Option<String>, Vec<String>, Option<String>)>(conn)
+            .optional()?;
+
+        let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
+            existing
+        else {
+            return Ok(None);
+        };
+
+        diesel::delete(
+            r::directory_resources
+                .filter(r::resource_kind.eq(resource_kind))
+                .filter(r::resource_id.eq(resource_id)),
+        )
+        .execute(conn)?;
+
+        Ok(Some(ResourceDeleteAudit {
+            principal_server_did,
+            policy_revision,
+            via_services,
+            last_announce_id,
+        }))
+    })
+}
+
+fn normalized_public_projection(
+    raw: &JsonValue,
+    discoverability: DiscoverabilityWire,
+) -> JsonValue {
+    let mut projection = raw.clone();
+    let object = projection
+        .as_object_mut()
+        .expect("public_projection validated as object");
+    object
+        .entry("discoverability".to_string())
+        .or_insert_with(|| JsonValue::String(discoverability.as_pg().to_string()));
+    projection
+}
+
+fn normalized_discovery_state(
+    body: &ResourceUpsertRequest,
+    public_projection: &JsonValue,
+    via_services: &[String],
+) -> Result<JsonValue, String> {
+    let mut discovery_state = if body.discovery_state.is_null() {
+        public_projection.clone()
+    } else {
+        body.discovery_state.clone()
+    };
+    let object = discovery_state
+        .as_object_mut()
+        .ok_or_else(|| "discovery_state must be an object when provided".to_string())?;
+    object.insert(
+        "kind".to_string(),
+        JsonValue::String(body.resource_kind.discovery_event_kind().to_string()),
+    );
+    object.insert(
+        "discoverability".to_string(),
+        JsonValue::String(body.discoverability.as_pg().to_string()),
+    );
+    object
+        .entry("directory_services".to_string())
+        .or_insert_with(|| {
+            JsonValue::Array(
+                via_services
+                    .iter()
+                    .cloned()
+                    .map(JsonValue::String)
+                    .collect(),
+            )
+        });
+    Ok(discovery_state)
+}
+
+fn normalize_string_list(values: &[String]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn trimmed_option(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 impl From<AuditDbRow> for AuditFeedItem {
@@ -505,6 +897,7 @@ impl From<ResourceAdminRow> for ResourceAdminItem {
             resource_kind: row.resource_kind.as_pg(),
             resource_id: row.resource_id,
             principal_server_did: row.principal_server_did,
+            discovery_state: row.discovery_state,
             public_projection: row.public_projection,
             discoverability: row.discoverability.as_pg(),
             as_of: row.as_of,

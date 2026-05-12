@@ -24,6 +24,8 @@ pub enum AuditEventKind {
     OperatorTakedown,
     AllowlistAdded,
     AllowlistRemoved,
+    AdminResourceUpserted,
+    AdminResourceDeleted,
 }
 
 impl AuditEventKind {
@@ -37,6 +39,8 @@ impl AuditEventKind {
             Self::OperatorTakedown => "operator_takedown",
             Self::AllowlistAdded => "allowlist_added",
             Self::AllowlistRemoved => "allowlist_removed",
+            Self::AdminResourceUpserted => "admin_resource_upserted",
+            Self::AdminResourceDeleted => "admin_resource_deleted",
         }
     }
 }

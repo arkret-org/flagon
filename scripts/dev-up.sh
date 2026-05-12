@@ -18,4 +18,4 @@ until docker compose exec -T postgres pg_isready -U teabay -d teabay >/dev/null 
 done
 
 echo "Starting teabay on ${TEABAY_BIND}"
-exec cargo run
+exec cargo run -p server

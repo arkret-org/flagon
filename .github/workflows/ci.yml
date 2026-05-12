@@ -39,9 +39,7 @@ jobs:
 
       - name: Format
         run: |
-          cargo fmt --check
-          cargo fmt --manifest-path teabay-admin/Cargo.toml --check
-          cargo fmt --manifest-path teabay-testing/Cargo.toml --check
+          cargo fmt --all --check
 
       - name: Check teabay
         run: cargo check --locked --all-targets
@@ -50,15 +48,15 @@ jobs:
         run: cargo test --locked
 
       - name: Check shared fixtures
-        run: cargo check --manifest-path teabay-testing/Cargo.toml
+        run: cargo check --manifest-path crates/testing/Cargo.toml
 
       - name: Check admin wasm
-        run: cargo check --locked --manifest-path teabay-admin/Cargo.toml --target wasm32-unknown-unknown
+        run: cargo check --locked --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 
       - name: Docker conformance
         env:
           TEABAY_RUN_DOCKER_TESTS: "1"
-        run: cargo test --locked --test it -- --nocapture
+        run: cargo test --locked -p server --test it -- --nocapture
 
   supply-chain:
     name: Supply-chain policy

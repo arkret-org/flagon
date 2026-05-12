@@ -10,6 +10,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 const RESOURCE_KINDS: [&str; 5] = ["space", "organization", "actor", "applet", "handle"];
+const DISCOVERABILITY_LEVELS: [&str; 6] = [
+    "public",
+    "listed",
+    "restricted",
+    "unlisted",
+    "invite_only",
+    "secret",
+];
 
 fn main() {
     dioxus::launch(App);
@@ -58,6 +66,8 @@ struct ResourceItem {
     resource_id: String,
     #[serde(default)]
     principal_server_did: String,
+    #[serde(default)]
+    discovery_state: JsonValue,
     #[serde(default)]
     public_projection: JsonValue,
     #[serde(default)]
@@ -156,6 +166,148 @@ struct TakedownBody {
     evidence: JsonValue,
 }
 
+#[derive(Clone, Default, Deserialize, PartialEq)]
+struct ResourceMutationEnvelope {
+    #[serde(default)]
+    item: ResourceItem,
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq)]
+struct DeleteCount {
+    #[serde(default)]
+    deleted: i64,
+}
+
+#[derive(Clone, Serialize)]
+struct ResourceUpsertBody {
+    resource_kind: String,
+    resource_id: String,
+    principal_server_did: String,
+    discoverability: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    as_of: Option<String>,
+    source_refs: Vec<String>,
+    policy_revision: Option<String>,
+    effective_ttl_seconds: Option<i64>,
+    stale: bool,
+    divergent: bool,
+    via_services: Vec<String>,
+    public_projection: JsonValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    discovery_state: Option<JsonValue>,
+    last_announce_id: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+struct ResourceEditorForm {
+    resource_kind: String,
+    resource_id: String,
+    principal_server_did: String,
+    discoverability: String,
+    as_of: String,
+    source_refs: String,
+    policy_revision: String,
+    effective_ttl_seconds: String,
+    stale: bool,
+    divergent: bool,
+    via_services: String,
+    public_projection: String,
+    discovery_state: String,
+    last_announce_id: String,
+}
+
+impl Default for ResourceEditorForm {
+    fn default() -> Self {
+        Self {
+            resource_kind: "space".to_string(),
+            resource_id: String::new(),
+            principal_server_did: String::new(),
+            discoverability: "public".to_string(),
+            as_of: String::new(),
+            source_refs: "[\n  \"admin:manual\"\n]".to_string(),
+            policy_revision: String::new(),
+            effective_ttl_seconds: "86400".to_string(),
+            stale: false,
+            divergent: false,
+            via_services: "[]".to_string(),
+            public_projection: "{\n  \"name\": \"\",\n  \"summary\": \"\"\n}".to_string(),
+            discovery_state: String::new(),
+            last_announce_id: String::new(),
+        }
+    }
+}
+
+impl ResourceEditorForm {
+    fn reset_for_kind(kind: &str) -> Self {
+        let mut next = Self::default();
+        if RESOURCE_KINDS.contains(&kind) {
+            next.resource_kind = kind.to_string();
+        }
+        next
+    }
+
+    fn from_item(item: &ResourceItem) -> Self {
+        Self {
+            resource_kind: item.resource_kind.clone(),
+            resource_id: item.resource_id.clone(),
+            principal_server_did: item.principal_server_did.clone(),
+            discoverability: item.discoverability.clone(),
+            as_of: item.as_of.clone(),
+            source_refs: pretty_string_array(&item.source_refs),
+            policy_revision: item.policy_revision.clone().unwrap_or_default(),
+            effective_ttl_seconds: item.effective_ttl_seconds.to_string(),
+            stale: item.stale,
+            divergent: item.divergent,
+            via_services: pretty_string_array(&item.via_services),
+            public_projection: pretty_json(&item.public_projection),
+            discovery_state: pretty_json(&item.discovery_state),
+            last_announce_id: item.last_announce_id.clone().unwrap_or_default(),
+        }
+    }
+
+    fn to_body(&self) -> Result<ResourceUpsertBody, String> {
+        let resource_id = self.resource_id.trim().to_string();
+        if resource_id.is_empty() {
+            return Err("resource_id is required".to_string());
+        }
+
+        let principal_server_did = self.principal_server_did.trim().to_string();
+        if principal_server_did.is_empty() {
+            return Err("principal_server_did is required".to_string());
+        }
+
+        if !RESOURCE_KINDS.contains(&self.resource_kind.as_str()) {
+            return Err("resource_kind is invalid".to_string());
+        }
+        if !DISCOVERABILITY_LEVELS.contains(&self.discoverability.as_str()) {
+            return Err("discoverability is invalid".to_string());
+        }
+
+        Ok(ResourceUpsertBody {
+            resource_kind: self.resource_kind.clone(),
+            resource_id,
+            principal_server_did,
+            discoverability: self.discoverability.clone(),
+            as_of: option_string(self.as_of.clone()),
+            source_refs: parse_string_array(&self.source_refs, "source_refs")?,
+            policy_revision: option_string(self.policy_revision.clone()),
+            effective_ttl_seconds: parse_optional_i64(
+                &self.effective_ttl_seconds,
+                "effective_ttl_seconds",
+            )?,
+            stale: self.stale,
+            divergent: self.divergent,
+            via_services: parse_string_array(&self.via_services, "via_services")?,
+            public_projection: parse_json_object(&self.public_projection, "public_projection")?,
+            discovery_state: parse_optional_json_object(
+                &self.discovery_state,
+                "discovery_state",
+            )?,
+            last_announce_id: option_string(self.last_announce_id.clone()),
+        })
+    }
+}
+
 #[allow(non_snake_case)]
 fn App() -> Element {
     let mut active_tab = use_signal(|| Tab::Resources);
@@ -223,6 +375,8 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
     let mut divergent = use_signal(|| "any".to_string());
     let mut stale = use_signal(|| "any".to_string());
     let mut limit = use_signal(|| "100".to_string());
+    let mut selected_key = use_signal(String::new);
+    let mut editor = use_signal(ResourceEditorForm::default);
 
     let rows_view = rows();
     let loading_now = loading();
@@ -234,6 +388,22 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
     let stale_value = stale();
     let limit_value = limit();
     let row_count = rows_view.len();
+    let selected_key_value = selected_key();
+    let editor_view = editor();
+    let editor_kind = editor_view.resource_kind.clone();
+    let editor_resource_id = editor_view.resource_id.clone();
+    let editor_principal = editor_view.principal_server_did.clone();
+    let editor_discoverability = editor_view.discoverability.clone();
+    let editor_as_of = editor_view.as_of.clone();
+    let editor_source_refs = editor_view.source_refs.clone();
+    let editor_policy_revision = editor_view.policy_revision.clone();
+    let editor_ttl = editor_view.effective_ttl_seconds.clone();
+    let editor_stale_value = if editor_view.stale { "true" } else { "false" };
+    let editor_divergent_value = if editor_view.divergent { "true" } else { "false" };
+    let editor_via_services = editor_view.via_services.clone();
+    let editor_public_projection = editor_view.public_projection.clone();
+    let editor_discovery_state = editor_view.discovery_state.clone();
+    let editor_last_announce_id = editor_view.last_announce_id.clone();
 
     let load_rows = move |_| {
         let mut params = vec![("limit", nonempty_or(&limit(), "100"))];
@@ -250,12 +420,123 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
             match get_admin::<ResourceList>(base_url, token, "resources", params).await {
                 Ok(payload) => {
                     let count = payload.items.len();
+                    let selected = selected_key();
+                    let selected_item = payload
+                        .items
+                        .iter()
+                        .find(|item| resource_key(item) == selected)
+                        .cloned();
                     rows.set(payload.items);
+                    if let Some(item) = selected_item {
+                        editor.set(ResourceEditorForm::from_item(&item));
+                    } else if !selected.is_empty() {
+                        selected_key.set(String::new());
+                    }
                     status.set(format!("{count} resources"));
                 }
                 Err(message) => {
                     error.set(message);
                     status.set("Resource query failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    let new_draft = move |_| {
+        let next_kind = if kind().is_empty() {
+            editor().resource_kind
+        } else {
+            kind()
+        };
+        selected_key.set(String::new());
+        editor.set(ResourceEditorForm::reset_for_kind(&next_kind));
+        error.set(String::new());
+        status.set("New resource draft".to_string());
+    };
+
+    let save_resource = move |_| {
+        let form = editor();
+        let body = match form.to_body() {
+            Ok(body) => body,
+            Err(message) => {
+                error.set(message);
+                return;
+            }
+        };
+        let base_url = base_url.clone();
+        let token = token.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Saving resource".to_string());
+        spawn(async move {
+            match post_admin::<ResourceUpsertBody, ResourceMutationEnvelope>(
+                base_url,
+                token,
+                "resources",
+                &body,
+            )
+            .await
+            {
+                Ok(payload) => {
+                    let item = payload.item;
+                    let item_key = resource_key(&item);
+                    let mut next = rows();
+                    upsert_resource_row(&mut next, item.clone());
+                    rows.set(next);
+                    selected_key.set(item_key);
+                    editor.set(ResourceEditorForm::from_item(&item));
+                    status.set(format!("Saved {}", item.resource_id));
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Resource save failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    let delete_resource = move |_| {
+        let form = editor();
+        if form.resource_id.trim().is_empty() {
+            error.set("resource_id is required to delete".to_string());
+            return;
+        }
+
+        let filter_kind = if kind().is_empty() {
+            form.resource_kind.clone()
+        } else {
+            kind()
+        };
+        let params = vec![
+            ("resource_kind", form.resource_kind.clone()),
+            ("resource_id", form.resource_id.trim().to_string()),
+        ];
+        let base_url = base_url.clone();
+        let token = token.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Deleting resource".to_string());
+        spawn(async move {
+            let deleted_id = form.resource_id.trim().to_string();
+            let deleted_key = resource_form_key(&form.resource_kind, &deleted_id);
+            match delete_admin::<DeleteCount>(base_url, token, "resources", params).await {
+                Ok(payload) => {
+                    let mut next = rows();
+                    next.retain(|row| resource_key(row) != deleted_key);
+                    rows.set(next);
+                    selected_key.set(String::new());
+                    editor.set(ResourceEditorForm::reset_for_kind(&filter_kind));
+                    status.set(if payload.deleted > 0 {
+                        format!("Deleted {deleted_id}")
+                    } else {
+                        format!("{deleted_id} was not found")
+                    });
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Resource delete failed".to_string());
                 }
             }
             loading.set(false);
@@ -269,105 +550,337 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                     h1 { "Directory resources" }
                     div { class: "metric-row",
                         span { class: "badge neutral", "{row_count} rows" }
+                        if !selected_key_value.is_empty() {
+                            span { class: "badge ok", "selected" }
+                        }
                     }
                 }
                 div { class: "actions",
                     button {
-                        class: "button primary",
+                        class: "button",
+                        disabled: loading_now,
+                        onclick: new_draft,
+                        PlusIcon {}
+                        "New"
+                    }
+                    button {
+                        class: "button",
                         disabled: loading_now,
                         onclick: load_rows,
                         SearchIcon {}
-                        "Search"
+                        "Load"
                     }
-                }
-            }
-            div { class: "toolbar",
-                div { class: "field span-3",
-                    label { "Kind" }
-                    select {
-                        value: "{kind_value}",
-                        onchange: move |event| kind.set(event.value()),
-                        option { value: "", "Any" }
-                        for item in RESOURCE_KINDS {
-                            option { value: "{item}", "{item}" }
-                        }
+                    button {
+                        class: "button primary",
+                        disabled: loading_now,
+                        onclick: save_resource,
+                        SaveIcon {}
+                        "Save"
                     }
-                }
-                div { class: "field span-3",
-                    label { "Resource id" }
-                    input {
-                        value: "{query_value}",
-                        oninput: move |event| query.set(event.value()),
-                    }
-                }
-                div { class: "field span-2",
-                    label { "Divergent" }
-                    select {
-                        value: "{divergent_value}",
-                        onchange: move |event| divergent.set(event.value()),
-                        option { value: "any", "Any" }
-                        option { value: "true", "Yes" }
-                        option { value: "false", "No" }
-                    }
-                }
-                div { class: "field span-2",
-                    label { "Stale" }
-                    select {
-                        value: "{stale_value}",
-                        onchange: move |event| stale.set(event.value()),
-                        option { value: "any", "Any" }
-                        option { value: "true", "Yes" }
-                        option { value: "false", "No" }
-                    }
-                }
-                div { class: "field span-2",
-                    label { "Limit" }
-                    input {
-                        r#type: "number",
-                        min: "1",
-                        max: "500",
-                        value: "{limit_value}",
-                        oninput: move |event| limit.set(event.value()),
+                    button {
+                        class: "button danger",
+                        disabled: loading_now || editor_resource_id.trim().is_empty(),
+                        onclick: delete_resource,
+                        TrashIcon {}
+                        "Delete"
                     }
                 }
             }
             StatusLine { status: status_text, error: error_text }
-            div { class: "table-wrap",
-                table {
-                    thead {
-                        tr {
-                            th { "Kind" }
-                            th { "Resource" }
-                            th { "Principal" }
-                            th { "State" }
-                            th { "Indexed" }
-                            th { "Projection" }
+            div { class: "resource-shell",
+                div { class: "stack",
+                    div { class: "toolbar",
+                        div { class: "field span-3",
+                            label { "Kind" }
+                            select {
+                                value: "{kind_value}",
+                                onchange: move |event| kind.set(event.value()),
+                                option { value: "", "Any" }
+                                for item in RESOURCE_KINDS {
+                                    option { value: "{item}", "{item}" }
+                                }
+                            }
+                        }
+                        div { class: "field span-3",
+                            label { "Resource id" }
+                            input {
+                                value: "{query_value}",
+                                oninput: move |event| query.set(event.value()),
+                            }
+                        }
+                        div { class: "field span-2",
+                            label { "Divergent" }
+                            select {
+                                value: "{divergent_value}",
+                                onchange: move |event| divergent.set(event.value()),
+                                option { value: "any", "Any" }
+                                option { value: "true", "Yes" }
+                                option { value: "false", "No" }
+                            }
+                        }
+                        div { class: "field span-2",
+                            label { "Stale" }
+                            select {
+                                value: "{stale_value}",
+                                onchange: move |event| stale.set(event.value()),
+                                option { value: "any", "Any" }
+                                option { value: "true", "Yes" }
+                                option { value: "false", "No" }
+                            }
+                        }
+                        div { class: "field span-2",
+                            label { "Limit" }
+                            input {
+                                r#type: "number",
+                                min: "1",
+                                max: "500",
+                                value: "{limit_value}",
+                                oninput: move |event| limit.set(event.value()),
+                            }
                         }
                     }
-                    tbody {
-                        for item in rows_view {
-                            tr {
-                                td { span { class: "badge neutral", "{item.resource_kind}" } }
-                                td { class: "mono", "{item.resource_id}" }
-                                td { class: "mono", "{item.principal_server_did}" }
-                                td {
-                                    div { class: "metric-row",
-                                        span { class: "badge neutral", "{item.discoverability}" }
-                                        span { class: if item.stale { "badge warn" } else { "badge ok" },
-                                            if item.stale { "stale" } else { "fresh" }
+                    div { class: "table-wrap",
+                        table {
+                            thead {
+                                tr {
+                                    th { "Kind" }
+                                    th { "Resource" }
+                                    th { "Principal" }
+                                    th { "State" }
+                                    th { "Indexed" }
+                                    th { "Projection" }
+                                    th { "Actions" }
+                                }
+                            }
+                            tbody {
+                                for item in rows_view {
+                                    let row_key = resource_key(&item);
+                                    let row_selected = selected_key_value == row_key;
+                                    let row_item = item.clone();
+                                    tr { class: if row_selected { "row-selected" } else { "" },
+                                        td { span { class: "badge neutral", "{item.resource_kind}" } }
+                                        td { class: "mono", "{item.resource_id}" }
+                                        td { class: "mono", "{item.principal_server_did}" }
+                                        td {
+                                            div { class: "metric-row",
+                                                span { class: "badge neutral", "{item.discoverability}" }
+                                                span { class: if item.stale { "badge warn" } else { "badge ok" },
+                                                    if item.stale { "stale" } else { "fresh" }
+                                                }
+                                                span { class: if item.divergent { "badge danger" } else { "badge ok" },
+                                                    if item.divergent { "divergent" } else { "aligned" }
+                                                }
+                                            }
                                         }
-                                        span { class: if item.divergent { "badge danger" } else { "badge ok" },
-                                            if item.divergent { "divergent" } else { "aligned" }
+                                        td {
+                                            div { class: "mono", "{item.indexed_at}" }
+                                            div { class: "muted mono", "next {item.next_revalidation_after}" }
+                                        }
+                                        td { class: "mono", "{compact_json(&item.public_projection)}" }
+                                        td {
+                                            button {
+                                                class: "button",
+                                                onclick: move |_| {
+                                                    selected_key.set(row_key.clone());
+                                                    editor.set(ResourceEditorForm::from_item(&row_item));
+                                                    error.set(String::new());
+                                                    status.set(format!("Loaded {}", row_item.resource_id));
+                                                },
+                                                FileIcon {}
+                                                "Load"
+                                            }
                                         }
                                     }
                                 }
-                                td {
-                                    div { class: "mono", "{item.indexed_at}" }
-                                    div { class: "muted mono", "next {item.next_revalidation_after}" }
-                                }
-                                td { class: "mono", "{compact_json(&item.public_projection)}" }
                             }
                         }
+                    }
+                }
+                div { class: "form-surface editor-surface",
+                    div { class: "editor-head",
+                        div { class: "panel-title",
+                            h1 { "Data manager" }
+                            div { class: "metric-row",
+                                span { class: "badge neutral",
+                                    if editor_resource_id.trim().is_empty() { "draft" } else { "editing" }
+                                }
+                                if !editor_resource_id.trim().is_empty() {
+                                    span { class: "badge ok", "{editor_resource_id}" }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "form-grid",
+                        div { class: "field span-4",
+                            label { "Kind" }
+                            select {
+                                value: "{editor_kind}",
+                                onchange: move |event| {
+                                    let mut next = editor();
+                                    next.resource_kind = event.value();
+                                    editor.set(next);
+                                },
+                                for item in RESOURCE_KINDS {
+                                    option { value: "{item}", "{item}" }
+                                }
+                            }
+                        }
+                        div { class: "field span-8",
+                            label { "Resource id" }
+                            input {
+                                value: "{editor_resource_id}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.resource_id = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-8",
+                            label { "Principal server DID" }
+                            input {
+                                value: "{editor_principal}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.principal_server_did = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-4",
+                            label { "Discoverability" }
+                            select {
+                                value: "{editor_discoverability}",
+                                onchange: move |event| {
+                                    let mut next = editor();
+                                    next.discoverability = event.value();
+                                    editor.set(next);
+                                },
+                                for item in DISCOVERABILITY_LEVELS {
+                                    option { value: "{item}", "{item}" }
+                                }
+                            }
+                        }
+                        div { class: "field span-6",
+                            label { "As of (RFC3339, optional)" }
+                            input {
+                                placeholder: "2026-05-12T00:00:00Z",
+                                value: "{editor_as_of}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.as_of = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-3",
+                            label { "TTL seconds" }
+                            input {
+                                r#type: "number",
+                                min: "1",
+                                value: "{editor_ttl}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.effective_ttl_seconds = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-3",
+                            label { "Last announce id" }
+                            input {
+                                value: "{editor_last_announce_id}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.last_announce_id = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-6",
+                            label { "Policy revision" }
+                            input {
+                                value: "{editor_policy_revision}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.policy_revision = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-3",
+                            label { "Stale" }
+                            select {
+                                value: "{editor_stale_value}",
+                                onchange: move |event| {
+                                    let mut next = editor();
+                                    next.stale = event.value() == "true";
+                                    editor.set(next);
+                                },
+                                option { value: "false", "false" }
+                                option { value: "true", "true" }
+                            }
+                        }
+                        div { class: "field span-3",
+                            label { "Divergent" }
+                            select {
+                                value: "{editor_divergent_value}",
+                                onchange: move |event| {
+                                    let mut next = editor();
+                                    next.divergent = event.value() == "true";
+                                    editor.set(next);
+                                },
+                                option { value: "false", "false" }
+                                option { value: "true", "true" }
+                            }
+                        }
+                        div { class: "field span-6",
+                            label { "Source refs JSON" }
+                            textarea {
+                                value: "{editor_source_refs}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.source_refs = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-6",
+                            label { "Via services JSON" }
+                            textarea {
+                                value: "{editor_via_services}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.via_services = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-12",
+                            label { "Public projection JSON" }
+                            textarea {
+                                value: "{editor_public_projection}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.public_projection = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                        div { class: "field span-12",
+                            label { "Discovery state JSON (optional)" }
+                            textarea {
+                                value: "{editor_discovery_state}",
+                                oninput: move |event| {
+                                    let mut next = editor();
+                                    next.discovery_state = event.value();
+                                    editor.set(next);
+                                },
+                            }
+                        }
+                    }
+                    div { class: "muted",
+                        "Direct edits write to the indexed directory store and generate admin audit events."
                     }
                 }
             }
@@ -606,7 +1119,7 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
     let mut resource_kind = use_signal(|| "space".to_string());
     let mut resource_id = use_signal(String::new);
     let mut reason = use_signal(String::new);
-    let mut operator = use_signal(|| "teabay-admin".to_string());
+    let mut operator = use_signal(|| "admin-console".to_string());
     let mut evidence = use_signal(|| "{\n  \"source\": \"operator_console\"\n}".to_string());
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -1225,6 +1738,76 @@ fn option_string(value: String) -> Option<String> {
     }
 }
 
+fn parse_optional_i64(raw: &str, field: &str) -> Result<Option<i64>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|error| format!("{field}: {error}"))
+    }
+}
+
+fn parse_json_object(raw: &str, field: &str) -> Result<JsonValue, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{field} is required"));
+    }
+
+    let value: JsonValue =
+        serde_json::from_str(trimmed).map_err(|error| format!("{field}: {error}"))?;
+    if value.is_object() {
+        Ok(value)
+    } else {
+        Err(format!("{field} must be a JSON object"))
+    }
+}
+
+fn parse_optional_json_object(raw: &str, field: &str) -> Result<Option<JsonValue>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        parse_json_object(trimmed, field).map(Some)
+    }
+}
+
+fn parse_string_array(raw: &str, field: &str) -> Result<Vec<String>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        Ok(Vec::new())
+    } else {
+        serde_json::from_str(trimmed).map_err(|error| format!("{field}: {error}"))
+    }
+}
+
+fn pretty_json(value: &JsonValue) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string())
+}
+
+fn pretty_string_array(values: &[String]) -> String {
+    serde_json::to_string_pretty(values).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn resource_form_key(kind: &str, resource_id: &str) -> String {
+    format!("{}::{resource_id}", kind.trim())
+}
+
+fn resource_key(item: &ResourceItem) -> String {
+    resource_form_key(&item.resource_kind, &item.resource_id)
+}
+
+fn upsert_resource_row(rows: &mut Vec<ResourceItem>, item: ResourceItem) {
+    let key = resource_key(&item);
+    if let Some(existing) = rows.iter_mut().find(|row| resource_key(row) == key) {
+        *existing = item;
+    } else {
+        rows.insert(0, item);
+    }
+}
+
 fn parse_evidence(raw: &str) -> Result<JsonValue, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -1254,7 +1837,10 @@ fn truncate(value: &str, max: usize) -> String {
 fn audit_badge_class(kind: &str) -> &'static str {
     match kind {
         "ingest_rejected" | "revalidation_failed" | "operator_takedown" => "badge danger",
-        "allowlist_added" | "allowlist_removed" | "withdrawal" => "badge warn",
+        "allowlist_added" | "allowlist_removed" | "withdrawal" | "admin_resource_deleted" => {
+            "badge warn"
+        }
+        "admin_resource_upserted" => "badge ok",
         _ => "badge neutral",
     }
 }

@@ -53,7 +53,12 @@ fn admin_router() -> Router {
                 .post(query::admin::allowlist_upsert)
                 .delete(query::admin::allowlist_delete),
         )
-        .push(Router::with_path("resources").get(query::admin::resources_browser))
+        .push(
+            Router::with_path("resources")
+                .get(query::admin::resources_browser)
+                .post(query::admin::resource_upsert)
+                .delete(query::admin::resource_delete),
+        )
         .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
 }
 
@@ -208,6 +213,22 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "admin",
             "Browse Directory Resources",
             "Return indexed resources with kind, stale, divergent, and text filters.",
+        ),
+        (
+            "/api/admin/v1/resources",
+            PathItemType::Post,
+            "teabay.admin.resource_upsert",
+            "admin",
+            "Upsert Directory Resource",
+            "Create or update an indexed directory resource directly from the operator console.",
+        ),
+        (
+            "/api/admin/v1/resources",
+            PathItemType::Delete,
+            "teabay.admin.resource_delete",
+            "admin",
+            "Delete Directory Resource",
+            "Remove an indexed directory resource directly from the operator console.",
         ),
         (
             "/api/admin/v1/takedown",

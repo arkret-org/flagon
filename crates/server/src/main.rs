@@ -1,5 +1,5 @@
 use salvo::prelude::*;
-use teabay::{
+use server::{
     AppConfig, AppState, Db,
     ingest::{divergence_worker::DivergenceWorker, pull_worker::PullWorker},
     service,
