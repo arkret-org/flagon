@@ -1,18 +1,10 @@
--- teabay initial schema (spec discovery-directory.md §7-§9 / §11).
+-- teabay schema bootstrap (spec discovery-directory.md §7-§9 / §11).
 --
--- Storage model:
---   * `directory_resources` is the *current effective entry* per resource —
---     one row per (resource_kind, resource_id). Updated on each accepted
---     announce or pull-refresh.
---   * `ingest_announces` is the audit log of every accepted announce
---     (idempotent on (resource_id, as_of) per §8.6).
---   * `withdrawals` records resource-initiated withdraws (§8.7 path 2)
---     and operator takedowns (§8.7 path 3); a withdrawal blocks future
---     announces with `as_of <= effective_at` (§8.10 撤销规避).
---   * `pull_subscriptions` and `webhook_subscriptions` track pull-mode and
---     subscriber-side webhook fanout state.
---   * `directory_audit` is the operator-readable append-only audit log
---     (§7.3 inv. 5 + §8.7 takedown).
+-- This repository intentionally collapses all historical migrations into a
+-- single fresh-install schema. We do not preserve compatibility with older
+-- migration chains here; new databases should bootstrap from this file only.
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ---- Enums ---------------------------------------------------------------
 
@@ -56,47 +48,52 @@ CREATE TYPE audit_event_kind AS ENUM (
     'withdrawal',
     'operator_takedown',
     'allowlist_added',
-    'allowlist_removed'
+    'allowlist_removed',
+    'admin_resource_upserted',
+    'admin_resource_deleted'
 );
+
+-- ---- Search helpers ------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION directory_resource_search_text(projection jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+    SELECT btrim(
+        coalesce(projection->>'name', '') || ' ' ||
+        coalesce(projection->>'summary', '') || ' ' ||
+        coalesce(projection->>'alias', '') || ' ' ||
+        coalesce(projection->>'handle', '')
+    )
+$$;
 
 -- ---- Effective entries ---------------------------------------------------
 
 CREATE TABLE directory_resources (
     resource_kind     resource_kind     NOT NULL,
-    -- For Space: cx:space:...; for Organization/Actor/Applet: DID; for Handle:
-    -- canonical handle string. Stored as text for cross-kind uniformity.
     resource_id       TEXT              NOT NULL,
-    -- Truth-source Principal Server service DID — populated from announce
-    -- (`principal_server_did`) or from the DID document during pull-mode.
     principal_server_did TEXT           NOT NULL,
-    -- Snapshot of the signed `cx.{kind}.discovery` payload (byte-for-byte as
-    -- supplied by the resource — including its `proof`). Stored as JSON so
-    -- searches can index public-projection fields, but the canonical form is
-    -- the original signed bytes; clients verify via `source_refs`.
     discovery_state   JSONB             NOT NULL,
-    -- Strict subset of the public projection (extracted for search index +
-    -- result envelope): name, summary, avatar, discoverability, join_rule,
-    -- history_visibility, member_count_bucket, official_organizations[],
-    -- profile_visibility, etc. Schema-on-read.
     public_projection JSONB             NOT NULL,
     discoverability   discoverability   NOT NULL,
-    -- §9.1 result envelope inputs — canonical, not derived per query.
     as_of             TIMESTAMPTZ       NOT NULL,
     source_refs       TEXT[]            NOT NULL,
     policy_revision   TEXT,
-    -- TTL bookkeeping (§8.6).
     indexed_at        TIMESTAMPTZ       NOT NULL DEFAULT now(),
     effective_ttl_seconds INTEGER       NOT NULL,
     next_revalidation_after TIMESTAMPTZ NOT NULL,
     stale             BOOLEAN           NOT NULL DEFAULT false,
-    -- Set true when a parallel directory views the same resource at a
-    -- materially different `policy_revision`; populated by the optional cross-
-    -- check worker (§9.1 `divergent`). Default false.
     divergent         BOOLEAN           NOT NULL DEFAULT false,
-    -- Fanout / join hint — populated from DID document service entry resolution.
     via_services      TEXT[]            NOT NULL DEFAULT '{}',
-    -- Latest ingest record id (for audit chaining).
     last_announce_id  TEXT,
+    search_text       TEXT GENERATED ALWAYS AS (
+        directory_resource_search_text(public_projection)
+    ) STORED,
+    search_vector     tsvector GENERATED ALWAYS AS (
+        to_tsvector('simple', directory_resource_search_text(public_projection))
+    ) STORED,
     PRIMARY KEY (resource_kind, resource_id)
 );
 
@@ -110,15 +107,27 @@ CREATE INDEX directory_resources_next_revalidation_idx
     ON directory_resources (next_revalidation_after)
     WHERE stale = false;
 
--- Public-projection text search over name/summary. Hardened indexing
--- (trigram / language-specific) is a follow-up task — see _todos.md M4.
 CREATE INDEX directory_resources_public_projection_gin
     ON directory_resources USING GIN (public_projection jsonb_path_ops);
 
--- ---- Ingest audit (every accepted announce, push *and* pull) ------------
+CREATE INDEX directory_resources_search_text_trgm_idx
+    ON directory_resources USING GIN (search_text gin_trgm_ops);
+
+CREATE INDEX directory_resources_search_vector_gin_idx
+    ON directory_resources USING GIN (search_vector);
+
+CREATE INDEX directory_resources_space_scope_org_idx
+    ON directory_resources ((public_projection->>'organization_did'))
+    WHERE resource_kind = 'space';
+
+CREATE INDEX directory_resources_space_scope_parent_idx
+    ON directory_resources ((public_projection->>'parent_space_id'))
+    WHERE resource_kind = 'space';
+
+-- ---- Ingest audit (every accepted announce, push and pull) ---------------
 
 CREATE TABLE ingest_announces (
-    announce_id       TEXT              PRIMARY KEY, -- cx:announce:<ULID>
+    announce_id       TEXT              PRIMARY KEY,
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
     principal_server_did TEXT           NOT NULL,
@@ -130,7 +139,6 @@ CREATE TABLE ingest_announces (
     effective_ttl_seconds INTEGER       NOT NULL,
     supersedes_announce_id TEXT
         REFERENCES ingest_announces (announce_id),
-    -- Hash of the canonical announce request body for replay detection.
     request_digest    BYTEA             NOT NULL,
     UNIQUE (resource_kind, resource_id, as_of)
 );
@@ -141,22 +149,18 @@ CREATE INDEX ingest_announces_resource_idx
 CREATE INDEX ingest_announces_request_digest_idx
     ON ingest_announces (request_digest);
 
--- ---- Withdrawals (resource-initiated and operator takedowns) ------------
+-- ---- Withdrawals ---------------------------------------------------------
 
 CREATE TABLE withdrawals (
-    withdraw_id       TEXT              PRIMARY KEY, -- cx:withdraw:<ULID>
+    withdraw_id       TEXT              PRIMARY KEY,
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
     kind              withdrawal_kind   NOT NULL,
     reason            TEXT              NOT NULL,
-    -- For resource_withdraw: governance proof envelope; for operator_takedown:
-    -- operator identity + supporting evidence.
     proof             JSONB             NOT NULL,
     effective_at      TIMESTAMPTZ       NOT NULL,
     acked_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    -- Operator identity for takedowns (NULL for resource-initiated paths).
     operator          TEXT,
-    -- Whether the resource governance contact has been notified.
     notified_at       TIMESTAMPTZ
 );
 
@@ -173,7 +177,6 @@ CREATE TABLE pull_subscriptions (
     last_pulled_at    TIMESTAMPTZ,
     next_pull_after   TIMESTAMPTZ       NOT NULL DEFAULT now(),
     consecutive_failures INTEGER        NOT NULL DEFAULT 0,
-    -- Last error message for operator triage. Free text.
     last_error        TEXT,
     PRIMARY KEY (resource_kind, resource_id)
 );
@@ -182,7 +185,7 @@ CREATE INDEX pull_subscriptions_next_pull_idx
     ON pull_subscriptions (next_pull_after);
 
 CREATE TABLE webhook_subscriptions (
-    subscription_id   TEXT              PRIMARY KEY, -- cx:subscription:<ULID>
+    subscription_id   TEXT              PRIMARY KEY,
     subscriber_did    TEXT              NOT NULL,
     resource_filter   JSONB             NOT NULL,
     webhook_endpoint  TEXT              NOT NULL,
@@ -194,7 +197,21 @@ CREATE TABLE webhook_subscriptions (
 CREATE INDEX webhook_subscriptions_subscriber_idx
     ON webhook_subscriptions (subscriber_did);
 
--- ---- Operator allowlist (only consulted when accept_policy_kind=allowlist) -
+-- ---- PSI epoch keys ------------------------------------------------------
+
+CREATE TABLE psi_epoch_keys (
+    epoch      TEXT        PRIMARY KEY,
+    profile    TEXT        NOT NULL,
+    server_key BYTEA       NOT NULL,
+    public_key BYTEA       NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX psi_epoch_keys_expires_at_idx
+    ON psi_epoch_keys (expires_at);
+
+-- ---- Operator allowlist --------------------------------------------------
 
 CREATE TABLE accept_allowlist (
     resource_did      TEXT              PRIMARY KEY,
@@ -203,7 +220,7 @@ CREATE TABLE accept_allowlist (
     note              TEXT
 );
 
--- ---- Audit log (operator-readable, append-only) -------------------------
+-- ---- Audit log -----------------------------------------------------------
 
 CREATE TABLE directory_audit (
     audit_id          BIGSERIAL         PRIMARY KEY,
@@ -211,7 +228,7 @@ CREATE TABLE directory_audit (
     kind              audit_event_kind  NOT NULL,
     resource_kind     resource_kind,
     resource_id       TEXT,
-    actor             TEXT, -- service DID / operator DID for the trigger
+    actor             TEXT,
     detail            JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 

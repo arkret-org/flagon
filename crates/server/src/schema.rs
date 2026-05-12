@@ -1,6 +1,6 @@
 // @generated automatically by Diesel CLI.
 //
-// This file is hand-aligned with `migrations/20260510000100_initial/up.sql`.
+// This file is hand-aligned with `migrations/20260512010000_schema/up.sql`.
 // Run `diesel print-schema` after every migration to keep it honest.
 
 pub mod sql_types {
