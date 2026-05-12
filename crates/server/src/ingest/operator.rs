@@ -7,13 +7,12 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::{
-    audit::{self, AuditEventKind},
-    error::ErrorCode,
-    ids::{IdClass, new_id},
-    ingest::{ResourceKindWire, WithdrawalKindWire, rate_limit::enforce_ingest_rate_limit},
-    state::AppState,
-};
+use crate::audit::{self, AuditEventKind};
+use crate::error::ErrorCode;
+use crate::ids::{IdClass, new_id};
+use crate::ingest::rate_limit::enforce_ingest_rate_limit;
+use crate::ingest::{ResourceKindWire, WithdrawalKindWire};
+use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct OperatorTakedownRequest {
@@ -74,7 +73,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let withdraw_id = new_id(IdClass::Withdraw);
     let acked_at = Utc::now();
     let effective_at = body.effective_at.unwrap_or(acked_at);
-    let operator = body.operator.as_deref().unwrap_or("teabay-admin");
+    let operator = body.operator.as_deref().unwrap_or("admin-console");
     let notification_status = if state.config().takedown_contact.is_some() {
         "todo_notification_queued"
     } else {
@@ -146,7 +145,8 @@ fn persist_operator_takedown(
     effective_at: DateTime<Utc>,
     notification_status: &str,
 ) -> anyhow::Result<()> {
-    use crate::schema::{directory_resources::dsl as r, withdrawals::dsl as w};
+    use crate::schema::directory_resources::dsl as r;
+    use crate::schema::withdrawals::dsl as w;
 
     let proof = json!({
         "kind": "operator_takedown",

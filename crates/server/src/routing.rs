@@ -9,7 +9,9 @@ use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiRe
 use salvo::prelude::*;
 use serde_json::json;
 
-use crate::{error::ErrorCode, ingest, query, state::AppState};
+use crate::error::ErrorCode;
+use crate::state::AppState;
+use crate::{ingest, query};
 
 #[derive(Clone)]
 pub struct TeabayOpenApiDoc(pub OpenApi);

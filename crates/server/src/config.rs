@@ -3,7 +3,9 @@
 //! Mirrors the spec `cx.directory.describe` ingest fields (§8.9) so the
 //! runtime can both honor and advertise them coherently.
 
-use std::{net::SocketAddr, str::FromStr, time::Duration};
+use std::net::SocketAddr;
+use std::str::FromStr;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 

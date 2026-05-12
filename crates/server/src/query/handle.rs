@@ -5,12 +5,10 @@ use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
-use crate::{
-    error::ErrorCode,
-    filter::enumeration::{LatencyBudget, pad_to_budget},
-    ingest::{DiscoverabilityWire, ResourceKindWire},
-    state::AppState,
-};
+use crate::error::ErrorCode;
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct ResolveHandleRequest {

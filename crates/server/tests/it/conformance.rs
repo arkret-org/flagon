@@ -1,15 +1,12 @@
-use std::{
-    io::{Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread::{self, JoinHandle},
-    time::Duration,
-};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
 use diesel::RunQueryDsl;
 use ed25519_dalek::{Signer, SigningKey};
@@ -17,10 +14,9 @@ use salvo::http::StatusCode;
 use salvo::prelude::Service;
 use salvo::test::{ResponseExt, TestClient};
 use serde_json::{Value as JsonValue, json};
-use testcontainers_modules::{
-    postgres,
-    testcontainers::{ImageExt, runners::SyncRunner},
-};
+use testcontainers_modules::postgres;
+use testcontainers_modules::testcontainers::ImageExt;
+use testcontainers_modules::testcontainers::runners::SyncRunner;
 use voprf::{EvaluationElement, Group, Proof, Ristretto255, VoprfClient};
 
 #[test]

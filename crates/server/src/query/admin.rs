@@ -7,12 +7,11 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::{
-    audit::{self, AuditEventKind},
-    error::ErrorCode,
-    ingest::{DiscoverabilityWire, ResourceKindWire, announce::effective_ttl_seconds},
-    state::AppState,
-};
+use crate::audit::{self, AuditEventKind};
+use crate::error::ErrorCode;
+use crate::ingest::announce::effective_ttl_seconds;
+use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::state::AppState;
 
 const DEFAULT_AUDIT_LIMIT: i64 = 100;
 const MAX_AUDIT_LIMIT: i64 = 500;
@@ -408,11 +407,8 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     };
     let public_projection =
         normalized_public_projection(&body.public_projection, body.discoverability);
-    let discovery_state = match normalized_discovery_state(
-        &body,
-        &public_projection,
-        &via_services,
-    ) {
+    let discovery_state = match normalized_discovery_state(&body, &public_projection, &via_services)
+    {
         Ok(state) => state,
         Err(message) => {
             ErrorCode::SchemaViolation.render(res, message);

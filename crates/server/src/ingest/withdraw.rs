@@ -2,8 +2,8 @@
 //!
 //! On accept:
 //!   * insert a `withdrawals` row with `kind=resource_withdraw`
-//!   * delete the `directory_resources` row (or mark stale; we delete to
-//!     avoid leaking via search ranking — §10 hidden-result rule)
+//!   * delete the `directory_resources` row (or mark stale; we delete to avoid leaking via search
+//!     ranking — §10 hidden-result rule)
 //!   * write a `Withdrawal` audit row
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
@@ -13,13 +13,12 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::{
-    audit::{self, AuditEventKind},
-    error::ErrorCode,
-    ids::{IdClass, new_id},
-    ingest::{ResourceKindWire, WithdrawalKindWire, rate_limit::enforce_ingest_rate_limit, verify},
-    state::AppState,
-};
+use crate::audit::{self, AuditEventKind};
+use crate::error::ErrorCode;
+use crate::ids::{IdClass, new_id};
+use crate::ingest::rate_limit::enforce_ingest_rate_limit;
+use crate::ingest::{ResourceKindWire, WithdrawalKindWire, verify};
+use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WithdrawRequest {
@@ -152,7 +151,8 @@ fn persist_withdraw(
     acked_at: chrono::DateTime<Utc>,
     effective_at: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
-    use crate::schema::{directory_resources::dsl as r, withdrawals::dsl as w};
+    use crate::schema::directory_resources::dsl as r;
+    use crate::schema::withdrawals::dsl as w;
 
     let mut conn = state.db().get()?;
     conn.transaction::<_, diesel::result::Error, _>(|conn| {

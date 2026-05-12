@@ -1,24 +1,24 @@
 //! 5-step verify chain for ingest (spec §8.5).
 //!
-//! 1. Transport layer — HTTP Message Signature for push, or service binding +
-//!    TLS for pull. We surface a hook here; the actual HTTP signature check
-//!    lives in middleware (`crate::routing::http_sig`) so the handler always
-//!    sees an already-authenticated transport.
-//! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against
-//!    the resource governance key resolved via DID document.
-//! 3. Directory authorization — `discovery_state.directory_services`
-//!    contains *this* directory's service DID.
-//! 4. Source-ref sanity — for first ingest, MAY pull at least one anchor
-//!    from the resource's Principal Server to confirm `source_refs[0]` is
-//!    resolvable.
-//! 5. Accept policy — local accept_policy (open / allowlist / trust_root_signed
-//!    / operator_review) decision.
+//! 1. Transport layer — HTTP Message Signature for push, or service binding + TLS for pull. We
+//!    surface a hook here; the actual HTTP signature check lives in middleware
+//!    (`crate::routing::http_sig`) so the handler always sees an already-authenticated transport.
+//! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against the resource governance
+//!    key resolved via DID document.
+//! 3. Directory authorization — `discovery_state.directory_services` contains *this* directory's
+//!    service DID.
+//! 4. Source-ref sanity — for first ingest, MAY pull at least one anchor from the resource's
+//!    Principal Server to confirm `source_refs[0]` is resolvable.
+//! 5. Accept policy — local accept_policy (open / allowlist / trust_root_signed / operator_review)
+//!    decision.
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
 
-use std::{net::IpAddr, time::Duration};
+use std::net::IpAddr;
+use std::time::Duration;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use contrix_sdk::identity::{DidResolver, DidWebvhResolver, ResolverPolicy};
 use contrix_sdk::{
@@ -31,12 +31,11 @@ use reqwest::Client;
 use serde_json::Value as JsonValue;
 use url::Url;
 
-use crate::{
-    config::{AcceptPolicyKind, AppConfig},
-    db::Db,
-    error::ErrorCode,
-    ingest::{ResourceKindWire, announce::AnnounceRequest},
-};
+use crate::config::{AcceptPolicyKind, AppConfig};
+use crate::db::Db;
+use crate::error::ErrorCode;
+use crate::ingest::ResourceKindWire;
+use crate::ingest::announce::AnnounceRequest;
 
 #[derive(Debug)]
 pub struct VerifyOutcome {

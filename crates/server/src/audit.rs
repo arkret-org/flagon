@@ -11,7 +11,8 @@ use diesel::prelude::*;
 use diesel_derive_enum::DbEnum;
 use serde_json::Value as JsonValue;
 
-use crate::{db::Db, schema::directory_audit};
+use crate::db::Db;
+use crate::schema::directory_audit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DbEnum)]
 #[db_enum(existing_type_path = "crate::schema::sql_types::AuditEventKind")]

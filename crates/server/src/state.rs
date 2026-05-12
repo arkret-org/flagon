@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 
-use crate::{config::AppConfig, db::Db};
+use crate::config::AppConfig;
+use crate::db::Db;
 
 #[derive(Clone)]
 pub struct AppState {

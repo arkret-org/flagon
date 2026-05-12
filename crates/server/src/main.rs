@@ -1,9 +1,7 @@
 use salvo::prelude::*;
-use server::{
-    AppConfig, AppState, Db,
-    ingest::{divergence_worker::DivergenceWorker, pull_worker::PullWorker},
-    service,
-};
+use server::ingest::divergence_worker::DivergenceWorker;
+use server::ingest::pull_worker::PullWorker;
+use server::{AppConfig, AppState, Db, service};
 use tokio::signal;
 use tracing::info;
 

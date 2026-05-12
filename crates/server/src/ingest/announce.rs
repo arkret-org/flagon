@@ -12,20 +12,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
-use crate::{
-    audit::{self, AuditEventKind},
-    db::Db,
-    error::ErrorCode,
-    filter::enumeration::{bucket_member_count, is_valid_member_count_bucket},
-    ids::{IdClass, new_id},
-    ingest::{
-        IngestModeWire, ResourceKindWire,
-        rate_limit::enforce_ingest_rate_limit,
-        subscribe::{AcceptedIngestEvent, fanout_accepted_ingest},
-        verify::VerifyContext,
-    },
-    state::{AppState, CachedAnnounceResponse},
-};
+use crate::audit::{self, AuditEventKind};
+use crate::db::Db;
+use crate::error::ErrorCode;
+use crate::filter::enumeration::{bucket_member_count, is_valid_member_count_bucket};
+use crate::ids::{IdClass, new_id};
+use crate::ingest::rate_limit::enforce_ingest_rate_limit;
+use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
+use crate::ingest::verify::VerifyContext;
+use crate::ingest::{IngestModeWire, ResourceKindWire};
+use crate::state::{AppState, CachedAnnounceResponse};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnnounceRequest {
@@ -388,7 +384,8 @@ pub(crate) fn upsert_resource_and_audit(
     request_digest: Vec<u8>,
     public_projection: JsonValue,
 ) -> anyhow::Result<()> {
-    use crate::schema::{directory_resources::dsl as r, ingest_announces::dsl as a};
+    use crate::schema::directory_resources::dsl as r;
+    use crate::schema::ingest_announces::dsl as a;
 
     let mut conn = db.get()?;
     conn.transaction::<_, anyhow::Error, _>(|conn| {

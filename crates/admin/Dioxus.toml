@@ -1,5 +1,5 @@
 [application]
-name = "teabay-admin"
+name = "admin"
 default_platform = "web"
 
 [web.app]

@@ -6,7 +6,8 @@ use salvo::prelude::*;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::{config::AppConfig, state::AppState};
+use crate::config::AppConfig;
+use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
 struct DescribeResponse<'a> {

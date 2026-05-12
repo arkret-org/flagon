@@ -7,7 +7,8 @@
 
 use std::collections::HashSet;
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use rand::rngs::OsRng;
@@ -17,13 +18,11 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha512};
 use voprf::{BlindedElement, Group, Ristretto255, VoprfServer};
 
-use crate::{
-    config::AppConfig,
-    error::ErrorCode,
-    ingest::{DiscoverabilityWire, ResourceKindWire},
-    schema::psi_epoch_keys,
-    state::{AppState, RateLimitOutcome},
-};
+use crate::config::AppConfig;
+use crate::error::ErrorCode;
+use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::schema::psi_epoch_keys;
+use crate::state::{AppState, RateLimitOutcome};
 
 const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
 const MATCH_CARDINALITY: usize = 256;
@@ -413,8 +412,9 @@ fn push_candidate(out: &mut HashSet<String>, value: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn contact_candidates_include_resource_and_projection_identifiers() {

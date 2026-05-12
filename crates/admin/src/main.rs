@@ -299,10 +299,7 @@ impl ResourceEditorForm {
             divergent: self.divergent,
             via_services: parse_string_array(&self.via_services, "via_services")?,
             public_projection: parse_json_object(&self.public_projection, "public_projection")?,
-            discovery_state: parse_optional_json_object(
-                &self.discovery_state,
-                "discovery_state",
-            )?,
+            discovery_state: parse_optional_json_object(&self.discovery_state, "discovery_state")?,
             last_announce_id: option_string(self.last_announce_id.clone()),
         })
     }
@@ -399,20 +396,26 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
     let editor_policy_revision = editor_view.policy_revision.clone();
     let editor_ttl = editor_view.effective_ttl_seconds.clone();
     let editor_stale_value = if editor_view.stale { "true" } else { "false" };
-    let editor_divergent_value = if editor_view.divergent { "true" } else { "false" };
+    let editor_divergent_value = if editor_view.divergent {
+        "true"
+    } else {
+        "false"
+    };
     let editor_via_services = editor_view.via_services.clone();
     let editor_public_projection = editor_view.public_projection.clone();
     let editor_discovery_state = editor_view.discovery_state.clone();
     let editor_last_announce_id = editor_view.last_announce_id.clone();
 
+    let load_base_url = base_url.clone();
+    let load_token = token.clone();
     let load_rows = move |_| {
         let mut params = vec![("limit", nonempty_or(&limit(), "100"))];
         push_param(&mut params, "resource_kind", kind());
         push_param(&mut params, "q", query());
         push_param(&mut params, "divergent", bool_filter(divergent()));
         push_param(&mut params, "stale", bool_filter(stale()));
-        let base_url = base_url.clone();
-        let token = token.clone();
+        let base_url = load_base_url.clone();
+        let token = load_token.clone();
         loading.set(true);
         error.set(String::new());
         status.set("Loading resources".to_string());
@@ -455,6 +458,8 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
         status.set("New resource draft".to_string());
     };
 
+    let save_base_url = base_url.clone();
+    let save_token = token.clone();
     let save_resource = move |_| {
         let form = editor();
         let body = match form.to_body() {
@@ -464,8 +469,8 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                 return;
             }
         };
-        let base_url = base_url.clone();
-        let token = token.clone();
+        let base_url = save_base_url.clone();
+        let token = save_token.clone();
         loading.set(true);
         error.set(String::new());
         status.set("Saving resource".to_string());
@@ -497,6 +502,8 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
         });
     };
 
+    let delete_base_url = base_url.clone();
+    let delete_token = token.clone();
     let delete_resource = move |_| {
         let form = editor();
         if form.resource_id.trim().is_empty() {
@@ -513,8 +520,8 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
             ("resource_kind", form.resource_kind.clone()),
             ("resource_id", form.resource_id.trim().to_string()),
         ];
-        let base_url = base_url.clone();
-        let token = token.clone();
+        let base_url = delete_base_url.clone();
+        let token = delete_token.clone();
         loading.set(true);
         error.set(String::new());
         status.set("Deleting resource".to_string());
@@ -654,42 +661,15 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                             }
                             tbody {
                                 for item in rows_view {
-                                    let row_key = resource_key(&item);
-                                    let row_selected = selected_key_value == row_key;
-                                    let row_item = item.clone();
-                                    tr { class: if row_selected { "row-selected" } else { "" },
-                                        td { span { class: "badge neutral", "{item.resource_kind}" } }
-                                        td { class: "mono", "{item.resource_id}" }
-                                        td { class: "mono", "{item.principal_server_did}" }
-                                        td {
-                                            div { class: "metric-row",
-                                                span { class: "badge neutral", "{item.discoverability}" }
-                                                span { class: if item.stale { "badge warn" } else { "badge ok" },
-                                                    if item.stale { "stale" } else { "fresh" }
-                                                }
-                                                span { class: if item.divergent { "badge danger" } else { "badge ok" },
-                                                    if item.divergent { "divergent" } else { "aligned" }
-                                                }
-                                            }
-                                        }
-                                        td {
-                                            div { class: "mono", "{item.indexed_at}" }
-                                            div { class: "muted mono", "next {item.next_revalidation_after}" }
-                                        }
-                                        td { class: "mono", "{compact_json(&item.public_projection)}" }
-                                        td {
-                                            button {
-                                                class: "button",
-                                                onclick: move |_| {
-                                                    selected_key.set(row_key.clone());
-                                                    editor.set(ResourceEditorForm::from_item(&row_item));
-                                                    error.set(String::new());
-                                                    status.set(format!("Loaded {}", row_item.resource_id));
-                                                },
-                                                FileIcon {}
-                                                "Load"
-                                            }
-                                        }
+                                    ResourceRow {
+                                        is_selected: selected_key_value == resource_key(&item),
+                                        item,
+                                        on_load: move |item: ResourceItem| {
+                                            selected_key.set(resource_key(&item));
+                                            editor.set(ResourceEditorForm::from_item(&item));
+                                            error.set(String::new());
+                                            status.set(format!("Loaded {}", item.resource_id));
+                                        },
                                     }
                                 }
                             }
@@ -882,6 +862,45 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                     div { class: "muted",
                         "Direct edits write to the indexed directory store and generate admin audit events."
                     }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ResourceRow(
+    item: ResourceItem,
+    is_selected: bool,
+    on_load: EventHandler<ResourceItem>,
+) -> Element {
+    rsx! {
+        tr { class: if is_selected { "row-selected" } else { "" },
+            td { span { class: "badge neutral", "{item.resource_kind}" } }
+            td { class: "mono", "{item.resource_id}" }
+            td { class: "mono", "{item.principal_server_did}" }
+            td {
+                div { class: "metric-row",
+                    span { class: "badge neutral", "{item.discoverability}" }
+                    span { class: if item.stale { "badge warn" } else { "badge ok" },
+                        if item.stale { "stale" } else { "fresh" }
+                    }
+                    span { class: if item.divergent { "badge danger" } else { "badge ok" },
+                        if item.divergent { "divergent" } else { "aligned" }
+                    }
+                }
+            }
+            td {
+                div { class: "mono", "{item.indexed_at}" }
+                div { class: "muted mono", "next {item.next_revalidation_after}" }
+            }
+            td { class: "mono", "{compact_json(&item.public_projection)}" }
+            td {
+                button {
+                    class: "button",
+                    onclick: move |_| on_load.call(item.clone()),
+                    FileIcon {}
+                    "Load"
                 }
             }
         }

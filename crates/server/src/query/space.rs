@@ -5,7 +5,8 @@
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -13,15 +14,11 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::{
-    error::ErrorCode,
-    filter::{
-        enumeration::{LatencyBudget, pad_to_budget},
-        result::ResultEnvelope,
-    },
-    ingest::{DiscoverabilityWire, ResourceKindWire},
-    state::AppState,
-};
+use crate::error::ErrorCode;
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::filter::result::ResultEnvelope;
+use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct SearchSpacesRequest {

@@ -14,11 +14,10 @@ use serde_json::{Value as JsonValue, json};
 use tokio::time::interval;
 use tracing::{info, warn};
 
-use crate::{
-    audit::{self, AuditEventKind},
-    ingest::{ResourceKindWire, verify::strict_http_client},
-    state::AppState,
-};
+use crate::audit::{self, AuditEventKind};
+use crate::ingest::ResourceKindWire;
+use crate::ingest::verify::strict_http_client;
+use crate::state::AppState;
 
 pub struct DivergenceWorker {
     state: AppState,

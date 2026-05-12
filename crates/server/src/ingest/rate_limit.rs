@@ -3,10 +3,8 @@
 use salvo::http::header;
 use salvo::prelude::*;
 
-use crate::{
-    error::ErrorCode,
-    state::{AppState, RateLimitOutcome},
-};
+use crate::error::ErrorCode;
+use crate::state::{AppState, RateLimitOutcome};
 
 pub fn enforce_ingest_rate_limit(
     req: &Request,
