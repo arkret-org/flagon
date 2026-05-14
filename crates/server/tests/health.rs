@@ -29,5 +29,10 @@ fn router_builds_with_minimal_state() {
     assert!(doc.paths.contains_key("/api/admin/v1/resources"));
     assert!(doc.paths.contains_key("/api/v1/directory/describe"));
     assert!(doc.paths.contains_key("/api/v1/directory/announce"));
-    assert!(doc.components.schemas.len() > 10);
+
+    let doc_json = serde_json::to_value(&doc).expect("OpenAPI document serializes");
+    assert_eq!(
+        doc_json["paths"]["/api/v1/directory/announce"]["post"]["operationId"].as_str(),
+        Some("cx.directory.announce")
+    );
 }

@@ -19,7 +19,7 @@ async-trait = "0.1.83"
 base64 = "0.22.1"
 bs58 = "0.5.1"
 chrono = { version = "0.4.42", features = ["serde"] }
-contrix-sdk = { package = "contrix", version = "0.7.0", path = "../contrix-rust-sdk/crates/sdk", default-features = false, features = ["full-surface", "client", "salvo"] }
+contrix-sdk = { package = "contrix", version = "0.7.0", path = "../contrix-rust-sdk/crates/sdk", default-features = false, features = ["full-surface", "client"] }
 diesel = { version = "2.3.8", features = ["postgres", "r2d2", "serde_json", "chrono", "uuid", "pq-src"] }
 diesel-derive-enum = { version = "3.0.0-beta.1", features = ["postgres"] }
 diesel_migrations = { version = "2.3.0", features = ["postgres"] }

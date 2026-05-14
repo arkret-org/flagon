@@ -1,7 +1,6 @@
 //! Salvo router declaration. All `/api/v1/directory/*` endpoints (spec §9)
 //! plus `/health` and OpenAPI metadata.
 
-use contrix_sdk::salvo_adapter::register_contrix_oapi_components;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
@@ -161,7 +160,6 @@ pub fn openapi(router: &Router) -> OpenApi {
             }),
         )
         .merge_router(router);
-    register_contrix_oapi_components(&mut doc.components);
     register_teabay_operations(&mut doc);
     doc
 }

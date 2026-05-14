@@ -1,8 +1,6 @@
 -- teabay schema bootstrap (spec discovery-directory.md §7-§9 / §11).
 --
--- This repository intentionally collapses all historical migrations into a
--- single fresh-install schema. We do not preserve compatibility with older
--- migration chains here; new databases should bootstrap from this file only.
+-- Fresh-install schema; new databases should bootstrap from this file only.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
