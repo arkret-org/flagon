@@ -1,6 +1,8 @@
 //! Salvo router declaration. All `/api/v1/directory/*` endpoints (spec §9)
 //! plus `/health` and OpenAPI metadata.
 
+use std::sync::Arc;
+
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
@@ -9,6 +11,7 @@ use salvo::prelude::*;
 use serde_json::json;
 
 use crate::error::ErrorCode;
+use crate::middleware::http_sig::{HttpSigKeyDirectory, HttpSigMiddleware};
 use crate::state::AppState;
 use crate::{ingest, query};
 
@@ -17,7 +20,8 @@ pub struct TeabayOpenApiDoc(pub OpenApi);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
-    let directory = directory_router();
+    let http_sig_middleware = build_http_sig_middleware(&state);
+    let directory = directory_router(http_sig_middleware);
     let admin = admin_router();
     let doc = openapi(&directory);
 
@@ -39,6 +43,21 @@ pub fn router(state: AppState) -> Router {
                 .options(cors_preflight)
                 .get(api_not_found),
         )
+}
+
+/// Construct the [`HttpSigMiddleware`] for this state. Pulls the
+/// `keyid → Ed25519 pubkey` allowlist from `AppConfig` and toggles
+/// enforcement based on `require_http_sig`. Always returns a middleware
+/// instance so the ingest sub-router has a single, predictable shape —
+/// the passthrough variant lets the in-process conformance harness
+/// post unsigned envelopes while keeping the route topology identical.
+fn build_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
+    let directory: Arc<dyn HttpSigKeyDirectory> = Arc::new(state.config().http_sig_key_directory());
+    if state.config().require_http_sig {
+        HttpSigMiddleware::new(directory)
+    } else {
+        HttpSigMiddleware::passthrough(directory)
+    }
 }
 
 pub fn service(state: AppState) -> Service {
@@ -63,8 +82,11 @@ fn admin_router() -> Router {
         .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
 }
 
-fn directory_router() -> Router {
-    Router::with_path("api/v1/directory")
+fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
+    // Query face — no transport signature required (search/resolve are
+    // read-only against the indexed view, and CORS / auth gating is
+    // handled per-handler where applicable).
+    let query_routes = Router::new()
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-spaces").post(query::space::search_spaces))
         .push(Router::with_path("resolve-space").post(query::space::resolve_space))
@@ -82,11 +104,24 @@ fn directory_router() -> Router {
         .push(
             Router::with_path("private-contact-discovery")
                 .post(query::psi::private_contact_discovery),
-        )
-        // Ingest face — §8.
+        );
+
+    // Ingest face — §8. Transport hardened by RFC 9421 HTTP Message
+    // Signature middleware (TB-1 / `crate::middleware::http_sig`). Every
+    // request to `announce`, `withdraw`, or `subscribe` MUST carry a
+    // valid Ed25519-signed envelope keyed by a `keyid` in the operator
+    // pubkey allowlist; the handler-level 5-step verify chain in
+    // `ingest::verify` then runs on top of an already-authenticated
+    // transport.
+    let ingest_routes = Router::new()
+        .hoop(http_sig_middleware)
         .push(Router::with_path("announce").post(ingest::announce::announce))
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
-        .push(Router::with_path("subscribe").post(ingest::subscribe::subscribe))
+        .push(Router::with_path("subscribe").post(ingest::subscribe::subscribe));
+
+    Router::with_path("api/v1/directory")
+        .push(query_routes)
+        .push(ingest_routes)
 }
 
 #[handler]

@@ -64,7 +64,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
         body.cursor.as_deref().unwrap_or_default(),
     );
     let result = pad_to_budget(budget, "cx.directory.search_actors", &privacy_key, async {
-        run_actor_search(&state, limit).await
+        run_actor_search(&state, body.query.as_deref().unwrap_or_default(), limit).await
     })
     .await;
     match result {
@@ -146,14 +146,18 @@ struct ActorRow {
     via_services: Vec<String>,
 }
 
-async fn run_actor_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<ActorRow>> {
+async fn run_actor_search(
+    state: &AppState,
+    needle: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<ActorRow>> {
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get()?;
     let rows: Vec<ActorRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Actor))
         .filter(r::discoverability.eq(DiscoverabilityWire::Public))
         .order(r::indexed_at.desc())
-        .limit(limit)
+        .limit(limit.max(500))
         .select((
             r::resource_id,
             r::public_projection,
@@ -166,7 +170,14 @@ async fn run_actor_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<Ac
             r::via_services,
         ))
         .load(&mut conn)?;
-    Ok(rows)
+    let needle = needle.trim().to_ascii_lowercase();
+    Ok(rows
+        .into_iter()
+        .filter(|row| {
+            needle.is_empty() || actor_matches(&row.public_projection, &row.resource_id, &needle)
+        })
+        .take(limit as usize)
+        .collect())
 }
 
 async fn run_user_search(

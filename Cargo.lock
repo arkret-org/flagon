@@ -805,6 +805,7 @@ dependencies = [
  "contrix-http-client",
  "contrix-signatures",
  "contrix-testing",
+ "ed25519-dalek",
  "getrandom 0.3.4",
  "regex",
  "reqwest 0.12.28",
@@ -815,6 +816,7 @@ dependencies = [
  "tokio",
  "ulid",
  "uuid",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -837,6 +839,7 @@ dependencies = [
  "base64",
  "chrono",
  "contrix-identifiers",
+ "regex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -1856,6 +1859,7 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
+ "rand_core 0.6.4",
  "serde",
  "sha2",
  "subtle",
@@ -6461,6 +6465,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
+]
+
+[[package]]
+name = "x25519-dalek"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7e468321c81fb07fa7f4c636c3972b9100f0346e5b6a9f2bd0603a52f7ed277"
+dependencies = [
+ "curve25519-dalek",
+ "rand_core 0.6.4",
 ]
 
 [[package]]

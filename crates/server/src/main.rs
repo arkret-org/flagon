@@ -1,7 +1,7 @@
 use salvo::prelude::*;
 use server::ingest::divergence_worker::DivergenceWorker;
 use server::ingest::pull_worker::PullWorker;
-use server::{AppConfig, AppState, Db, service};
+use server::{AppConfig, AppState, Db, profile, service};
 use tokio::signal;
 use tracing::info;
 
@@ -11,6 +11,12 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+
+    // Anti-drift guard: panic at startup if the wire surface declared in
+    // `server::kinds` no longer matches the embedded baseline profile
+    // (`cx.profile.directory_service.v1`). This is a hard precondition for
+    // running teabay — see crates/server/src/profile/mod.rs.
+    profile::verify_or_panic();
 
     let config = AppConfig::from_env()?;
 

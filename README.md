@@ -32,6 +32,13 @@ Section 6 (Private Contact Discovery) is implemented with RFC 9497 VOPRF
 blind / match flows. Parent Space semantics are represented through scope
 filters and membership hints where the Directory profile needs them.
 
+`cx.directory.describe.limitations` is populated at runtime for conformance
+honesty. Current limitations are: pull-mode ingest is declared disabled when
+`TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown is audit-backed but
+resource-side notification transport is not implemented; webhook fanout from
+`cx.directory.subscribe` is HMAC-signed best-effort delivery without a durable
+retry queue.
+
 ## Tech stack
 
 | Layer       | Choice                                                     |
@@ -103,8 +110,10 @@ cargo deny check
 ```
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
-covers describe, query / resolve, signed push announce against a mock Principal
-Server, PSI blind / match, and the admin operator surface.
+covers describe, query / resolve envelopes, anti-enumeration hidden-result
+behavior, `cx.directory.subscribe`, signed push announce against a mock
+Principal Server, pull-mode revalidation, freshness flags, PSI blind / match,
+and takedown audit through the admin operator surface.
 
 ## Architecture
 

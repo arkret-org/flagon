@@ -49,7 +49,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         budget,
         "cx.directory.search_organizations",
         &privacy_key,
-        async { run_org_search(&state, limit).await },
+        async { run_org_search(&state, body.query.as_deref().unwrap_or_default(), limit).await },
     )
     .await;
 
@@ -129,7 +129,7 @@ struct OrgRow {
     via_services: Vec<String>,
 }
 
-async fn run_org_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<OrgRow>> {
+async fn run_org_search(state: &AppState, needle: &str, limit: i64) -> anyhow::Result<Vec<OrgRow>> {
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get()?;
     let rows: Vec<OrgRow> = r::directory_resources
@@ -140,7 +140,7 @@ async fn run_org_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<OrgR
                 .or(r::discoverability.eq(DiscoverabilityWire::Listed)),
         )
         .order(r::indexed_at.desc())
-        .limit(limit)
+        .limit(limit.max(500))
         .select((
             r::resource_id,
             r::public_projection,
@@ -153,7 +153,14 @@ async fn run_org_search(state: &AppState, limit: i64) -> anyhow::Result<Vec<OrgR
             r::via_services,
         ))
         .load(&mut conn)?;
-    Ok(rows)
+    let needle = needle.trim().to_ascii_lowercase();
+    Ok(rows
+        .into_iter()
+        .filter(|row| {
+            needle.is_empty() || org_matches(&row.public_projection, &row.resource_id, &needle)
+        })
+        .take(limit as usize)
+        .collect())
 }
 
 async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgRow>> {
@@ -199,4 +206,12 @@ fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
         row.divergent,
         row.via_services,
     )
+}
+
+fn org_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {
+    resource_id.to_ascii_lowercase().contains(needle)
+        || ["handle", "name", "display_name", "summary", "description"]
+            .iter()
+            .filter_map(|key| projection.get(*key).and_then(JsonValue::as_str))
+            .any(|value| value.to_ascii_lowercase().contains(needle))
 }

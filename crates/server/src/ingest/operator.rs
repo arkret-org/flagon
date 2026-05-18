@@ -75,7 +75,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let effective_at = body.effective_at.unwrap_or(acked_at);
     let operator = body.operator.as_deref().unwrap_or("admin-console");
     let notification_status = if state.config().takedown_contact.is_some() {
-        "todo_notification_queued"
+        "notification_not_implemented"
     } else {
         "no_takedown_contact_configured"
     };
@@ -153,7 +153,6 @@ fn persist_operator_takedown(
         "operator": operator,
         "evidence": body.evidence,
         "notification_status": notification_status,
-        "todo": "wire email/DIDComm notification transport",
     });
 
     let mut conn = state.db().get()?;

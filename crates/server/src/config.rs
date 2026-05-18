@@ -3,11 +3,16 @@
 //! Mirrors the spec `cx.directory.describe` ingest fields (§8.9) so the
 //! runtime can both honor and advertise them coherently.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
+
+use crate::middleware::http_sig::{Ed25519PublicKey, StaticKeyDirectory};
 
 const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
 
@@ -45,6 +50,19 @@ pub struct AppConfig {
     pub psi_key_retention_seconds: u64,
     pub query_latency_floor: Duration,
     pub query_latency_jitter: Duration,
+
+    /// When `true`, the RFC 9421 HTTP Message Signature middleware
+    /// (see [`crate::middleware::http_sig`]) is mounted on the ingest
+    /// route group with enforcement enabled. When `false`, the middleware
+    /// is mounted in passthrough mode so the existing conformance
+    /// harness (which posts unsigned envelopes) keeps working. Defaults
+    /// to `true` — that's the secure default for any non-test deploy.
+    pub require_http_sig: bool,
+    /// `keyid → Ed25519 verifying key` allowlist for the ingest HTTP
+    /// signature middleware. Operators populate this at boot via
+    /// `TEABAY_HTTP_SIG_PUBKEYS` (comma-separated `keyid=BASE64URL32`
+    /// pairs). Empty when `require_http_sig=false`.
+    pub http_sig_pubkeys: HashMap<String, Ed25519PublicKey>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,6 +218,10 @@ impl AppConfig {
         let psi_key_retention_seconds = read_u64("TEABAY_PSI_KEY_RETENTION_SECONDS", 7_776_000)?;
         let query_latency_floor_ms = read_u64("TEABAY_QUERY_LATENCY_FLOOR_MS", 25)?;
         let query_latency_jitter_ms = read_u64("TEABAY_QUERY_LATENCY_JITTER_MS", 10)?;
+
+        let require_http_sig = read_bool("TEABAY_REQUIRE_HTTP_SIG", true)?;
+        let http_sig_pubkeys =
+            parse_http_sig_pubkeys(std::env::var("TEABAY_HTTP_SIG_PUBKEYS").ok().as_deref())?;
         if psi_epoch_seconds == 0 {
             anyhow::bail!("TEABAY_PSI_EPOCH_SECONDS must be > 0");
         }
@@ -235,8 +257,61 @@ impl AppConfig {
             psi_key_retention_seconds,
             query_latency_floor: Duration::from_millis(query_latency_floor_ms),
             query_latency_jitter: Duration::from_millis(query_latency_jitter_ms),
+            require_http_sig,
+            http_sig_pubkeys,
         })
     }
+
+    /// Materialise the ingest HTTP signature pubkey allowlist as a
+    /// concrete [`StaticKeyDirectory`]. Centralised here so callers
+    /// (router, tests) all build the same directory shape.
+    pub fn http_sig_key_directory(&self) -> StaticKeyDirectory {
+        StaticKeyDirectory::from_map(self.http_sig_pubkeys.clone())
+    }
+}
+
+/// Parse `TEABAY_HTTP_SIG_PUBKEYS` into a `keyid → Ed25519PublicKey`
+/// map. The wire format is comma-separated `keyid=base64url(pubkey)`
+/// pairs; both `base64url` (no padding) and standard padded base64 are
+/// tolerated. Empty / unset is `Ok(HashMap::new())`.
+fn parse_http_sig_pubkeys(
+    value: Option<&str>,
+) -> anyhow::Result<HashMap<String, Ed25519PublicKey>> {
+    let mut map = HashMap::new();
+    let Some(raw) = value else {
+        return Ok(map);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(map);
+    }
+    for entry in trimmed.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let (key_id, encoded) = entry.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!(
+                "TEABAY_HTTP_SIG_PUBKEYS entry `{entry}` is not `keyid=base64url(pubkey)`"
+            )
+        })?;
+        let key_id = key_id.trim().to_owned();
+        if key_id.is_empty() {
+            anyhow::bail!("TEABAY_HTTP_SIG_PUBKEYS entry has empty keyid");
+        }
+        let encoded = encoded.trim();
+        let bytes = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(encoded))
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "TEABAY_HTTP_SIG_PUBKEYS keyid `{key_id}` pubkey is not base64: {e}"
+                )
+            })?;
+        let key = Ed25519PublicKey::try_from(bytes.as_slice()).map_err(|e| {
+            anyhow::anyhow!(
+                "TEABAY_HTTP_SIG_PUBKEYS keyid `{key_id}` is not a valid Ed25519 public key: {e}"
+            )
+        })?;
+        map.insert(key_id, key);
+    }
+    Ok(map)
 }
 
 fn read_bool(key: &str, default: bool) -> anyhow::Result<bool> {

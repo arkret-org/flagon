@@ -1,8 +1,11 @@
 //! 5-step verify chain for ingest (spec §8.5).
 //!
 //! 1. Transport layer — HTTP Message Signature for push, or service binding + TLS for pull. We
-//!    surface a hook here; the actual HTTP signature check lives in middleware
-//!    (`crate::routing::http_sig`) so the handler always sees an already-authenticated transport.
+//!    surface a hook here; the actual RFC 9421 HTTP signature check lives in
+//!    [`crate::middleware::http_sig`] (mounted on the ingest sub-router by
+//!    [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`)
+//!    so the handler always sees an already-authenticated transport. TB-1 (this comment block)
+//!    closed the prior gap where the middleware was advertised but not actually mounted.
 //! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against the resource governance
 //!    key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_services` contains *this* directory's
@@ -70,7 +73,13 @@ impl<'a> VerifyContext<'a> {
         &self,
         req: &AnnounceRequest,
     ) -> Result<VerifyOutcome, (ErrorCode, String)> {
-        // --- Step 1: transport — assumed enforced by middleware. -----------
+        // --- Step 1: transport — enforced by `crate::middleware::http_sig`.
+        // That middleware verifies the RFC 9421 `Signature-Input` /
+        // `Signature` headers + RFC 9530 `Content-Digest` against the
+        // operator-configured Ed25519 pubkey allowlist before the request
+        // ever reaches this handler. See `directory_router` in
+        // `crate::routing` for the `.hoop(...)` wire and `TB-1` for the
+        // landing audit. ------------------------------------------------
 
         // --- Step 0 (housekeeping): freshness window. ----------------------
         let skew = chrono::Duration::from_std(self.config.as_of_skew)

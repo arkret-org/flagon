@@ -36,6 +36,7 @@ pub struct SubscribeRequest {
 pub struct SubscribeResponse {
     pub subscription_id: String,
     pub created_at: DateTime<Utc>,
+    pub effective_at: DateTime<Utc>,
     pub expires_at: Option<DateTime<Utc>>,
     pub webhook_secret: String,
 }
@@ -121,6 +122,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     res.render(Json(SubscribeResponse {
         subscription_id,
         created_at,
+        effective_at: created_at,
         expires_at: body.expires_at,
         webhook_secret: response_secret,
     }));

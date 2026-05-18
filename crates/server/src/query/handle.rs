@@ -1,5 +1,6 @@
 //! Handle resolution. Spec §9 (`cx.directory.resolve_handle`).
 
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use salvo::prelude::*;
 use serde::Deserialize;
@@ -7,6 +8,7 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::error::ErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
 
@@ -50,35 +52,75 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     .await;
 
     match row {
-        Ok(Some(payload)) => res.render(Json(payload)),
+        Ok(Some(row)) => res.render(Json(envelope_from_row(row))),
         _ => ErrorCode::NotFound.render(res, "not found"),
     }
 }
 
-async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Option<JsonValue>> {
+#[derive(Debug, Queryable)]
+struct HandleRow {
+    resource_id: String,
+    public_projection: JsonValue,
+    discoverability: DiscoverabilityWire,
+    as_of: DateTime<Utc>,
+    source_refs: Vec<String>,
+    policy_revision: Option<String>,
+    stale: bool,
+    divergent: bool,
+    via_services: Vec<String>,
+}
+
+async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Option<HandleRow>> {
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get()?;
-    let row: Option<(String, JsonValue, DiscoverabilityWire)> = r::directory_resources
+    let row: Option<HandleRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Handle))
         .filter(r::resource_id.eq(handle))
-        .select((r::resource_id, r::public_projection, r::discoverability))
+        .select((
+            r::resource_id,
+            r::public_projection,
+            r::discoverability,
+            r::as_of,
+            r::source_refs,
+            r::policy_revision,
+            r::stale,
+            r::divergent,
+            r::via_services,
+        ))
         .first(&mut conn)
         .optional()?;
     match row {
-        Some((resource_id, projection, disc)) if disc.is_directory_visible() => {
-            let did = projection
-                .get("did")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let claims = projection.get("claims").cloned().unwrap_or(JsonValue::Null);
-            Ok(Some(json!({
-                "did": did,
-                "handle": resource_id,
-                "verified": projection.get("verified").and_then(|v| v.as_bool()).unwrap_or(false),
-                "claims": claims,
-            })))
-        }
+        Some(row) if row.discoverability.is_directory_visible() => Ok(Some(row)),
         _ => Ok(None),
     }
+}
+
+fn envelope_from_row(row: HandleRow) -> ResultEnvelope {
+    let did = row
+        .public_projection
+        .get("did")
+        .and_then(JsonValue::as_str)
+        .unwrap_or("")
+        .to_string();
+    let claims = row
+        .public_projection
+        .get("claims")
+        .cloned()
+        .unwrap_or(JsonValue::Null);
+    let payload = json!({
+        "did": did,
+        "handle": row.resource_id,
+        "verified": row.public_projection.get("verified").and_then(JsonValue::as_bool).unwrap_or(false),
+        "claims": claims,
+        "discoverability": row.discoverability.as_pg(),
+    });
+    ResultEnvelope::from_row(
+        payload,
+        row.as_of,
+        row.source_refs,
+        row.policy_revision,
+        row.stale,
+        row.divergent,
+        row.via_services,
+    )
 }

@@ -78,6 +78,10 @@ impl PullWorker {
         })
     }
 
+    pub async fn run_once_for_tests(&self) -> anyhow::Result<()> {
+        self.run_once().await
+    }
+
     async fn run_once(&self) -> anyhow::Result<()> {
         let due = self.fetch_due_entries(50)?;
         if due.is_empty() {

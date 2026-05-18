@@ -9,6 +9,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
 use diesel::RunQueryDsl;
+use diesel::sql_types::BigInt;
 use ed25519_dalek::{Signer, SigningKey};
 use salvo::http::StatusCode;
 use salvo::prelude::Service;
@@ -18,6 +19,12 @@ use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
 use testcontainers_modules::testcontainers::runners::SyncRunner;
 use voprf::{EvaluationElement, Group, Proof, Ristretto255, VoprfClient};
+
+#[derive(diesel::QueryableByName)]
+struct CountRow {
+    #[diesel(sql_type = BigInt)]
+    count: i64,
+}
 
 #[test]
 fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
@@ -47,6 +54,14 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
         std::env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         std::env::set_var("TEABAY_QUERY_LATENCY_FLOOR_MS", "0");
         std::env::set_var("TEABAY_QUERY_LATENCY_JITTER_MS", "0");
+        std::env::set_var("TEABAY_PULL_INTERVAL_SECONDS", "300");
+        // The conformance harness posts unsigned envelopes against the
+        // ingest surface to exercise the 5-step verify chain in isolation.
+        // The TB-1 HTTP signature middleware would otherwise reject them
+        // at the transport layer before they reach `VerifyContext::verify`,
+        // so explicitly run the middleware in passthrough mode here. The
+        // dedicated `http_sig` unit tests cover the enforcement behavior.
+        std::env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
     }
 
     let config = server::AppConfig::from_env()?;
@@ -54,7 +69,7 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     db.run_migrations()?;
     seed_directory_fixture(&db)?;
 
-    let service = server::service(server::AppState::new(config, db));
+    let service = server::service(server::AppState::new(config.clone(), db.clone()));
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -62,7 +77,10 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
             assert_describe_advertises_core_and_psi(&service).await?;
             assert_query_surface_matrix(&service).await?;
             assert_search_spaces_finds_seeded_space(&service).await?;
+            assert_pull_subscribe_registers_webhook(&service).await?;
             assert_push_announce_uses_mock_principal_server(&service).await?;
+            assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
+            assert_freshness_flags_are_exposed(&db, &service).await?;
             assert_psi_blind_and_match_finds_seeded_handle(&service).await?;
             assert_admin_operator_surface(&service).await
         })?;
@@ -91,6 +109,19 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
             .as_array()
             .unwrap()
             .contains(&json!("push"))
+    );
+    assert!(
+        body["ingest_modes"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pull"))
+    );
+    assert!(
+        body["limitations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|limitation| limitation["feature"] == "operator_takedown_notification")
     );
     Ok(())
 }
@@ -218,6 +249,12 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["did"], "did:web:alice.example");
+    assert!(body.get("as_of").is_some());
+    assert!(
+        body["source_refs"]
+            .as_array()
+            .is_some_and(|refs| !refs.is_empty())
+    );
     Ok(())
 }
 
@@ -321,6 +358,127 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     assert_eq!(body["member_count_bucket"], "11-50");
     assert_eq!(body["source_refs"][0], "evt-announce-space");
     assert_eq!(body["via_services"][0], mock.principal_server_did());
+    Ok(())
+}
+
+async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::Result<()> {
+    let mut res = TestClient::post("http://local/api/v1/directory/subscribe")
+        .json(&json!({
+            "subscriber_did": "did:web:subscriber.example",
+            "resource_filter": {
+                "resource_kind": "space",
+                "resource_id": "cx:space:pushed"
+            },
+            "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
+            "webhook_secret": "0123456789abcdef"
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert!(
+        body["subscription_id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("cx:subscription:"))
+    );
+    assert!(body.get("created_at").is_some());
+    assert!(body.get("effective_at").is_some());
+    assert!(
+        body["webhook_secret"]
+            .as_str()
+            .is_some_and(|secret| !secret.is_empty())
+    );
+    Ok(())
+}
+
+async fn assert_pull_worker_refreshes_due_entry(
+    config: &server::AppConfig,
+    db: &server::Db,
+    service: &Service,
+) -> anyhow::Result<()> {
+    let signing_key = SigningKey::from_bytes(&[9; 32]);
+    let public_key = did_key_multibase(&signing_key);
+    let signer_did = format!("did:key:{public_key}");
+    let verification_method = format!("{signer_did}#{public_key}");
+    let pulled_state =
+        signed_space_discovery_state_named(&verification_method, &signing_key, "Pulled Tea")?;
+    let mock =
+        MockPrincipalServer::spawn_with_discovery_state("evt-pull-space", pulled_state.clone())?;
+
+    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+        .json(&json!({
+            "resource_kind": "space",
+            "resource_id": "cx:space:pull",
+            "principal_server_did": mock.principal_server_did(),
+            "discovery_state": pulled_state,
+            "source_refs": ["evt-pull-space"],
+            "as_of": Utc::now(),
+            "ttl_seconds": 3600,
+        }))
+        .send(service)
+        .await;
+    let status = res.status_code.unwrap_or(StatusCode::OK);
+    if status != StatusCode::OK {
+        let body = res.take_string().await.unwrap_or_default();
+        panic!("seed pull resource announce failed with {status}: {body}");
+    }
+
+    {
+        let mut conn = db.get()?;
+        diesel::sql_query(
+            "UPDATE directory_resources \
+             SET next_revalidation_after = now() - interval '1 second' \
+             WHERE resource_kind = 'space'::resource_kind AND resource_id = 'cx:space:pull'",
+        )
+        .execute(&mut conn)?;
+    }
+
+    let worker_state = server::AppState::new(config.clone(), db.clone());
+    server::ingest::pull_worker::PullWorker::new(worker_state, Duration::from_millis(1))
+        .run_once_for_tests()
+        .await?;
+
+    let mut res = TestClient::post("http://local/api/v1/directory/resolve-space")
+        .json(&json!({ "space_id": "cx:space:pull" }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert_eq!(body["name"], "Pulled Tea");
+
+    let mut conn = db.get()?;
+    let pull_count: i64 = diesel::sql_query(
+        "SELECT count(*) FROM ingest_announces \
+         WHERE resource_kind = 'space'::resource_kind \
+           AND resource_id = 'cx:space:pull' \
+           AND ingest_mode = 'pull'::ingest_mode",
+    )
+    .get_result::<CountRow>(&mut conn)?
+    .count;
+    assert_eq!(pull_count, 1);
+    Ok(())
+}
+
+async fn assert_freshness_flags_are_exposed(
+    db: &server::Db,
+    service: &Service,
+) -> anyhow::Result<()> {
+    {
+        let mut conn = db.get()?;
+        diesel::sql_query(
+            "UPDATE directory_resources \
+             SET stale = true \
+             WHERE resource_kind = 'space'::resource_kind AND resource_id = 'cx:space:tea'",
+        )
+        .execute(&mut conn)?;
+    }
+    let mut res = TestClient::post("http://local/api/v1/directory/resolve-space")
+        .json(&json!({ "space_id": "cx:space:tea" }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert_eq!(body["stale"], true);
     Ok(())
 }
 
@@ -492,6 +650,14 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .iter()
             .any(|event| event["kind"] == "admin_resource_deleted")
     );
+    assert!(
+        body["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["kind"] == "operator_takedown"
+                && event["detail"]["withdraw_id"].as_str().is_some())
+    );
     Ok(())
 }
 
@@ -520,6 +686,20 @@ struct MockPrincipalServer {
 
 impl MockPrincipalServer {
     fn spawn(event_id: &str) -> anyhow::Result<Self> {
+        Self::spawn_with_optional_discovery_state(event_id, None)
+    }
+
+    fn spawn_with_discovery_state(
+        event_id: &str,
+        discovery_state: JsonValue,
+    ) -> anyhow::Result<Self> {
+        Self::spawn_with_optional_discovery_state(event_id, Some(discovery_state))
+    }
+
+    fn spawn_with_optional_discovery_state(
+        event_id: &str,
+        discovery_state: Option<JsonValue>,
+    ) -> anyhow::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
@@ -536,6 +716,7 @@ impl MockPrincipalServer {
                         addr,
                         &principal_server_did,
                         &event_id,
+                        discovery_state.as_ref(),
                     ),
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(10));
@@ -576,6 +757,7 @@ fn handle_mock_principal_connection(
     addr: SocketAddr,
     principal_server_did: &str,
     event_id: &str,
+    discovery_state: Option<&JsonValue>,
 ) {
     let mut buffer = [0_u8; 2048];
     let Ok(size) = stream.read(&mut buffer) else {
@@ -600,6 +782,23 @@ fn handle_mock_principal_connection(
         ("200 OK", did_doc)
     } else if path == format!("/api/v1/events/{event_id}") {
         ("200 OK", json!({ "event_id": event_id }))
+    } else if path.starts_with("/api/v1/events?") {
+        match discovery_state {
+            Some(state) => (
+                "200 OK",
+                json!({
+                    "events": [{
+                        "event": {
+                            "event_id": event_id,
+                            "kind": "cx.space.discovery",
+                            "created_at": Utc::now(),
+                            "content": state,
+                        }
+                    }]
+                }),
+            ),
+            None => ("200 OK", json!({ "events": [] })),
+        }
     } else {
         (
             "404 Not Found",
@@ -619,11 +818,19 @@ fn signed_space_discovery_state(
     verification_method: &str,
     signing_key: &SigningKey,
 ) -> anyhow::Result<JsonValue> {
+    signed_space_discovery_state_named(verification_method, signing_key, "Pushed Tea")
+}
+
+fn signed_space_discovery_state_named(
+    verification_method: &str,
+    signing_key: &SigningKey,
+    name: &str,
+) -> anyhow::Result<JsonValue> {
     let mut state = json!({
         "kind": "cx.space.discovery",
         "discoverability": "public",
         "directory_services": ["did:web:directory.test"],
-        "name": "Pushed Tea",
+        "name": name,
         "summary": "Accepted through push announce against a mock Principal Server",
         "member_count": 42,
         "policy_revision": "rev-pushed-1",

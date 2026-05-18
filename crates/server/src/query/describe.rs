@@ -10,6 +10,13 @@ use crate::config::AppConfig;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
+struct DescribeLimitation<'a> {
+    feature: &'static str,
+    status: &'static str,
+    detail: &'a str,
+}
+
+#[derive(Debug, Serialize)]
 struct DescribeResponse<'a> {
     service_did: &'a str,
     public_base_url: &'a str,
@@ -27,6 +34,7 @@ struct DescribeResponse<'a> {
     accepted_did_methods: &'a [String],
     takedown_contact: Option<&'a str>,
     rate_limits: serde_json::Value,
+    limitations: Vec<DescribeLimitation<'a>>,
 }
 
 #[handler]
@@ -72,6 +80,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
             "query_latency_floor_ms": cfg.query_latency_floor.as_millis(),
             "query_latency_jitter_ms": cfg.query_latency_jitter.as_millis(),
         }),
+        limitations: describe_limitations(cfg),
     };
     res.render(Json(body));
 }
@@ -84,4 +93,30 @@ fn accept_policy_str(cfg: &AppConfig) -> &'static str {
         TrustRootSigned => "trust_root_signed",
         OperatorReview => "operator_review",
     }
+}
+
+fn describe_limitations(cfg: &AppConfig) -> Vec<DescribeLimitation<'_>> {
+    let mut limitations = Vec::new();
+    if cfg.pull_interval.is_none() {
+        limitations.push(DescribeLimitation {
+            feature: "pull_mode_ingest",
+            status: "disabled",
+            detail: "TEABAY_PULL_INTERVAL_SECONDS=0 disables periodic pull revalidation; ingest_modes omits pull.",
+        });
+    }
+    limitations.push(DescribeLimitation {
+        feature: "operator_takedown_notification",
+        status: "limited",
+        detail: if cfg.takedown_contact.is_some() {
+            "operator takedown is audit-backed and takedown_contact is advertised, but resource-side notification transport is not implemented."
+        } else {
+            "operator takedown is audit-backed, but no takedown_contact is configured and resource-side notification transport is not implemented."
+        },
+    });
+    limitations.push(DescribeLimitation {
+        feature: "webhook_fanout_delivery",
+        status: "best_effort",
+        detail: "cx.directory.subscribe webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
+    });
+    limitations
 }

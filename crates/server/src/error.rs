@@ -91,11 +91,14 @@ impl ErrorCode {
     pub fn http_status(self) -> StatusCode {
         match self {
             Self::BadJson | Self::BadQuery | Self::SchemaViolation => StatusCode::BAD_REQUEST,
-            Self::MissingParam
-            | Self::InvalidParam
-            | Self::InvalidSignature
-            | Self::InvalidResponse => StatusCode::BAD_REQUEST,
-            Self::Unauthenticated => StatusCode::UNAUTHORIZED,
+            Self::MissingParam | Self::InvalidParam | Self::InvalidResponse => {
+                StatusCode::BAD_REQUEST
+            }
+            // `invalid_signature` is the canonical Contrix v1 code
+            // (error-code-registry.json: http_status=401, scope=both).
+            // Used by the RFC 9421 HTTP message signature middleware
+            // when the transport-layer Ed25519 verify fails.
+            Self::Unauthenticated | Self::InvalidSignature => StatusCode::UNAUTHORIZED,
             Self::NotFound | Self::UnrecognizedEndpoint => StatusCode::NOT_FOUND,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::Conflict => StatusCode::CONFLICT,
