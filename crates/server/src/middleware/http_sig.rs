@@ -19,15 +19,12 @@
 //!
 //! ## Pluggable key source
 //!
-//! Pubkey resolution is via the [`HttpSigKeyDirectory`] trait. v1 ships
-//! the [`StaticKeyDirectory`] implementation backed by a
-//! `HashMap<String, Ed25519PublicKey>` keyed by `keyid` (the same string
-//! the signer placed in `Signature-Input` — usually a DID + key fragment
-//! like `did:web:alice.example#push`). A future iteration will wire the
-//! existing teabay `DidResolver` chain (used by
-//! [`crate::ingest::verify::resolve_ed25519_pubkey`]) so the directory
-//! does not have to be pre-populated; that's an explicit follow-up, not
-//! a blocker for closing the unsigned-ingest hole.
+//! Pubkey resolution is via the [`HttpSigKeyDirectory`] trait. Production
+//! routing uses [`DidResolverKeyDirectory`], which first checks the static
+//! operator allowlist and then resolves DID-URL `keyid` values via the
+//! same DID resolver policy used by ingest proof verification. The
+//! [`StaticKeyDirectory`] remains available for unit tests and as a
+//! deterministic fallback path.
 //!
 //! ## Failure modes (mapped to teabay error codes)
 //!
@@ -37,6 +34,7 @@
 //! | Malformed `Signature-Input`                | 400  | `signature_invalid`  |
 //! | Unknown `keyid`                            | 401  | `invalid_signature`  |
 //! | Ed25519 verify failure                     | 401  | `invalid_signature`  |
+//! | Replay of previously accepted signature    | 401  | `invalid_signature`  |
 //! | `Content-Digest` present but mismatches    | 401  | `invalid_signature`  |
 //! | Required signed component missing on req   | 400  | `signature_invalid`  |
 //!
@@ -44,18 +42,23 @@
 //! `error-code-registry.json` (401, scope=both); `signature_invalid` is the
 //! ingest-specific §8 code (400) for header-shape problems.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, hash_map::Entry};
+use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use contrix_sdk::http_signature::{
-    Component, ContentDigest, SignatureError, SignedRequestParts, canonical_message,
-    parse_signature_header, parse_signature_input, verify_content_digest, verify_signature,
+    ContentDigest, SignatureError, SignedRequestParts, canonical_message, parse_signature_header,
+    parse_signature_input, verify_content_digest, verify_signature,
 };
+use contrix_sdk::http_signature::{SignaturePolicyError, SignatureVerificationPolicy};
+use contrix_sdk::identity::DidResolver;
+use contrix_sdk::jws::resolve_ed25519_pubkey;
+use contrix_sdk::{CompositeDidResolver, Did};
 
 pub use contrix_sdk::http_signature::Ed25519PublicKey;
 use salvo::prelude::*;
 
+use crate::did_resolver::did_resolver_chain;
 use crate::error::ErrorCode;
 
 const SIGNATURE_INPUT_HEADER: &str = "signature-input";
@@ -109,12 +112,83 @@ impl HttpSigKeyDirectory for StaticKeyDirectory {
     }
 }
 
+/// Key directory used by production routing.
+///
+/// Static keys are checked first so tests and emergency operator
+/// overrides remain deterministic. If the key is not configured
+/// statically and `key_id` is a DID URL, the directory lazily builds the
+/// teabay DID resolver chain and asks the SDK JWS verifier helper to
+/// resolve the Ed25519 verification method.
+#[derive(Debug)]
+pub struct DidResolverKeyDirectory {
+    static_keys: StaticKeyDirectory,
+    accepted_did_methods: Vec<String>,
+    resolver: Mutex<Option<Arc<CompositeDidResolver>>>,
+}
+
+impl DidResolverKeyDirectory {
+    pub fn new(
+        static_keys: HashMap<String, Ed25519PublicKey>,
+        accepted_did_methods: Vec<String>,
+    ) -> Self {
+        Self {
+            static_keys: StaticKeyDirectory::from_map(static_keys),
+            accepted_did_methods,
+            resolver: Mutex::new(None),
+        }
+    }
+
+    fn resolver(&self) -> Result<Arc<CompositeDidResolver>, String> {
+        let mut resolver = self
+            .resolver
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(existing) = resolver.as_ref() {
+            return Ok(Arc::clone(existing));
+        }
+        let built = Arc::new(did_resolver_chain(&self.accepted_did_methods)?);
+        *resolver = Some(Arc::clone(&built));
+        Ok(built)
+    }
+}
+
+impl HttpSigKeyDirectory for DidResolverKeyDirectory {
+    fn lookup(&self, key_id: &str) -> Option<Ed25519PublicKey> {
+        if let Some(static_key) = self.static_keys.lookup(key_id) {
+            return Some(static_key);
+        }
+
+        let did = key_id.split_once('#').map(|(did, _)| did).unwrap_or(key_id);
+        let did = Did::new(did.to_owned()).ok()?;
+        let resolver = match self.resolver() {
+            Ok(resolver) => resolver,
+            Err(err) => {
+                tracing::debug!(%err, %key_id, "HTTP signature DID key resolver init failed");
+                return None;
+            }
+        };
+        if !resolver.supports(&did) {
+            return None;
+        }
+        match resolve_ed25519_pubkey(resolver.as_ref(), key_id) {
+            Ok(public_key) => Some(public_key),
+            Err(err) => {
+                tracing::debug!(%err, %key_id, "HTTP signature DID key resolve failed");
+                None
+            }
+        }
+    }
+}
+
 /// Salvo middleware enforcing RFC 9421 HTTP Message Signatures on the
 /// hooped routes (i.e. teabay's ingest face). Construct via
 /// [`HttpSigMiddleware::new`] with a [`HttpSigKeyDirectory`] and mount
 /// via `Router::hoop`.
 pub struct HttpSigMiddleware {
     directory: Arc<dyn HttpSigKeyDirectory>,
+    /// Accepted signatures keyed by signer and signature bytes until
+    /// their effective `expires` window closes.
+    seen_signatures: Mutex<HashMap<ReplayKey, i64>>,
     /// When `false`, every request short-circuits the verifier and is
     /// allowed through. Operators set this via `TEABAY_REQUIRE_HTTP_SIG`
     /// (default `true`); the in-process conformance harness flips it to
@@ -129,6 +203,7 @@ impl HttpSigMiddleware {
     pub fn new(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
         Self {
             directory,
+            seen_signatures: Mutex::new(HashMap::new()),
             enforced: true,
         }
     }
@@ -141,6 +216,7 @@ impl HttpSigMiddleware {
     pub fn passthrough(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
         Self {
             directory,
+            seen_signatures: Mutex::new(HashMap::new()),
             enforced: false,
         }
     }
@@ -148,6 +224,37 @@ impl HttpSigMiddleware {
     /// Force-set enforcement mode after construction.
     pub fn set_enforced(&mut self, enforced: bool) {
         self.enforced = enforced;
+    }
+
+    fn remember_signature(&self, replay_key: ReplayKey, valid_until: i64, now: i64) -> bool {
+        let mut seen_signatures = self
+            .seen_signatures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        seen_signatures.retain(|_, expires_at| *expires_at >= now);
+
+        match seen_signatures.entry(replay_key) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(valid_until);
+                true
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ReplayKey {
+    key_id: String,
+    signature: Vec<u8>,
+}
+
+impl ReplayKey {
+    fn new(key_id: &str, signature: &[u8]) -> Self {
+        Self {
+            key_id: key_id.to_owned(),
+            signature: signature.to_vec(),
+        }
     }
 }
 
@@ -200,32 +307,25 @@ impl Handler for HttpSigMiddleware {
             return;
         }
 
-        let required_components = [
-            Component::Method,
-            Component::TargetUri,
-            Component::Authority,
-            Component::Header(CONTENT_DIGEST_HEADER.to_owned()),
-        ];
-        if !signature_input.covers_all(&required_components) {
-            reject_invalid_signature(
-                res,
-                ctrl,
-                "HTTP Message Signature is missing required covered components",
-            );
-            return;
-        }
-
         let now = unix_now_secs();
-        if signature_input.created > now + SIGNATURE_MAX_CLOCK_SKEW_SECONDS {
-            reject_invalid_signature(
-                res,
-                ctrl,
-                "HTTP Message Signature created timestamp is in the future",
-            );
-            return;
-        }
-        if signature_input.expires < now - SIGNATURE_MAX_CLOCK_SKEW_SECONDS {
-            reject_invalid_signature(res, ctrl, "HTTP Message Signature has expired");
+        let content_digest_raw = read_header(req, CONTENT_DIGEST_HEADER);
+        let policy = SignatureVerificationPolicy::service_ingest()
+            .max_clock_skew_seconds(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
+        if let Err(err) = policy.validate(&signature_input, content_digest_raw.as_deref(), now) {
+            let message = match err {
+                SignaturePolicyError::MissingRequiredCoveredComponent => {
+                    "HTTP Message Signature is missing required covered components"
+                }
+                SignaturePolicyError::MissingContentDigest => "content-digest header missing",
+                SignaturePolicyError::InvalidValidityWindow => {
+                    "HTTP Message Signature validity window is invalid"
+                }
+                SignaturePolicyError::CreatedInFuture => {
+                    "HTTP Message Signature created timestamp is in the future"
+                }
+                SignaturePolicyError::Expired => "HTTP Message Signature has expired",
+            };
+            reject_invalid_signature(res, ctrl, message);
             return;
         }
 
@@ -254,10 +354,8 @@ impl Handler for HttpSigMiddleware {
             }
         };
 
-        let Some(content_digest_raw) = read_header(req, CONTENT_DIGEST_HEADER) else {
-            reject_invalid_signature(res, ctrl, "content-digest header missing");
-            return;
-        };
+        let content_digest_raw =
+            content_digest_raw.expect("policy requires content-digest to be present");
         let parsed_digest = match ContentDigest::parse(&content_digest_raw) {
             Ok(digest) => digest,
             Err(err) => {
@@ -324,6 +422,19 @@ impl Handler for HttpSigMiddleware {
                 res,
                 ctrl,
                 format!("ed25519 signature verification failed: {err}"),
+            );
+            return;
+        }
+
+        let replay_key = ReplayKey::new(&signature_input.key_id, &signature_bytes);
+        let replay_valid_until = signature_input
+            .expires
+            .saturating_add(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
+        if !self.remember_signature(replay_key, replay_valid_until, now) {
+            reject_invalid_signature(
+                res,
+                ctrl,
+                "HTTP Message Signature was already accepted within its validity window",
             );
             return;
         }
@@ -453,7 +564,7 @@ mod tests {
         parse_signature_input, sign_message, signing_key_from_seed,
     };
     use salvo::http::StatusCode;
-    use salvo::test::{ResponseExt, TestClient};
+    use salvo::test::{ResponseExt, SendTarget, TestClient};
     use serde_json::{Value as JsonValue, json};
 
     const TEST_KEY_ID: &str = "did:web:alice.example#push";
@@ -469,6 +580,12 @@ mod tests {
         Arc::new(dir)
     }
 
+    fn did_key_multibase(signing_key: &Ed25519SigningKey) -> String {
+        let mut bytes = vec![0xed, 0x01];
+        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
+        format!("z{}", bs58::encode(bytes).into_string())
+    }
+
     fn router(directory: Arc<dyn HttpSigKeyDirectory>) -> Router {
         Router::with_path("api/v1/directory/announce")
             .hoop(HttpSigMiddleware::new(directory))
@@ -480,6 +597,7 @@ mod tests {
         res.render(Json(json!({ "ok": true })));
     }
 
+    #[derive(Clone)]
     struct SignedRequest {
         body: Vec<u8>,
         signature_input: String,
@@ -553,7 +671,7 @@ mod tests {
         }
     }
 
-    async fn post_signed(router: Router, signed: SignedRequest) -> Response {
+    async fn post_signed(target: impl SendTarget + Send, signed: SignedRequest) -> Response {
         TestClient::post("http://teabay.test/api/v1/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("signature-input", signed.signature_input, true)
@@ -561,7 +679,7 @@ mod tests {
             .add_header("content-digest", signed.content_digest, true)
             .bytes(signed.body)
             .add_header("content-type", "application/json", true)
-            .send(router)
+            .send(target)
             .await
     }
 
@@ -583,6 +701,80 @@ mod tests {
         let status = res.status_code.unwrap_or(StatusCode::OK);
         let body_text = res.take_string().await.unwrap_or_default();
         assert_eq!(status, StatusCode::OK, "expected 200, body: {body_text}");
+    }
+
+    #[tokio::test]
+    async fn did_resolver_key_directory_resolves_did_key_keyid() {
+        let signing_key = signing_key();
+        let multibase = did_key_multibase(&signing_key);
+        let did = format!("did:key:{multibase}");
+        let key_id = format!("{did}#{multibase}");
+        let dir = DidResolverKeyDirectory::new(
+            std::collections::HashMap::new(),
+            vec!["did:key".to_owned()],
+        );
+
+        assert_eq!(dir.lookup(&key_id), Some(signing_key.verifying_key()));
+    }
+
+    #[tokio::test]
+    async fn signed_request_passes_with_did_resolver_key_directory() {
+        let signing_key = signing_key();
+        let multibase = did_key_multibase(&signing_key);
+        let did = format!("did:key:{multibase}");
+        let key_id = format!("{did}#{multibase}");
+        let dir = DidResolverKeyDirectory::new(
+            std::collections::HashMap::new(),
+            vec!["did:key".to_owned()],
+        );
+        let router = router(Arc::new(dir));
+        let body = br#"{"resource_id":"cx:space:tea"}"#;
+        let signed = build_signed_request(
+            "POST",
+            "http://teabay.test/api/v1/directory/announce",
+            "teabay.test",
+            "/api/v1/directory/announce",
+            body,
+            &key_id,
+            &signing_key,
+        );
+
+        let mut res = post_signed(router, signed).await;
+        let status = res.status_code.unwrap_or(StatusCode::OK);
+        let body_text = res.take_string().await.unwrap_or_default();
+        assert_eq!(status, StatusCode::OK, "expected 200, body: {body_text}");
+    }
+
+    #[tokio::test]
+    async fn replayed_valid_signature_returns_invalid_signature() {
+        let dir = directory_with_test_key();
+        let router = Arc::new(router(dir));
+        let body = br#"{"resource_id":"cx:space:tea"}"#;
+        let signed = build_signed_request(
+            "POST",
+            "http://teabay.test/api/v1/directory/announce",
+            "teabay.test",
+            "/api/v1/directory/announce",
+            body,
+            TEST_KEY_ID,
+            &signing_key(),
+        );
+
+        let mut first = post_signed(router.clone(), signed.clone()).await;
+        let first_status = first.status_code.unwrap_or(StatusCode::OK);
+        let first_body = first.take_string().await.unwrap_or_default();
+        assert_eq!(
+            first_status,
+            StatusCode::OK,
+            "first request should pass, body: {first_body}"
+        );
+
+        let mut second = post_signed(router, signed).await;
+        let second_status = second.status_code.unwrap_or(StatusCode::OK);
+        assert_eq!(second_status, StatusCode::UNAUTHORIZED);
+        let second_body_text = second.take_string().await.unwrap_or_default();
+        let body: JsonValue = serde_json::from_str(&second_body_text).unwrap();
+        assert_eq!(body["error"]["code"], json!("invalid_signature"));
     }
 
     #[tokio::test]

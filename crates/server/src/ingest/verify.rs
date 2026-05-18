@@ -20,22 +20,18 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use contrix_sdk::identity::{DidResolver, DidWebvhResolver, ResolverPolicy};
-use contrix_sdk::{
-    CompositeDidResolver, DID_WEB_MAX_DOCUMENT_BYTES, Did, DidKeyResolver, DidWebResolver,
-    HttpDidResolver,
-};
+use contrix_sdk::identity::{DidResolver, DidWebvhResolver};
+use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
+use contrix_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver};
 use diesel::prelude::*;
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use reqwest::Client;
 use serde_json::Value as JsonValue;
 use url::Url;
 
 use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
+use crate::did_resolver::did_resolver_chain;
 use crate::error::ErrorCode;
 use crate::ingest::ResourceKindWire;
 use crate::ingest::announce::AnnounceRequest;
@@ -458,166 +454,12 @@ fn verify_jws_ed25519(
     verification_method: &str,
     config: &AppConfig,
 ) -> Result<(), String> {
-    if canonical_bytes.is_empty() {
-        return Err("empty canonical bytes".to_owned());
-    }
-    let (protected_b64, signature_b64) = parse_detached_jws(jws)?;
-
-    let header_bytes = URL_SAFE_NO_PAD
-        .decode(protected_b64)
-        .map_err(|e| format!("JWS header is not base64url: {e}"))?;
-    let header: JsonValue = serde_json::from_slice(&header_bytes)
-        .map_err(|e| format!("JWS header is not JSON: {e}"))?;
-    let alg = header.get("alg").and_then(JsonValue::as_str).unwrap_or("");
-    if alg != "EdDSA" {
-        return Err(format!("JWS alg `{alg}` is not EdDSA"));
-    }
-
-    if signature_b64.bytes().all(|b| b == b'A') {
-        return Err("JWS signature is the all-zero sentinel".to_owned());
-    }
-    let signature_bytes = URL_SAFE_NO_PAD
-        .decode(signature_b64)
-        .map_err(|e| format!("JWS signature is not base64url: {e}"))?;
-    if signature_bytes.len() != 64 {
-        return Err(format!(
-            "Ed25519 signature must be 64 bytes, got {}",
-            signature_bytes.len()
-        ));
-    }
-    let signature_array: [u8; 64] = signature_bytes
-        .try_into()
-        .expect("signature length checked above");
-    let signature = Signature::from_bytes(&signature_array);
-
-    let public_key = resolve_ed25519_pubkey(config, verification_method)?;
-    let signing_input = format!(
-        "{protected_b64}.{}",
-        URL_SAFE_NO_PAD.encode(canonical_bytes)
-    );
-    public_key
-        .verify(signing_input.as_bytes(), &signature)
-        .map_err(|e| format!("Ed25519 verify failed: {e}"))
-}
-
-fn parse_detached_jws(jws: &str) -> Result<(&str, &str), String> {
-    if jws.is_empty() {
-        return Err("empty JWS string".to_owned());
-    }
-    let parts = jws.split('.').collect::<Vec<_>>();
-    if parts.len() != 3 {
-        return Err(format!(
-            "JWS must have 3 dot-separated segments, got {}",
-            parts.len()
-        ));
-    }
-    if !parts[1].is_empty() {
-        return Err("detached JWS payload segment must be empty".to_owned());
-    }
-    if parts[2].is_empty() {
-        return Err("JWS signature segment is empty".to_owned());
-    }
-    Ok((parts[0], parts[2]))
-}
-
-fn resolve_ed25519_pubkey(
-    config: &AppConfig,
-    verification_method: &str,
-) -> Result<VerifyingKey, String> {
-    let (did_str, fragment) = verification_method
+    let resolver = did_resolver_chain(&config.accepted_did_methods)?;
+    let issuer = verification_method
         .split_once('#')
-        .map(|(did, fragment)| (did, Some(fragment)))
-        .unwrap_or((verification_method, None));
-    let did = Did::new(did_str.to_owned()).map_err(|e| format!("invalid DID `{did_str}`: {e}"))?;
-    let resolver = did_resolver_chain(config)?;
-    let document = resolver
-        .resolve_did(&did)
-        .map_err(|e| format!("DID resolve failed for `{did_str}`: {e}"))?;
-
-    let fragment_key = fragment.map(|fragment| fragment.to_owned());
-    let hash_fragment_key = fragment_key.as_ref().map(|fragment| format!("#{fragment}"));
-    let did_fragment_key = fragment_key
-        .as_ref()
-        .map(|fragment| format!("{did_str}#{fragment}"));
-    let multibase = document
-        .verification_methods
-        .get(verification_method)
-        .or_else(|| {
-            did_fragment_key
-                .as_ref()
-                .and_then(|key| document.verification_methods.get(key))
-        })
-        .or_else(|| {
-            hash_fragment_key
-                .as_ref()
-                .and_then(|key| document.verification_methods.get(key))
-        })
-        .or_else(|| {
-            fragment_key
-                .as_ref()
-                .and_then(|key| document.verification_methods.get(key))
-        })
-        .or_else(|| {
-            (document.verification_methods.len() == 1)
-                .then(|| document.verification_methods.values().next())
-                .flatten()
-        })
-        .ok_or_else(|| {
-            format!(
-                "verification_method `{verification_method}` not found in DID document for `{did_str}`"
-            )
-        })?;
-    decode_ed25519_multibase(multibase)
-}
-
-fn did_resolver_chain(config: &AppConfig) -> Result<CompositeDidResolver, String> {
-    let policy = ResolverPolicy {
-        allowed_methods: config
-            .accepted_did_methods
-            .iter()
-            .map(|method| normalize_did_method_prefix(method))
-            .collect(),
-        ..ResolverPolicy::default()
-    };
-    let http = HttpDidResolver::with_policy(policy.clone())
-        .map_err(|e| format!("HTTP DID resolver init failed: {e}"))?;
-    let mut resolver = CompositeDidResolver::new().with_policy(policy);
-    resolver.push(DidKeyResolver::new());
-    resolver.push(http);
-    Ok(resolver)
-}
-
-fn normalize_did_method_prefix(method: &str) -> String {
-    let trimmed = method.trim();
-    if trimmed.ends_with(':') {
-        trimmed.to_owned()
-    } else {
-        format!("{trimmed}:")
-    }
-}
-
-fn decode_ed25519_multibase(multibase: &str) -> Result<VerifyingKey, String> {
-    let stripped = multibase
-        .strip_prefix('z')
-        .ok_or_else(|| format!("public key multibase missing `z` prefix: `{multibase}`"))?;
-    let decoded = bs58::decode(stripped)
-        .into_vec()
-        .map_err(|e| format!("base58btc decode failed: {e}"))?;
-    if decoded.len() < 2 || decoded[0] != 0xed || decoded[1] != 0x01 {
-        return Err("expected ed25519-pub multicodec prefix 0xed 0x01".to_owned());
-    }
-    let key_bytes = &decoded[2..];
-    if key_bytes.len() != 32 {
-        return Err(format!(
-            "Ed25519 public key must be 32 bytes, got {}",
-            key_bytes.len()
-        ));
-    }
-    let key_array: [u8; 32] = key_bytes
-        .try_into()
-        .map_err(|_| "Ed25519 public key array conversion failed".to_owned())?;
-    VerifyingKey::from_bytes(&key_array)
-        .map_err(|e| format!("Ed25519 public key parse failed: {e}"))
+        .map(|(did, _)| did)
+        .unwrap_or(verification_method);
+    sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver)
 }
 
 fn enforce_governance_method_binding(
@@ -742,7 +584,8 @@ pub(crate) async fn resolve_principal_server_endpoint(
             .set_scheme("http")
             .map_err(|_| anyhow::anyhow!("failed to rewrite loopback DID URL to HTTP"))?;
     } else {
-        let resolver = did_resolver_chain(config).map_err(|e| anyhow::anyhow!(e))?;
+        let resolver =
+            did_resolver_chain(&config.accepted_did_methods).map_err(|e| anyhow::anyhow!(e))?;
         resolver
             .resolve_did(&did)
             .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;

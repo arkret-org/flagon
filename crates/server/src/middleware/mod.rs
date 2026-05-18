@@ -10,4 +10,7 @@
 
 pub mod http_sig;
 
-pub use http_sig::{Ed25519PublicKey, HttpSigKeyDirectory, HttpSigMiddleware, StaticKeyDirectory};
+pub use http_sig::{
+    DidResolverKeyDirectory, Ed25519PublicKey, HttpSigKeyDirectory, HttpSigMiddleware,
+    StaticKeyDirectory,
+};

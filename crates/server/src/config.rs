@@ -12,7 +12,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::http_sig::{Ed25519PublicKey, StaticKeyDirectory};
+use crate::middleware::http_sig::{DidResolverKeyDirectory, Ed25519PublicKey};
 
 const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
 
@@ -262,11 +262,14 @@ impl AppConfig {
         })
     }
 
-    /// Materialise the ingest HTTP signature pubkey allowlist as a
-    /// concrete [`StaticKeyDirectory`]. Centralised here so callers
-    /// (router, tests) all build the same directory shape.
-    pub fn http_sig_key_directory(&self) -> StaticKeyDirectory {
-        StaticKeyDirectory::from_map(self.http_sig_pubkeys.clone())
+    /// Materialise the ingest HTTP signature key directory. Static keys
+    /// remain a deterministic fallback, while DID-URL keyids can resolve
+    /// through the configured DID resolver chain.
+    pub fn http_sig_key_directory(&self) -> DidResolverKeyDirectory {
+        DidResolverKeyDirectory::new(
+            self.http_sig_pubkeys.clone(),
+            self.accepted_did_methods.clone(),
+        )
     }
 }
 

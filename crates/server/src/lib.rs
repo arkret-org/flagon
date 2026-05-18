@@ -8,6 +8,7 @@
 pub mod audit;
 pub mod config;
 pub mod db;
+mod did_resolver;
 pub mod error;
 pub mod filter;
 pub mod ids;
