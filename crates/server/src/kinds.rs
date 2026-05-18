@@ -5,7 +5,8 @@
 //! handler-side code that needs to refer to a wire kind/operation by name.
 //!
 //! Source: contrix-spec sync dc01ad7
-//!   * §8 ingest operations: `cx.directory.announce`, `cx.directory.withdraw`
+//!   * §8 ingest operations: `cx.directory.announce`, `cx.directory.withdraw`,
+//!     `cx.directory.subscribe`
 //!   * §3 discovery event kinds: `cx.{space,organization,actor,applet,handle}.discovery`
 //!
 //! Anything declared here MUST appear in
@@ -37,6 +38,7 @@ pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
 
 pub const OP_DIRECTORY_ANNOUNCE: &str = "cx.directory.announce";
 pub const OP_DIRECTORY_WITHDRAW: &str = "cx.directory.withdraw";
+pub const OP_DIRECTORY_SUBSCRIBE: &str = "cx.directory.subscribe";
 
 // ---- §9 query operations (declared for profile self-check) --------------
 
@@ -62,4 +64,5 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_RESOLVE_HANDLE,
     OP_DIRECTORY_ANNOUNCE,
     OP_DIRECTORY_WITHDRAW,
+    OP_DIRECTORY_SUBSCRIBE,
 ];

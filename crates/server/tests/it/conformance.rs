@@ -233,11 +233,15 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"][0]["actor_did"], "did:web:alice.example");
 
-    let mut res = TestClient::get(
-        "http://local/api/v1/directory/search-users?q=alice&requester=did:web:alice.example&space_id=cx:space:tea&limit=10",
-    )
-    .send(service)
-    .await;
+    let mut res = TestClient::post("http://local/api/v1/directory/search-users")
+        .json(&json!({
+            "q": "alice",
+            "requester": "did:web:alice.example",
+            "space_id": "cx:space:tea",
+            "limit": 10
+        }))
+        .send(service)
+        .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"][0]["actor_did"], "did:web:alice.example");

@@ -30,7 +30,7 @@ pub struct SearchActorsRequest {
 }
 
 #[derive(Debug, Default, Deserialize)]
-pub struct SearchUsersQuery {
+pub struct SearchUsersRequest {
     #[serde(default, alias = "q")]
     pub query: Option<String>,
     #[serde(default)]
@@ -88,10 +88,10 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         }
     };
 
-    let query: SearchUsersQuery = match req.parse_queries() {
+    let query: SearchUsersRequest = match req.parse_json().await {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed search_users query: {error}"));
+            ErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
             return;
         }
     };

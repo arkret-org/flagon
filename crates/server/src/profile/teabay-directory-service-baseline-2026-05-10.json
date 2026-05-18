@@ -1,7 +1,7 @@
 {
   "profile": "cx.profile.directory_service.v1",
   "issued": "2026-05-10",
-  "source": "contrix-spec sync 5ed365c (conformance-profiles.json#/profile_requirements/cx.profile.directory_service.v1; no shape change since dc01ad7)",
+  "source": "contrix-spec sync 0bb8d34 (conformance-profiles.json#/profile_requirements/cx.profile.directory_service.v1)",
   "description": "Contrix v1 Directory Service profile baseline. Directory Services index resource-signed discovery state, expose blinded search/resolve endpoints, and support at least one §8 ingest mode without becoming a source of truth.",
   "required_endpoints": [
     "cx.directory.describe",
@@ -13,7 +13,8 @@
     "cx.directory.search_users",
     "cx.directory.resolve_handle",
     "cx.directory.announce",
-    "cx.directory.withdraw"
+    "cx.directory.withdraw",
+    "cx.directory.subscribe"
   ],
   "required_event_kinds": [
     "cx.space.discovery",

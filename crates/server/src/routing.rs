@@ -99,7 +99,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
                 .post(query::organization::resolve_organization),
         )
         .push(Router::with_path("search-actors").post(query::actor::search_actors))
-        .push(Router::with_path("search-users").get(query::actor::search_users))
+        .push(Router::with_path("search-users").post(query::actor::search_users))
         .push(Router::with_path("resolve-handle").post(query::handle::resolve_handle))
         .push(
             Router::with_path("private-contact-discovery")
@@ -323,7 +323,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         ),
         (
             "/api/v1/directory/search-users",
-            PathItemType::Get,
+            PathItemType::Post,
             "cx.directory.search_users",
             "query",
             "Search Users",
