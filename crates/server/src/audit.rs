@@ -27,6 +27,17 @@ pub enum AuditEventKind {
     AllowlistRemoved,
     AdminResourceUpserted,
     AdminResourceDeleted,
+    // Round R2/R3.
+    /// T17 — soland broadcast a `consent_revoke{scope=any}` and the
+    /// directory invalidated the actor's reachability projection.
+    ConsentRevokeInvalidation,
+    /// T07 — a `cx.realm.destroy` anchor was observed; the row was
+    /// flipped to its tombstone projection.
+    RealmDestroyed,
+    /// T14 — a federation announce request hit the cache after the
+    /// underlying service key was revoked. We served the cached body
+    /// with `historical_only=true` and skipped side effects.
+    IngestHistoricalOnly,
 }
 
 impl AuditEventKind {
@@ -42,6 +53,9 @@ impl AuditEventKind {
             Self::AllowlistRemoved => "allowlist_removed",
             Self::AdminResourceUpserted => "admin_resource_upserted",
             Self::AdminResourceDeleted => "admin_resource_deleted",
+            Self::ConsentRevokeInvalidation => "consent_revoke_invalidation",
+            Self::RealmDestroyed => "realm_destroyed",
+            Self::IngestHistoricalOnly => "ingest_historical_only",
         }
     }
 }

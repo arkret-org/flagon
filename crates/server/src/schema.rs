@@ -50,6 +50,11 @@ diesel::table! {
         divergent -> Bool,
         via_services -> Array<Text>,
         last_announce_id -> Nullable<Text>,
+        // Round R2/R3 — T07 realm terminal state, T17 consent revoke
+        // reachability invalidation. See migration 20260520010000_round23.
+        realm_destroyed_at -> Nullable<Timestamptz>,
+        reachability_revoked_at -> Nullable<Timestamptz>,
+        reachability_revoked_reason -> Nullable<Text>,
     }
 }
 
@@ -70,6 +75,12 @@ diesel::table! {
         effective_ttl_seconds -> Int4,
         supersedes_announce_id -> Nullable<Text>,
         request_digest -> Bytea,
+        // Round R2/R3 T14 — federation idempotency cache key extension.
+        source_service_did -> Text,
+        verification_method -> Text,
+        service_binding_ref -> Text,
+        origin_key_state_hash -> Bytea,
+        historical_only -> Bool,
     }
 }
 
