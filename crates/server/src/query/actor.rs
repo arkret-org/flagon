@@ -39,6 +39,12 @@ pub struct SearchUsersRequest {
     pub space_id: Option<String>,
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Why the requester wants to enumerate users. Spec 0a5ab85:
+    /// `cx.directory.search_users` adds `intent`. Implementations MUST
+    /// pipe this into anti-enumeration filtering and Space
+    /// `allowed_recipient_services` policy checks.
+    #[serde(default)]
+    pub intent: Option<String>,
 }
 
 #[handler]

@@ -19,6 +19,19 @@ pub struct ResolveHandleRequest {
     pub expected_did: Option<String>,
     #[serde(default)]
     pub proof_challenge: Option<String>,
+    /// Why the handle is being resolved. Spec 0a5ab85: gates audience
+    /// binding on the response claim and may filter the result against
+    /// Space `allowed_recipient_services` policy.
+    #[serde(default)]
+    pub intent: Option<String>,
+    /// DID or service DID of the requester. Used to scope audience-bearing
+    /// claims so that the verifier can enforce `audience == self`.
+    #[serde(default)]
+    pub requester: Option<String>,
+    /// Explicit audience the verifier expects on the claim (typically a
+    /// target Space DID or inviter service DID).
+    #[serde(default)]
+    pub audience: Option<String>,
 }
 
 #[handler]
@@ -51,8 +64,14 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     })
     .await;
 
+    // Spec 0a5ab85: audience defaults to the explicit `audience` param,
+    // falling back to `requester` so verifiers checking `audience == self`
+    // accept the claim. `intent` may be carried into observability + future
+    // policy filtering. TODO(spec-sync 0a5ab85): apply Space
+    // `allowed_recipient_services` filter when the Space policy is loaded.
+    let audience = body.audience.clone().or_else(|| body.requester.clone());
     match row {
-        Ok(Some(row)) => res.render(Json(envelope_from_row(row))),
+        Ok(Some(row)) => res.render(Json(envelope_from_row(row, audience))),
         _ => ErrorCode::NotFound.render(res, "not found"),
     }
 }
@@ -95,7 +114,7 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
     }
 }
 
-fn envelope_from_row(row: HandleRow) -> ResultEnvelope {
+fn envelope_from_row(row: HandleRow, audience: Option<String>) -> ResultEnvelope {
     let did = row
         .public_projection
         .get("did")
@@ -107,13 +126,19 @@ fn envelope_from_row(row: HandleRow) -> ResultEnvelope {
         .get("claims")
         .cloned()
         .unwrap_or(JsonValue::Null);
-    let payload = json!({
+    let mut payload = json!({
         "did": did,
         "handle": row.resource_id,
         "verified": row.public_projection.get("verified").and_then(JsonValue::as_bool).unwrap_or(false),
         "claims": claims,
         "discoverability": row.discoverability.as_pg(),
     });
+    // Spec 0a5ab85: when the resolver knows the audience, MUST emit an
+    // `audience`-bound payload alongside the claim so verifiers can enforce
+    // `audience == self` before accepting it for delivery_binding builds.
+    if let Some(audience) = audience {
+        payload["audience"] = JsonValue::String(audience);
+    }
     ResultEnvelope::from_row(
         payload,
         row.as_of,
