@@ -90,6 +90,13 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-spaces").post(query::space::search_spaces))
         .push(Router::with_path("resolve-space").post(query::space::resolve_space))
+        // Realm-rework alias: the security-boundary view of the same row.
+        // Same handler — `resolve_space` already treats the row as the
+        // security boundary. TODO(realm-rework): once the directory has a
+        // separate container `space` resource_kind, split this into two
+        // distinct handlers.
+        .push(Router::with_path("search-realms").post(query::space::search_spaces))
+        .push(Router::with_path("resolve-realm").post(query::space::resolve_space))
         .push(
             Router::with_path("search-organizations")
                 .post(query::organization::search_organizations),
@@ -397,6 +404,22 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "query",
             "Resolve Space",
             "Resolve a Space by ID, alias, invite token, or signed link with blinded misses.",
+        ),
+        (
+            "/api/v1/directory/search-realms",
+            PathItemType::Post,
+            "cx.directory.search_realms",
+            "query",
+            "Search Realms",
+            "Realm-rework alias of search-spaces — security-boundary view of the same rows.",
+        ),
+        (
+            "/api/v1/directory/resolve-realm",
+            PathItemType::Post,
+            "cx.directory.resolve_realm",
+            "query",
+            "Resolve Realm",
+            "Realm-rework alias of resolve-space — security-boundary resolution path.",
         ),
         (
             "/api/v1/directory/search-organizations",

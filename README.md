@@ -13,6 +13,20 @@ executor, an identity resolver, a content mirror, a service-topology
 authority, nor a global crawler. See `contrix-spec/spec/v1/zh/discovery/discovery-directory.md`
 §7.2 for the precise role boundary.
 
+## Realm vs Space
+
+After the Phase 1–4 terminology inversion (Round R1.x), discovery
+projections target the **Realm** as the unit of public metadata:
+
+- **Realm:** security boundary — membership, capability, E2EE, federation;
+  the unit on which `cx.realm.discovery` announces and `cx.realm.link`
+  edges (governed_by / discoverable_from / mirror_of) operate.
+- **Space:** navigation container — board, list, section, calendar bucket
+  inside a Realm. Spaces are not directly discoverable; they ride along
+  their parent Realm.
+
+Legacy `cx.space.discovery` payloads remain accepted via serde aliases.
+
 ## Conformance scope
 
 This implementation targets the `cx.profile.directory_service.v1` profile

@@ -2,6 +2,13 @@
 //!
 //! `cx.directory.search_actors` and `cx.directory.search_users` (mention
 //! autocomplete).
+//!
+//! Realm-rework note: the `space_id` parameter on `search_users` /
+//! `search_actors` continues to identify the **security boundary**
+//! (which the protocol now calls a Realm — `cx:realm:` URI prefix).
+//! Container "Spaces" are not addressable here yet.
+// TODO(realm-rework): add an explicit `realm_id` request alias and
+// surface a separate container-Space autocomplete path.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -41,7 +48,7 @@ pub struct SearchUsersRequest {
     pub limit: Option<u32>,
     /// Why the requester wants to enumerate users. Spec 0a5ab85:
     /// `cx.directory.search_users` adds `intent`. Implementations MUST
-    /// pipe this into anti-enumeration filtering and Space
+    /// pipe this into anti-enumeration filtering and Realm
     /// `allowed_recipient_services` policy checks.
     #[serde(default)]
     pub intent: Option<String>,

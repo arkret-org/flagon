@@ -4,6 +4,16 @@
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
+//!
+//! Realm-rework note: post-spec sync the "security boundary" is now
+//! called a **Realm** (`cx:realm:` URI prefix) while "Space" denotes a
+//! pure container. The wire endpoints / `resource_kind` enum value on
+//! this surface are still `space` for back-compat; the security
+//! boundary rows are reached via `/api/v1/directory/realms/{id}`
+//! (alias of `resolve-space`) until the DB enum is renamed.
+// TODO(realm-rework): split the directory rows by introducing a
+// `realm` resource_kind and a separate `space` (container) kind; this
+// handler then becomes Realm-scoped only.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;

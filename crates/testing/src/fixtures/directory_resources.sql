@@ -21,10 +21,15 @@ INSERT INTO directory_resources (
     'cx:space:tea',
     'did:web:principal.test',
     '{"kind":"cx.space.discovery","discoverability":"public"}'::jsonb,
-    -- Spec sync 0a5ab85 / governance/join-policy §5.1.3: Spaces publish
-    -- `delivery_binding_policy.allowed_recipient_services` and (when narrowing)
-    -- `allow_binding_sources`. `trusted_audiences` is the audience-binding
-    -- allow-list `resolve_handle(intent=member_add)` consults.
+    -- Spec sync 0a5ab85 / governance/join-policy §5.1.3 (post realm-rework):
+    -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
+    -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
+    -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
+    -- NOTE: `resource_kind = 'space'` here is the legacy enum value for the
+    -- security boundary; under the realm-rework these rows are conceptually
+    -- Realms (`cx:realm:` URI prefix). The `cx:space:tea` resource_id is kept
+    -- to avoid a coordinated multi-service rename — see TODO(realm-rework)
+    -- in crates/server/src/query/handle.rs.
     '{"name":"Tea Research","summary":"Public teabay conformance space","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allow_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
