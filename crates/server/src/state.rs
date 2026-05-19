@@ -54,6 +54,18 @@ impl AppState {
     pub fn remember_announce_replay(&self, digest: Vec<u8>, response: CachedAnnounceResponse) {
         self.inner.announce_replay_cache.put(digest, response);
     }
+
+    /// Round R2/R3 T14 — look up the federation idempotency cache by the
+    /// extended four-field key. `digest` is SHA-256 over `(request_digest
+    /// || source_service_did || verification_method ||
+    /// service_binding_ref || origin_key_state_hash)`.
+    pub fn cached_federation_replay(&self, key: &[u8]) -> Option<CachedAnnounceResponse> {
+        self.inner.announce_replay_cache.get(key)
+    }
+
+    pub fn remember_federation_replay(&self, key: Vec<u8>, response: CachedAnnounceResponse) {
+        self.inner.announce_replay_cache.put(key, response);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +90,13 @@ pub struct CachedAnnounceResponse {
     pub indexed_at: DateTime<Utc>,
     pub effective_ttl_seconds: i64,
     pub next_revalidation_after: DateTime<Utc>,
+    /// Round R2/R3 T14 — the cached response was produced by a replay
+    /// path. On a subsequent cache hit *after* the underlying service
+    /// key was revoked, the announce handler MUST re-do the capability
+    /// check and, if it fails, serve this row with `historical_only=true`
+    /// and skip side effects.
+    #[allow(dead_code)] // populated on the federation replay path; read by handlers.
+    pub historical_only: bool,
 }
 
 #[derive(Default)]

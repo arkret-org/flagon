@@ -1,0 +1,6 @@
+# Postgres requires `ALTER TYPE … ADD VALUE` to run outside a transaction
+# unless the value is consumed in a later statement of the same transaction.
+# Running this migration transactionless keeps the bootstrap path clean
+# and avoids the "unsafe use of new value" error when an audit row written
+# from a later migration references the new enum tag.
+run_in_transaction = false

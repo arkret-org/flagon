@@ -47,6 +47,79 @@ pub struct AnnounceResponse {
     pub next_revalidation_after: DateTime<Utc>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Round R2/R3 T14 — set when the response was served from the
+    /// federation idempotency cache *and* the current capability check
+    /// would have failed (e.g. the source service key has been
+    /// revoked). The caller MUST treat the body as advisory only and
+    /// MUST NOT trigger any new side effects.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub historical_only: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// Round R2/R3 T14 — extended federation idempotency cache key inputs
+/// gathered from request headers + the verified discovery proof. All
+/// four fields participate in the cache key per spec; missing values
+/// fall back to the empty string so the key remains stable for the
+/// non-federation announce path.
+#[derive(Debug, Clone)]
+pub struct FederationCacheKeyInputs {
+    pub source_service_did: String,
+    pub verification_method: String,
+    pub service_binding_ref: String,
+    pub origin_key_state_hash: Vec<u8>,
+}
+
+impl FederationCacheKeyInputs {
+    pub fn extract(req: &Request, body: &AnnounceRequest) -> Self {
+        let source_service_did = header_value(req, "source-service-did")
+            .or_else(|| header_value(req, "x-source-service-did"))
+            .unwrap_or_default();
+        let verification_method = body
+            .discovery_state
+            .pointer("/proof/verification_method")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let service_binding_ref = header_value(req, "service-binding-ref")
+            .or_else(|| header_value(req, "x-service-binding-ref"))
+            .unwrap_or_default();
+        let origin_key_state_hash = header_value(req, "origin-key-state-hash")
+            .or_else(|| header_value(req, "x-origin-key-state-hash"))
+            .map(|raw| raw.into_bytes())
+            .unwrap_or_default();
+        Self {
+            source_service_did,
+            verification_method,
+            service_binding_ref,
+            origin_key_state_hash,
+        }
+    }
+
+    pub fn key(&self, request_digest: &[u8]) -> Vec<u8> {
+        let mut h = Sha256::new();
+        h.update(request_digest);
+        h.update(b"\x1fSSD\x1e");
+        h.update(self.source_service_did.as_bytes());
+        h.update(b"\x1fVM\x1e");
+        h.update(self.verification_method.as_bytes());
+        h.update(b"\x1fSBR\x1e");
+        h.update(self.service_binding_ref.as_bytes());
+        h.update(b"\x1fOKSH\x1e");
+        h.update(&self.origin_key_state_hash);
+        h.finalize().to_vec()
+    }
+}
+
+fn header_value(req: &Request, name: &str) -> Option<String> {
+    req.headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 #[handler]
@@ -76,13 +149,51 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }
 
     let request_digest = digest_request(&body);
-    if let Some(cached) = state.cached_announce_replay(&request_digest) {
+    // Round R2/R3 T14 — federation idempotency cache key is the
+    // SHA-256 over (request_digest || Source-Service-DID ||
+    // verification_method || service_binding_ref ||
+    // origin_key_state_hash). On hit we still re-do the capability
+    // check; if it now fails (e.g. revoked service key), we serve the
+    // cached body with `historical_only=true` and trigger no new side
+    // effects.
+    let cache_inputs = FederationCacheKeyInputs::extract(req, &body);
+    let cache_key = cache_inputs.key(&request_digest);
+
+    if let Some(cached) = state.cached_federation_replay(&cache_key) {
+        let ctx = VerifyContext::new(state.config(), state.db());
+        let capability = ctx.verify(&body).await;
+        let historical_only = capability.is_err();
+        if historical_only {
+            let _ = audit::record(
+                state.db(),
+                AuditEventKind::IngestHistoricalOnly,
+                Some(body.resource_kind),
+                Some(&body.resource_id),
+                Some(&body.principal_server_did),
+                json!({
+                    "announce_id": cached.announce_id,
+                    "reason": capability.as_ref().err().map(|(c, m)| json!({
+                        "code": c.wire_code(),
+                        "message": m,
+                    })),
+                    "source_service_did": cache_inputs.source_service_did,
+                    "verification_method": cache_inputs.verification_method,
+                    "service_binding_ref": cache_inputs.service_binding_ref,
+                }),
+            );
+        }
+        let warning = if historical_only {
+            "federation_cache_historical_only"
+        } else {
+            "digest_replay_cache"
+        };
         res.render(Json(AnnounceResponse {
             announce_id: cached.announce_id,
             indexed_at: cached.indexed_at,
             effective_ttl_seconds: cached.effective_ttl_seconds,
             next_revalidation_after: cached.next_revalidation_after,
-            warnings: vec!["digest_replay_cache".into()],
+            warnings: vec![warning.into()],
+            historical_only,
         }));
         return;
     }
