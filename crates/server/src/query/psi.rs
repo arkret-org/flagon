@@ -33,7 +33,7 @@ type PsiBlindedElement = BlindedElement<Ristretto255>;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct PrivateContactDiscoveryRequest {
+pub struct PrivateContactDiscoveryReqBody {
     pub phase: PsiPhase,
     pub requester: String,
     #[serde(default)]
@@ -110,7 +110,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
-    let body: PrivateContactDiscoveryRequest = match req.parse_json().await {
+    let body: PrivateContactDiscoveryReqBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ErrorCode::BadJson.render(res, format!("malformed PSI request: {error}"));
@@ -153,7 +153,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
 }
 
 async fn handle_blind_phase(
-    body: PrivateContactDiscoveryRequest,
+    body: PrivateContactDiscoveryReqBody,
     key: PsiEpochKey,
     res: &mut Response,
 ) {
@@ -203,7 +203,7 @@ async fn handle_blind_phase(
 
 async fn handle_match_phase(
     state: &AppState,
-    body: PrivateContactDiscoveryRequest,
+    body: PrivateContactDiscoveryReqBody,
     key: PsiEpochKey,
     res: &mut Response,
 ) {

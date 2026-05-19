@@ -286,7 +286,7 @@ impl PullWorker {
         if !response.status().is_success() {
             anyhow::bail!("events query returned {}", response.status());
         }
-        let body = response.json::<EventsQueryResponse>().await?;
+        let body = response.json::<EventsQueryResBody>().await?;
         body.events
             .into_iter()
             .next()
@@ -430,7 +430,7 @@ struct RefreshOutcome {
 }
 
 #[derive(Debug, Deserialize)]
-struct EventsQueryResponse {
+struct EventsQueryResBody {
     events: Vec<EventEnvelope>,
 }
 
