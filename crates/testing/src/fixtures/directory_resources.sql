@@ -21,7 +21,11 @@ INSERT INTO directory_resources (
     'cx:space:tea',
     'did:web:principal.test',
     '{"kind":"cx.space.discovery","discoverability":"public"}'::jsonb,
-    '{"name":"Tea Research","summary":"Public teabay conformance space","member_count_bucket":"1-10"}'::jsonb,
+    -- Spec sync 0a5ab85 / governance/join-policy §5.1.3: Spaces publish
+    -- `delivery_binding_policy.allowed_recipient_services` and (when narrowing)
+    -- `allow_binding_sources`. `trusted_audiences` is the audience-binding
+    -- allow-list `resolve_handle(intent=member_add)` consults.
+    '{"name":"Tea Research","summary":"Public teabay conformance space","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allow_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-space-tea'],
@@ -129,7 +133,10 @@ INSERT INTO directory_resources (
     'alice.example',
     'did:web:principal.test',
     '{"kind":"cx.handle.discovery","discoverability":"public"}'::jsonb,
-    '{"handle":"alice.example","did":"did:web:alice.example","verified":true}'::jsonb,
+    -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
+    -- carries `recipient_service_did` + `delivery_binding_hint.binding_source`
+    -- so `resolve_handle(intent=member_add)` can run the Space policy filter.
+    '{"handle":"alice.example","did":"did:web:alice.example","verified":true,"recipient_service_did":"did:web:principal.test","delivery_binding_hint":{"recipient_service_did":"did:web:principal.test","binding_source":"join_policy"}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-handle-alice'],

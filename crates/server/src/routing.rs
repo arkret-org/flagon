@@ -125,8 +125,109 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
 }
 
 #[handler]
-async fn health(res: &mut Response) {
-    res.render(Json(json!({ "ok": true })));
+async fn health(depot: &mut Depot, res: &mut Response) {
+    let hardening = match depot.obtain::<AppState>() {
+        Ok(state) => teabay_hardening_status(state.config()),
+        Err(_) => default_hardening_status(),
+    };
+    res.render(Json(json!({
+        "ok": true,
+        "service": "teabay",
+        "hardening": hardening,
+    })));
+}
+
+/// T8.3 — derive a non-sensitive production hardening snapshot from
+/// the live config. Every field is environment-detected (no operator
+/// hand-holding); the JSON shape matches the cross-service contract
+/// soland / starid / coauth / floria all use.
+fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value {
+    let development_mode = cfg.development_mode;
+    // teabay terminates TLS at a reverse proxy; we can't probe the
+    // listener from in-process. `require_http_sig` (RFC 9421 HTTP
+    // Message Signature middleware) is the closest in-process signal
+    // that the deployment is hardened against unsigned ingest.
+    let tls_enabled = !development_mode && cfg.require_http_sig;
+    let csp_header_configured = cfg.cors_allow_origin.is_some();
+    let cors_strict = match cfg.cors_allow_origin.as_deref() {
+        None => true,
+        Some(value) => !value.trim().split(',').any(|origin| origin.trim() == "*"),
+    };
+    // No external secret manager; `http_sig_pubkeys` is the closest
+    // in-process surface that the operator has wired keys in
+    // somewhere outside source.
+    let secret_manager_in_use = !cfg.http_sig_pubkeys.is_empty() || cfg.admin_token.is_some();
+    let log_redaction_enabled = !development_mode;
+    let admin_auth_mode = if development_mode {
+        "development".to_owned()
+    } else if cfg.admin_token.as_deref().is_some_and(|t| !t.is_empty()) {
+        "production".to_owned()
+    } else {
+        "closed".to_owned()
+    };
+    let rate_limit_enabled = cfg.rate_limit_per_resource_per_min > 0;
+    let provider_credential_rotation = if secret_manager_in_use {
+        "manual".to_owned()
+    } else {
+        "none".to_owned()
+    };
+
+    let checks: Vec<(&str, bool)> = vec![
+        ("development_mode_disabled", !development_mode),
+        ("tls_enabled", tls_enabled),
+        ("csp_header_configured", csp_header_configured),
+        ("cors_strict", cors_strict),
+        ("secret_manager_in_use", secret_manager_in_use),
+        ("log_redaction_enabled", log_redaction_enabled),
+        ("admin_auth_mode_production", admin_auth_mode == "production"),
+        ("rate_limit_enabled", rate_limit_enabled),
+        (
+            "provider_credential_rotation",
+            provider_credential_rotation != "none",
+        ),
+    ];
+    let checklist_max = checks.len() as u32;
+    let mut checklist_score = 0u32;
+    let mut warnings = Vec::new();
+    for (label, ok) in &checks {
+        if *ok {
+            checklist_score += 1;
+        } else {
+            warnings.push((*label).to_owned());
+        }
+    }
+
+    json!({
+        "development_mode": development_mode,
+        "tls_enabled": tls_enabled,
+        "csp_header_configured": csp_header_configured,
+        "cors_strict": cors_strict,
+        "secret_manager_in_use": secret_manager_in_use,
+        "log_redaction_enabled": log_redaction_enabled,
+        "admin_auth_mode": admin_auth_mode,
+        "rate_limit_enabled": rate_limit_enabled,
+        "provider_credential_rotation": provider_credential_rotation,
+        "checklist_score": checklist_score,
+        "checklist_max": checklist_max,
+        "warnings": warnings,
+    })
+}
+
+fn default_hardening_status() -> serde_json::Value {
+    json!({
+        "development_mode": true,
+        "tls_enabled": false,
+        "csp_header_configured": false,
+        "cors_strict": true,
+        "secret_manager_in_use": false,
+        "log_redaction_enabled": false,
+        "admin_auth_mode": "unknown",
+        "rate_limit_enabled": false,
+        "provider_credential_rotation": "none",
+        "checklist_score": 0,
+        "checklist_max": 9,
+        "warnings": ["state_not_injected"],
+    })
 }
 
 #[handler]

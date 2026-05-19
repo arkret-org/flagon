@@ -166,6 +166,23 @@ teabay/
 └── diesel.toml        - Diesel CLI config for `crates/server`
 ```
 
+## Production Deployment Checklist
+
+Before exposing teabay to the public internet, walk every item below.
+The same list will be computed at runtime and surfaced on
+`/health.hardening` so sodmin's `/hardening` dashboard can flag failing
+checks across the whole fleet (see T8.3 for the cross-service shape).
+
+- [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
+- [ ] TLS enabled at the reverse proxy (or `TEABAY_TLS_CERT_PATH` / `TEABAY_TLS_KEY_PATH` when terminated in-process)
+- [ ] CSP header configured at the reverse proxy
+- [ ] CORS limited to the allowed origins for principal-server / sodmin callers
+- [ ] Secrets in a secret manager (admin signing keys, database credentials)
+- [ ] Log redaction enabled (default outside dev mode)
+- [ ] Admin auth in production mode (admin token / DID allowlist)
+- [ ] Rate limit enabled
+- [ ] Provider credential rotation scheduled (when applicable)
+
 ## License
 
 Apache-2.0.

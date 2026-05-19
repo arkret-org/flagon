@@ -906,10 +906,12 @@ dependencies = [
 name = "contrix-signatures"
 version = "0.7.0"
 dependencies = [
+ "base64",
  "chrono",
  "contrix-core",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
