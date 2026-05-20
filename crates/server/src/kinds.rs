@@ -1,27 +1,26 @@
 //! Wire constants for Contrix v1 Directory Service event kinds and operations.
 //!
-//! These string constants are the single source of truth used by the
-//! profile self-declaration / anti-drift guard (`crate::profile`) and any
-//! handler-side code that needs to refer to a wire kind/operation by name.
+//! These constants are **re-exported from `contrix-sdk`** (which mirrors the
+//! canonical `contrix-spec` registry). Teabay does NOT maintain a parallel
+//! copy of the strings; this file only adds aliases (`EVENT_KIND_*_DISCOVERY`)
+//! and the ordered slices (`DISCOVERY_EVENT_KINDS`, `DIRECTORY_OPERATIONS`)
+//! that the profile self-declaration / anti-drift guard
+//! (`crate::profile::verify_or_panic`) needs to compare byte-for-byte against
+//! `teabay-directory-service-baseline-2026-05-10.json`.
 //!
-//! Source: contrix-spec sync dc01ad7
-//!   * §8 ingest operations: `cx.directory.announce`, `cx.directory.withdraw`,
-//!     `cx.directory.subscribe`
-//!   * §3 discovery event kinds: `cx.{realm,organization,actor,applet,handle}.discovery`
-//!     (`realm` replaces the legacy `space` term after the Realm/Space
-//!     terminology inversion — see `README.md#realm-vs-space`)
-//!
-//! Anything declared here MUST appear in
-//! `cx.profile.directory_service.v1`'s `required_*` arrays (verified at
-//! startup by `crate::profile::verify_or_panic`).
+//! Source of truth:
+//!   * §3 discovery event kinds → `contrix_sdk::events::{REALM_DISCOVERY,
+//!     ORGANIZATION_DISCOVERY, ACTOR_DISCOVERY, APPLET_DISCOVERY,
+//!     HANDLE_DISCOVERY}`
+//!   * §8/§9 directory operations → `contrix_sdk::{OP_DIRECTORY_*}`
 
 // ---- §3 discovery event kinds (wire scope: directory_signed_event) ------
 
-pub const EVENT_KIND_REALM_DISCOVERY: &str = "cx.realm.discovery";
-pub const EVENT_KIND_ORGANIZATION_DISCOVERY: &str = "cx.organization.discovery";
-pub const EVENT_KIND_ACTOR_DISCOVERY: &str = "cx.actor.discovery";
-pub const EVENT_KIND_APPLET_DISCOVERY: &str = "cx.applet.discovery";
-pub const EVENT_KIND_HANDLE_DISCOVERY: &str = "cx.handle.discovery";
+pub const EVENT_KIND_REALM_DISCOVERY: &str = contrix_sdk::events::REALM_DISCOVERY;
+pub const EVENT_KIND_ORGANIZATION_DISCOVERY: &str = contrix_sdk::events::ORGANIZATION_DISCOVERY;
+pub const EVENT_KIND_ACTOR_DISCOVERY: &str = contrix_sdk::events::ACTOR_DISCOVERY;
+pub const EVENT_KIND_APPLET_DISCOVERY: &str = contrix_sdk::events::APPLET_DISCOVERY;
+pub const EVENT_KIND_HANDLE_DISCOVERY: &str = contrix_sdk::events::HANDLE_DISCOVERY;
 
 /// All discovery event kinds this directory service indexes.
 ///
@@ -38,20 +37,20 @@ pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
 
 // ---- §8 ingest operations -----------------------------------------------
 
-pub const OP_DIRECTORY_ANNOUNCE: &str = "cx.directory.announce";
-pub const OP_DIRECTORY_WITHDRAW: &str = "cx.directory.withdraw";
-pub const OP_DIRECTORY_SUBSCRIBE: &str = "cx.directory.subscribe";
+pub const OP_DIRECTORY_ANNOUNCE: &str = contrix_sdk::OP_DIRECTORY_ANNOUNCE;
+pub const OP_DIRECTORY_WITHDRAW: &str = contrix_sdk::OP_DIRECTORY_WITHDRAW;
+pub const OP_DIRECTORY_SUBSCRIBE: &str = contrix_sdk::OP_DIRECTORY_SUBSCRIBE;
 
 // ---- §9 query operations (declared for profile self-check) --------------
 
-pub const OP_DIRECTORY_DESCRIBE: &str = "cx.directory.describe";
-pub const OP_DIRECTORY_SEARCH_SPACES: &str = "cx.directory.search_spaces";
-pub const OP_DIRECTORY_RESOLVE_SPACE: &str = "cx.directory.resolve_space";
-pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = "cx.directory.search_organizations";
-pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = "cx.directory.resolve_organization";
-pub const OP_DIRECTORY_SEARCH_ACTORS: &str = "cx.directory.search_actors";
-pub const OP_DIRECTORY_SEARCH_USERS: &str = "cx.directory.search_users";
-pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = "cx.directory.resolve_handle";
+pub const OP_DIRECTORY_DESCRIBE: &str = contrix_sdk::OP_DIRECTORY_DESCRIBE;
+pub const OP_DIRECTORY_SEARCH_SPACES: &str = contrix_sdk::OP_DIRECTORY_SEARCH_SPACES;
+pub const OP_DIRECTORY_RESOLVE_SPACE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_SPACE;
+pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ORGANIZATIONS;
+pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_ORGANIZATION;
+pub const OP_DIRECTORY_SEARCH_ACTORS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ACTORS;
+pub const OP_DIRECTORY_SEARCH_USERS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_USERS;
+pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
 
 /// Every operation this directory service publishes, in the same order as
 /// `cx.profile.directory_service.v1#/required_endpoints`.
@@ -68,3 +67,28 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_WITHDRAW,
     OP_DIRECTORY_SUBSCRIBE,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovery_kinds_match_sdk() {
+        assert_eq!(EVENT_KIND_REALM_DISCOVERY, "cx.realm.discovery");
+        assert_eq!(EVENT_KIND_ORGANIZATION_DISCOVERY, "cx.organization.discovery");
+        assert_eq!(EVENT_KIND_ACTOR_DISCOVERY, "cx.actor.discovery");
+        assert_eq!(EVENT_KIND_APPLET_DISCOVERY, "cx.applet.discovery");
+        assert_eq!(EVENT_KIND_HANDLE_DISCOVERY, "cx.handle.discovery");
+    }
+
+    #[test]
+    fn directory_ops_match_sdk() {
+        assert_eq!(OP_DIRECTORY_ANNOUNCE, "cx.directory.announce");
+        assert_eq!(OP_DIRECTORY_WITHDRAW, "cx.directory.withdraw");
+        assert_eq!(OP_DIRECTORY_SUBSCRIBE, "cx.directory.subscribe");
+        assert_eq!(OP_DIRECTORY_DESCRIBE, "cx.directory.describe");
+        assert_eq!(OP_DIRECTORY_SEARCH_SPACES, "cx.directory.search_spaces");
+        assert_eq!(OP_DIRECTORY_RESOLVE_SPACE, "cx.directory.resolve_space");
+        assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "cx.directory.resolve_handle");
+    }
+}

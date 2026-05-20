@@ -14,7 +14,10 @@
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-use contrix_sdk::{Did, ServerDescription, TypedTrustDomainId};
+use contrix_sdk::{
+    ClaimedProfileEntry, CompatSurfaceEntry, Did, ServerDescription, TypedTrustDomainId,
+    VerifiedProfileEntry,
+};
 
 use crate::config::AppConfig;
 use crate::state::AppState;
@@ -156,8 +159,15 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // is empty until a cotest verifier is wired in; the
     // `development_mode=true ⇒ verified_profiles=[]` invariant is
     // enforced by `ServerDescription::validate_v2`.
-    let claimed_profiles = supported_profiles.clone();
-    let verified_profiles: Vec<String> = Vec::new();
+    //
+    // Round 4 — `claimed_profiles` / `verified_profiles` / `compat_surfaces`
+    // are typed entries in the SDK (`ClaimedProfileEntry` /
+    // `VerifiedProfileEntry` / `CompatSurfaceEntry`), not bare strings.
+    let claimed_profiles: Vec<ClaimedProfileEntry> = supported_profiles
+        .iter()
+        .map(ClaimedProfileEntry::self_claimed)
+        .collect();
+    let verified_profiles: Vec<VerifiedProfileEntry> = Vec::new();
 
     let experimental_features: Vec<String> = vec![
         "directory.webhook_fanout",
@@ -169,7 +179,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     // `compat_surfaces` — none yet. Reserve the field for back-compat
     // shims (e.g. a future pre-round-4 frontier-shape adapter).
-    let compat_surfaces: Vec<String> = Vec::new();
+    let compat_surfaces: Vec<CompatSurfaceEntry> = Vec::new();
 
     let describe_body = ServerDescription {
         service_did,
@@ -456,7 +466,14 @@ mod tests {
             plaintext_visibility: json!({"kind": "none"}),
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
-            verified_profiles: vec!["cx.profile.directory_service.v1".to_owned()],
+            verified_profiles: vec![VerifiedProfileEntry {
+                profile_id: "cx.profile.directory_service.v1".to_owned(),
+                claim_kind: contrix_sdk::CotestVerifiedKind::CotestVerified,
+                cotest_run_id: "test-run".to_owned(),
+                artifact_hash: "sha256:0".to_owned(),
+                timestamp: chrono::Utc::now(),
+                extra: Default::default(),
+            }],
             experimental_features: Vec::new(),
             compat_surfaces: Vec::new(),
             development_mode: true,
@@ -488,7 +505,7 @@ mod tests {
         assert!(
             !claimed
                 .iter()
-                .any(|p| p == "cx.private_contact_discovery.v1"),
+                .any(|p| p["profile_id"] == "cx.private_contact_discovery.v1"),
             "PCD must not be claimed when disabled"
         );
     }
