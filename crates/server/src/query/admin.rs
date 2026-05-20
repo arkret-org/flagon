@@ -509,6 +509,181 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
     }
 }
 
+// ---- Round R2/R3 T17 — consent revoke scope=any invalidation ------------
+
+/// `POST /api/admin/v1/consent-revoke` — soland (or any peer service)
+/// broadcasts a `consent_revoke{scope=any}` event for an actor; the
+/// directory then **eagerly invalidates** that actor's reachability
+/// entries in the directory ingest cache.
+///
+/// Per Round R2/R3 T17 we **soft-delete** (UPDATE) rather than DELETE
+/// so the audit trail is preserved — the row is marked with
+/// `reachability_revoked_at` and the search face hides it (resolve
+/// still surfaces it so in-flight subscribers can observe the
+/// revocation tombstone). A `cx.directory.subscribe` tombstone webhook
+/// fires on a best-effort basis through the same fanout path the
+/// announce handler uses.
+#[derive(Debug, Deserialize)]
+struct ConsentRevokeRequest {
+    /// Affected actor DID. Required.
+    actor_did: String,
+    /// Subject scope — MUST be `"any"` per spec; other values are
+    /// rejected so soland and the directory can't drift on enum.
+    #[serde(default)]
+    scope: Option<String>,
+    /// Optional human-readable reason (carried into the audit row).
+    #[serde(default)]
+    reason: Option<String>,
+    /// Optional list of affected resource_ids — when present, only those
+    /// rows are invalidated. When absent, every row keyed on the actor
+    /// (actor / handle / applet) is invalidated.
+    #[serde(default)]
+    resource_ids: Vec<String>,
+    /// Optional source event id (anchor) for cross-service traceability.
+    #[serde(default)]
+    source_event_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ConsentRevokeResponse {
+    invalidated_rows: i64,
+    revoked_at: DateTime<Utc>,
+    tombstoned_subscriptions: usize,
+}
+
+#[handler]
+pub async fn consent_revoke_invalidate(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+) {
+    let state = match admin_state(req, depot, res) {
+        Some(state) => state,
+        None => return,
+    };
+    let body: ConsentRevokeRequest = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ErrorCode::BadJson.render(res, format!("malformed consent revoke body: {error}"));
+            return;
+        }
+    };
+    if body.actor_did.trim().is_empty() {
+        ErrorCode::MissingParam.render(res, "actor_did is required");
+        return;
+    }
+    let scope = body.scope.as_deref().unwrap_or("any").trim().to_owned();
+    if !scope.eq_ignore_ascii_case("any") {
+        ErrorCode::InvalidParam.render(
+            res,
+            format!("scope `{scope}` not supported; only `any` invalidates directory reachability"),
+        );
+        return;
+    }
+
+    let revoked_at = Utc::now();
+    let reason = body
+        .reason
+        .clone()
+        .unwrap_or_else(|| "consent_revoke{scope=any}".to_owned());
+    let (invalidated_rows, affected) =
+        match invalidate_reachability(&state, &body, revoked_at, &reason) {
+            Ok(rows) => rows,
+            Err(error) => {
+                ErrorCode::InternalError.render(res, format!("consent revoke: {error}"));
+                return;
+            }
+        };
+
+    let _ = audit::record(
+        state.db(),
+        AuditEventKind::ConsentRevokeInvalidation,
+        None,
+        Some(&body.actor_did),
+        Some(&state.config().service_did),
+        json!({
+            "actor_did": body.actor_did,
+            "scope": scope,
+            "reason": reason,
+            "invalidated_rows": invalidated_rows,
+            "source_event_id": body.source_event_id,
+            "resource_ids": body.resource_ids,
+        }),
+    );
+
+    // Best-effort tombstone fanout for in-flight `cx.directory.subscribe`
+    // webhook listeners. T07 reuses the same channel for realm destroys.
+    let tombstoned_subscriptions =
+        crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &affected).await;
+
+    res.render(Json(ConsentRevokeResponse {
+        invalidated_rows,
+        revoked_at,
+        tombstoned_subscriptions,
+    }));
+}
+
+/// Round R2/R3 T17 — descriptor for a single reachability invalidation.
+/// Public so the ingest/subscribe fanout helper can accept slices of
+/// these from any direction (consent revoke admin path, announce-side
+/// realm-destroy detection).
+#[derive(Debug, Clone)]
+pub struct ReachabilityTombstone {
+    pub resource_kind: ResourceKindWire,
+    pub resource_id: String,
+    pub principal_server_did: String,
+    pub reason: String,
+    pub revoked_at: DateTime<Utc>,
+}
+
+fn invalidate_reachability(
+    state: &AppState,
+    body: &ConsentRevokeRequest,
+    revoked_at: DateTime<Utc>,
+    reason: &str,
+) -> anyhow::Result<(i64, Vec<ReachabilityTombstone>)> {
+    use crate::schema::directory_resources::dsl as r;
+
+    let mut conn = state.db().get()?;
+    // The actor's reachability projection can live on:
+    //   * actor rows keyed by the actor's DID
+    //   * handle rows where principal_server_did == actor DID
+    //   * applet rows that name the actor as principal
+    // We match by either `resource_id = actor_did` or
+    // `principal_server_did = actor_did`. T17 explicitly says "mark with
+    // revoked_at for audit" — so this is an UPDATE, not a DELETE.
+    let mut query = diesel::update(r::directory_resources)
+        .filter(
+            r::resource_id
+                .eq(&body.actor_did)
+                .or(r::principal_server_did.eq(&body.actor_did)),
+        )
+        .filter(r::reachability_revoked_at.is_null())
+        .into_boxed();
+    if !body.resource_ids.is_empty() {
+        query = query.filter(r::resource_id.eq_any(&body.resource_ids));
+    }
+    let affected_rows: Vec<(ResourceKindWire, String, String)> = query
+        .set((
+            r::reachability_revoked_at.eq(Some(revoked_at)),
+            r::reachability_revoked_reason.eq(Some(reason)),
+        ))
+        .returning((r::resource_kind, r::resource_id, r::principal_server_did))
+        .get_results(&mut conn)?;
+    let invalidated_rows = affected_rows.len() as i64;
+    let tombstones = affected_rows
+        .into_iter()
+        .map(|(resource_kind, resource_id, principal_server_did)| ReachabilityTombstone {
+            resource_kind,
+            resource_id,
+            principal_server_did,
+            reason: reason.to_owned(),
+            revoked_at,
+        })
+        .collect();
+    Ok((invalidated_rows, tombstones))
+}
+
 fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<AppState> {
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),

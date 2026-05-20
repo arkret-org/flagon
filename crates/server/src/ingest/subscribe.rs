@@ -128,6 +128,93 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     }));
 }
 
+/// Round R2/R3 T07 + T17 — best-effort tombstone fanout. Sent when a
+/// directory row is invalidated (either by `cx.realm.destroy` arriving
+/// on the ingest face or by a `consent_revoke{scope=any}` admin
+/// broadcast) so in-flight subscribers receive a canonical "this row is
+/// no longer authoritative" notification on the same webhook channel
+/// that delivers accepted ingest updates. Returns the count of webhook
+/// subscriptions matched (delivery itself runs in the background).
+pub async fn fanout_reachability_tombstone(
+    state: AppState,
+    tombstones: &[crate::query::admin::ReachabilityTombstone],
+) -> usize {
+    let mut delivered = 0usize;
+    let http = Client::new();
+    let now = Utc::now();
+    for tombstone in tombstones {
+        let subscriptions = match matching_subscriptions(
+            &state,
+            &AcceptedIngestEvent {
+                announce_id: String::new(),
+                ingest_mode: IngestModeWire::Push,
+                resource_kind: tombstone.resource_kind,
+                resource_id: tombstone.resource_id.clone(),
+                principal_server_did: tombstone.principal_server_did.clone(),
+                indexed_at: now,
+                as_of: now,
+                source_refs: Vec::new(),
+                policy_revision: None,
+                public_projection: JsonValue::Null,
+            },
+        ) {
+            Ok(rows) => rows,
+            Err(error) => {
+                tracing::warn!(%error, "tombstone fanout subscription load failed");
+                continue;
+            }
+        };
+        for subscription in subscriptions {
+            delivered += 1;
+            let http = http.clone();
+            let tombstone = tombstone.clone();
+            tokio::spawn(async move {
+                if let Err(error) = deliver_tombstone(http, subscription, tombstone).await {
+                    tracing::warn!(%error, "tombstone webhook delivery failed");
+                }
+            });
+        }
+    }
+    delivered
+}
+
+async fn deliver_tombstone(
+    http: Client,
+    subscription: WebhookSubscriptionRow,
+    tombstone: crate::query::admin::ReachabilityTombstone,
+) -> anyhow::Result<()> {
+    let body = json!({
+        "subscription_id": subscription.subscription_id,
+        "tombstone": {
+            "kind": "reachability_revoked",
+            "reason": tombstone.reason,
+            "revoked_at": tombstone.revoked_at,
+        },
+        "resource_kind": tombstone.resource_kind,
+        "resource_id": tombstone.resource_id,
+        "principal_server_did": tombstone.principal_server_did,
+    });
+    let bytes = serde_json::to_vec(&body)?;
+    let secret = subscription
+        .secret
+        .filter(|secret| !secret.is_empty())
+        .unwrap_or_else(|| generate_secret(&subscription.subscription_id, "", ""));
+    let signature = sign_body(&secret, &bytes)?;
+    let response = http
+        .post(&subscription.webhook_endpoint)
+        .header("content-type", "application/json")
+        .header("x-contrix-webhook-id", &subscription.subscription_id)
+        .header("x-contrix-webhook-signature", signature)
+        .header("x-contrix-webhook-event", "reachability_tombstone")
+        .body(bytes)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        anyhow::bail!("tombstone webhook returned {}", response.status());
+    }
+    Ok(())
+}
+
 pub async fn fanout_accepted_ingest(state: AppState, event: AcceptedIngestEvent) {
     let subscriptions = match matching_subscriptions(&state, &event) {
         Ok(rows) => rows,

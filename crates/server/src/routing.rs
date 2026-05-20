@@ -80,6 +80,10 @@ fn admin_router() -> Router {
                 .delete(query::admin::resource_delete),
         )
         .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
+        // Round R2/R3 T17 — soland calls this to broadcast a
+        // `consent_revoke{scope=any}` and trigger eager directory
+        // reachability invalidation. Bearer auth, admin-only.
+        .push(Router::with_path("consent-revoke").post(query::admin::consent_revoke_invalidate))
 }
 
 fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {

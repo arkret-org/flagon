@@ -233,14 +233,16 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             next_revalidation_after: existing.indexed_at
                 + chrono::Duration::seconds(existing.effective_ttl_seconds as i64),
             warnings: vec!["idempotent_replay".into()],
+            historical_only: false,
         };
-        state.remember_announce_replay(
-            request_digest,
+        state.remember_federation_replay(
+            cache_key.clone(),
             CachedAnnounceResponse {
                 announce_id: response.announce_id.clone(),
                 indexed_at: response.indexed_at,
                 effective_ttl_seconds: response.effective_ttl_seconds,
                 next_revalidation_after: response.next_revalidation_after,
+                historical_only: false,
             },
         );
         res.render(Json(response));
@@ -276,6 +278,12 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
+    // Round R2/R3 T07 — discovery_state can carry a `terminal_state`
+    // marker after `cx.realm.destroy` anchors. Surface it as a row-level
+    // tombstone so the resolve / search projections collapse to a
+    // placeholder. See `derive_realm_terminal_state`.
+    let realm_terminal = derive_realm_terminal_state(body.resource_kind, &body.discovery_state);
+
     let insert_outcome = upsert_resource_and_audit(
         state.db(),
         &body,
@@ -287,6 +295,14 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         next_revalidation,
         request_digest.clone(),
         public_projection.clone(),
+        FederationCachePersist {
+            source_service_did: cache_inputs.source_service_did.clone(),
+            verification_method: cache_inputs.verification_method.clone(),
+            service_binding_ref: cache_inputs.service_binding_ref.clone(),
+            origin_key_state_hash: cache_inputs.origin_key_state_hash.clone(),
+            historical_only: false,
+        },
+        realm_terminal,
     );
 
     if let Err(e) = insert_outcome {
@@ -305,8 +321,36 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             "ingest_mode": "push",
             "discoverability": verified.discoverability.as_pg(),
             "policy_revision": verified.policy_revision,
+            "realm_destroyed": realm_terminal.is_some(),
         }),
     );
+
+    if let Some(destroyed_at) = realm_terminal {
+        let _ = audit::record(
+            state.db(),
+            AuditEventKind::RealmDestroyed,
+            Some(body.resource_kind),
+            Some(&body.resource_id),
+            Some(&body.principal_server_did),
+            json!({
+                "announce_id": announce_id,
+                "as_of": body.as_of,
+            }),
+        );
+        // Round R2/R3 T07 — tombstone fanout to in-flight subscribers.
+        let tombstone = crate::query::admin::ReachabilityTombstone {
+            resource_kind: body.resource_kind,
+            resource_id: body.resource_id.clone(),
+            principal_server_did: body.principal_server_did.clone(),
+            reason: "cx.realm.destroy".into(),
+            revoked_at: destroyed_at,
+        };
+        let _ = crate::ingest::subscribe::fanout_reachability_tombstone(
+            state.clone(),
+            &[tombstone],
+        )
+        .await;
+    }
 
     fanout_accepted_ingest(
         state.clone(),
@@ -325,13 +369,14 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     )
     .await;
 
-    state.remember_announce_replay(
-        request_digest,
+    state.remember_federation_replay(
+        cache_key,
         CachedAnnounceResponse {
             announce_id: announce_id.clone(),
             indexed_at,
             effective_ttl_seconds: effective_ttl,
             next_revalidation_after: next_revalidation,
+            historical_only: false,
         },
     );
 
@@ -341,7 +386,46 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         effective_ttl_seconds: effective_ttl,
         next_revalidation_after: next_revalidation,
         warnings: vec![],
+        historical_only: false,
     }));
+}
+
+/// Round R2/R3 T07 — detect a realm terminal state from the verified
+/// discovery_state. The directory accepts the destroy anchor either as
+/// `terminal_state: "destroyed"` (preferred, anchored via the `cx.realm.
+/// destroy` event kind) or as a `realm_destroyed: true` shorthand. The
+/// returned timestamp is `as_of_destroyed` if present, else `as_of`.
+pub(crate) fn derive_realm_terminal_state(
+    resource_kind: ResourceKindWire,
+    discovery_state: &JsonValue,
+) -> Option<DateTime<Utc>> {
+    // Only Spaces carry the security boundary (Realm) row in this
+    // implementation — see `query::space` realm-rework note. Other
+    // resource kinds are silently skipped.
+    // TODO(round23-T07): once a dedicated `realm` resource_kind exists
+    // in the schema, gate on that instead of `Space`.
+    if !matches!(resource_kind, ResourceKindWire::Space) {
+        return None;
+    }
+    let destroyed_marker = discovery_state
+        .pointer("/terminal_state")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|state| state.eq_ignore_ascii_case("destroyed"))
+        || discovery_state
+            .pointer("/realm_destroyed")
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+    if !destroyed_marker {
+        return None;
+    }
+    let destroyed_at = discovery_state
+        .pointer("/realm_destroyed_at")
+        .or_else(|| discovery_state.pointer("/as_of_destroyed"))
+        .and_then(JsonValue::as_str)
+        .and_then(|raw| DateTime::parse_from_rfc3339(raw).ok())
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now);
+    Some(destroyed_at)
 }
 
 fn validate_request_shape(
@@ -482,6 +566,23 @@ pub(crate) fn latest_as_of_for(
     Ok(row)
 }
 
+/// Round R2/R3 T14 — extra federation cache fields persisted alongside
+/// the `ingest_announces` row. Pulled from request headers + the
+/// discovery proof on the push path; defaulted to empty on the pull
+/// path until the pull worker grows symmetric handling.
+// TODO(round23-T14): once the pull worker observes Source-Service-DID
+// and origin_key_state_hash from the upstream Principal Server, plumb
+// those into `FederationCachePersist::default_for_pull` so the cache
+// keys match push-path replays.
+#[derive(Debug, Clone, Default)]
+pub struct FederationCachePersist {
+    pub source_service_did: String,
+    pub verification_method: String,
+    pub service_binding_ref: String,
+    pub origin_key_state_hash: Vec<u8>,
+    pub historical_only: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn upsert_resource_and_audit(
     db: &Db,
@@ -494,6 +595,8 @@ pub(crate) fn upsert_resource_and_audit(
     next_revalidation: DateTime<Utc>,
     request_digest: Vec<u8>,
     public_projection: JsonValue,
+    federation_cache: FederationCachePersist,
+    realm_terminal_state: Option<DateTime<Utc>>,
 ) -> anyhow::Result<()> {
     use crate::schema::directory_resources::dsl as r;
     use crate::schema::ingest_announces::dsl as a;
@@ -514,6 +617,11 @@ pub(crate) fn upsert_resource_and_audit(
                 a::effective_ttl_seconds.eq(effective_ttl as i32),
                 a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
                 a::request_digest.eq(&request_digest),
+                a::source_service_did.eq(&federation_cache.source_service_did),
+                a::verification_method.eq(&federation_cache.verification_method),
+                a::service_binding_ref.eq(&federation_cache.service_binding_ref),
+                a::origin_key_state_hash.eq(&federation_cache.origin_key_state_hash),
+                a::historical_only.eq(federation_cache.historical_only),
             ))
             .on_conflict((a::resource_kind, a::resource_id, a::as_of))
             .do_nothing()
@@ -557,6 +665,7 @@ pub(crate) fn upsert_resource_and_audit(
                 r::divergent.eq(false),
                 r::via_services.eq(&verified.via_services),
                 r::last_announce_id.eq(Some(stored_announce_id.as_str())),
+                r::realm_destroyed_at.eq(realm_terminal_state),
             ))
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
@@ -574,6 +683,14 @@ pub(crate) fn upsert_resource_and_audit(
                 r::stale.eq(false),
                 r::via_services.eq(&verified.via_services),
                 r::last_announce_id.eq(Some(stored_announce_id.as_str())),
+                // Round R2/R3 T07 — once a realm is destroyed it
+                // remains destroyed; we OR in the new marker without
+                // ever clearing a previously-set destroyed_at.
+                r::realm_destroyed_at.eq(diesel::dsl::sql::<
+                    diesel::sql_types::Nullable<diesel::sql_types::Timestamptz>,
+                >(
+                    "COALESCE(directory_resources.realm_destroyed_at, EXCLUDED.realm_destroyed_at)",
+                )),
             ))
             .execute(conn)?;
 

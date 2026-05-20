@@ -3,7 +3,7 @@
 Reference Contrix v1 **Directory Service** implementation.
 
 teabay is the *discovery entry layer* of the Contrix protocol stack: it accepts
-signed `cx.{space,organization,actor,applet,handle}.discovery` state from
+signed `cx.{realm,organization,actor,applet,handle}.discovery` state from
 resource Principal Servers, indexes the public-metadata projection, and
 serves authorized search / resolve queries — all while enforcing the
 spec's anti-enumeration filter.
@@ -25,7 +25,27 @@ projections target the **Realm** as the unit of public metadata:
   inside a Realm. Spaces are not directly discoverable; they ride along
   their parent Realm.
 
-Legacy `cx.space.discovery` payloads remain accepted via serde aliases.
+Per spec, the legacy `cx.space.discovery` kind is **hard-rejected** at
+verify-time — no serde alias, no quiet rewrite. Emitters must send
+`cx.realm.discovery`.
+
+## Round R2/R3 operator notes
+
+Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
+key on `cx.directory.announce`. The cache key now includes
+`Source-Service-DID` / `verification_method` / `service_binding_ref` /
+`origin_key_state_hash` — see [`CHANGELOG.md`](CHANGELOG.md)
+`[Unreleased]` and
+[`../contrix-spec/CHANGELOG.md`](../contrix-spec/CHANGELOG.md) (T14)
+for the normative source.
+
+**Operator action on upgrade:** any stale idempotency cache built
+against the pre-round-2 key (announce ref only) MUST be cleared on
+upgrade, otherwise replayed announces after a peer-service-key
+revocation will be served as fresh writes instead of being marked
+`historical_only`. The migration `20260520010000_round23` adds the new
+columns to `ingest_announces` and the `realm_destroyed_at` /
+`reachability_revoked_at` columns to `directory_resources`.
 
 ## Conformance scope
 
@@ -196,6 +216,11 @@ checks across the whole fleet (see T8.3 for the cross-service shape).
 - [ ] Admin auth in production mode (admin token / DID allowlist)
 - [ ] Rate limit enabled
 - [ ] Provider credential rotation scheduled (when applicable)
+
+## Cross-project task tracking
+
+Per-project task lists are consolidated upstream — see
+[`../_todos.md`](../_todos.md) for the active cross-project task plan.
 
 ## License
 

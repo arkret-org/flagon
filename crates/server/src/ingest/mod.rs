@@ -37,9 +37,14 @@ impl ResourceKindWire {
     }
 
     /// Spec `cx.{kind}.discovery` event kind for this resource.
+    ///
+    /// Note: the `Space` enum variant retains its name because it maps to
+    /// the `'space'` value of the `resource_kind` Postgres enum (container
+    /// category, not the security-boundary Realm term). The *wire* kind
+    /// for that variant is the post-inversion `cx.realm.discovery`.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
-            Self::Space => "cx.space.discovery",
+            Self::Space => "cx.realm.discovery",
             Self::Organization => "cx.organization.discovery",
             Self::Actor => "cx.actor.discovery",
             Self::Applet => "cx.applet.discovery",

@@ -17,7 +17,7 @@
     "cx.directory.subscribe"
   ],
   "required_event_kinds": [
-    "cx.space.discovery",
+    "cx.realm.discovery",
     "cx.organization.discovery",
     "cx.actor.discovery",
     "cx.applet.discovery",

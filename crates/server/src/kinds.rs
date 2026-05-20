@@ -7,7 +7,9 @@
 //! Source: contrix-spec sync dc01ad7
 //!   * §8 ingest operations: `cx.directory.announce`, `cx.directory.withdraw`,
 //!     `cx.directory.subscribe`
-//!   * §3 discovery event kinds: `cx.{space,organization,actor,applet,handle}.discovery`
+//!   * §3 discovery event kinds: `cx.{realm,organization,actor,applet,handle}.discovery`
+//!     (`realm` replaces the legacy `space` term after the Realm/Space
+//!     terminology inversion — see `README.md#realm-vs-space`)
 //!
 //! Anything declared here MUST appear in
 //! `cx.profile.directory_service.v1`'s `required_*` arrays (verified at
@@ -15,7 +17,7 @@
 
 // ---- §3 discovery event kinds (wire scope: directory_signed_event) ------
 
-pub const EVENT_KIND_SPACE_DISCOVERY: &str = "cx.space.discovery";
+pub const EVENT_KIND_REALM_DISCOVERY: &str = "cx.realm.discovery";
 pub const EVENT_KIND_ORGANIZATION_DISCOVERY: &str = "cx.organization.discovery";
 pub const EVENT_KIND_ACTOR_DISCOVERY: &str = "cx.actor.discovery";
 pub const EVENT_KIND_APPLET_DISCOVERY: &str = "cx.applet.discovery";
@@ -27,7 +29,7 @@ pub const EVENT_KIND_HANDLE_DISCOVERY: &str = "cx.handle.discovery";
 /// `required_event_kinds` array byte-for-byte so the anti-drift guard can
 /// detect rearrangement.
 pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
-    EVENT_KIND_SPACE_DISCOVERY,
+    EVENT_KIND_REALM_DISCOVERY,
     EVENT_KIND_ORGANIZATION_DISCOVERY,
     EVENT_KIND_ACTOR_DISCOVERY,
     EVENT_KIND_APPLET_DISCOVERY,

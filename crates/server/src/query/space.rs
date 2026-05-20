@@ -216,6 +216,10 @@ struct SpaceStoredRow {
     divergent: bool,
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
+    // Round R2/R3 T07.
+    realm_destroyed_at: Option<DateTime<Utc>>,
+    // Round R2/R3 T17.
+    reachability_revoked_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug)]
@@ -231,6 +235,8 @@ struct SpaceRow {
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
     score: f64,
+    realm_destroyed_at: Option<DateTime<Utc>>,
+    reachability_revoked_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, QueryableByName)]
@@ -257,6 +263,10 @@ struct SpaceSqlRow {
     indexed_at: DateTime<Utc>,
     #[diesel(sql_type = Double)]
     score: f64,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    realm_destroyed_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    reachability_revoked_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -357,6 +367,8 @@ async fn load_space_row(state: &AppState, key: &str) -> anyhow::Result<Option<Sp
             r::divergent,
             r::via_services,
             r::indexed_at,
+            r::realm_destroyed_at,
+            r::reachability_revoked_at,
         ))
         .first(&mut conn)
         .optional()?;
@@ -364,6 +376,33 @@ async fn load_space_row(state: &AppState, key: &str) -> anyhow::Result<Option<Sp
 }
 
 fn envelope_from_row(row: SpaceRow) -> ResultEnvelope {
+    // Round R2/R3 T07 — once `cx.realm.destroy` has anchored, the row's
+    // projection collapses to a deterministic tombstone so the resolve
+    // / search face surfaces `[erased]` instead of leaking the historical
+    // governance state.
+    if let Some(destroyed_at) = row.realm_destroyed_at {
+        let payload = serde_json::json!({
+            "space_id": row.resource_id,
+            "realm_id": row.resource_id,
+            "discoverability": row.discoverability.as_pg(),
+            "name": "[erased]",
+            "summary": "[erased]",
+            "tombstone": {
+                "kind": "realm_destroyed",
+                "destroyed_at": destroyed_at,
+                "via_event_kind": "cx.realm.destroy",
+            },
+        });
+        return ResultEnvelope::from_row(
+            payload,
+            row.as_of,
+            row.source_refs,
+            row.policy_revision,
+            row.stale,
+            row.divergent,
+            row.via_services,
+        );
+    }
     // Inject the canonical key so clients can act on the row immediately.
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
@@ -385,6 +424,13 @@ fn envelope_from_row(row: SpaceRow) -> ResultEnvelope {
 }
 
 fn is_result_visible(row: &SpaceRow, requester: Option<&str>, proofs: &[String]) -> bool {
+    // Round R2/R3 T17 — once reachability has been revoked for the
+    // affected actor we drop the row from the search face. Resolve
+    // still surfaces the row (so existing in-flight conversations can
+    // observe the revocation) but `search-*` lists hide it.
+    if row.reachability_revoked_at.is_some() {
+        return false;
+    }
     match row.discoverability {
         DiscoverabilityWire::Public
         | DiscoverabilityWire::Listed
@@ -446,6 +492,8 @@ impl TryFrom<SpaceSqlRow> for SpaceRow {
             via_services: row.via_services,
             indexed_at: row.indexed_at,
             score: row.score,
+            realm_destroyed_at: row.realm_destroyed_at,
+            reachability_revoked_at: row.reachability_revoked_at,
         })
     }
 }
@@ -464,6 +512,8 @@ impl From<SpaceStoredRow> for SpaceRow {
             via_services: row.via_services,
             indexed_at: row.indexed_at,
             score: 0.0,
+            realm_destroyed_at: row.realm_destroyed_at,
+            reachability_revoked_at: row.reachability_revoked_at,
         }
     }
 }
@@ -550,6 +600,8 @@ WITH ranked AS (
         divergent,
         via_services,
         indexed_at,
+        realm_destroyed_at,
+        reachability_revoked_at,
         CASE
             WHEN $1 = '' THEN 0.0::double precision
             ELSE GREATEST(
@@ -602,7 +654,9 @@ SELECT
     divergent,
     via_services,
     indexed_at,
-    score
+    score,
+    realm_destroyed_at,
+    reachability_revoked_at
 FROM ranked
 WHERE (
     $4::double precision IS NULL

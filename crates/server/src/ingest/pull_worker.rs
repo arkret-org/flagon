@@ -34,8 +34,8 @@ use tracing::{info, warn};
 use crate::audit::{self, AuditEventKind};
 use crate::ids::{IdClass, new_id};
 use crate::ingest::announce::{
-    AnnounceRequest, derive_public_projection, digest_request, effective_ttl_seconds,
-    latest_as_of_for, upsert_resource_and_audit,
+    AnnounceRequest, FederationCachePersist, derive_public_projection, derive_realm_terminal_state,
+    digest_request, effective_ttl_seconds, latest_as_of_for, upsert_resource_and_audit,
 };
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::{
@@ -218,6 +218,13 @@ impl PullWorker {
             })?;
         let fanout_projection = public_projection.clone();
 
+        // Round R2/R3 T07 — surface realm terminal state on the pull
+        // path too. Pull-mode federation cache fields are intentionally
+        // empty (the pull worker is internal and does not federate
+        // through Source-Service-DID); see FederationCachePersist
+        // TODO(round23-T14).
+        let realm_terminal =
+            derive_realm_terminal_state(announce.resource_kind, &announce.discovery_state);
         upsert_resource_and_audit(
             self.state.db(),
             &announce,
@@ -229,6 +236,8 @@ impl PullWorker {
             next_revalidation,
             digest_request(&announce),
             public_projection,
+            FederationCachePersist::default(),
+            realm_terminal,
         )?;
 
         self.record_success(&entry, &pulled.event_id, next_revalidation)?;
@@ -242,8 +251,22 @@ impl PullWorker {
                 "announce_id": announce_id,
                 "source_ref": pulled.event_id,
                 "as_of": announce.as_of,
+                "realm_destroyed": realm_terminal.is_some(),
             }),
         );
+        if realm_terminal.is_some() {
+            let _ = audit::record(
+                self.state.db(),
+                AuditEventKind::RealmDestroyed,
+                Some(entry.resource_kind),
+                Some(&entry.resource_id),
+                Some(&entry.principal_server_did),
+                json!({
+                    "announce_id": announce_id,
+                    "as_of": announce.as_of,
+                }),
+            );
+        }
 
         fanout_accepted_ingest(
             self.state.clone(),
