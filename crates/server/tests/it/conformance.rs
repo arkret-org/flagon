@@ -794,7 +794,7 @@ fn handle_mock_principal_connection(
                     "events": [{
                         "event": {
                             "event_id": event_id,
-                            "kind": "cx.space.discovery",
+                            "kind": "cx.realm.discovery",
                             "created_at": Utc::now(),
                             "content": state,
                         }
@@ -831,7 +831,7 @@ fn signed_space_discovery_state_named(
     name: &str,
 ) -> anyhow::Result<JsonValue> {
     let mut state = json!({
-        "kind": "cx.space.discovery",
+        "kind": "cx.realm.discovery",
         "discoverability": "public",
         "directory_services": ["did:web:directory.test"],
         "name": name,

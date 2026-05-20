@@ -455,7 +455,11 @@ fn filter_projection_against_policy(
             .get("recipient_service_did")
             .and_then(JsonValue::as_str)
         {
-            Some(did) => unrestricted_recipient || allow_recipient.iter().any(|a| a == did),
+            // Round 4 — tightened DID regex applies here too.
+            Some(did) => {
+                is_round4_tight_did(did)
+                    && (unrestricted_recipient || allow_recipient.iter().any(|a| a == did))
+            }
             None => false,
         };
         if top_recipient_ok {
@@ -520,9 +524,15 @@ fn binding_passes(
     unrestricted_source: bool,
 ) -> bool {
     let recipient_ok = match obj.get("recipient_service_did").and_then(JsonValue::as_str) {
-        Some(did) => {
+        // Round 4 (spec a77b995, commit f9bd7eb) — the DID regex was
+        // tightened to `^did:[a-z0-9]+:[^\s]+$`. The SDK `Did::new`
+        // newtype enforces it; legacy projections whose
+        // `recipient_service_did` uses dot/dash/underscore/colon in
+        // the method segment MUST be dropped as if absent, not allowed
+        // through unconditionally.
+        Some(did) => is_round4_tight_did(did) && {
             unrestricted_recipient || policy.allowed_recipient_services.iter().any(|a| a == did)
-        }
+        },
         None => false,
     };
     let source_ok = match obj.get("binding_source").and_then(JsonValue::as_str) {
@@ -530,6 +540,12 @@ fn binding_passes(
         None => unrestricted_source, // No binding_source declared — only allowed when policy is open.
     };
     recipient_ok && source_ok
+}
+
+/// Round 4 — drop legacy candidates whose `recipient_service_did`
+/// fails the tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
+fn is_round4_tight_did(did: &str) -> bool {
+    contrix_sdk::Did::new(did.to_owned()).is_ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -877,6 +893,41 @@ mod tests {
         }));
         let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
 
+        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
+        assert!(matches!(outcome, ResolveOutcome::NotFound));
+    }
+
+    /// Round 4 — handle-claim / member-delivery-binding-candidate
+    /// projections whose `recipient_service_did` uses dot/dash/
+    /// underscore/colon in the DID method segment MUST be dropped as
+    /// if absent. A legacy row with `did:web.legacy:peer` is  ROUND4-ALLOW: docstring describes a rejected legacy form.
+    /// indistinguishable from a non-existent candidate to the resolver.
+    #[test]
+    fn round4_did_regex_tightening_rejects_legacy_method_segment() {
+        assert!(is_round4_tight_did("did:web:principal.tea"));
+        assert!(is_round4_tight_did("did:webvh:directory.test"));
+        // Round 4 tightening rejects dot / dash / underscore in the
+        // method segment (colon already terminates the method).
+        assert!(!is_round4_tight_did("did:web.legacy:peer")); // ROUND4-ALLOW: negative test
+        assert!(!is_round4_tight_did("did:web-legacy:peer")); // ROUND4-ALLOW: negative test
+        assert!(!is_round4_tight_did("did:web_legacy:peer")); // ROUND4-ALLOW: negative test
+        // Capital letters in the method segment are rejected too —
+        // the tightened regex is `^did:[a-z0-9]+:[^\s]+$`.
+        assert!(!is_round4_tight_did("did:Web:peer"));
+
+        // And the filter MUST drop the legacy candidate end-to-end.
+        let row = dummy_row(json!({
+            "did": "did:web:alice.example",
+            "verified": true,
+            "binding_candidates": [
+                {
+                    "recipient_service_did": "did:web.legacy:peer", // ROUND4-ALLOW: negative test for round-4 regex
+                    "binding_source": "join_policy"
+                }
+            ]
+        }));
+        let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let policy = realm_policy(&[], &["did:web:tea-org.example"]);
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }

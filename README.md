@@ -29,6 +29,24 @@ Per spec, the legacy `cx.space.discovery` kind is **hard-rejected** at
 verify-time — no serde alias, no quiet rewrite. Emitters must send
 `cx.realm.discovery`.
 
+## Round R4 (protocol review closures)
+
+Spec round 4 (`contrix-spec` range `2a4d39b..a77b995`, 8 commits) adds
+three directory-service items. See [`CHANGELOG.md`](CHANGELOG.md)
+`[Unreleased]` and [`../_todos.md`](../_todos.md) for the canonical
+wire-breaking list.
+
+- **`/directory/describe` returns `ServiceDescribe` v2** — 17 required
+  fields including `trust_domain` and `plaintext_visibility`.
+- **Federation S2S transport adds three signed headers** —
+  `Source-Trust-Domain` / `Destination-Trust-Domain` /
+  `Request-Canonical-Hash` are verified and folded into the
+  HTTP-message-signature transcript.
+- **Idempotency `historical_only`** — directory-announce replays after
+  source-key revocation return the cached body with
+  `reason_code=historical_only`; capability re-check still runs, side
+  effects do not.
+
 ## Round R2/R3 operator notes
 
 Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache

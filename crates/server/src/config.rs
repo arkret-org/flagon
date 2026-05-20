@@ -21,6 +21,12 @@ pub struct AppConfig {
     pub bind: SocketAddr,
     pub public_base_url: String,
     pub service_did: String,
+    /// Round 4 — typed trust domain advertised in
+    /// `/directory/describe` and required on every cross-trust-domain
+    /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
+    /// to `cx:trust_domain:local.test` so the in-process conformance
+    /// harness keeps working without operator hand-holding.
+    pub trust_domain: String,
     pub database_url: String,
     pub cors_allow_origin: Option<String>,
     pub admin_token: Option<String>,
@@ -148,6 +154,17 @@ impl AppConfig {
         let service_did = std::env::var("TEABAY_SERVICE_DID")
             .map_err(|_| anyhow::anyhow!("TEABAY_SERVICE_DID is required"))?;
 
+        // Round 4 — required trust domain on ServiceDescribe v2. Operators
+        // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
+        // exists so the in-process conformance harness keeps booting.
+        let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")
+            .unwrap_or_else(|_| "cx:trust_domain:local.test".to_owned());
+        if contrix_sdk::TypedTrustDomainId::new(trust_domain.clone()).is_err() {
+            anyhow::bail!(
+                "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `cx:trust_domain:` identifier"
+            );
+        }
+
         let database_url = std::env::var("DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DATABASE_URL is required"))?;
 
@@ -233,6 +250,7 @@ impl AppConfig {
             bind,
             public_base_url,
             service_did,
+            trust_domain,
             database_url,
             cors_allow_origin,
             admin_token,

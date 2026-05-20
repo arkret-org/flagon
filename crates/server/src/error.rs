@@ -51,6 +51,15 @@ pub enum ErrorCode {
     TakedownInForce,
     /// §8.10: `policy_revision` / `as_of` is older than the indexed entry.
     PolicyRevisionRollback,
+
+    // -------- Round 4 federation S2S codes --------
+    /// Round 4 (spec a77b995, commit f9bd7eb): the inbound federation
+    /// request's `Source-Trust-Domain` / `Destination-Trust-Domain` /
+    /// `Request-Canonical-Hash` triad does not match the directory's
+    /// expected scope or the canonical hash of the request body.
+    /// A sender from trust domain A is NOT permitted to replay signed
+    /// bytes into trust domain B.
+    CrossDomainReplayRejected,
 }
 
 impl ErrorCode {
@@ -85,6 +94,7 @@ impl ErrorCode {
             Self::TtlOutOfRange => "ttl_out_of_range",
             Self::TakedownInForce => "takedown_in_force",
             Self::PolicyRevisionRollback => "policy_revision_rollback",
+            Self::CrossDomainReplayRejected => contrix_sdk::ERROR_CODE_CROSS_DOMAIN_REPLAY_REJECTED,
         }
     }
 
@@ -118,6 +128,9 @@ impl ErrorCode {
             | Self::GovernanceKeyInvalid
             | Self::TtlOutOfRange => StatusCode::BAD_REQUEST,
             Self::TakedownInForce | Self::PolicyRevisionRollback => StatusCode::CONFLICT,
+            // Round 4 — cross-domain replay rejection is a 403
+            // (authorization-class refusal). Matches soland's wire shape.
+            Self::CrossDomainReplayRejected => StatusCode::FORBIDDEN,
         }
     }
 

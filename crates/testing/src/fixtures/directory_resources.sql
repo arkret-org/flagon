@@ -20,7 +20,11 @@ INSERT INTO directory_resources (
     'space'::resource_kind,
     'cx:space:tea',
     'did:web:principal.test',
-    '{"kind":"cx.space.discovery","discoverability":"public"}'::jsonb,
+    -- Round 4 (spec a77b995): the §3 discovery event kind for the
+    -- Realm/Space security boundary is `cx.realm.discovery`. The
+    -- legacy `cx.space.discovery` was a pre-realm-rework residue and
+    -- is wire-broken under aggressive mode.
+    '{"kind":"cx.realm.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / governance/join-policy §5.1.3 (post realm-rework):
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
@@ -47,7 +51,7 @@ INSERT INTO directory_resources (
     'space'::resource_kind,
     'cx:space:tea-lab',
     'did:web:principal.test',
-    '{"kind":"cx.space.discovery","discoverability":"listed"}'::jsonb,
+    '{"kind":"cx.realm.discovery","discoverability":"listed"}'::jsonb,
     '{"name":"Tea Protocol Lab","summary":"Second public conformance space","member_count_bucket":"11-50"}'::jsonb,
     'listed'::discoverability,
     now() - interval '1 minute',
@@ -65,7 +69,7 @@ INSERT INTO directory_resources (
     'space'::resource_kind,
     'cx:space:restricted',
     'did:web:principal.test',
-    '{"kind":"cx.space.discovery","discoverability":"restricted"}'::jsonb,
+    '{"kind":"cx.realm.discovery","discoverability":"restricted"}'::jsonb,
     '{"name":"Restricted Tea","summary":"Gated conformance space","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
     'restricted'::discoverability,
     now(),
@@ -83,7 +87,7 @@ INSERT INTO directory_resources (
     'space'::resource_kind,
     'cx:space:secret',
     'did:web:principal.test',
-    '{"kind":"cx.space.discovery","discoverability":"secret"}'::jsonb,
+    '{"kind":"cx.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
     'secret'::discoverability,
     now(),

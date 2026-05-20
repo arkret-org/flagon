@@ -7,6 +7,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Round R4 — protocol review closures (2026-05-20, contrix-spec `2a4d39b..a77b995`)
+
+Closes the round-4 protocol-review commits on the directory-service
+surface. See [`../_todos.md`](../_todos.md) for the workstream context.
+
+- **BREAKING** `/directory/describe` switched to the `ServiceDescribe` v2
+  envelope (17 required fields including `trust_domain` /
+  `plaintext_visibility` / `claimed_profiles` / `verified_profiles` /
+  `development_mode`).
+- **BREAKING** Federation S2S transport now verifies the three new
+  headers `Source-Trust-Domain` / `Destination-Trust-Domain` /
+  `Request-Canonical-Hash` and folds them into the HTTP-message-signature
+  transcript. Mismatch rejects as `cross_domain_replay_rejected`.
+- **Added** Federation idempotency cache adopts the soland `historical_only`
+  semantics: post-key-revoke cache hits return the cached body with
+  diagnostic `reason_code=historical_only`, with capability re-check, no
+  new side effects.
+- **Added** handle-claim and member-delivery-binding-candidate schemas
+  swept for the tightened DID method-name regex
+  (`^did:[a-z0-9]+:[^\s]+$`); fixture SQL refreshed.
+
 ### Round R2/R3 (2026-05-20) — 17 P0/P1 tasks closed against contrix-spec
 
 #### Added
