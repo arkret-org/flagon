@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::audit::{self, AuditEventKind};
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::{ResourceKindWire, WithdrawalKindWire};
@@ -40,7 +40,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -53,7 +53,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let body: OperatorTakedownRequest = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ErrorCode::BadJson.render(res, format!("malformed takedown body: {error}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed takedown body: {error}"));
             return;
         }
     };
@@ -62,11 +62,11 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         return;
     }
     if body.resource_id.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "resource_id is required");
+        ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
     if body.reason.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "reason is required");
+        ApiErrorCode::MissingParam.render(res, "reason is required");
         return;
     }
 
@@ -89,7 +89,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         effective_at,
         notification_status,
     ) {
-        ErrorCode::InternalError.render(res, format!("persist operator takedown: {error}"));
+        ApiErrorCode::InternalError.render(res, format!("persist operator takedown: {error}"));
         return;
     }
 
@@ -116,12 +116,12 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     }));
 }
 
-fn require_admin(req: &Request, state: &AppState) -> Result<(), ErrorCode> {
+fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
     let expected = state
         .config()
         .admin_token
         .as_deref()
-        .ok_or(ErrorCode::Unauthenticated)?;
+        .ok_or(ApiErrorCode::Unauthenticated)?;
     let actual = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -131,7 +131,7 @@ fn require_admin(req: &Request, state: &AppState) -> Result<(), ErrorCode> {
     if actual == Some(expected) {
         Ok(())
     } else {
-        Err(ErrorCode::Unauthenticated)
+        Err(ApiErrorCode::Unauthenticated)
     }
 }
 

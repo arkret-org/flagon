@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 use crate::audit::{self, AuditEventKind};
 use crate::db::Db;
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{bucket_member_count, is_valid_member_count_bucket};
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
@@ -120,8 +120,7 @@ impl FederationCacheKeyInputs {
             .map(|raw| raw.into_bytes())
             .unwrap_or_default();
         let source_trust_domain =
-            header_value(req, &HEADER_SOURCE_TRUST_DOMAIN.to_ascii_lowercase())
-                .unwrap_or_default();
+            header_value(req, &HEADER_SOURCE_TRUST_DOMAIN.to_ascii_lowercase()).unwrap_or_default();
         let destination_trust_domain =
             header_value(req, &HEADER_DESTINATION_TRUST_DOMAIN.to_ascii_lowercase())
                 .unwrap_or_default();
@@ -195,7 +194,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     inputs: &FederationCacheKeyInputs,
     request_digest: &[u8],
     expected_destination_trust_domain: &str,
-) -> Result<Option<String>, (ErrorCode, String)> {
+) -> Result<Option<String>, (ApiErrorCode, String)> {
     if !inputs.is_federation_hop() {
         return Ok(None);
     }
@@ -205,7 +204,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
         || inputs.request_canonical_hash.is_empty()
     {
         return Err((
-            ErrorCode::CrossDomainReplayRejected,
+            ApiErrorCode::CrossDomainReplayRejected,
             format!(
                 "federation S2S request must carry all three of {}, {}, {} headers",
                 HEADER_SOURCE_TRUST_DOMAIN,
@@ -219,24 +218,22 @@ pub(crate) fn verify_federation_trust_domain_headers(
     let source_td = contrix_sdk::TypedTrustDomainId::new(inputs.source_trust_domain.clone())
         .map_err(|err| {
             (
-                ErrorCode::CrossDomainReplayRejected,
+                ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid cx:trust_domain: {err}"),
             )
         })?;
-    let destination_td =
-        contrix_sdk::TypedTrustDomainId::new(inputs.destination_trust_domain.clone()).map_err(
-            |err| {
-                (
-                    ErrorCode::CrossDomainReplayRejected,
-                    format!(
-                        "{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid cx:trust_domain: {err}"
-                    ),
-                )
-            },
-        )?;
+    let destination_td = contrix_sdk::TypedTrustDomainId::new(
+        inputs.destination_trust_domain.clone(),
+    )
+    .map_err(|err| {
+        (
+            ApiErrorCode::CrossDomainReplayRejected,
+            format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid cx:trust_domain: {err}"),
+        )
+    })?;
     if destination_td.as_str() != expected_destination_trust_domain {
         return Err((
-            ErrorCode::CrossDomainReplayRejected,
+            ApiErrorCode::CrossDomainReplayRejected,
             format!(
                 "{HEADER_DESTINATION_TRUST_DOMAIN}={} does not match this directory's trust domain {}",
                 destination_td.as_str(),
@@ -267,7 +264,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
         // outright.
         if !inputs.request_canonical_hash.contains(':') {
             return Err((
-                ErrorCode::CrossDomainReplayRejected,
+                ApiErrorCode::CrossDomainReplayRejected,
                 format!(
                     "{HEADER_REQUEST_CANONICAL_HASH} header value `{}` is malformed (expected `<alg>:<hex>`)",
                     inputs.request_canonical_hash
@@ -296,7 +293,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     let canonical_hash =
         contrix_sdk::Hash::new(inputs.request_canonical_hash.clone()).map_err(|err| {
             (
-                ErrorCode::CrossDomainReplayRejected,
+                ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_REQUEST_CANONICAL_HASH} is not a valid Hash: {err}"),
             )
         })?;
@@ -331,7 +328,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -339,7 +336,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let body: AnnounceRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ErrorCode::BadJson.render(res, format!("malformed announce body: {e}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed announce body: {e}"));
             return;
         }
     };
@@ -492,7 +489,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         .flatten()
     {
         if body.as_of < latest {
-            ErrorCode::PolicyRevisionRollback.render(
+            ApiErrorCode::PolicyRevisionRollback.render(
                 res,
                 format!(
                     "incoming as_of {} is older than indexed {latest}",
@@ -543,7 +540,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     );
 
     if let Err(e) = insert_outcome {
-        ErrorCode::InternalError.render(res, format!("persist announce: {e}"));
+        ApiErrorCode::InternalError.render(res, format!("persist announce: {e}"));
         return;
     }
 
@@ -582,11 +579,9 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             reason: "cx.realm.destroy".into(),
             revoked_at: destroyed_at,
         };
-        let _ = crate::ingest::subscribe::fanout_reachability_tombstone(
-            state.clone(),
-            &[tombstone],
-        )
-        .await;
+        let _ =
+            crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &[tombstone])
+                .await;
     }
 
     fanout_accepted_ingest(
@@ -668,26 +663,26 @@ pub(crate) fn derive_realm_terminal_state(
 fn validate_request_shape(
     req: &AnnounceRequest,
     max_ttl: Duration,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     if req.resource_id.is_empty() {
-        return Err((ErrorCode::MissingParam, "resource_id is required".into()));
+        return Err((ApiErrorCode::MissingParam, "resource_id is required".into()));
     }
     if req.principal_server_did.is_empty() {
         return Err((
-            ErrorCode::MissingParam,
+            ApiErrorCode::MissingParam,
             "principal_server_did is required".into(),
         ));
     }
     if !req.discovery_state.is_object() {
         return Err((
-            ErrorCode::SchemaViolation,
+            ApiErrorCode::SchemaViolation,
             "discovery_state must be an object".into(),
         ));
     }
     if let Some(ttl) = req.ttl_seconds {
         if ttl <= 0 || ttl > max_ttl.as_secs() as i64 {
             return Err((
-                ErrorCode::TtlOutOfRange,
+                ApiErrorCode::TtlOutOfRange,
                 format!("ttl_seconds {ttl} not in (0, {}]", max_ttl.as_secs()),
             ));
         }
@@ -708,7 +703,7 @@ pub(crate) fn effective_ttl_seconds(
 
 pub(crate) fn derive_public_projection(
     discovery_state: &JsonValue,
-) -> Result<JsonValue, (ErrorCode, String)> {
+) -> Result<JsonValue, (ApiErrorCode, String)> {
     // Strict subset suitable for indexing — drop the proof envelope and
     // anything else that could leak governance internals.
     //
@@ -725,11 +720,11 @@ pub(crate) fn derive_public_projection(
 
 fn normalize_member_count_projection(
     obj: &mut serde_json::Map<String, JsonValue>,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     if let Some(bucket) = obj.get("member_count_bucket").and_then(JsonValue::as_str) {
         if !is_valid_member_count_bucket(bucket) {
             return Err((
-                ErrorCode::InvalidResponse,
+                ApiErrorCode::InvalidResponse,
                 format!("member_count_bucket {bucket} is outside the normative bucket grid"),
             ));
         }
@@ -737,7 +732,7 @@ fn normalize_member_count_projection(
 
     if let Some(exact) = obj.remove("member_count") {
         let count = exact.as_i64().ok_or((
-            ErrorCode::InvalidResponse,
+            ApiErrorCode::InvalidResponse,
             "member_count must be an integer when present".into(),
         ))?;
         obj.insert(
@@ -976,13 +971,10 @@ mod tests {
         let inputs = inputs_with_triad("cx:trust_domain:other.example", "", "");
         assert!(inputs.is_federation_hop());
         let digest = [0u8; 32];
-        let err = verify_federation_trust_domain_headers(
-            &inputs,
-            &digest,
-            "cx:trust_domain:teabay.test",
-        )
-        .unwrap_err();
-        assert_eq!(err.0, ErrorCode::CrossDomainReplayRejected);
+        let err =
+            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+                .unwrap_err();
+        assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
     }
 
     /// Round 4 — destination trust domain mismatch must reject; a
@@ -997,13 +989,10 @@ mod tests {
             "cx:trust_domain:wrong.example",
             &canonical_hash,
         );
-        let err = verify_federation_trust_domain_headers(
-            &inputs,
-            &digest,
-            "cx:trust_domain:teabay.test",
-        )
-        .unwrap_err();
-        assert_eq!(err.0, ErrorCode::CrossDomainReplayRejected);
+        let err =
+            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+                .unwrap_err();
+        assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
         assert!(err.1.contains("does not match"));
     }
 
@@ -1019,13 +1008,10 @@ mod tests {
             "cx:trust_domain:teabay.test",
             &canonical_hash,
         );
-        let fragment = verify_federation_trust_domain_headers(
-            &inputs,
-            &digest,
-            "cx:trust_domain:teabay.test",
-        )
-        .expect("triad is valid")
-        .expect("fragment emitted for federation hop");
+        let fragment =
+            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+                .expect("triad is valid")
+                .expect("fragment emitted for federation hop");
         assert!(fragment.contains("\"source-trust-domain\""));
         assert!(fragment.contains("\"destination-trust-domain\""));
         assert!(fragment.contains("\"request-canonical-hash\""));

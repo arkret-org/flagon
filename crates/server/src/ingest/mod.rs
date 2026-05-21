@@ -53,6 +53,30 @@ impl ResourceKindWire {
     }
 }
 
+impl From<ResourceKindWire> for contrix_sdk::DirectoryResourceKind {
+    fn from(kind: ResourceKindWire) -> Self {
+        match kind {
+            ResourceKindWire::Space => Self::Space,
+            ResourceKindWire::Organization => Self::Organization,
+            ResourceKindWire::Actor => Self::Actor,
+            ResourceKindWire::Applet => Self::Applet,
+            ResourceKindWire::Handle => Self::Handle,
+        }
+    }
+}
+
+impl From<contrix_sdk::DirectoryResourceKind> for ResourceKindWire {
+    fn from(kind: contrix_sdk::DirectoryResourceKind) -> Self {
+        match kind {
+            contrix_sdk::DirectoryResourceKind::Space => Self::Space,
+            contrix_sdk::DirectoryResourceKind::Organization => Self::Organization,
+            contrix_sdk::DirectoryResourceKind::Actor => Self::Actor,
+            contrix_sdk::DirectoryResourceKind::Applet => Self::Applet,
+            contrix_sdk::DirectoryResourceKind::Handle => Self::Handle,
+        }
+    }
+}
+
 // ---- Ingest mode (push / pull) ------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
@@ -107,5 +131,53 @@ impl DiscoverabilityWire {
             self,
             Self::Public | Self::Listed | Self::Restricted | Self::Unlisted
         )
+    }
+}
+
+impl From<DiscoverabilityWire> for contrix_sdk::Discoverability {
+    fn from(discoverability: DiscoverabilityWire) -> Self {
+        match discoverability {
+            DiscoverabilityWire::Public => Self::Public,
+            DiscoverabilityWire::Listed => Self::Listed,
+            DiscoverabilityWire::Restricted => Self::Restricted,
+            DiscoverabilityWire::Unlisted => Self::Unlisted,
+            DiscoverabilityWire::InviteOnly => Self::InviteOnly,
+            DiscoverabilityWire::Secret => Self::Secret,
+        }
+    }
+}
+
+impl From<contrix_sdk::Discoverability> for DiscoverabilityWire {
+    fn from(discoverability: contrix_sdk::Discoverability) -> Self {
+        match discoverability {
+            contrix_sdk::Discoverability::Public => Self::Public,
+            contrix_sdk::Discoverability::Listed => Self::Listed,
+            contrix_sdk::Discoverability::Restricted => Self::Restricted,
+            contrix_sdk::Discoverability::Unlisted => Self::Unlisted,
+            contrix_sdk::Discoverability::InviteOnly => Self::InviteOnly,
+            contrix_sdk::Discoverability::Secret => Self::Secret,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn db_resource_kind_round_trips_through_sdk_type() {
+        let sdk_kind: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Space.into();
+        assert_eq!(sdk_kind, contrix_sdk::DirectoryResourceKind::Space);
+        assert_eq!(ResourceKindWire::from(sdk_kind), ResourceKindWire::Space);
+    }
+
+    #[test]
+    fn db_discoverability_round_trips_through_sdk_type() {
+        let sdk_value: contrix_sdk::Discoverability = DiscoverabilityWire::InviteOnly.into();
+        assert_eq!(sdk_value, contrix_sdk::Discoverability::InviteOnly);
+        assert_eq!(
+            DiscoverabilityWire::from(sdk_value),
+            DiscoverabilityWire::InviteOnly,
+        );
     }
 }

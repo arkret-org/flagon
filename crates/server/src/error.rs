@@ -10,128 +10,163 @@ use salvo::prelude::*;
 use serde_json::json;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ErrorCode {
-    // -------- canonical Contrix codes used here --------
-    BadJson,
-    BadQuery,
-    SchemaViolation,
-    MissingParam,
-    InvalidParam,
-    InvalidResponse,
-    InvalidSignature,
-    Unauthenticated,
-    NotFound,
-    UnrecognizedEndpoint,
-    MethodNotAllowed,
-    Conflict,
-    PayloadTooLarge,
-    RateLimited,
-    QuotaExceeded,
-    Timeout,
-    UnsupportedFeature,
-    InternalError,
-    TemporarilyUnavailable,
-
-    // -------- §8 ingest-specific codes (normative) --------
-    /// §8.1: resource signed payload does not list this Directory's DID.
-    DirectoryNotAuthorized,
-    /// §8.1: resource is outside the directory's accept policy.
-    AcceptPolicyDenied,
-    /// §8.5 / §8.10: governance signature invalid.
-    SignatureInvalid,
-    /// §8.10: `as_of` outside the configured skew window.
-    SignatureStale,
-    /// §8.10: `source_refs` could not be verified against the principal server.
-    SourceRefsUnverifiable,
-    /// §8.1: governance key not in resource DID document current epoch.
-    GovernanceKeyInvalid,
-    /// §8.6: declared `ttl_seconds` outside [1, max_ttl_seconds].
-    TtlOutOfRange,
-    /// §8.10: a recorded withdrawal blocks acceptance of this announce.
-    TakedownInForce,
-    /// §8.10: `policy_revision` / `as_of` is older than the indexed entry.
-    PolicyRevisionRollback,
-
-    // -------- Round 4 federation S2S codes --------
-    /// Round 4 (spec a77b995, commit f9bd7eb): the inbound federation
-    /// request's `Source-Trust-Domain` / `Destination-Trust-Domain` /
-    /// `Request-Canonical-Hash` triad does not match the directory's
-    /// expected scope or the canonical hash of the request body.
-    /// A sender from trust domain A is NOT permitted to replay signed
-    /// bytes into trust domain B.
-    CrossDomainReplayRejected,
+pub struct ApiErrorCode {
+    code: &'static str,
+    fallback_status: StatusCode,
 }
 
-impl ErrorCode {
-    pub fn wire_code(self) -> &'static str {
-        match self {
-            Self::BadJson => "bad_json",
-            Self::BadQuery => "bad_query",
-            Self::SchemaViolation => "schema_violation",
-            Self::MissingParam => "missing_param",
-            Self::InvalidParam => "invalid_param",
-            Self::InvalidResponse => "invalid_response",
-            Self::InvalidSignature => "invalid_signature",
-            Self::Unauthenticated => "unauthenticated",
-            Self::NotFound => "not_found",
-            Self::UnrecognizedEndpoint => "unrecognized_endpoint",
-            Self::MethodNotAllowed => "method_not_allowed",
-            Self::Conflict => "conflict",
-            Self::PayloadTooLarge => "payload_too_large",
-            Self::RateLimited => "rate_limited",
-            Self::QuotaExceeded => "quota_exceeded",
-            Self::Timeout => "timeout",
-            Self::UnsupportedFeature => "unsupported_feature",
-            Self::InternalError => "internal_error",
-            Self::TemporarilyUnavailable => "temporarily_unavailable",
-
-            Self::DirectoryNotAuthorized => "directory_not_authorized",
-            Self::AcceptPolicyDenied => "accept_policy_denied",
-            Self::SignatureInvalid => "signature_invalid",
-            Self::SignatureStale => "signature_stale",
-            Self::SourceRefsUnverifiable => "source_refs_unverifiable",
-            Self::GovernanceKeyInvalid => "governance_key_invalid",
-            Self::TtlOutOfRange => "ttl_out_of_range",
-            Self::TakedownInForce => "takedown_in_force",
-            Self::PolicyRevisionRollback => "policy_revision_rollback",
-            Self::CrossDomainReplayRejected => contrix_sdk::ERROR_CODE_CROSS_DOMAIN_REPLAY_REJECTED,
+impl ApiErrorCode {
+    const fn new(code: &'static str, fallback_status: StatusCode) -> Self {
+        Self {
+            code,
+            fallback_status,
         }
     }
 
-    pub fn http_status(self) -> StatusCode {
-        match self {
-            Self::BadJson | Self::BadQuery | Self::SchemaViolation => StatusCode::BAD_REQUEST,
-            Self::MissingParam | Self::InvalidParam | Self::InvalidResponse => {
-                StatusCode::BAD_REQUEST
-            }
-            // `invalid_signature` is the canonical Contrix v1 code
-            // (error-code-registry.json: http_status=401, scope=both).
-            // Used by the RFC 9421 HTTP message signature middleware
-            // when the transport-layer Ed25519 verify fails.
-            Self::Unauthenticated | Self::InvalidSignature => StatusCode::UNAUTHORIZED,
-            Self::NotFound | Self::UnrecognizedEndpoint => StatusCode::NOT_FOUND,
-            Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-            Self::Conflict => StatusCode::CONFLICT,
-            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::RateLimited | Self::QuotaExceeded => StatusCode::TOO_MANY_REQUESTS,
-            Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
-            Self::UnsupportedFeature => StatusCode::NOT_IMPLEMENTED,
-            Self::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::TemporarilyUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+    // -------- canonical Contrix codes used here --------
+    #[allow(non_upper_case_globals)]
+    pub const BadJson: Self = Self::new(contrix_sdk::ERROR_CODE_BAD_JSON, StatusCode::BAD_REQUEST);
+    #[allow(non_upper_case_globals)]
+    pub const BadQuery: Self =
+        Self::new(contrix_sdk::ERROR_CODE_BAD_QUERY, StatusCode::BAD_REQUEST);
+    #[allow(non_upper_case_globals)]
+    pub const SchemaViolation: Self = Self::new(
+        contrix_sdk::ERROR_CODE_SCHEMA_VIOLATION,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const MissingParam: Self = Self::new(
+        contrix_sdk::ERROR_CODE_MISSING_PARAM,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const InvalidParam: Self = Self::new(
+        contrix_sdk::ERROR_CODE_INVALID_PARAM,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const InvalidSignature: Self = Self::new(
+        contrix_sdk::ERROR_CODE_INVALID_SIGNATURE,
+        StatusCode::UNAUTHORIZED,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const Unauthenticated: Self = Self::new(
+        contrix_sdk::ERROR_CODE_UNAUTHENTICATED,
+        StatusCode::UNAUTHORIZED,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const NotFound: Self = Self::new(contrix_sdk::ERROR_CODE_NOT_FOUND, StatusCode::NOT_FOUND);
+    #[allow(non_upper_case_globals)]
+    pub const UnrecognizedEndpoint: Self = Self::new(
+        contrix_sdk::ERROR_CODE_UNRECOGNIZED_ENDPOINT,
+        StatusCode::NOT_FOUND,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const MethodNotAllowed: Self = Self::new(
+        contrix_sdk::ERROR_CODE_METHOD_NOT_ALLOWED,
+        StatusCode::METHOD_NOT_ALLOWED,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const Conflict: Self = Self::new(contrix_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
+    #[allow(non_upper_case_globals)]
+    pub const PayloadTooLarge: Self = Self::new(
+        contrix_sdk::ERROR_CODE_PAYLOAD_TOO_LARGE,
+        StatusCode::PAYLOAD_TOO_LARGE,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const RateLimited: Self = Self::new(
+        contrix_sdk::ERROR_CODE_RATE_LIMITED,
+        StatusCode::TOO_MANY_REQUESTS,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const QuotaExceeded: Self = Self::new(
+        contrix_sdk::ERROR_CODE_QUOTA_EXCEEDED,
+        StatusCode::FORBIDDEN,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const Timeout: Self =
+        Self::new(contrix_sdk::ERROR_CODE_TIMEOUT, StatusCode::GATEWAY_TIMEOUT);
+    #[allow(non_upper_case_globals)]
+    pub const UnsupportedFeature: Self = Self::new(
+        contrix_sdk::ERROR_CODE_UNSUPPORTED_FEATURE,
+        StatusCode::NOT_IMPLEMENTED,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const InternalError: Self = Self::new(
+        contrix_sdk::ERROR_CODE_INTERNAL_ERROR,
+        StatusCode::INTERNAL_SERVER_ERROR,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const TemporarilyUnavailable: Self = Self::new(
+        contrix_sdk::ERROR_CODE_TEMPORARILY_UNAVAILABLE,
+        StatusCode::SERVICE_UNAVAILABLE,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const CrossDomainReplayRejected: Self = Self::new(
+        contrix_sdk::ERROR_CODE_CROSS_DOMAIN_REPLAY_REJECTED,
+        StatusCode::CONFLICT,
+    );
 
-            // §8.5 / §8.10 ingest rejections — 4xx authorization-class except
-            // signature problems (still 4xx) and rollback (409 conflict).
-            Self::DirectoryNotAuthorized | Self::AcceptPolicyDenied => StatusCode::FORBIDDEN,
-            Self::SignatureInvalid
-            | Self::SignatureStale
-            | Self::SourceRefsUnverifiable
-            | Self::GovernanceKeyInvalid
-            | Self::TtlOutOfRange => StatusCode::BAD_REQUEST,
-            Self::TakedownInForce | Self::PolicyRevisionRollback => StatusCode::CONFLICT,
-            // Round 4 — cross-domain replay rejection is a 403
-            // (authorization-class refusal). Matches soland's wire shape.
-            Self::CrossDomainReplayRejected => StatusCode::FORBIDDEN,
-        }
+    // -------- directory ingest codes --------
+    #[allow(non_upper_case_globals)]
+    pub const InvalidResponse: Self = Self::new(
+        contrix_sdk::ERROR_CODE_INVALID_RESPONSE,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const DirectoryNotAuthorized: Self = Self::new(
+        contrix_sdk::ERROR_CODE_DIRECTORY_NOT_AUTHORIZED,
+        StatusCode::FORBIDDEN,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const AcceptPolicyDenied: Self = Self::new(
+        contrix_sdk::ERROR_CODE_ACCEPT_POLICY_DENIED,
+        StatusCode::FORBIDDEN,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const SignatureInvalid: Self = Self::new(
+        contrix_sdk::ERROR_CODE_SIGNATURE_INVALID,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const SignatureStale: Self = Self::new(
+        contrix_sdk::ERROR_CODE_SIGNATURE_STALE,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const SourceRefsUnverifiable: Self = Self::new(
+        contrix_sdk::ERROR_CODE_SOURCE_REFS_UNVERIFIABLE,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const GovernanceKeyInvalid: Self = Self::new(
+        contrix_sdk::ERROR_CODE_GOVERNANCE_KEY_INVALID,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const TtlOutOfRange: Self = Self::new(
+        contrix_sdk::ERROR_CODE_TTL_OUT_OF_RANGE,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const TakedownInForce: Self = Self::new(
+        contrix_sdk::ERROR_CODE_TAKEDOWN_IN_FORCE,
+        StatusCode::CONFLICT,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const PolicyRevisionRollback: Self = Self::new(
+        contrix_sdk::ERROR_CODE_POLICY_REVISION_ROLLBACK,
+        StatusCode::CONFLICT,
+    );
+
+    pub fn wire_code(self) -> &'static str {
+        self.code
+    }
+
+    pub fn http_status(self) -> StatusCode {
+        contrix_sdk::error_code_http_status(self.code)
+            .and_then(|status| StatusCode::from_u16(status).ok())
+            .unwrap_or(self.fallback_status)
     }
 
     /// Render `{ ok: false, error: { code, message } }` and set the

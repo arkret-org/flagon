@@ -257,10 +257,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "default_ttl_seconds".to_owned(),
         json!(cfg.default_ttl.as_secs()),
     );
-    object.insert(
-        "max_ttl_seconds".to_owned(),
-        json!(cfg.max_ttl.as_secs()),
-    );
+    object.insert("max_ttl_seconds".to_owned(), json!(cfg.max_ttl.as_secs()));
     object.insert(
         "revalidation_grace_seconds".to_owned(),
         json!(cfg.revalidation_grace.as_secs()),
@@ -441,9 +438,13 @@ mod tests {
         assert!(value.get("accept_policy_kind").is_some());
         assert_eq!(value["accept_policy_kind"], "open");
         assert_eq!(value["public_base_url"], "http://directory.test");
-        assert!(value["supported_operations"].as_array().unwrap().iter().any(
-            |op| op == "cx.directory.describe"
-        ));
+        assert!(
+            value["supported_operations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|op| op == "cx.directory.describe")
+        );
     }
 
     /// Round 4 — `validate_v2` fails closed when development mode is set

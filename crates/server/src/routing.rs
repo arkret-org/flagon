@@ -10,7 +10,7 @@ use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiRe
 use salvo::prelude::*;
 use serde_json::json;
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::middleware::http_sig::{HttpSigKeyDirectory, HttpSigMiddleware};
 use crate::state::AppState;
 use crate::{ingest, query};
@@ -190,7 +190,10 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
         ("cors_strict", cors_strict),
         ("secret_manager_in_use", secret_manager_in_use),
         ("log_redaction_enabled", log_redaction_enabled),
-        ("admin_auth_mode_production", admin_auth_mode == "production"),
+        (
+            "admin_auth_mode_production",
+            admin_auth_mode == "production",
+        ),
         ("rate_limit_enabled", rate_limit_enabled),
         (
             "provider_credential_rotation",
@@ -246,7 +249,7 @@ async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
     let doc = match depot.obtain::<TeabayOpenApiDoc>() {
         Ok(doc) => doc,
         Err(_) => {
-            ErrorCode::InternalError.render(res, "OpenAPI document not injected");
+            ApiErrorCode::InternalError.render(res, "OpenAPI document not injected");
             return;
         }
     };

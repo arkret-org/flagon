@@ -42,8 +42,12 @@ async fn pad_to_budget_branches_overlap() {
     // difference.
     let found_samples = run_branch(&budget, "alice.example", branch_found).await;
     let not_found_samples = run_branch(&budget, "ghost.example", branch_not_found).await;
-    let unauthorized_samples =
-        run_branch(&budget, "alice.example?intent=member_add", branch_unauthorized).await;
+    let unauthorized_samples = run_branch(
+        &budget,
+        "alice.example?intent=member_add",
+        branch_unauthorized,
+    )
+    .await;
 
     let (found_mean, found_std) = mean_stddev(&found_samples);
     let (nf_mean, nf_std) = mean_stddev(&not_found_samples);
@@ -82,11 +86,7 @@ async fn pad_to_budget_branches_overlap() {
     );
 }
 
-async fn run_branch<F, Fut>(
-    budget: &LatencyBudget,
-    privacy_key: &str,
-    f: F,
-) -> Vec<Duration>
+async fn run_branch<F, Fut>(budget: &LatencyBudget, privacy_key: &str, f: F) -> Vec<Duration>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = ()>,

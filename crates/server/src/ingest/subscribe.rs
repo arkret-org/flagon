@@ -12,7 +12,7 @@ use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::{IngestModeWire, ResourceKindWire};
@@ -60,7 +60,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -68,7 +68,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let body: SubscribeRequest = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ErrorCode::BadJson.render(res, format!("malformed subscribe body: {error}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed subscribe body: {error}"));
             return;
         }
     };
@@ -77,20 +77,20 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         return;
     }
     if body.subscriber_did.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "subscriber_did is required");
+        ApiErrorCode::MissingParam.render(res, "subscriber_did is required");
         return;
     }
     if body.resource_filter.is_null() {
-        ErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
+        ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
     }
     if !body.resource_filter.is_object() {
-        ErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
+        ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
     }
     if let Err(message) = validate_endpoint(&body.webhook_endpoint, state.config().development_mode)
     {
-        ErrorCode::InvalidParam.render(res, message);
+        ApiErrorCode::InvalidParam.render(res, message);
         return;
     }
 
@@ -115,7 +115,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let response_secret = URL_SAFE_NO_PAD.encode(&secret);
 
     if let Err(error) = persist_subscription(&state, &body, &subscription_id, &secret, created_at) {
-        ErrorCode::InternalError.render(res, format!("persist subscription: {error}"));
+        ApiErrorCode::InternalError.render(res, format!("persist subscription: {error}"));
         return;
     }
 

@@ -19,7 +19,7 @@ use sha2::{Digest, Sha512};
 use voprf::{BlindedElement, Group, Ristretto255, VoprfServer};
 
 use crate::config::AppConfig;
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::schema::psi_epoch_keys;
 use crate::state::{AppState, RateLimitOutcome};
@@ -101,24 +101,24 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
     if !state.config().private_contact_discovery_enabled {
-        ErrorCode::UnsupportedFeature.render(res, "private contact discovery is disabled");
+        ApiErrorCode::UnsupportedFeature.render(res, "private contact discovery is disabled");
         return;
     }
 
     let body: PrivateContactDiscoveryReqBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ErrorCode::BadJson.render(res, format!("malformed PSI request: {error}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed PSI request: {error}"));
             return;
         }
     };
     if body.requester.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "requester is required");
+        ApiErrorCode::MissingParam.render(res, "requester is required");
         return;
     }
 
@@ -134,14 +134,14 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             res.headers_mut()
                 .insert(salvo::http::header::RETRY_AFTER, value);
         }
-        ErrorCode::RateLimited.render(res, "PSI epoch query budget exceeded");
+        ApiErrorCode::RateLimited.render(res, "PSI epoch query budget exceeded");
         return;
     }
 
     let key = match load_or_create_epoch_key(&state, &epoch).await {
         Ok(key) => key,
         Err(error) => {
-            ErrorCode::InternalError.render(res, format!("PSI epoch key: {error}"));
+            ApiErrorCode::InternalError.render(res, format!("PSI epoch key: {error}"));
             return;
         }
     };
@@ -158,14 +158,14 @@ async fn handle_blind_phase(
     res: &mut Response,
 ) {
     if body.blinded_inputs.is_empty() {
-        ErrorCode::MissingParam.render(res, "blinded_inputs is required for phase=blind");
+        ApiErrorCode::MissingParam.render(res, "blinded_inputs is required for phase=blind");
         return;
     }
 
     let server = match PsiServer::deserialize(&key.server_key) {
         Ok(server) => server,
         Err(error) => {
-            ErrorCode::InternalError.render(res, format!("PSI server key deserialize: {error}"));
+            ApiErrorCode::InternalError.render(res, format!("PSI server key deserialize: {error}"));
             return;
         }
     };
@@ -177,7 +177,7 @@ async fn handle_blind_phase(
         let blinded = match decode_blinded_element(input) {
             Ok(blinded) => blinded,
             Err(message) => {
-                ErrorCode::InvalidParam.render(res, message);
+                ApiErrorCode::InvalidParam.render(res, message);
                 return;
             }
         };
@@ -208,21 +208,21 @@ async fn handle_match_phase(
     res: &mut Response,
 ) {
     if body.match_tokens.is_empty() {
-        ErrorCode::MissingParam.render(res, "match_tokens is required for phase=match");
+        ApiErrorCode::MissingParam.render(res, "match_tokens is required for phase=match");
         return;
     }
 
     let server = match PsiServer::deserialize(&key.server_key) {
         Ok(server) => server,
         Err(error) => {
-            ErrorCode::InternalError.render(res, format!("PSI server key deserialize: {error}"));
+            ApiErrorCode::InternalError.render(res, format!("PSI server key deserialize: {error}"));
             return;
         }
     };
     let indexed_tokens = match load_indexed_match_tokens(state, &server).await {
         Ok(tokens) => tokens,
         Err(error) => {
-            ErrorCode::InternalError.render(res, format!("PSI match index: {error}"));
+            ApiErrorCode::InternalError.render(res, format!("PSI match index: {error}"));
             return;
         }
     };
@@ -234,7 +234,7 @@ async fn handle_match_phase(
     let decoded_tokens = match decode_match_tokens(&body.match_tokens) {
         Ok(tokens) => tokens,
         Err(message) => {
-            ErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::InvalidParam.render(res, message);
             return;
         }
     };

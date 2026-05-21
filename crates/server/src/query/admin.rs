@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::audit::{self, AuditEventKind};
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::ingest::announce::effective_ttl_seconds;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
@@ -189,7 +189,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -202,7 +202,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
     let query: AuditQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed audit query: {error}"));
+            ApiErrorCode::BadQuery.render(res, format!("malformed audit query: {error}"));
             return;
         }
     };
@@ -210,7 +210,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
     let since = match query.since.as_deref().map(parse_since).transpose() {
         Ok(since) => since,
         Err(message) => {
-            ErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::InvalidParam.render(res, message);
             return;
         }
     };
@@ -228,7 +228,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
                 "next_since": next_since,
             })));
         }
-        Err(error) => ErrorCode::InternalError.render(res, format!("audit feed: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("audit feed: {error}")),
     }
 }
 
@@ -241,7 +241,7 @@ pub async fn allowlist_list(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let query: AllowlistQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed allowlist query: {error}"));
+            ApiErrorCode::BadQuery.render(res, format!("malformed allowlist query: {error}"));
             return;
         }
     };
@@ -252,7 +252,7 @@ pub async fn allowlist_list(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     match load_allowlist(&state, limit).await {
         Ok(items) => res.render(Json(json!({ "items": items }))),
-        Err(error) => ErrorCode::InternalError.render(res, format!("allowlist list: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist list: {error}")),
     }
 }
 
@@ -265,12 +265,12 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
     let body: AllowlistUpsertRequest = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ErrorCode::BadJson.render(res, format!("malformed allowlist body: {error}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed allowlist body: {error}"));
             return;
         }
     };
     if body.resource_did.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "resource_did is required");
+        ApiErrorCode::MissingParam.render(res, "resource_did is required");
         return;
     }
     let actor = body
@@ -291,7 +291,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
             );
             res.render(Json(json!({ "item": item })));
         }
-        Err(error) => ErrorCode::InternalError.render(res, format!("allowlist upsert: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist upsert: {error}")),
     }
 }
 
@@ -304,7 +304,8 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
     let query: AllowlistDeleteQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed allowlist delete query: {error}"));
+            ApiErrorCode::BadQuery
+                .render(res, format!("malformed allowlist delete query: {error}"));
             return;
         }
     };
@@ -315,7 +316,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
     {
         Some(resource_did) => resource_did,
         None => {
-            ErrorCode::MissingParam.render(res, "resource_did query parameter is required");
+            ApiErrorCode::MissingParam.render(res, "resource_did query parameter is required");
             return;
         }
     };
@@ -334,7 +335,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
             }
             res.render(Json(json!({ "deleted": deleted })));
         }
-        Err(error) => ErrorCode::InternalError.render(res, format!("allowlist delete: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist delete: {error}")),
     }
 }
 
@@ -347,7 +348,7 @@ pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut R
     let query: ResourcesQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed resources query: {error}"));
+            ApiErrorCode::BadQuery.render(res, format!("malformed resources query: {error}"));
             return;
         }
     };
@@ -358,7 +359,9 @@ pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut R
 
     match load_resources(&state, &query, limit).await {
         Ok(items) => res.render(Json(json!({ "items": items }))),
-        Err(error) => ErrorCode::InternalError.render(res, format!("resources browser: {error}")),
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("resources browser: {error}"))
+        }
     }
 }
 
@@ -371,21 +374,21 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     let body: ResourceUpsertRequest = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ErrorCode::BadJson.render(res, format!("malformed resource body: {error}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed resource body: {error}"));
             return;
         }
     };
 
     if body.resource_id.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "resource_id is required");
+        ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
     if body.principal_server_did.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "principal_server_did is required");
+        ApiErrorCode::MissingParam.render(res, "principal_server_did is required");
         return;
     }
     if !body.public_projection.is_object() {
-        ErrorCode::SchemaViolation.render(res, "public_projection must be an object");
+        ApiErrorCode::SchemaViolation.render(res, "public_projection must be an object");
         return;
     }
 
@@ -411,7 +414,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     {
         Ok(state) => state,
         Err(message) => {
-            ErrorCode::SchemaViolation.render(res, message);
+            ApiErrorCode::SchemaViolation.render(res, message);
             return;
         }
     };
@@ -450,7 +453,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
             );
             res.render(Json(json!({ "item": item })));
         }
-        Err(error) => ErrorCode::InternalError.render(res, format!("resource upsert: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("resource upsert: {error}")),
     }
 }
 
@@ -463,14 +466,14 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
     let query: ResourceDeleteQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed resource delete query: {error}"));
+            ApiErrorCode::BadQuery.render(res, format!("malformed resource delete query: {error}"));
             return;
         }
     };
     let resource_kind = match query.resource_kind {
         Some(kind) => kind,
         None => {
-            ErrorCode::MissingParam.render(res, "resource_kind query parameter is required");
+            ApiErrorCode::MissingParam.render(res, "resource_kind query parameter is required");
             return;
         }
     };
@@ -482,7 +485,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
     {
         Some(resource_id) => resource_id,
         None => {
-            ErrorCode::MissingParam.render(res, "resource_id query parameter is required");
+            ApiErrorCode::MissingParam.render(res, "resource_id query parameter is required");
             return;
         }
     };
@@ -505,7 +508,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
             res.render(Json(json!({ "deleted": 1 })));
         }
         Ok(None) => res.render(Json(json!({ "deleted": 0 }))),
-        Err(error) => ErrorCode::InternalError.render(res, format!("resource delete: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("resource delete: {error}")),
     }
 }
 
@@ -552,11 +555,7 @@ struct ConsentRevokeResponse {
 }
 
 #[handler]
-pub async fn consent_revoke_invalidate(
-    req: &mut Request,
-    depot: &mut Depot,
-    res: &mut Response,
-) {
+pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match admin_state(req, depot, res) {
         Some(state) => state,
         None => return,
@@ -564,17 +563,17 @@ pub async fn consent_revoke_invalidate(
     let body: ConsentRevokeRequest = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ErrorCode::BadJson.render(res, format!("malformed consent revoke body: {error}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed consent revoke body: {error}"));
             return;
         }
     };
     if body.actor_did.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "actor_did is required");
+        ApiErrorCode::MissingParam.render(res, "actor_did is required");
         return;
     }
     let scope = body.scope.as_deref().unwrap_or("any").trim().to_owned();
     if !scope.eq_ignore_ascii_case("any") {
-        ErrorCode::InvalidParam.render(
+        ApiErrorCode::InvalidParam.render(
             res,
             format!("scope `{scope}` not supported; only `any` invalidates directory reachability"),
         );
@@ -590,7 +589,7 @@ pub async fn consent_revoke_invalidate(
         match invalidate_reachability(&state, &body, revoked_at, &reason) {
             Ok(rows) => rows,
             Err(error) => {
-                ErrorCode::InternalError.render(res, format!("consent revoke: {error}"));
+                ApiErrorCode::InternalError.render(res, format!("consent revoke: {error}"));
                 return;
             }
         };
@@ -673,13 +672,15 @@ fn invalidate_reachability(
     let invalidated_rows = affected_rows.len() as i64;
     let tombstones = affected_rows
         .into_iter()
-        .map(|(resource_kind, resource_id, principal_server_did)| ReachabilityTombstone {
-            resource_kind,
-            resource_id,
-            principal_server_did,
-            reason: reason.to_owned(),
-            revoked_at,
-        })
+        .map(
+            |(resource_kind, resource_id, principal_server_did)| ReachabilityTombstone {
+                resource_kind,
+                resource_id,
+                principal_server_did,
+                reason: reason.to_owned(),
+                revoked_at,
+            },
+        )
         .collect();
     Ok((invalidated_rows, tombstones))
 }
@@ -688,7 +689,7 @@ fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<A
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return None;
         }
     };
@@ -699,12 +700,12 @@ fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<A
     Some(state)
 }
 
-fn require_admin(req: &Request, state: &AppState) -> Result<(), ErrorCode> {
+fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
     let expected = state
         .config()
         .admin_token
         .as_deref()
-        .ok_or(ErrorCode::Unauthenticated)?;
+        .ok_or(ApiErrorCode::Unauthenticated)?;
     let actual = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -714,7 +715,7 @@ fn require_admin(req: &Request, state: &AppState) -> Result<(), ErrorCode> {
     if actual == Some(expected) {
         Ok(())
     } else {
-        Err(ErrorCode::Unauthenticated)
+        Err(ApiErrorCode::Unauthenticated)
     }
 }
 

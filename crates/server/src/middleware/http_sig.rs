@@ -59,7 +59,7 @@ pub use contrix_sdk::http_signature::Ed25519PublicKey;
 use salvo::prelude::*;
 
 use crate::did_resolver::did_resolver_chain;
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 
 const SIGNATURE_INPUT_HEADER: &str = "signature-input";
 const SIGNATURE_HEADER: &str = "signature";
@@ -345,7 +345,7 @@ impl Handler for HttpSigMiddleware {
         let body_bytes = match req.payload().await {
             Ok(bytes) => bytes.clone(),
             Err(err) => {
-                ErrorCode::BadJson.render(
+                ApiErrorCode::BadJson.render(
                     res,
                     format!("could not read request body for signature check: {err}"),
                 );
@@ -531,21 +531,21 @@ fn unix_now_secs() -> i64 {
 fn reject_unauthenticated(res: &mut Response, ctrl: &mut FlowCtrl, message: impl Into<String>) {
     let message = message.into();
     tracing::debug!(reason = %message, "rejecting ingest request: unauthenticated");
-    ErrorCode::Unauthenticated.render(res, message);
+    ApiErrorCode::Unauthenticated.render(res, message);
     ctrl.skip_rest();
 }
 
 fn reject_invalid_signature(res: &mut Response, ctrl: &mut FlowCtrl, message: impl Into<String>) {
     let message = message.into();
     tracing::debug!(reason = %message, "rejecting ingest request: invalid_signature");
-    ErrorCode::InvalidSignature.render(res, message);
+    ApiErrorCode::InvalidSignature.render(res, message);
     ctrl.skip_rest();
 }
 
 fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: impl Into<String>) {
     let message = message.into();
     tracing::debug!(reason = %message, "rejecting ingest request: signature_invalid");
-    ErrorCode::SignatureInvalid.render(res, message);
+    ApiErrorCode::SignatureInvalid.render(res, message);
     ctrl.skip_rest();
 }
 

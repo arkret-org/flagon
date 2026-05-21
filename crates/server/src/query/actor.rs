@@ -16,7 +16,7 @@ use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
@@ -59,7 +59,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -87,7 +87,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
             ));
         }
-        Err(e) => ErrorCode::InternalError.render(res, format!("actor search: {e}")),
+        Err(e) => ApiErrorCode::InternalError.render(res, format!("actor search: {e}")),
     }
 }
 
@@ -96,7 +96,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -104,21 +104,21 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     let query: SearchUsersRequest = match req.parse_json().await {
         Ok(query) => query,
         Err(error) => {
-            ErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
+            ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
             return;
         }
     };
     let requester = match query.requester.as_deref().filter(|value| !value.is_empty()) {
         Some(requester) => requester,
         None => {
-            ErrorCode::MissingParam.render(res, "requester is required");
+            ApiErrorCode::MissingParam.render(res, "requester is required");
             return;
         }
     };
     let space_id = match query.space_id.as_deref().filter(|value| !value.is_empty()) {
         Some(space_id) => space_id,
         None => {
-            ErrorCode::MissingParam.render(res, "space_id is required");
+            ApiErrorCode::MissingParam.render(res, "space_id is required");
             return;
         }
     };
@@ -142,7 +142,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
                 json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
             ));
         }
-        Err(error) => ErrorCode::InternalError.render(res, format!("user search: {error}")),
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("user search: {error}")),
     }
 }
 

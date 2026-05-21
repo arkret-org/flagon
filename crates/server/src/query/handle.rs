@@ -22,7 +22,7 @@ use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
@@ -69,19 +69,19 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
     let body: ResolveHandleRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ErrorCode::BadJson.render(res, format!("malformed body: {e}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed body: {e}"));
             return;
         }
     };
     if body.handle.is_empty() {
-        ErrorCode::MissingParam.render(res, "handle is required");
+        ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
     }
 
@@ -101,28 +101,23 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         body.audience.as_deref().unwrap_or_default(),
     );
 
-    let outcome = pad_to_budget(
-        budget,
-        "cx.directory.resolve_handle",
-        &privacy_key,
-        async {
-            let row = match load_handle_row(&state, &body.handle).await {
-                Ok(row) => row,
-                Err(_) => return ResolveOutcome::NotFound,
-            };
-            let row = match row {
-                Some(row) => row,
-                None => return ResolveOutcome::NotFound,
-            };
+    let outcome = pad_to_budget(budget, "cx.directory.resolve_handle", &privacy_key, async {
+        let row = match load_handle_row(&state, &body.handle).await {
+            Ok(row) => row,
+            Err(_) => return ResolveOutcome::NotFound,
+        };
+        let row = match row {
+            Some(row) => row,
+            None => return ResolveOutcome::NotFound,
+        };
 
-            let policy = match member_add_policy_for(&state, &body).await {
-                Ok(policy) => policy,
-                Err(_) => return ResolveOutcome::NotFound,
-            };
+        let policy = match member_add_policy_for(&state, &body).await {
+            Ok(policy) => policy,
+            Err(_) => return ResolveOutcome::NotFound,
+        };
 
-            evaluate_handle_disclosure(row, &body, policy.as_ref())
-        },
-    )
+        evaluate_handle_disclosure(row, &body, policy.as_ref())
+    })
     .await;
 
     match outcome {
@@ -131,7 +126,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         // candidates filtered out" — these MUST be indistinguishable on the
         // wire so the directory does not leak the existence of the handle
         // or the recipient service identity.
-        ResolveOutcome::NotFound => ErrorCode::NotFound.render(res, "not found"),
+        ResolveOutcome::NotFound => ApiErrorCode::NotFound.render(res, "not found"),
     }
 }
 
@@ -290,11 +285,7 @@ impl RealmDeliveryBindingPolicy {
             return true;
         }
         if let Some(requester) = requester {
-            if self
-                .trusted_audiences
-                .iter()
-                .any(|aud| aud == requester)
-            {
+            if self.trusted_audiences.iter().any(|aud| aud == requester) {
                 return true;
             }
         }
@@ -304,11 +295,7 @@ impl RealmDeliveryBindingPolicy {
     }
 }
 
-fn string_array_at(
-    root: &JsonValue,
-    flat_key: &str,
-    nested: Option<&JsonValue>,
-) -> Vec<String> {
+fn string_array_at(root: &JsonValue, flat_key: &str, nested: Option<&JsonValue>) -> Vec<String> {
     if let Some(arr) = nested.and_then(JsonValue::as_array) {
         return arr
             .iter()
@@ -530,9 +517,11 @@ fn binding_passes(
         // `recipient_service_did` uses dot/dash/underscore/colon in
         // the method segment MUST be dropped as if absent, not allowed
         // through unconditionally.
-        Some(did) => is_round4_tight_did(did) && {
-            unrestricted_recipient || policy.allowed_recipient_services.iter().any(|a| a == did)
-        },
+        Some(did) => {
+            is_round4_tight_did(did) && {
+                unrestricted_recipient || policy.allowed_recipient_services.iter().any(|a| a == did)
+            }
+        }
         None => false,
     };
     let source_ok = match obj.get("binding_source").and_then(JsonValue::as_str) {
@@ -820,8 +809,7 @@ mod tests {
             let _ = evaluate_handle_disclosure(allowed_row.clone(), &found_body, Some(&policy));
             let _ =
                 evaluate_handle_disclosure(allowed_row.clone(), &unauthorized_body, Some(&policy));
-            let _ =
-                evaluate_handle_disclosure(filtered_row.clone(), &filtered_body, Some(&policy));
+            let _ = evaluate_handle_disclosure(filtered_row.clone(), &filtered_body, Some(&policy));
         }
 
         let measure = |body: &ResolveHandleRequest, row: &HandleRow| -> Duration {

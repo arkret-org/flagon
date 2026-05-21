@@ -24,7 +24,7 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
@@ -59,7 +59,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -73,7 +73,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let cursor = match body.cursor.as_deref().map(decode_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
-            ErrorCode::BadQuery.render(res, message);
+            ApiErrorCode::BadQuery.render(res, message);
             return;
         }
     };
@@ -116,7 +116,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
             let next_cursor = match next_cursor {
                 Ok(cursor) => cursor,
                 Err(e) => {
-                    ErrorCode::InternalError.render(res, format!("space cursor: {e}"));
+                    ApiErrorCode::InternalError.render(res, format!("space cursor: {e}"));
                     return;
                 }
             };
@@ -127,7 +127,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
             })));
         }
         Err(e) => {
-            ErrorCode::InternalError.render(res, format!("space search: {e}"));
+            ApiErrorCode::InternalError.render(res, format!("space search: {e}"));
         }
     }
 }
@@ -153,14 +153,14 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
     let body: ResolveSpaceRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
             return;
         }
     };
@@ -174,7 +174,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            ErrorCode::MissingParam.render(
+            ApiErrorCode::MissingParam.render(
                 res,
                 "at least one of space_id / alias / invite_token / signed_link required",
             );
@@ -197,7 +197,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
         // Hidden, withdrawn, or unknown — all collapse to blinded not_found.
         _ => {
-            ErrorCode::NotFound.render(res, "not found");
+            ApiErrorCode::NotFound.render(res, "not found");
         }
     }
 }

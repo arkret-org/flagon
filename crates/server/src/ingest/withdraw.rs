@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::audit::{self, AuditEventKind};
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::{ResourceKindWire, WithdrawalKindWire, verify};
@@ -45,7 +45,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -53,24 +53,24 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let body: WithdrawRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ErrorCode::BadJson.render(res, format!("malformed withdraw body: {e}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed withdraw body: {e}"));
             return;
         }
     };
 
     if body.resource_id.is_empty() {
-        ErrorCode::MissingParam.render(res, "resource_id is required");
+        ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
     if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
         return;
     }
     if body.reason.trim().is_empty() {
-        ErrorCode::MissingParam.render(res, "reason is required");
+        ApiErrorCode::MissingParam.render(res, "reason is required");
         return;
     }
     if !body.governance_proof.is_object() {
-        ErrorCode::SchemaViolation.render(res, "governance_proof must be an object");
+        ApiErrorCode::SchemaViolation.render(res, "governance_proof must be an object");
         return;
     }
 
@@ -97,7 +97,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let effective_at = body.effective_at.unwrap_or(acked_at);
 
     if let Err(e) = persist_withdraw(&state, &body, &withdraw_id, acked_at, effective_at) {
-        ErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
+        ApiErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
         return;
     }
 
@@ -121,10 +121,12 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }));
 }
 
-fn withdraw_payload_without_jws(body: &WithdrawRequest) -> Result<JsonValue, (ErrorCode, String)> {
+fn withdraw_payload_without_jws(
+    body: &WithdrawRequest,
+) -> Result<JsonValue, (ApiErrorCode, String)> {
     let mut payload = serde_json::to_value(body).map_err(|e| {
         (
-            ErrorCode::InternalError,
+            ApiErrorCode::InternalError,
             format!("serialize withdraw payload: {e}"),
         )
     })?;
@@ -132,12 +134,12 @@ fn withdraw_payload_without_jws(body: &WithdrawRequest) -> Result<JsonValue, (Er
         .get_mut("governance_proof")
         .and_then(JsonValue::as_object_mut)
         .ok_or((
-            ErrorCode::SignatureInvalid,
+            ApiErrorCode::SignatureInvalid,
             "governance_proof object missing".to_owned(),
         ))?;
     if proof.remove("jws").is_none() {
         return Err((
-            ErrorCode::SignatureInvalid,
+            ApiErrorCode::SignatureInvalid,
             "governance_proof.jws missing".to_owned(),
         ));
     }

@@ -6,7 +6,7 @@ use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
@@ -29,7 +29,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
@@ -60,7 +60,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
             ));
         }
-        Err(e) => ErrorCode::InternalError.render(res, format!("org search: {e}")),
+        Err(e) => ApiErrorCode::InternalError.render(res, format!("org search: {e}")),
     }
 }
 
@@ -79,14 +79,14 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            ErrorCode::InternalError.render(res, "AppState not injected");
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
             return;
         }
     };
     let body: ResolveOrgRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
+            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
             return;
         }
     };
@@ -94,7 +94,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            ErrorCode::MissingParam.render(res, "organization_did or handle is required");
+            ApiErrorCode::MissingParam.render(res, "organization_did or handle is required");
             return;
         }
     };
@@ -112,7 +112,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         Ok(Some(r)) if r.discoverability.is_directory_visible() => {
             res.render(Json(envelope_from_row(r)));
         }
-        _ => ErrorCode::NotFound.render(res, "not found"),
+        _ => ApiErrorCode::NotFound.render(res, "not found"),
     }
 }
 

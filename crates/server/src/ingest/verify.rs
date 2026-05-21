@@ -32,7 +32,7 @@ use url::Url;
 use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
 use crate::did_resolver::did_resolver_chain;
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::ingest::ResourceKindWire;
 use crate::ingest::announce::AnnounceRequest;
 
@@ -63,12 +63,12 @@ impl<'a> VerifyContext<'a> {
     }
 
     /// Run all five steps. Returns `Err((code, msg))` on rejection — caller
-    /// renders that via `ErrorCode::render`. Returns `Ok(VerifyOutcome)` on
+    /// renders that via `ApiErrorCode::render`. Returns `Ok(VerifyOutcome)` on
     /// acceptance with the derived facts the announce handler needs.
     pub async fn verify(
         &self,
         req: &AnnounceRequest,
-    ) -> Result<VerifyOutcome, (ErrorCode, String)> {
+    ) -> Result<VerifyOutcome, (ApiErrorCode, String)> {
         // --- Step 1: transport — enforced by `crate::middleware::http_sig`.
         // That middleware verifies the RFC 9421 `Signature-Input` /
         // `Signature` headers + RFC 9530 `Content-Digest` against the
@@ -78,12 +78,16 @@ impl<'a> VerifyContext<'a> {
         // landing audit. ------------------------------------------------
 
         // --- Step 0 (housekeeping): freshness window. ----------------------
-        let skew = chrono::Duration::from_std(self.config.as_of_skew)
-            .map_err(|_| (ErrorCode::InternalError, "invalid skew config".to_string()))?;
+        let skew = chrono::Duration::from_std(self.config.as_of_skew).map_err(|_| {
+            (
+                ApiErrorCode::InternalError,
+                "invalid skew config".to_string(),
+            )
+        })?;
         let drift = (req.as_of - self.now).num_seconds().abs();
         if drift > skew.num_seconds() {
             return Err((
-                ErrorCode::SignatureStale,
+                ApiErrorCode::SignatureStale,
                 format!(
                     "as_of skew {drift}s exceeds configured tolerance {}s",
                     skew.num_seconds()
@@ -103,7 +107,7 @@ impl<'a> VerifyContext<'a> {
         let listed = directory_services_lists_self(&req.discovery_state, &self.config.service_did);
         if !listed {
             return Err((
-                ErrorCode::DirectoryNotAuthorized,
+                ApiErrorCode::DirectoryNotAuthorized,
                 format!(
                     "discovery_state.directory_services does not list this directory ({})",
                     self.config.service_did
@@ -114,12 +118,12 @@ impl<'a> VerifyContext<'a> {
         // --- Step 4: source-ref sanity. ------------------------------------
         if req.source_refs.is_empty() {
             return Err((
-                ErrorCode::SourceRefsUnverifiable,
+                ApiErrorCode::SourceRefsUnverifiable,
                 "source_refs MUST contain at least one anchor event id".into(),
             ));
         }
         if !resource_already_indexed(self.db, req.resource_kind, &req.resource_id)
-            .map_err(|e| (ErrorCode::InternalError, format!("source-ref gate: {e}")))?
+            .map_err(|e| (ApiErrorCode::InternalError, format!("source-ref gate: {e}")))?
         {
             verify_first_source_ref_resolves(req, self.config).await?;
         }
@@ -129,12 +133,16 @@ impl<'a> VerifyContext<'a> {
 
         // --- Cross-checks: takedown-in-force --------------------------------
         if let Some(effective_at) =
-            previously_withdrawn(self.db, req.resource_kind, &req.resource_id)
-                .map_err(|e| (ErrorCode::InternalError, format!("withdrawal check: {e}")))?
+            previously_withdrawn(self.db, req.resource_kind, &req.resource_id).map_err(|e| {
+                (
+                    ApiErrorCode::InternalError,
+                    format!("withdrawal check: {e}"),
+                )
+            })?
         {
             if req.as_of <= effective_at {
                 return Err((
-                    ErrorCode::TakedownInForce,
+                    ApiErrorCode::TakedownInForce,
                     format!(
                         "a withdrawal is in force as of {effective_at}; \
                          announce as_of {} is not strictly later",
@@ -160,7 +168,7 @@ impl<'a> VerifyContext<'a> {
         })
     }
 
-    fn enforce_accept_policy(&self, req: &AnnounceRequest) -> Result<(), (ErrorCode, String)> {
+    fn enforce_accept_policy(&self, req: &AnnounceRequest) -> Result<(), (ApiErrorCode, String)> {
         // DID method allowlist (applies regardless of accept policy kind).
         if matches!(
             req.resource_kind,
@@ -174,7 +182,7 @@ impl<'a> VerifyContext<'a> {
                 .any(|m| m.eq_ignore_ascii_case(&method))
             {
                 return Err((
-                    ErrorCode::AcceptPolicyDenied,
+                    ApiErrorCode::AcceptPolicyDenied,
                     format!("DID method {method} not in TEABAY_ACCEPTED_DID_METHODS"),
                 ));
             }
@@ -184,12 +192,12 @@ impl<'a> VerifyContext<'a> {
             AcceptPolicyKind::Open => Ok(()),
             AcceptPolicyKind::Allowlist => {
                 if is_in_allowlist(self.db, &req.resource_id)
-                    .map_err(|e| (ErrorCode::InternalError, format!("allowlist read: {e}")))?
+                    .map_err(|e| (ApiErrorCode::InternalError, format!("allowlist read: {e}")))?
                 {
                     Ok(())
                 } else {
                     Err((
-                        ErrorCode::AcceptPolicyDenied,
+                        ApiErrorCode::AcceptPolicyDenied,
                         format!("{} not in operator allowlist", req.resource_id),
                     ))
                 }
@@ -201,7 +209,7 @@ impl<'a> VerifyContext<'a> {
                 // reject with a structured message so callers know to apply
                 // through `accept_policy_ref`.
                 Err((
-                    ErrorCode::AcceptPolicyDenied,
+                    ApiErrorCode::AcceptPolicyDenied,
                     self.config
                         .accept_policy_ref
                         .clone()
@@ -215,9 +223,9 @@ impl<'a> VerifyContext<'a> {
 fn verify_trust_root_attestation(
     req: &AnnounceRequest,
     config: &AppConfig,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     let attestation = req.trust_root_attestation.as_ref().ok_or((
-        ErrorCode::AcceptPolicyDenied,
+        ApiErrorCode::AcceptPolicyDenied,
         "trust_root_signed requires trust_root_attestation".to_owned(),
     ))?;
     let issuer = attestation
@@ -225,12 +233,12 @@ fn verify_trust_root_attestation(
         .and_then(JsonValue::as_str)
         .filter(|issuer| !issuer.is_empty())
         .ok_or((
-            ErrorCode::AcceptPolicyDenied,
+            ApiErrorCode::AcceptPolicyDenied,
             "trust_root_attestation.issuer missing".to_owned(),
         ))?;
     if !trust_root_allowed(config, issuer) {
         return Err((
-            ErrorCode::AcceptPolicyDenied,
+            ApiErrorCode::AcceptPolicyDenied,
             format!("trust root issuer `{issuer}` is not allowed by TEABAY_ACCEPT_POLICY_REF"),
         ));
     }
@@ -251,7 +259,7 @@ fn verify_trust_root_attestation(
             .any(|subject| subject == req.resource_id);
     if !subject_ok {
         return Err((
-            ErrorCode::AcceptPolicyDenied,
+            ApiErrorCode::AcceptPolicyDenied,
             "trust_root_attestation does not cover resource_id".to_owned(),
         ));
     }
@@ -259,21 +267,21 @@ fn verify_trust_root_attestation(
         let expires_at = DateTime::parse_from_rfc3339(expires_at)
             .map_err(|e| {
                 (
-                    ErrorCode::AcceptPolicyDenied,
+                    ApiErrorCode::AcceptPolicyDenied,
                     format!("trust_root_attestation.expires_at invalid: {e}"),
                 )
             })?
             .with_timezone(&Utc);
         if expires_at <= Utc::now() {
             return Err((
-                ErrorCode::AcceptPolicyDenied,
+                ApiErrorCode::AcceptPolicyDenied,
                 "trust_root_attestation expired".to_owned(),
             ));
         }
     }
 
     let proof = attestation.get("proof").ok_or((
-        ErrorCode::AcceptPolicyDenied,
+        ApiErrorCode::AcceptPolicyDenied,
         "trust_root_attestation.proof missing".to_owned(),
     ))?;
     let canonical = canonical_payload_without_jws(attestation, "proof")?;
@@ -287,12 +295,12 @@ fn verify_trust_root_attestation(
         .unwrap_or(&verification_method);
     if signer_did != issuer {
         return Err((
-            ErrorCode::AcceptPolicyDenied,
+            ApiErrorCode::AcceptPolicyDenied,
             "trust_root_attestation proof signer does not match issuer".to_owned(),
         ));
     }
     verify_jws_ed25519(&canonical, &jws, &verification_method, config)
-        .map_err(|msg| (ErrorCode::AcceptPolicyDenied, msg))
+        .map_err(|msg| (ApiErrorCode::AcceptPolicyDenied, msg))
 }
 
 fn trust_root_allowed(config: &AppConfig, issuer: &str) -> bool {
@@ -313,9 +321,9 @@ pub(crate) fn verify_discovery_proof(
     resource_kind: ResourceKindWire,
     resource_id: &str,
     config: &AppConfig,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     let proof = discovery_state.get("proof").ok_or((
-        ErrorCode::SignatureInvalid,
+        ApiErrorCode::SignatureInvalid,
         "discovery_state.proof is missing".into(),
     ))?;
     let canonical = canonical_payload_without_jws(discovery_state, "proof")?;
@@ -328,9 +336,9 @@ pub(crate) fn verify_governance_proof_payload(
     resource_kind: ResourceKindWire,
     resource_id: &str,
     config: &AppConfig,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     let canonical = canonical_json_bytes(canonical_payload_without_jws)
-        .map_err(|msg| (ErrorCode::SignatureInvalid, msg))?;
+        .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))?;
     verify_detached_jws_payload(&canonical, proof, resource_kind, resource_id, config)
 }
 
@@ -340,14 +348,14 @@ fn verify_detached_jws_payload(
     resource_kind: ResourceKindWire,
     resource_id: &str,
     config: &AppConfig,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     let DetachedProof {
         verification_method,
         jws,
     } = detached_proof(proof)?;
     enforce_governance_method_binding(resource_kind, resource_id, &verification_method)?;
     verify_jws_ed25519(canonical_bytes, &jws, &verification_method, config)
-        .map_err(|msg| (ErrorCode::SignatureInvalid, msg))
+        .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
 struct DetachedProof {
@@ -355,14 +363,14 @@ struct DetachedProof {
     jws: String,
 }
 
-fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ErrorCode, String)> {
+fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, String)> {
     let kind = proof
         .get("kind")
         .and_then(JsonValue::as_str)
-        .ok_or((ErrorCode::SignatureInvalid, "proof.kind missing".into()))?;
+        .ok_or((ApiErrorCode::SignatureInvalid, "proof.kind missing".into()))?;
     if kind != "detached_jws" {
         return Err((
-            ErrorCode::SignatureInvalid,
+            ApiErrorCode::SignatureInvalid,
             format!("unsupported proof.kind {kind}; expected detached_jws"),
         ));
     }
@@ -371,7 +379,7 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ErrorCode, String
         .and_then(JsonValue::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or((
-            ErrorCode::SignatureInvalid,
+            ApiErrorCode::SignatureInvalid,
             "proof.verification_method missing".into(),
         ))?
         .to_owned();
@@ -379,7 +387,7 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ErrorCode, String
         .get("jws")
         .and_then(JsonValue::as_str)
         .filter(|value| !value.trim().is_empty())
-        .ok_or((ErrorCode::SignatureInvalid, "proof.jws missing".into()))?
+        .ok_or((ApiErrorCode::SignatureInvalid, "proof.jws missing".into()))?
         .to_owned();
     Ok(DetachedProof {
         verification_method,
@@ -390,19 +398,19 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ErrorCode, String
 fn canonical_payload_without_jws(
     payload: &JsonValue,
     proof_key: &str,
-) -> Result<Vec<u8>, (ErrorCode, String)> {
+) -> Result<Vec<u8>, (ApiErrorCode, String)> {
     let mut unsigned = payload.clone();
     let proof = unsigned
         .get_mut(proof_key)
         .and_then(JsonValue::as_object_mut)
         .ok_or((
-            ErrorCode::SignatureInvalid,
+            ApiErrorCode::SignatureInvalid,
             format!("{proof_key} proof object missing"),
         ))?;
     if proof.remove("jws").is_none() {
-        return Err((ErrorCode::SignatureInvalid, "proof.jws missing".into()));
+        return Err((ApiErrorCode::SignatureInvalid, "proof.jws missing".into()));
     }
-    canonical_json_bytes(&unsigned).map_err(|msg| (ErrorCode::SignatureInvalid, msg))
+    canonical_json_bytes(&unsigned).map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
@@ -466,7 +474,7 @@ fn enforce_governance_method_binding(
     resource_kind: ResourceKindWire,
     resource_id: &str,
     verification_method: &str,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     let did = verification_method
         .split_once('#')
         .map(|(did, _)| did)
@@ -477,7 +485,7 @@ fn enforce_governance_method_binding(
     ) && did != resource_id
     {
         return Err((
-            ErrorCode::GovernanceKeyInvalid,
+            ApiErrorCode::GovernanceKeyInvalid,
             format!("verification_method DID `{did}` does not control `{resource_id}`"),
         ));
     }
@@ -502,18 +510,18 @@ fn resource_already_indexed(
 async fn verify_first_source_ref_resolves(
     req: &AnnounceRequest,
     config: &AppConfig,
-) -> Result<(), (ErrorCode, String)> {
+) -> Result<(), (ApiErrorCode, String)> {
     let source_ref = req
         .source_refs
         .first()
         .ok_or((
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             "source_refs MUST contain at least one anchor event id".to_owned(),
         ))?
         .clone();
     let http = strict_http_client().map_err(|e| {
         (
-            ErrorCode::InternalError,
+            ApiErrorCode::InternalError,
             format!("source-ref HTTP client: {e}"),
         )
     })?;
@@ -521,31 +529,31 @@ async fn verify_first_source_ref_resolves(
         .await
         .map_err(|e| {
             (
-                ErrorCode::SourceRefsUnverifiable,
+                ApiErrorCode::SourceRefsUnverifiable,
                 format!("principal_server_did did not resolve to events endpoint: {e}"),
             )
         })?;
     let url = endpoint_child(&endpoint, &format!("events/{source_ref}")).map_err(|e| {
         (
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref URL: {e}"),
         )
     })?;
     let response = http.get(url).send().await.map_err(|e| {
         (
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref fetch failed: {e:?}"),
         )
     })?;
     if !response.status().is_success() {
         return Err((
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref fetch returned {}", response.status()),
         ));
     }
     let body = response.json::<JsonValue>().await.map_err(|e| {
         (
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref response was not JSON: {e}"),
         )
     })?;
@@ -554,12 +562,12 @@ async fn verify_first_source_ref_resolves(
         .or_else(|| body.get("event_id"))
         .and_then(JsonValue::as_str)
         .ok_or((
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             "source-ref response did not contain event_id".to_owned(),
         ))?;
     if returned_id != source_ref {
         return Err((
-            ErrorCode::SourceRefsUnverifiable,
+            ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref response returned `{returned_id}`, expected `{source_ref}`"),
         ));
     }
@@ -718,12 +726,12 @@ fn directory_services_lists_self(discovery_state: &JsonValue, self_did: &str) ->
 
 fn read_discoverability(
     discovery_state: &JsonValue,
-) -> Result<super::DiscoverabilityWire, (ErrorCode, String)> {
+) -> Result<super::DiscoverabilityWire, (ApiErrorCode, String)> {
     let s = discovery_state
         .get("discoverability")
         .and_then(JsonValue::as_str)
         .ok_or((
-            ErrorCode::SchemaViolation,
+            ApiErrorCode::SchemaViolation,
             "discovery_state.discoverability missing".into(),
         ))?;
     match s {
@@ -734,7 +742,7 @@ fn read_discoverability(
         "invite_only" => Ok(super::DiscoverabilityWire::InviteOnly),
         "secret" => Ok(super::DiscoverabilityWire::Secret),
         other => Err((
-            ErrorCode::SchemaViolation,
+            ApiErrorCode::SchemaViolation,
             format!("unknown discoverability {other}"),
         )),
     }

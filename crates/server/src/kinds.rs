@@ -44,8 +44,8 @@ pub const OP_DIRECTORY_SUBSCRIBE: &str = contrix_sdk::OP_DIRECTORY_SUBSCRIBE;
 // ---- §9 query operations (declared for profile self-check) --------------
 
 pub const OP_DIRECTORY_DESCRIBE: &str = contrix_sdk::OP_DIRECTORY_DESCRIBE;
-pub const OP_DIRECTORY_SEARCH_SPACES: &str = contrix_sdk::OP_DIRECTORY_SEARCH_SPACES;
-pub const OP_DIRECTORY_RESOLVE_SPACE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_SPACE;
+pub const OP_DIRECTORY_SEARCH_SPACES: &str = contrix_sdk::OP_DIRECTORY_SEARCH_REALMS;
+pub const OP_DIRECTORY_RESOLVE_SPACE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_REALM;
 pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ORGANIZATIONS;
 pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_ORGANIZATION;
 pub const OP_DIRECTORY_SEARCH_ACTORS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ACTORS;
@@ -75,7 +75,10 @@ mod tests {
     #[test]
     fn discovery_kinds_match_sdk() {
         assert_eq!(EVENT_KIND_REALM_DISCOVERY, "cx.realm.discovery");
-        assert_eq!(EVENT_KIND_ORGANIZATION_DISCOVERY, "cx.organization.discovery");
+        assert_eq!(
+            EVENT_KIND_ORGANIZATION_DISCOVERY,
+            "cx.organization.discovery"
+        );
         assert_eq!(EVENT_KIND_ACTOR_DISCOVERY, "cx.actor.discovery");
         assert_eq!(EVENT_KIND_APPLET_DISCOVERY, "cx.applet.discovery");
         assert_eq!(EVENT_KIND_HANDLE_DISCOVERY, "cx.handle.discovery");
@@ -87,8 +90,8 @@ mod tests {
         assert_eq!(OP_DIRECTORY_WITHDRAW, "cx.directory.withdraw");
         assert_eq!(OP_DIRECTORY_SUBSCRIBE, "cx.directory.subscribe");
         assert_eq!(OP_DIRECTORY_DESCRIBE, "cx.directory.describe");
-        assert_eq!(OP_DIRECTORY_SEARCH_SPACES, "cx.directory.search_spaces");
-        assert_eq!(OP_DIRECTORY_RESOLVE_SPACE, "cx.directory.resolve_space");
+        assert_eq!(OP_DIRECTORY_SEARCH_SPACES, "cx.directory.search_realms");
+        assert_eq!(OP_DIRECTORY_RESOLVE_SPACE, "cx.directory.resolve_realm");
         assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "cx.directory.resolve_handle");
     }
 }

@@ -3,7 +3,7 @@
 use salvo::http::header;
 use salvo::prelude::*;
 
-use crate::error::ErrorCode;
+use crate::error::ApiErrorCode;
 use crate::state::{AppState, RateLimitOutcome};
 
 pub fn enforce_ingest_rate_limit(
@@ -22,7 +22,7 @@ pub fn enforce_ingest_rate_limit(
             if let Ok(value) = retry_after_seconds.to_string().parse() {
                 res.headers_mut().insert(header::RETRY_AFTER, value);
             }
-            ErrorCode::RateLimited.render(res, "rate limited");
+            ApiErrorCode::RateLimited.render(res, "rate limited");
             return false;
         }
     }

@@ -23,6 +23,6 @@ pub mod state;
 
 pub use config::AppConfig;
 pub use db::Db;
-pub use error::ErrorCode;
+pub use error::ApiErrorCode;
 pub use routing::{router, service};
 pub use state::AppState;
