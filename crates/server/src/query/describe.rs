@@ -471,8 +471,14 @@ mod tests {
                 profile_id: "cx.profile.directory_service.v1".to_owned(),
                 claim_kind: contrix_sdk::CotestVerifiedKind::CotestVerified,
                 cotest_run_id: "test-run".to_owned(),
-                artifact_hash: "sha256:0".to_owned(),
+                artifact_hash:
+                    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+                        .to_owned(),
+                artifact_ref: "file:///tmp/verified-profiles.json".to_owned(),
+                cotest_issuer_did: Did::new("did:web:cotest.example").unwrap(),
+                signature: "eddsa-jcs-b64url:test-signature".to_owned(),
                 timestamp: chrono::Utc::now(),
+                valid_until: None,
                 extra: Default::default(),
             }],
             experimental_features: Vec::new(),
