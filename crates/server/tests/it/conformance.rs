@@ -127,7 +127,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
 }
 
 async fn assert_search_spaces_finds_seeded_space(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/api/v1/directory/search-spaces")
+    let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
@@ -144,14 +144,14 @@ async fn assert_search_spaces_finds_seeded_space(service: &Service) -> anyhow::R
 }
 
 async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/api/v1/directory/search-spaces")
+    let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1 }))
         .send(service)
         .await;
     let status = res.status_code.unwrap_or(StatusCode::OK);
     if status != StatusCode::OK {
         let body = res.take_string().await.unwrap_or_default();
-        panic!("search-spaces first page failed with {status}: {body}");
+        panic!("search-realms first page failed with {status}: {body}");
     }
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"].as_array().unwrap().len(), 1);
@@ -171,7 +171,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .as_str()
         .unwrap_or_else(|| panic!("expected next_cursor for first search page: {body}"));
 
-    let mut res = TestClient::post("http://local/api/v1/directory/search-spaces")
+    let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1, "cursor": cursor }))
         .send(service)
         .await;
@@ -179,7 +179,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"].as_array().unwrap().len(), 1);
 
-    let res = TestClient::post("http://local/api/v1/directory/search-spaces")
+    let res = TestClient::post("http://local/api/v1/directory/search-realms")
         .json(&json!({ "cursor": "not-base64" }))
         .send(service)
         .await;
@@ -268,11 +268,11 @@ async fn assert_resolve_space_status(
     expected: StatusCode,
     extra: JsonValue,
 ) -> anyhow::Result<()> {
-    let mut body = json!({ "space_id": space_id });
+    let mut body = json!({ "realm_id": space_id });
     if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
         target.extend(source.clone());
     }
-    let res = TestClient::post("http://local/api/v1/directory/resolve-space")
+    let res = TestClient::post("http://local/api/v1/directory/resolve-realm")
         .json(&body)
         .send(service)
         .await;
@@ -352,8 +352,8 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
             .is_some_and(|id| id.starts_with("cx:announce:"))
     );
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-space")
-        .json(&json!({ "space_id": "cx:space:pushed" }))
+    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+        .json(&json!({ "realm_id": "cx:space:pushed" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -442,8 +442,8 @@ async fn assert_pull_worker_refreshes_due_entry(
         .run_once_for_tests()
         .await?;
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-space")
-        .json(&json!({ "space_id": "cx:space:pull" }))
+    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+        .json(&json!({ "realm_id": "cx:space:pull" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -476,8 +476,8 @@ async fn assert_freshness_flags_are_exposed(
         )
         .execute(&mut conn)?;
     }
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-space")
-        .json(&json!({ "space_id": "cx:space:tea" }))
+    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+        .json(&json!({ "realm_id": "cx:space:tea" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);

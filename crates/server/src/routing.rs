@@ -92,13 +92,6 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     // handled per-handler where applicable).
     let query_routes = Router::new()
         .push(Router::with_path("describe").get(query::describe::describe))
-        .push(Router::with_path("search-spaces").post(query::space::search_spaces))
-        .push(Router::with_path("resolve-space").post(query::space::resolve_space))
-        // Realm-rework alias: the security-boundary view of the same row.
-        // Same handler — `resolve_space` already treats the row as the
-        // security boundary. TODO(realm-rework): once the directory has a
-        // separate container `space` resource_kind, split this into two
-        // distinct handlers.
         .push(Router::with_path("search-realms").post(query::space::search_spaces))
         .push(Router::with_path("resolve-realm").post(query::space::resolve_space))
         .push(
@@ -397,28 +390,12 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
         ),
         (
-            "/api/v1/directory/search-spaces",
-            PathItemType::Post,
-            "cx.directory.search_spaces",
-            "query",
-            "Search Spaces",
-            "Return listed/public Space directory results using the §9.1 result envelope.",
-        ),
-        (
-            "/api/v1/directory/resolve-space",
-            PathItemType::Post,
-            "cx.directory.resolve_space",
-            "query",
-            "Resolve Space",
-            "Resolve a Space by ID, alias, invite token, or signed link with blinded misses.",
-        ),
-        (
             "/api/v1/directory/search-realms",
             PathItemType::Post,
             "cx.directory.search_realms",
             "query",
             "Search Realms",
-            "Realm-rework alias of search-spaces — security-boundary view of the same rows.",
+            "Return listed/public Realm directory results using the §9.1 result envelope.",
         ),
         (
             "/api/v1/directory/resolve-realm",
@@ -426,7 +403,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "cx.directory.resolve_realm",
             "query",
             "Resolve Realm",
-            "Realm-rework alias of resolve-space — security-boundary resolution path.",
+            "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
         ),
         (
             "/api/v1/directory/search-organizations",

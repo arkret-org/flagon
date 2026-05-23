@@ -1,16 +1,14 @@
 //! Space search and resolve. Spec §9.
 //!
-//! `cx.directory.search_spaces` and `cx.directory.resolve_space`. Both
+//! `cx.directory.search_realms` and `cx.directory.resolve_realm`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
 //!
 //! Realm-rework note: post-spec sync the "security boundary" is now
 //! called a **Realm** (`cx:realm:` URI prefix) while "Space" denotes a
-//! pure container. The wire endpoints / `resource_kind` enum value on
-//! this surface are still `space` for back-compat; the security
-//! boundary rows are reached via `/api/v1/directory/realms/{id}`
-//! (alias of `resolve-space`) until the DB enum is renamed.
+//! pure container. The DB `resource_kind` enum value on this surface is still
+//! `space` until the storage layer is renamed.
 // TODO(realm-rework): split the directory rows by introducing a
 // `realm` resource_kind and a separate `space` (container) kind; this
 // handler then becomes Realm-scoped only.
@@ -91,7 +89,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
             .map(|cursor| cursor.resource_id.as_str())
             .unwrap_or_default(),
     );
-    let result = pad_to_budget(budget, "cx.directory.search_spaces", &privacy_key, async {
+    let result = pad_to_budget(budget, "cx.directory.search_realms", &privacy_key, async {
         run_visible_space_search(
             &state,
             &needle,
@@ -135,7 +133,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
 #[derive(Debug, Deserialize)]
 pub struct ResolveSpaceRequest {
     #[serde(default)]
-    pub space_id: Option<String>,
+    pub realm_id: Option<String>,
     #[serde(default)]
     pub alias: Option<String>,
     #[serde(default)]
@@ -166,7 +164,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
     };
 
     let key = body
-        .space_id
+        .realm_id
         .clone()
         .or(body.alias)
         .or(body.invite_token)
@@ -176,7 +174,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
         _ => {
             ApiErrorCode::MissingParam.render(
                 res,
-                "at least one of space_id / alias / invite_token / signed_link required",
+                "at least one of realm_id / alias / invite_token / signed_link required",
             );
             return;
         }
@@ -186,7 +184,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let row = pad_to_budget(budget, "cx.directory.resolve_space", &key, async {
+    let row = pad_to_budget(budget, "cx.directory.resolve_realm", &key, async {
         load_space_row(&state, &key).await
     })
     .await;

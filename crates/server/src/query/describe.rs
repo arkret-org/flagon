@@ -68,8 +68,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // Operations the directory publishes (mirrors `crate::kinds::DIRECTORY_OPERATIONS`).
     let supported_operations: Vec<String> = vec![
         "cx.directory.describe",
-        "cx.directory.search_spaces",
-        "cx.directory.resolve_space",
+        "cx.directory.search_realms",
+        "cx.directory.resolve_realm",
         "cx.directory.search_organizations",
         "cx.directory.resolve_organization",
         "cx.directory.search_actors",
