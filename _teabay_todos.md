@@ -50,9 +50,9 @@
 - [ ] §16 Add `/readyz` (Postgres reachable + workers running) separate from `/health`.
 
 ### Secret handling
-- [ ] §17 Document `TEABAY_HTTP_SIG_PUBKEYS` provisioning end-to-end in `README.md` deployment section.
-- [ ] §18 Add a vault-adapter feature flag (optional Vault / AWS Secrets Manager). Or formally document env-var-only for 1.0.
-- [ ] §19 Confirm `TEABAY_ADMIN_TOKEN` enforcement when production mode = true (already in `/health` hardening probe — verify).
+- [x] §17 Document `TEABAY_HTTP_SIG_PUBKEYS` provisioning end-to-end in `README.md` deployment section.
+- [x] §18 Add a vault-adapter feature flag (optional Vault / AWS Secrets Manager). Or formally document env-var-only for 1.0.
+- [x] §19 Confirm `TEABAY_ADMIN_TOKEN` enforcement when production mode = true (already in `/health` hardening probe — verify).
 
 ### Audit + receipts
 - [ ] §20 Spec § 8.7 mentions signed receipts on takedown. Confirm `withdrawals.proof` carries enough signature info to be a verifiable receipt. If not, extend the schema.

@@ -85,8 +85,51 @@ Recommended production settings:
 | `TEABAY_ACCEPT_POLICY_REF` | Optional application or policy reference. |
 | `TEABAY_TAKEDOWN_CONTACT` | Optional appeal or operator contact. |
 
-Store secrets outside source control. teabay currently reads secrets from
-environment variables; a vault adapter is not implemented.
+### HTTP Signature Keys
+
+`TEABAY_HTTP_SIG_PUBKEYS` is the boot-time key directory for ingest HTTP
+Message Signatures. Each entry is:
+
+```text
+keyid=BASE64URL_OF_RAW_32_BYTE_ED25519_VERIFY_KEY
+```
+
+Multiple entries are separated by commas:
+
+```text
+TEABAY_HTTP_SIG_PUBKEYS=did:web:a.example#ingest-1=BASE64URL32,did:web:b.example#ingest-1=BASE64URL32
+```
+
+The request signature `keyid` must match the configured key id exactly. With
+`TEABAY_REQUIRE_HTTP_SIG=true`, an unsigned request, unknown key id, malformed
+key, or invalid signature is rejected before the announce, withdraw, or
+subscribe handler runs.
+
+Provisioning flow:
+
+1. Generate or select the Principal Server's Ed25519 signing key outside the
+   teabay repository.
+2. Export the matching raw 32-byte verifying key.
+3. Base64url-encode it without padding.
+4. Add `keyid=encoded_key` to `TEABAY_HTTP_SIG_PUBKEYS`.
+5. Restart teabay.
+6. Confirm the Principal Server signs ingest requests with the same `keyid`.
+
+### 1.0 Secret Backend Decision
+
+Store secrets outside source control. For 1.0, teabay intentionally supports
+environment-variable secret injection only. A Vault, AWS Secrets Manager, or
+other runtime secret-provider adapter is out of scope for 1.0 and should be
+handled by the deployment platform before process start.
+
+### Admin Token Enforcement
+
+The admin API requires `Authorization: Bearer $TEABAY_ADMIN_TOKEN` for
+`/api/admin/v1/*`. The route guard fails closed: if `TEABAY_ADMIN_TOKEN` is
+unset or empty, admin requests return `unauthenticated` instead of becoming
+anonymous. `/health.hardening.admin_auth_mode` reports `production` only when
+development mode is disabled and a non-empty admin token is configured; without
+that token it reports `closed`.
 
 ## Freshness Configuration
 

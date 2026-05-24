@@ -225,13 +225,54 @@ The same list will be computed at runtime and surfaced on
 `/health.hardening` so sodmin's `/hardening` dashboard can flag failing
 checks across the whole fleet (see T8.3 for the cross-service shape).
 
+### HTTP signature key provisioning
+
+`TEABAY_REQUIRE_HTTP_SIG=true` is the production ingest default. Provision
+ingest signer keys before accepting traffic:
+
+1. For each resource Principal Server that may call
+   `/api/v1/directory/{announce,withdraw,subscribe}`, obtain the Ed25519
+   verifying key that corresponds to the HTTP Message Signature `keyid`.
+2. Encode the raw 32-byte verifying key with unpadded base64url. Standard
+   padded base64 is also accepted, but base64url is preferred for env files.
+3. Set `TEABAY_HTTP_SIG_PUBKEYS` to comma-separated
+   `keyid=BASE64URL32` pairs, for example
+   `did:web:principal.example#directory-ingest-2026=BASE64URL_OF_RAW_32_BYTE_KEY`.
+4. Restart teabay so the key directory is rebuilt from the environment.
+5. Send a signed ingest request whose signature `keyid` exactly matches the
+   configured key id. Unknown, missing, malformed, or mismatched keys are
+   rejected by the ingest middleware before handler-level verification.
+
+Rotate keys by adding the new `keyid=key` pair, rolling Principal Servers to
+sign with the new key id, then removing the old pair after replay windows have
+expired.
+
+### Secret handling for 1.0
+
+teabay 1.0 uses environment-variable secret provisioning only:
+`TEABAY_HTTP_SIG_PUBKEYS`, `TEABAY_ADMIN_TOKEN`, database credentials, and
+deployment-specific TLS or proxy secrets are injected by the runtime
+environment. A Vault / AWS Secrets Manager adapter is explicitly out of scope
+for 1.0; operators should use their orchestrator's existing secret injection
+mechanism and keep `.env` files out of source control.
+
+### Admin token enforcement
+
+All `/api/admin/v1/*` handlers call the shared admin guard before touching the
+database. The guard requires `Authorization: Bearer $TEABAY_ADMIN_TOKEN` and
+returns `unauthenticated` when the token is unset, absent, or mismatched. In
+production posture, `/health.hardening.admin_auth_mode` reports `production`
+only when `TEABAY_DEVELOPMENT_MODE=false` and a non-empty
+`TEABAY_ADMIN_TOKEN` is configured; otherwise the admin surface is reported as
+`closed`.
+
 - [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
 - [ ] TLS enabled at the reverse proxy (or `TEABAY_TLS_CERT_PATH` / `TEABAY_TLS_KEY_PATH` when terminated in-process)
 - [ ] CSP header configured at the reverse proxy
 - [ ] CORS limited to the allowed origins for principal-server / sodmin callers
-- [ ] Secrets in a secret manager (admin signing keys, database credentials)
+- [ ] Secret env vars injected by the deployment platform, not committed `.env` files
 - [ ] Log redaction enabled (default outside dev mode)
-- [ ] Admin auth in production mode (admin token / DID allowlist)
+- [ ] Admin auth in production mode (`TEABAY_ADMIN_TOKEN`)
 - [ ] Rate limit enabled
 - [ ] Provider credential rotation scheduled (when applicable)
 

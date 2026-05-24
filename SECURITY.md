@@ -45,6 +45,19 @@ Store secrets outside the repository and rotate them through the deployment
 environment. teabay currently reads secrets from environment variables; a vault
 adapter is not implemented.
 
+For 1.0, environment variables are the formal secret backend. Vault, AWS Secrets
+Manager, and similar adapters are out of scope until a post-1.0 design is
+accepted.
+
+`TEABAY_HTTP_SIG_PUBKEYS` must contain only trusted raw Ed25519 verifying keys
+encoded as `keyid=BASE64URL32` pairs. The `keyid` must match the HTTP Message
+Signature `keyid` sent by the Principal Server.
+
+`TEABAY_ADMIN_TOKEN` is fail-closed for `/api/admin/v1/*`: unset, empty,
+missing, or mismatched bearer tokens are rejected as unauthenticated. The
+hardening status reports admin auth as `production` only when development mode
+is off and this token is configured.
+
 ## Dependency Checks
 
 Local and CI security checks include:

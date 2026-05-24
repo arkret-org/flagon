@@ -116,6 +116,15 @@ For suspected unauthorized ingest:
 5. Use operator takedown or resource withdrawal for rows that should no longer
    be searchable.
 
+For admin access checks:
+
+1. Confirm `TEABAY_DEVELOPMENT_MODE=false` in production.
+2. Confirm `TEABAY_ADMIN_TOKEN` is non-empty in the runtime environment.
+3. Confirm requests use `Authorization: Bearer <token>`.
+4. Check `/health` and require `hardening.admin_auth_mode` to be `production`.
+   A value of `closed` means the admin token is missing and admin routes should
+   reject requests.
+
 For stale or missing resources:
 
 1. Check `pull_subscriptions.last_error`.
