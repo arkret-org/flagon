@@ -59,10 +59,10 @@
 - [ ] §21 Add an integration test that walks the 3-path takedown flow (resource state-change, resource withdraw, operator) end-to-end.
 
 ### Docs
-- [ ] §22 Add `docs/` directory with: architecture, deployment, operations, freshness model, anti-enumeration design rationale.
-- [ ] §23 Add `SECURITY.md` (currently missing).
-- [ ] §24 Add `CONTRIBUTING.md` (currently missing).
-- [ ] §25 Document admin-SPA build (`dx serve --platform web`) for contributors.
+- [x] §22 Add `docs/` directory with: architecture, deployment, operations, freshness model, anti-enumeration design rationale.
+- [x] §23 Add `SECURITY.md` (currently missing).
+- [x] §24 Add `CONTRIBUTING.md` (currently missing).
+- [x] §25 Document admin-SPA build (`dx serve --platform web`) for contributors.
 
 ## Phase 5
 

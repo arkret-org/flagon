@@ -1,0 +1,115 @@
+# Architecture
+
+teabay is the discovery entry layer for Contrix Directory Service traffic. It
+accepts signed discovery state from resource Principal Servers, indexes the
+public projection, and serves search and resolve endpoints with the directory
+result envelope required by the protocol.
+
+teabay is not the source of truth for a resource. The source Principal Server
+remains authoritative for identity, membership, authorization, and event state.
+
+## Runtime Shape
+
+```text
+client or SDK
+    |
+    v
+Salvo router
+    |
+    +-- /api/v1/directory/describe
+    |
+    +-- query face
+    |      search-realms
+    |      resolve-realm
+    |      search-organizations
+    |      resolve-organization
+    |      search-actors
+    |      search-users
+    |      resolve-handle
+    |      private-contact-discovery
+    |
+    +-- ingest face
+    |      announce
+    |      withdraw
+    |      subscribe
+    |
+    +-- /api/admin/v1/*
+    |
+    +-- /health
+```
+
+The query face is read-only. The ingest face is protected by the HTTP Message
+Signature middleware when `TEABAY_REQUIRE_HTTP_SIG=true`, then each announce or
+withdrawal runs the handler-level verification chain.
+
+## Main Components
+
+- `crates/server/src/routing.rs` wires public directory routes, admin routes,
+  `/health`, and OpenAPI metadata.
+- `crates/server/src/config.rs` reads environment configuration and builds the
+  advertised service capabilities used by `/api/v1/directory/describe`.
+- `crates/server/src/ingest/` handles push announce, withdrawal, pull
+  subscription, pull revalidation, verification, and divergence checks.
+- `crates/server/src/query/` builds the search and resolve responses from
+  indexed `directory_resources` rows.
+- `crates/server/src/filter/` contains the shared result envelope and
+  anti-enumeration helpers.
+- `crates/admin/` is the Dioxus operator console for resources, allowlist,
+  takedown, audit, and review workflows.
+
+## Data Model
+
+PostgreSQL is the system of record for the directory index.
+
+- `directory_resources` stores the effective indexed row for each
+  `(resource_kind, resource_id)` pair.
+- `ingest_announces` records accepted announce attempts and request digests.
+- `withdrawals` records resource and operator withdrawal activity.
+- `pull_subscriptions` tracks due pull-mode revalidation work.
+- `webhook_subscriptions` tracks push notification fanout registrations.
+- `psi_epoch_keys` stores Private Contact Discovery epoch keys.
+- `accept_allowlist` stores operator-managed accept-policy entries.
+- `directory_audit` is the append-only operator-readable audit feed.
+
+Diesel migrations live in `crates/server/migrations/` and are auto-applied at
+server startup by the server crate.
+
+## Request Flow
+
+Push announce:
+
+1. The router authenticates ingest transport with HTTP Message Signatures when
+   enforcement is enabled.
+2. The announce handler validates request shape, replay/idempotency state, TTL,
+   and monotonic `as_of` ordering.
+3. The verify chain checks freshness, DID method policy, accept policy, source
+   references, and directory-service opt-in.
+4. The server derives a public projection, stores the effective resource row,
+   records the announce, and writes an audit event.
+5. Registered webhooks receive best-effort accepted-ingest fanout.
+
+Query or resolve:
+
+1. The handler loads candidate rows from `directory_resources`.
+2. Discoverability, requester, and realm policy filters decide whether the row
+   may be surfaced.
+3. Hidden and absent resources return the same public miss shape.
+4. Returned hits include `as_of`, `source_refs`, `policy_revision`, `stale`,
+   `divergent`, and `via_services` when applicable.
+
+## Background Work
+
+The pull worker wakes every `TEABAY_PULL_INTERVAL_SECONDS` seconds when pull mode
+is enabled. It re-fetches due discovery state from the resource Principal Server,
+runs the same verification and projection path as push announce, and updates the
+freshness state.
+
+The divergence worker is optional and controlled by
+`TEABAY_DIVERGENCE_INTERVAL_SECONDS`. A value of `0` disables it.
+
+## Current Limitations
+
+- Metrics and a separate `/readyz` endpoint are not implemented yet.
+- The operator takedown path is audit-backed, but durable resource-side
+  notification transport is not implemented.
+- Webhook fanout is best effort and does not use a durable retry queue.
