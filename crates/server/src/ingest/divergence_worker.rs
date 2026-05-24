@@ -17,7 +17,7 @@ use tracing::{info, warn};
 use crate::audit::{self, AuditEventKind};
 use crate::ingest::ResourceKindWire;
 use crate::ingest::verify::strict_http_client;
-use crate::state::AppState;
+use crate::state::{AppState, BackgroundWorker};
 
 pub struct DivergenceWorker {
     state: AppState,
@@ -52,6 +52,8 @@ impl DivergenceWorker {
 
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
+            self.state
+                .worker_started(BackgroundWorker::Divergence, self.period);
             info!(
                 period_seconds = self.period.as_secs(),
                 "teabay divergence worker started"
@@ -67,6 +69,7 @@ impl DivergenceWorker {
     }
 
     async fn run_once(&self) -> anyhow::Result<()> {
+        self.state.worker_heartbeat(BackgroundWorker::Divergence);
         let candidates = self.fetch_candidates(100)?;
         if candidates.is_empty() {
             return Ok(());
@@ -202,6 +205,9 @@ impl DivergenceWorker {
     ) -> anyhow::Result<()> {
         if candidate.divergent == divergent {
             return Ok(());
+        }
+        if divergent {
+            self.state.metrics().record_divergence_detected();
         }
         use crate::schema::directory_resources::dsl as r;
         let mut conn = self.state.db().get()?;

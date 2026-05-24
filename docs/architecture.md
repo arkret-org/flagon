@@ -36,6 +36,12 @@ Salvo router
     +-- /api/admin/v1/*
     |
     +-- /health
+    |
+    +-- /readyz
+
+separate listener (TEABAY_METRICS_BIND)
+    |
+    +-- /metrics
 ```
 
 The query face is read-only. The ingest face is protected by the HTTP Message
@@ -54,6 +60,8 @@ withdrawal runs the handler-level verification chain.
   indexed `directory_resources` rows.
 - `crates/server/src/filter/` contains the shared result envelope and
   anti-enumeration helpers.
+- `crates/server/src/observability.rs` holds dependency-free Prometheus metrics
+  and local timing counters.
 - `crates/admin/` is the Dioxus operator console for resources, allowlist,
   takedown, audit, and review workflows.
 
@@ -107,9 +115,15 @@ freshness state.
 The divergence worker is optional and controlled by
 `TEABAY_DIVERGENCE_INTERVAL_SECONDS`. A value of `0` disables it.
 
+`/readyz` checks PostgreSQL reachability and enabled worker heartbeats. Metrics
+are isolated from public API traffic by binding `/metrics` to
+`TEABAY_METRICS_BIND`, defaulting to loopback.
+
 ## Current Limitations
 
-- Metrics and a separate `/readyz` endpoint are not implemented yet.
+- In-process OTLP export via `tracing-opentelemetry` is deferred to a
+  dependency-refresh slice; use an OTel Collector to scrape Prometheus and
+  collect tracing logs.
 - The operator takedown path is audit-backed, but durable resource-side
   notification transport is not implemented.
 - Webhook fanout is best effort and does not use a durable retry queue.

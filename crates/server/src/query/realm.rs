@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
-use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
@@ -57,6 +57,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("search-realms");
     let body: SearchRealmsRequest = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
@@ -85,18 +86,28 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
             .map(|cursor| cursor.resource_id.as_str())
             .unwrap_or_default(),
     );
-    let result = pad_to_budget(budget, "cx.directory.search_realms", &privacy_key, async {
-        run_visible_realm_search(
-            &state,
-            &needle,
-            &scope,
-            cursor.as_ref(),
-            requester.as_deref(),
-            &proofs,
-            limit + 1,
-        )
-        .await
-    })
+    let result = pad_to_budget_observed(
+        budget,
+        "cx.directory.search_realms",
+        &privacy_key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("search-realms", target)
+        },
+        async {
+            run_visible_realm_search(
+                &state,
+                &needle,
+                &scope,
+                cursor.as_ref(),
+                requester.as_deref(),
+                &proofs,
+                limit + 1,
+            )
+            .await
+        },
+    )
     .await;
 
     match result {
@@ -151,6 +162,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("resolve-realm");
     let body: ResolveRealmRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
@@ -180,9 +192,17 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let row = pad_to_budget(budget, "cx.directory.resolve_realm", &key, async {
-        load_realm_row(&state, &key).await
-    })
+    let row = pad_to_budget_observed(
+        budget,
+        "cx.directory.resolve_realm",
+        &key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("resolve-realm", target)
+        },
+        async { load_realm_row(&state, &key).await },
+    )
     .await;
 
     match row {

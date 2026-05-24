@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
-use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
@@ -33,6 +33,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("search-organizations");
     let body: SearchOrgsRequest = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
@@ -45,10 +46,15 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         body.query.as_deref().unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );
-    let result = pad_to_budget(
+    let result = pad_to_budget_observed(
         budget,
         "cx.directory.search_organizations",
         &privacy_key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("search-organizations", target)
+        },
         async { run_org_search(&state, body.query.as_deref().unwrap_or_default(), limit).await },
     )
     .await;
@@ -83,6 +89,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("resolve-organization");
     let body: ResolveOrgRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
@@ -103,9 +110,17 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let row = pad_to_budget(budget, "cx.directory.resolve_organization", &key, async {
-        load_org_row(&state, &key).await
-    })
+    let row = pad_to_budget_observed(
+        budget,
+        "cx.directory.resolve_organization",
+        &key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("resolve-organization", target)
+        },
+        async { load_org_row(&state, &key).await },
+    )
     .await;
 
     match row {

@@ -64,32 +64,39 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
             return;
         }
     };
+    let mut ingest_metric = state.metrics().ingest_guard("subscribe");
 
     let body: SubscribeRequest = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
+            ingest_metric.set_outcome("bad_json");
             ApiErrorCode::BadJson.render(res, format!("malformed subscribe body: {error}"));
             return;
         }
     };
 
     if !enforce_ingest_rate_limit(req, res, &state, &body.subscriber_did) {
+        ingest_metric.set_outcome("rate_limited");
         return;
     }
     if body.subscriber_did.trim().is_empty() {
+        ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::MissingParam.render(res, "subscriber_did is required");
         return;
     }
     if body.resource_filter.is_null() {
+        ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
     }
     if !body.resource_filter.is_object() {
+        ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
     }
     if let Err(message) = validate_endpoint(&body.webhook_endpoint, state.config().development_mode)
     {
+        ingest_metric.set_outcome("invalid_endpoint");
         ApiErrorCode::InvalidParam.render(res, message);
         return;
     }
@@ -115,10 +122,12 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let response_secret = URL_SAFE_NO_PAD.encode(&secret);
 
     if let Err(error) = persist_subscription(&state, &body, &subscription_id, &secret, created_at) {
+        ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist subscription: {error}"));
         return;
     }
 
+    ingest_metric.set_outcome("verify_ok");
     res.render(Json(SubscribeResponse {
         subscription_id,
         created_at,

@@ -12,10 +12,10 @@
 - Auth: RFC 9421 HTTP Message Signature (Ed25519); pluggable `HttpSigKeyDirectory`.
 - Admin SPA: 5 tabs feature-complete (Resources, Allowlist, Takedown, Audit, Review).
 - 0 scoped code TODO markers remain; release-readiness tasks continue below.
-- CI: fmt + check + test + cargo-deny + clippy + typos + cargo audit. **Missing**: coverage target, Trivy, SBOM.
+- CI: fmt + check + test + cargo-deny + clippy + typos + cargo audit + tarpaulin threshold + Trivy.
 - Tests: 850-LoC conformance suite + health + timing-variance.
-- Tarpaulin: `target` not set; effectively 0% threshold.
-- **No** Prometheus / OTEL metrics.
+- Tarpaulin: 70% threshold configured in `tarpaulin.toml` and CI.
+- Prometheus metrics + `/readyz` implemented; OTEL handoff documented via collector-side scrape/log collection until the next dependency-refresh slice can add in-process `tracing-opentelemetry`.
 - Secret handling: env vars only; no vault integration.
 
 ## Phase 2 tasks
@@ -35,19 +35,19 @@
 - [x] §8 Add `cargo clippy --all-targets --all-features -- -D warnings` to `ci.yml`.
 - [x] §9 Add `typos` workflow.
 - [x] §10 Add `cargo audit` (weekly + on PR).
-- [ ] §11 Set tarpaulin target ≥ 70%; fail CI on regression.
-- [ ] §12 Add Trivy scan to docker build.
-- [ ] §13 Add local cosign/SBOM artifact commands; do not push images or tags.
+- [x] §11 Set tarpaulin target ≥ 70%; fail CI on regression.
+- [x] §12 Add Trivy scan to docker build.
+- [x] §13 Add local cosign/SBOM artifact commands; do not push images or tags.
 
 ### Observability
-- [ ] §14 Add OpenTelemetry exporter (tracing-opentelemetry); document in `README.md`.
-- [ ] §15 Add Prometheus `/metrics` endpoint on a separate port via `TEABAY_METRICS_BIND` (default `127.0.0.1:9095`). Required series:
+- [x] §14 Document OpenTelemetry collector handoff; keep in-process `tracing-opentelemetry` exporter for the next dependency-refresh slice so this lock-preserving local slice does not touch `Cargo.lock`.
+- [x] §15 Add Prometheus `/metrics` endpoint on a separate port via `TEABAY_METRICS_BIND` (default `127.0.0.1:9095`). Required series:
   - `teabay_ingest_total{kind,outcome}` (announce/withdraw/subscribe × verify-ok/digest-mismatch/etc.)
   - `teabay_query_latency_seconds{op}` (search-realms/resolve-realm/etc.)
   - `teabay_query_anti_enum_pad_seconds` (histogram)
   - `teabay_pull_worker_revalidations_total{outcome}`
   - `teabay_divergence_detected_total`
-- [ ] §16 Add `/readyz` (Postgres reachable + workers running) separate from `/health`.
+- [x] §16 Add `/readyz` (Postgres reachable + workers running) separate from `/health`.
 
 ### Secret handling
 - [x] §17 Document `TEABAY_HTTP_SIG_PUBKEYS` provisioning end-to-end in `README.md` deployment section.

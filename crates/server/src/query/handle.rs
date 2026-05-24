@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
-use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
@@ -62,6 +62,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("resolve-handle");
     let body: ResolveHandleRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
@@ -90,23 +91,33 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         body.audience.as_deref().unwrap_or_default(),
     );
 
-    let outcome = pad_to_budget(budget, "cx.directory.resolve_handle", &privacy_key, async {
-        let row = match load_handle_row(&state, &body.handle).await {
-            Ok(row) => row,
-            Err(_) => return ResolveOutcome::NotFound,
-        };
-        let row = match row {
-            Some(row) => row,
-            None => return ResolveOutcome::NotFound,
-        };
+    let outcome = pad_to_budget_observed(
+        budget,
+        "cx.directory.resolve_handle",
+        &privacy_key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("resolve-handle", target)
+        },
+        async {
+            let row = match load_handle_row(&state, &body.handle).await {
+                Ok(row) => row,
+                Err(_) => return ResolveOutcome::NotFound,
+            };
+            let row = match row {
+                Some(row) => row,
+                None => return ResolveOutcome::NotFound,
+            };
 
-        let policy = match member_add_policy_for(&state, &body).await {
-            Ok(policy) => policy,
-            Err(_) => return ResolveOutcome::NotFound,
-        };
+            let policy = match member_add_policy_for(&state, &body).await {
+                Ok(policy) => policy,
+                Err(_) => return ResolveOutcome::NotFound,
+            };
 
-        evaluate_handle_disclosure(row, &body, policy.as_ref())
-    })
+            evaluate_handle_disclosure(row, &body, policy.as_ref())
+        },
+    )
     .await;
 
     match outcome {

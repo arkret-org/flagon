@@ -14,8 +14,33 @@ The hardening block is derived from live configuration and includes
 development-mode, HTTP signature, CORS, secret, admin auth, log redaction, and
 rate-limit signals.
 
-A separate `/readyz` endpoint is not implemented yet. Until it exists, pair
-`/health` with an external PostgreSQL connection check in production probes.
+`GET /readyz` is the readiness probe. It returns `200` only when PostgreSQL is
+reachable and every enabled background worker has emitted a recent heartbeat.
+Disabled workers are reported with `enabled=false` and do not block readiness.
+
+Use `/health` for process liveness and `/readyz` for load-balancer admission.
+
+## Metrics And Telemetry
+
+Prometheus metrics are exposed on a separate listener controlled by
+`TEABAY_METRICS_BIND`; the default is `127.0.0.1:9095`.
+
+```bash
+curl http://127.0.0.1:9095/metrics
+```
+
+Required series:
+
+- `teabay_ingest_total{kind,outcome}`
+- `teabay_query_latency_seconds{op}`
+- `teabay_query_anti_enum_pad_seconds`
+- `teabay_pull_worker_revalidations_total{outcome}`
+- `teabay_divergence_detected_total`
+
+For OpenTelemetry backends, run an OTel Collector sidecar or agent that scrapes
+the Prometheus endpoint and collects stdout/stderr tracing logs. The in-process
+`tracing-opentelemetry` OTLP exporter is reserved for a dependency-refresh
+slice; this release-hygiene slice keeps `Cargo.lock` unchanged.
 
 ## Logs
 

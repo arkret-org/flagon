@@ -25,6 +25,7 @@ fn router_builds_with_minimal_state() {
     );
 
     let doc = routing::openapi(&salvo::prelude::Router::new());
+    assert!(doc.paths.contains_key("/readyz"));
     assert!(doc.paths.contains_key("/api/admin/v1/audit"));
     assert!(doc.paths.contains_key("/api/admin/v1/resources"));
     assert!(doc.paths.contains_key("/api/v1/directory/describe"));

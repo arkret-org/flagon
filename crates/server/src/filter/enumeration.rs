@@ -81,6 +81,22 @@ where
     pad_to(budget.target_for(route, privacy_key), fut).await
 }
 
+pub async fn pad_to_budget_observed<T, F, O>(
+    budget: LatencyBudget,
+    route: &'static str,
+    privacy_key: &str,
+    observe_target: O,
+    fut: F,
+) -> T
+where
+    F: std::future::Future<Output = T>,
+    O: FnOnce(Duration),
+{
+    let target = budget.target_for(route, privacy_key);
+    observe_target(target);
+    pad_to(target, fut).await
+}
+
 fn deterministic_jitter(jitter: Duration, route: &str, privacy_key: &str) -> Duration {
     let max_micros = jitter.as_micros();
     if max_micros == 0 {

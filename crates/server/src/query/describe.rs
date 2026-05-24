@@ -359,6 +359,7 @@ mod tests {
     fn cfg(development_mode: bool, pcd_enabled: bool) -> AppConfig {
         AppConfig {
             bind: "127.0.0.1:0".parse().unwrap(),
+            metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
             service_did: "did:web:directory.test".to_owned(),
             trust_domain: "cx:trust_domain:local.test".to_owned(),

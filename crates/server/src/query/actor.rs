@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
-use crate::filter::enumeration::{LatencyBudget, pad_to_budget};
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
@@ -60,6 +60,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("search-actors");
     let body: SearchActorsRequest = req.parse_json().await.unwrap_or_default();
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
     let budget = LatencyBudget::new(
@@ -73,9 +74,17 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
         body.organization_did.as_deref().unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );
-    let result = pad_to_budget(budget, "cx.directory.search_actors", &privacy_key, async {
-        run_actor_search(&state, body.query.as_deref().unwrap_or_default(), limit).await
-    })
+    let result = pad_to_budget_observed(
+        budget,
+        "cx.directory.search_actors",
+        &privacy_key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("search-actors", target)
+        },
+        async { run_actor_search(&state, body.query.as_deref().unwrap_or_default(), limit).await },
+    )
     .await;
     match result {
         Ok(rows) => {
@@ -97,6 +106,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
             return;
         }
     };
+    let _query_timer = state.metrics().query_timer("search-users");
 
     let query: SearchUsersRequest = match req.parse_json().await {
         Ok(query) => query,
@@ -127,9 +137,13 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         state.config().query_latency_jitter,
     );
     let privacy_key = format!("q={needle};requester={requester};realm={realm_id};limit={limit}");
-    let result = pad_to_budget(budget, "cx.directory.search_users", &privacy_key, async {
-        run_user_search(&state, &needle, requester, realm_id, limit).await
-    })
+    let result = pad_to_budget_observed(
+        budget,
+        "cx.directory.search_users",
+        &privacy_key,
+        |target| state.metrics().record_anti_enum_pad("search-users", target),
+        async { run_user_search(&state, &needle, requester, realm_id, limit).await },
+    )
     .await;
 
     match result {

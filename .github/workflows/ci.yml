@@ -51,6 +51,12 @@ jobs:
       - name: Test teabay
         run: cargo test --locked
 
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Coverage
+        run: cargo tarpaulin --config tarpaulin.toml --fail-under 70
+
       - name: Check shared fixtures
         run: cargo check --manifest-path crates/testing/Cargo.toml
 
@@ -92,3 +98,40 @@ jobs:
 
       - name: Check advisories, licenses, bans, and sources
         run: cargo deny check
+
+  container-scan:
+    name: Docker image Trivy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: teabay
+
+    steps:
+      - name: Checkout teabay
+        uses: actions/checkout@v4
+        with:
+          path: teabay
+
+      - name: Checkout Contrix Rust SDK
+        uses: actions/checkout@v4
+        with:
+          repository: contrix-dev/contrix-rust-sdk
+          path: contrix-rust-sdk
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local image
+        run: docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay:ci .
+
+      - name: Scan local image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: teabay:ci
+          scan-type: image
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL

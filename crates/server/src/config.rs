@@ -19,6 +19,7 @@ const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
 #[derive(Clone, Debug)]
 pub struct AppConfig {
     pub bind: SocketAddr,
+    pub metrics_bind: SocketAddr,
     pub public_base_url: String,
     pub service_did: String,
     /// Round 4 — typed trust domain advertised in
@@ -150,6 +151,11 @@ impl AppConfig {
         let bind: SocketAddr = bind
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid TEABAY_BIND={bind}: {e}"))?;
+        let metrics_bind =
+            std::env::var("TEABAY_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9095".to_string());
+        let metrics_bind: SocketAddr = metrics_bind
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid TEABAY_METRICS_BIND={metrics_bind}: {e}"))?;
 
         let public_base_url =
             std::env::var("TEABAY_PUBLIC_BASE_URL").unwrap_or_else(|_| format!("http://{bind}"));
@@ -251,6 +257,7 @@ impl AppConfig {
 
         Ok(Self {
             bind,
+            metrics_bind,
             public_base_url,
             service_did,
             trust_domain,

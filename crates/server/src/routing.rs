@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use diesel::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
@@ -12,7 +13,7 @@ use serde_json::json;
 
 use crate::error::ApiErrorCode;
 use crate::middleware::http_sig::{HttpSigKeyDirectory, HttpSigMiddleware};
-use crate::state::AppState;
+use crate::state::{AppState, BackgroundWorker, WorkerReadiness};
 use crate::{ingest, query};
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ pub fn router(state: AppState) -> Router {
         root = root.hoop(cors_handler_for_origin(origin));
     }
     root.push(Router::with_path("health").get(health))
+        .push(Router::with_path("readyz").get(readyz))
         .push(directory)
         .push(admin)
         .push(doc.clone().into_router(".well-known/contrix/openapi.json"))
@@ -62,6 +64,17 @@ fn build_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
 
 pub fn service(state: AppState) -> Service {
     Service::new(router(state))
+}
+
+pub fn metrics_router(state: AppState) -> Router {
+    Router::new()
+        .hoop(affix_state::inject(state))
+        .push(Router::with_path("metrics").get(metrics))
+        .push(Router::with_path("{**rest}").get(metrics_not_found))
+}
+
+pub fn metrics_service(state: AppState) -> Service {
+    Service::new(metrics_router(state))
 }
 
 fn admin_router() -> Router {
@@ -139,6 +152,84 @@ async fn health(depot: &mut Depot, res: &mut Response) {
         "service": "teabay",
         "hardening": hardening,
     })));
+}
+
+#[handler]
+async fn readyz(depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(state) => state,
+        Err(_) => {
+            res.status_code(StatusCode::SERVICE_UNAVAILABLE);
+            res.render(Json(json!({
+                "ok": false,
+                "service": "teabay",
+                "database": { "ok": false, "error": "state_not_injected" },
+                "workers": {},
+            })));
+            return;
+        }
+    };
+
+    let database = database_ready(state);
+    let pull = state.worker_readiness(BackgroundWorker::Pull);
+    let divergence = state.worker_readiness(BackgroundWorker::Divergence);
+    let ok = database.is_ok() && pull.ready && divergence.ready;
+    if !ok {
+        res.status_code(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    res.render(Json(json!({
+        "ok": ok,
+        "service": "teabay",
+        "database": match database {
+            Ok(()) => json!({ "ok": true }),
+            Err(error) => json!({ "ok": false, "error": error }),
+        },
+        "workers": {
+            "pull": worker_readiness_json(pull),
+            "divergence": worker_readiness_json(divergence),
+        },
+    })));
+}
+
+#[handler]
+async fn metrics(depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(state) => state,
+        Err(_) => {
+            res.status_code(StatusCode::SERVICE_UNAVAILABLE);
+            res.render(Text::Plain("teabay metrics state not injected\n"));
+            return;
+        }
+    };
+    let body = state.metrics().render_prometheus();
+    res.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "text/plain; version=0.0.4; charset=utf-8".parse().unwrap(),
+    );
+    res.render(Text::Plain(body));
+}
+
+#[handler]
+async fn metrics_not_found(res: &mut Response) {
+    res.status_code(StatusCode::NOT_FOUND);
+    res.render(Text::Plain("not found\n"));
+}
+
+fn database_ready(state: &AppState) -> Result<(), String> {
+    let mut conn = state.db().get().map_err(|error| error.to_string())?;
+    diesel::sql_query("SELECT 1")
+        .execute(&mut conn)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+fn worker_readiness_json(readiness: WorkerReadiness) -> serde_json::Value {
+    json!({
+        "enabled": readiness.enabled,
+        "ready": readiness.ready,
+        "last_seen_ms_ago": readiness.last_seen_ms_ago,
+        "stale_after_ms": readiness.stale_after_ms,
+    })
 }
 
 /// T8.3 — derive a non-sensitive production hardening snapshot from
@@ -316,6 +407,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "health",
             "Health check",
             "Process liveness probe.",
+        ),
+        (
+            "/readyz",
+            PathItemType::Get,
+            "teabay.readyz",
+            "health",
+            "Readiness check",
+            "PostgreSQL and background-worker readiness probe.",
         ),
         (
             "/api/admin/v1/audit",

@@ -2,6 +2,7 @@
 debug = false
 verbose = false
 workspace = true
+fail-under = 70.0
 exclude-files = [
     "examples/*",
     "**/tests/*",

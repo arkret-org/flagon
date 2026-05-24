@@ -44,7 +44,7 @@ use crate::ingest::verify::{
     VerifyContext, endpoint_child, resolve_principal_server_endpoint, strict_http_client,
 };
 use crate::ingest::{IngestModeWire, ResourceKindWire};
-use crate::state::AppState;
+use crate::state::{AppState, BackgroundWorker};
 
 pub struct PullWorker {
     state: AppState,
@@ -66,6 +66,8 @@ impl PullWorker {
     /// drop to detach (the task itself exits when the runtime is dropped).
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
+            self.state
+                .worker_started(BackgroundWorker::Pull, self.period);
             info!(
                 period_seconds = self.period.as_secs(),
                 "teabay pull worker started"
@@ -85,6 +87,7 @@ impl PullWorker {
     }
 
     async fn run_once(&self) -> anyhow::Result<()> {
+        self.state.worker_heartbeat(BackgroundWorker::Pull);
         let due = self.fetch_due_entries(50)?;
         if due.is_empty() {
             return Ok(());
@@ -94,6 +97,7 @@ impl PullWorker {
         for entry in due {
             match self.refresh_entry(entry.clone()).await {
                 Ok(outcome) => {
+                    self.state.metrics().record_pull_revalidation("success");
                     info!(
                         kind = %entry.resource_kind.as_pg(),
                         resource_id = %entry.resource_id,
@@ -102,6 +106,7 @@ impl PullWorker {
                     );
                 }
                 Err(error) => {
+                    self.state.metrics().record_pull_revalidation("failure");
                     warn!(
                         kind = %entry.resource_kind.as_pg(),
                         resource_id = %entry.resource_id,

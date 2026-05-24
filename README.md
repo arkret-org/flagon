@@ -123,14 +123,21 @@ diesel setup
 cargo run -p server --release
 ```
 
-The server then exposes `/api/v1/directory/*` per the spec. Health probe at
-`GET /health`. OpenAPI doc at `GET /.well-known/contrix/openapi.{json,yaml}`.
+The server then exposes `/api/v1/directory/*` per the spec. Liveness is
+`GET /health`, readiness is `GET /readyz`, and Prometheus metrics are served on
+the separate `TEABAY_METRICS_BIND` listener, default `127.0.0.1:9095`, at
+`GET /metrics`. OpenAPI doc at `GET /.well-known/contrix/openapi.{json,yaml}`.
 
 Container builds use the local SDK path dependency as a named context:
 
 ```bash
 docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay .
 ```
+
+Local release-hygiene commands are artifact-only. They build and scan local
+image refs, generate SBOM files under `artifacts/`, and optionally sign SBOM
+blobs with `COSIGN_KEY`; they do not push images, create tags, or publish
+crates.
 
 ## Admin console
 
@@ -147,6 +154,27 @@ The `Resources` tab is a data manager for `directory_resources`: operators can
 browse, create, update, and delete indexed rows, and every direct mutation is
 written to the audit log.
 
+## Observability
+
+teabay exposes process liveness on `/health` and readiness on `/readyz`.
+Readiness checks PostgreSQL with `SELECT 1` and confirms enabled background
+workers have emitted a recent heartbeat.
+
+Prometheus metrics listen on `TEABAY_METRICS_BIND` separately from public API
+traffic. The default is loopback-only:
+
+```bash
+TEABAY_METRICS_BIND=127.0.0.1:9095 cargo run -p server
+curl http://127.0.0.1:9095/metrics
+```
+
+The metrics surface includes ingest outcomes, query latency, anti-enumeration
+pad targets, pull revalidation outcomes, and divergence detections. For
+OpenTelemetry, run an OTel Collector next to teabay and scrape the Prometheus
+endpoint plus stdout/stderr tracing logs. An in-process `tracing-opentelemetry`
+OTLP exporter is intentionally left for a dependency-refresh slice so this
+local hygiene work does not modify `Cargo.lock`.
+
 ## Validation
 
 GitHub Actions runs the same checks expected locally:
@@ -159,6 +187,9 @@ cargo check --manifest-path crates/testing/Cargo.toml
 cargo check --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 TEABAY_RUN_DOCKER_TESTS=1 cargo test -p server --test it -- --nocapture
 cargo deny check
+cargo tarpaulin --config tarpaulin.toml --fail-under 70
+scripts/trivy-scan.sh
+scripts/local-artifacts.sh
 ```
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and

@@ -49,27 +49,33 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             return;
         }
     };
+    let mut ingest_metric = state.metrics().ingest_guard("withdraw");
 
     let body: WithdrawRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
+            ingest_metric.set_outcome("bad_json");
             ApiErrorCode::BadJson.render(res, format!("malformed withdraw body: {e}"));
             return;
         }
     };
 
     if body.resource_id.is_empty() {
+        ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
     if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+        ingest_metric.set_outcome("rate_limited");
         return;
     }
     if body.reason.trim().is_empty() {
+        ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::MissingParam.render(res, "reason is required");
         return;
     }
     if !body.governance_proof.is_object() {
+        ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "governance_proof must be an object");
         return;
     }
@@ -77,6 +83,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let canonical_payload = match withdraw_payload_without_jws(&body) {
         Ok(payload) => payload,
         Err((code, msg)) => {
+            ingest_metric.set_outcome("signature_invalid");
             code.render(res, msg);
             return;
         }
@@ -88,6 +95,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         &body.resource_id,
         state.config(),
     ) {
+        ingest_metric.set_outcome("signature_invalid");
         code.render(res, msg);
         return;
     }
@@ -97,6 +105,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let effective_at = body.effective_at.unwrap_or(acked_at);
 
     if let Err(e) = persist_withdraw(&state, &body, &withdraw_id, acked_at, effective_at) {
+        ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
         return;
     }
@@ -115,6 +124,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }),
     );
 
+    ingest_metric.set_outcome("verify_ok");
     res.render(Json(WithdrawResponse {
         withdraw_id,
         acked_at,

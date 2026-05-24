@@ -308,20 +308,24 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             return;
         }
     };
+    let mut ingest_metric = state.metrics().ingest_guard("announce");
 
     let body: AnnounceRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
+            ingest_metric.set_outcome("bad_json");
             ApiErrorCode::BadJson.render(res, format!("malformed announce body: {e}"));
             return;
         }
     };
 
     if let Err((code, msg)) = validate_request_shape(&body, state.config().max_ttl) {
+        ingest_metric.set_outcome("schema_rejected");
         code.render(res, msg);
         return;
     }
     if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+        ingest_metric.set_outcome("rate_limited");
         return;
     }
 
@@ -349,6 +353,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     ) {
         Ok(fragment) => fragment,
         Err((code, msg)) => {
+            ingest_metric.set_outcome("digest_mismatch");
             let _ = audit::record(
                 state.db(),
                 AuditEventKind::IngestRejected,
@@ -393,8 +398,10 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             );
         }
         let warning = if historical_only {
+            ingest_metric.set_outcome("historical_only");
             "federation_cache_historical_only"
         } else {
+            ingest_metric.set_outcome("replay");
             "digest_replay_cache"
         };
         res.render(Json(AnnounceResponse {
@@ -412,6 +419,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let verified = match ctx.verify(&body).await {
         Ok(v) => v,
         Err((code, msg)) => {
+            ingest_metric.set_outcome("verify_rejected");
             // Rejection audit (§7.4 — every rejection is logged).
             let _ = audit::record(
                 state.db(),
@@ -455,6 +463,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 historical_only: false,
             },
         );
+        ingest_metric.set_outcome("replay");
         res.render(Json(response));
         return;
     }
@@ -465,6 +474,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         .flatten()
     {
         if body.as_of < latest {
+            ingest_metric.set_outcome("rollback_rejected");
             ApiErrorCode::PolicyRevisionRollback.render(
                 res,
                 format!(
@@ -483,6 +493,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let public_projection = match derive_public_projection(&body.discovery_state) {
         Ok(projection) => projection,
         Err((code, msg)) => {
+            ingest_metric.set_outcome("projection_rejected");
             code.render(res, msg);
             return;
         }
@@ -516,6 +527,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     );
 
     if let Err(e) = insert_outcome {
+        ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist announce: {e}"));
         return;
     }
@@ -588,6 +600,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         },
     );
 
+    ingest_metric.set_outcome("verify_ok");
     res.render(Json(AnnounceResponse {
         announce_id,
         indexed_at,

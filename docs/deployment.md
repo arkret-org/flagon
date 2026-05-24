@@ -38,11 +38,15 @@ cargo run -p server
 The service listens on `TEABAY_BIND` and exposes:
 
 - `GET /health`
+- `GET /readyz`
 - `GET /api/v1/directory/describe`
 - `POST /api/v1/directory/{announce,withdraw,subscribe}`
 - `POST /api/v1/directory/{search-realms,resolve-realm,...}`
 - `GET /.well-known/contrix/openapi.json`
 - `GET /.well-known/contrix/openapi.yaml`
+
+Prometheus metrics listen separately on `TEABAY_METRICS_BIND`, default
+`127.0.0.1:9095`, at `GET /metrics`.
 
 ## Container Build
 
@@ -55,6 +59,22 @@ docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay .
 Do not push images or create tags from local development slices unless the
 release owner explicitly asks for that release action.
 
+Local vulnerability scanning uses Trivy against the local image ref:
+
+```bash
+scripts/trivy-scan.sh
+```
+
+Local SBOM/cosign artifacts are generated without pushing images or tags:
+
+```bash
+TEABAY_BUILD_IMAGE=1 scripts/local-artifacts.sh
+COSIGN_KEY=cosign.key scripts/local-artifacts.sh
+```
+
+The SBOM command writes SPDX JSON files and optional cosign bundles under
+`artifacts/`.
+
 ## Required Configuration
 
 Set these for every deployment:
@@ -65,6 +85,7 @@ Set these for every deployment:
 | `TEABAY_SERVICE_DID` | Directory service DID advertised to resources. |
 | `TEABAY_PUBLIC_BASE_URL` | Public URL used in service metadata. |
 | `TEABAY_TRUST_DOMAIN` | Typed trust domain advertised by describe. |
+| `TEABAY_METRICS_BIND` | Separate Prometheus listener; default `127.0.0.1:9095`. |
 
 `TEABAY_TRUST_DOMAIN` has a local-test fallback in code, but production
 deployments should set it explicitly.

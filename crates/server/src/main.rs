@@ -1,7 +1,7 @@
 use salvo::prelude::*;
 use server::ingest::divergence_worker::DivergenceWorker;
 use server::ingest::pull_worker::PullWorker;
-use server::{AppConfig, AppState, Db, profile, service};
+use server::{AppConfig, AppState, Db, metrics_service, profile, service};
 use tokio::signal;
 use tracing::info;
 
@@ -40,6 +40,14 @@ async fn main() -> anyhow::Result<()> {
         let _worker = DivergenceWorker::new(state.clone(), period).spawn();
     }
 
+    let metrics_acceptor = TcpListener::new(config.metrics_bind.to_string())
+        .bind()
+        .await;
+    let metrics_server = Server::new(metrics_acceptor);
+    let metrics_handle = metrics_server.handle();
+    let _metrics_task = tokio::spawn(metrics_server.serve(metrics_service(state.clone())));
+    info!(bind = %config.metrics_bind, "teabay metrics listener starting");
+
     let acceptor = TcpListener::new(config.bind.to_string()).bind().await;
     info!(
         bind = %config.bind,
@@ -55,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         shutdown_signal().await;
         handle.stop_graceful(None);
+        metrics_handle.stop_graceful(None);
     });
     server.serve(service(state)).await;
     info!("teabay stopped");
