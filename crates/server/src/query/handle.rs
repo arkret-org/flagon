@@ -518,9 +518,7 @@ fn envelope_from_projection(
     });
     // Carry the post-filter binding fields forward so downstream builders
     // see exactly the Realm-policy-approved subset.
-    for key in [
-        "member_delivery_binding",
-    ] {
+    for key in ["member_delivery_binding"] {
         if let Some(value) = public_projection.get(key) {
             payload[key] = value.clone();
         }
@@ -673,7 +671,9 @@ mod tests {
             .and_then(JsonValue::as_object)
             .expect("member_delivery_binding surface");
         assert_eq!(
-            binding.get("recipient_service_did").and_then(JsonValue::as_str),
+            binding
+                .get("recipient_service_did")
+                .and_then(JsonValue::as_str),
             Some("did:web:principal.tea")
         );
     }

@@ -46,7 +46,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 
 /// Round 4 — build the `ServiceDescribe` v2 envelope plus the
 /// directory-service-specific extension fields. Runs
-/// [`ServerDescription::validate_v2`] before returning so a mis-configured
+/// [`ServerDescription::validate_v2`] before returning so a misconfigured
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {

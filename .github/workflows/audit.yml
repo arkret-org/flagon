@@ -1,0 +1,45 @@
+name: teabay-audit
+
+on:
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: Cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: teabay
+
+    steps:
+      - name: Checkout teabay
+        uses: actions/checkout@v4
+        with:
+          path: teabay
+
+      - name: Checkout Contrix Rust SDK
+        uses: actions/checkout@v4
+        with:
+          repository: contrix-dev/contrix-rust-sdk
+          path: contrix-rust-sdk
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Check RustSec advisories
+        run: |
+          cargo audit \
+            --ignore RUSTSEC-2025-0111 \
+            --ignore RUSTSEC-2025-0134

@@ -12,7 +12,7 @@
 - Auth: RFC 9421 HTTP Message Signature (Ed25519); pluggable `HttpSigKeyDirectory`.
 - Admin SPA: 5 tabs feature-complete (Resources, Allowlist, Takedown, Audit, Review).
 - 11 TODOs (round4-fed-canonical ×3, realm-rework ×4, round23-T07 ×1, round23-T14 ×2).
-- CI: fmt + check + test + cargo-deny. **Missing**: clippy, typos, audit.
+- CI: fmt + check + test + cargo-deny + clippy + typos + cargo audit. **Missing**: coverage target, Trivy, SBOM.
 - Tests: 850-LoC conformance suite + health + timing-variance.
 - Tarpaulin: `target` not set; effectively 0% threshold.
 - **No** Prometheus / OTEL metrics.
@@ -32,9 +32,9 @@
 - [ ] §7 Run a final sweep — `grep -rni "chadex\|place_id\|Place\b" crates/` — expect zero hits.
 
 ### CI hygiene (master plan §5 — currently the biggest gap)
-- [ ] §8 Add `cargo clippy --all-targets --all-features -- -D warnings` to `ci.yml`.
-- [ ] §9 Add `typos` workflow.
-- [ ] §10 Add `cargo audit` (weekly + on PR).
+- [x] §8 Add `cargo clippy --all-targets --all-features -- -D warnings` to `ci.yml`.
+- [x] §9 Add `typos` workflow.
+- [x] §10 Add `cargo audit` (weekly + on PR).
 - [ ] §11 Set tarpaulin target ≥ 70%; fail CI on regression.
 - [ ] §12 Add Trivy scan to docker build.
 - [ ] §13 Add local cosign/SBOM artifact commands; do not push images or tags.

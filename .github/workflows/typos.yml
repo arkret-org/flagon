@@ -1,0 +1,25 @@
+name: teabay-typos
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typos:
+    name: Spelling
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout teabay
+        uses: actions/checkout@v4
+        with:
+          path: teabay
+
+      - name: Check spelling
+        uses: crate-ci/typos@master
+        with:
+          config: teabay/typos.toml
+          files: teabay
