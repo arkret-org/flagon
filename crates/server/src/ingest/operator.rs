@@ -11,6 +11,7 @@ use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
+use crate::ingest::receipt::operator_takedown_proof;
 use crate::ingest::{ResourceKindWire, WithdrawalKindWire};
 use crate::state::AppState;
 
@@ -148,12 +149,15 @@ fn persist_operator_takedown(
     use crate::schema::directory_resources::dsl as r;
     use crate::schema::withdrawals::dsl as w;
 
-    let proof = json!({
-        "kind": "operator_takedown",
-        "operator": operator,
-        "evidence": body.evidence,
-        "notification_status": notification_status,
-    });
+    let proof = operator_takedown_proof(
+        state.config(),
+        body,
+        withdraw_id,
+        operator,
+        acked_at,
+        effective_at,
+        notification_status,
+    )?;
 
     let mut conn = state.db().get()?;
     conn.transaction::<_, diesel::result::Error, _>(|conn| {

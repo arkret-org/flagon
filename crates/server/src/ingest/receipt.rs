@@ -1,0 +1,221 @@
+//! Verifiable withdrawal receipt material stored in `withdrawals.proof`.
+
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
+use ed25519_dalek::Signer as _;
+use serde_json::{Value as JsonValue, json};
+
+use crate::config::{AppConfig, ReceiptSigningKey};
+use crate::ingest::operator::OperatorTakedownRequest;
+use crate::ingest::withdraw::{WithdrawRequest, withdraw_payload_without_jws};
+
+pub(crate) const RECEIPT_VERSION: &str = "teabay.withdrawal_receipt.v1";
+
+pub(crate) fn resource_withdrawal_proof(
+    config: &AppConfig,
+    body: &WithdrawRequest,
+    withdraw_id: &str,
+    acked_at: DateTime<Utc>,
+    effective_at: DateTime<Utc>,
+) -> anyhow::Result<JsonValue> {
+    Ok(json!({
+        "kind": "resource_withdraw",
+        "receipt_version": RECEIPT_VERSION,
+        "statement": withdrawal_statement(
+            "resource_withdraw",
+            body.resource_kind.as_pg(),
+            &body.resource_id,
+            &body.reason,
+            withdraw_id,
+            acked_at,
+            effective_at,
+            None,
+        ),
+        "signed_payload": withdraw_payload_without_jws(body)
+            .map_err(|(_, message)| anyhow::anyhow!(message))?,
+        "governance_proof": body.governance_proof.clone(),
+        "verification": {
+            "status": "verified",
+            "verified_by": config.service_did.as_str(),
+            "verified_at": acked_at,
+        },
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn operator_takedown_proof(
+    config: &AppConfig,
+    body: &OperatorTakedownRequest,
+    withdraw_id: &str,
+    operator: &str,
+    acked_at: DateTime<Utc>,
+    effective_at: DateTime<Utc>,
+    notification_status: &str,
+) -> anyhow::Result<JsonValue> {
+    let statement = withdrawal_statement(
+        "operator_takedown",
+        body.resource_kind.as_pg(),
+        &body.resource_id,
+        &body.reason,
+        withdraw_id,
+        acked_at,
+        effective_at,
+        Some(json!({
+            "operator": operator,
+            "evidence": body.evidence.clone(),
+            "notification_status": notification_status,
+            "service_did": config.service_did.as_str(),
+        })),
+    );
+    let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("TEABAY_RECEIPT_SIGNING_KEY_B64 is required for operator takedown receipts")
+    })?;
+    let receipt_proof = sign_receipt_statement(signing_key, &statement)?;
+
+    Ok(json!({
+        "kind": "operator_takedown",
+        "receipt_version": RECEIPT_VERSION,
+        "statement": statement,
+        "receipt_proof": receipt_proof,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn withdrawal_statement(
+    kind: &str,
+    resource_kind: &str,
+    resource_id: &str,
+    reason: &str,
+    withdraw_id: &str,
+    acked_at: DateTime<Utc>,
+    effective_at: DateTime<Utc>,
+    extra: Option<JsonValue>,
+) -> JsonValue {
+    let mut statement = json!({
+        "receipt_version": RECEIPT_VERSION,
+        "withdraw_id": withdraw_id,
+        "kind": kind,
+        "resource_kind": resource_kind,
+        "resource_id": resource_id,
+        "reason": reason,
+        "effective_at": effective_at,
+        "acked_at": acked_at,
+    });
+    if let Some(extra) = extra
+        && let Some(obj) = statement.as_object_mut()
+    {
+        obj.insert("extra".to_owned(), extra);
+    }
+    statement
+}
+
+fn sign_receipt_statement(
+    signing_key: &ReceiptSigningKey,
+    statement: &JsonValue,
+) -> anyhow::Result<JsonValue> {
+    let protected = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({
+        "alg": "EdDSA",
+        "kid": signing_key.key_id(),
+        "typ": RECEIPT_VERSION,
+    }))?);
+    let canonical = canonical_json_bytes(statement)?;
+    let signing_input = format!("{protected}.{}", URL_SAFE_NO_PAD.encode(canonical));
+    let signature = signing_key
+        .signing_key()
+        .sign(signing_input.as_bytes())
+        .to_bytes();
+    Ok(json!({
+        "kind": "detached_jws",
+        "alg": "EdDSA",
+        "verification_method": signing_key.key_id(),
+        "public_key_base64url": signing_key.public_key_base64url(),
+        "jws": format!("{protected}..{}", URL_SAFE_NO_PAD.encode(signature)),
+    }))
+}
+
+fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {
+    let mut out = String::new();
+    write_canonical_json(value, &mut out)?;
+    Ok(out.into_bytes())
+}
+
+fn write_canonical_json(value: &JsonValue, out: &mut String) -> anyhow::Result<()> {
+    match value {
+        JsonValue::Null => out.push_str("null"),
+        JsonValue::Bool(true) => out.push_str("true"),
+        JsonValue::Bool(false) => out.push_str("false"),
+        JsonValue::Number(number) => out.push_str(&number.to_string()),
+        JsonValue::String(value) => out.push_str(&serde_json::to_string(value)?),
+        JsonValue::Array(values) => {
+            out.push('[');
+            for (index, item) in values.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_canonical_json(item, out)?;
+            }
+            out.push(']');
+        }
+        JsonValue::Object(map) => {
+            out.push('{');
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(key)?);
+                out.push(':');
+                write_canonical_json(&map[key], out)?;
+            }
+            out.push('}');
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    use super::*;
+
+    #[test]
+    fn signed_operator_receipt_is_locally_verifiable() {
+        let signing_key =
+            ReceiptSigningKey::from_raw("did:web:directory.test#receipt-1".to_owned(), [13; 32]);
+        let statement = json!({
+            "receipt_version": RECEIPT_VERSION,
+            "withdraw_id": "cx:withdraw:test",
+            "kind": "operator_takedown",
+        });
+
+        let proof = sign_receipt_statement(&signing_key, &statement).expect("receipt signs");
+
+        let jws = proof["jws"].as_str().expect("jws");
+        let (protected, signature) = jws
+            .split_once("..")
+            .expect("detached JWS compact serialization");
+        let canonical = canonical_json_bytes(&statement).expect("canonical statement");
+        let signing_input = format!("{protected}.{}", URL_SAFE_NO_PAD.encode(canonical));
+        let signing_input_bytes = signing_input.into_bytes();
+        let signature_bytes: [u8; 64] = URL_SAFE_NO_PAD
+            .decode(signature)
+            .expect("signature base64")
+            .try_into()
+            .expect("signature length");
+        let public_key_bytes: [u8; 32] = URL_SAFE_NO_PAD
+            .decode(proof["public_key_base64url"].as_str().expect("public key"))
+            .expect("public key base64")
+            .try_into()
+            .expect("public key length");
+        let verifying_key = VerifyingKey::from_bytes(&public_key_bytes).expect("verifying key");
+        verifying_key
+            .verify(
+                &signing_input_bytes,
+                &Signature::from_bytes(&signature_bytes),
+            )
+            .expect("receipt signature verifies");
+    }
+}

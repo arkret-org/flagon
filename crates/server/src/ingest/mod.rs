@@ -5,6 +5,7 @@ pub mod divergence_worker;
 pub mod operator;
 pub mod pull_worker;
 pub mod rate_limit;
+pub mod receipt;
 pub mod subscribe;
 pub mod verify;
 pub mod withdraw;

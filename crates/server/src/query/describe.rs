@@ -389,6 +389,7 @@ mod tests {
             query_latency_jitter: Duration::from_millis(0),
             require_http_sig: false,
             http_sig_pubkeys: HashMap::new(),
+            receipt_signing_key: None,
         }
     }
 

@@ -9,7 +9,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
 use diesel::RunQueryDsl;
-use diesel::sql_types::BigInt;
+use diesel::sql_types::{BigInt, Jsonb, Text};
 use ed25519_dalek::{Signer, SigningKey};
 use salvo::http::StatusCode;
 use salvo::prelude::Service;
@@ -24,6 +24,14 @@ use voprf::{EvaluationElement, Group, Proof, Ristretto255, VoprfClient};
 struct CountRow {
     #[diesel(sql_type = BigInt)]
     count: i64,
+}
+
+#[derive(diesel::QueryableByName)]
+struct WithdrawalProofRow {
+    #[diesel(sql_type = Text)]
+    withdraw_id: String,
+    #[diesel(sql_type = Jsonb)]
+    proof: JsonValue,
 }
 
 #[test]
@@ -51,6 +59,14 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
         std::env::set_var("DATABASE_URL", &database_url);
         std::env::set_var("TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED", "true");
         std::env::set_var("TEABAY_ADMIN_TOKEN", "cotest-admin");
+        std::env::set_var(
+            "TEABAY_RECEIPT_SIGNING_KEY_B64",
+            URL_SAFE_NO_PAD.encode([13_u8; 32]),
+        );
+        std::env::set_var(
+            "TEABAY_RECEIPT_KEY_ID",
+            "did:web:directory.test#receipt-conformance",
+        );
         std::env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         std::env::set_var("TEABAY_QUERY_LATENCY_FLOOR_MS", "0");
         std::env::set_var("TEABAY_QUERY_LATENCY_JITTER_MS", "0");
@@ -82,6 +98,7 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
             assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
             assert_freshness_flags_are_exposed(&db, &service).await?;
             assert_psi_blind_and_match_finds_seeded_handle(&service).await?;
+            assert_three_path_takedown_flow(&db, &service).await?;
             assert_admin_operator_surface(&service).await
         })?;
     Ok(())
@@ -491,6 +508,214 @@ async fn assert_freshness_flags_are_exposed(
     Ok(())
 }
 
+async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> anyhow::Result<()> {
+    let signing_key = SigningKey::from_bytes(&[14; 32]);
+    let public_key = did_key_multibase(&signing_key);
+    let signer_did = format!("did:key:{public_key}");
+    let verification_method = format!("{signer_did}#{public_key}");
+
+    // Path 1: resource state-change (`cx.realm.destroy`) collapses the
+    // indexed Realm into a tombstone projection.
+    let mut destroyed_state =
+        signed_realm_discovery_state_named(&verification_method, &signing_key, "Destroyable Tea")?;
+    destroyed_state["terminal_state"] = JsonValue::String("destroyed".to_owned());
+    destroyed_state["as_of_destroyed"] = json!(Utc::now());
+    destroyed_state["proof"]["jws"] = JsonValue::String(String::new());
+    destroyed_state["proof"]["jws"] =
+        JsonValue::String(sign_detached_jws(&destroyed_state, &signing_key)?);
+    let destroy_mock = MockPrincipalServer::spawn("evt-destroy-realm")?;
+    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+        .json(&json!({
+            "resource_kind": "realm",
+            "resource_id": "cx:realm:takedown-state",
+            "principal_server_did": destroy_mock.principal_server_did(),
+            "discovery_state": destroyed_state,
+            "source_refs": ["evt-destroy-realm"],
+            "as_of": Utc::now(),
+            "ttl_seconds": 3600,
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+
+    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+        .json(&json!({ "realm_id": "cx:realm:takedown-state" }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert_eq!(body["name"], "[erased]");
+    assert_eq!(body["tombstone"]["kind"], "realm_destroyed");
+
+    // Path 2: resource-initiated withdraw stores a verifiable governance
+    // proof receipt and blinds subsequent resolves.
+    let withdraw_mock = MockPrincipalServer::spawn("evt-withdraw-realm")?;
+    let withdraw_state =
+        signed_realm_discovery_state_named(&verification_method, &signing_key, "Withdrawable Tea")?;
+    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+        .json(&json!({
+            "resource_kind": "realm",
+            "resource_id": "cx:realm:takedown-withdraw",
+            "principal_server_did": withdraw_mock.principal_server_did(),
+            "discovery_state": withdraw_state,
+            "source_refs": ["evt-withdraw-realm"],
+            "as_of": Utc::now(),
+            "ttl_seconds": 3600,
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+
+    let withdraw_body = signed_withdraw_body(
+        "realm",
+        "cx:realm:takedown-withdraw",
+        &verification_method,
+        &signing_key,
+        "conformance resource withdraw",
+    )?;
+    let mut res = TestClient::post("http://local/api/v1/directory/withdraw")
+        .json(&withdraw_body)
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert!(
+        body["withdraw_id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("cx:withdraw:"))
+    );
+
+    let res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+        .json(&json!({ "realm_id": "cx:realm:takedown-withdraw" }))
+        .send(service)
+        .await;
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::NOT_FOUND
+    );
+    let resource_receipt = withdrawal_proof(
+        db,
+        "realm",
+        "cx:realm:takedown-withdraw",
+        "resource_withdraw",
+    )?;
+    assert_eq!(
+        resource_receipt.proof["receipt_version"],
+        "teabay.withdrawal_receipt.v1"
+    );
+    assert_eq!(resource_receipt.proof["kind"], "resource_withdraw");
+    assert_eq!(
+        resource_receipt.proof["governance_proof"]["verification_method"],
+        verification_method
+    );
+    assert!(
+        resource_receipt.proof["governance_proof"]["jws"]
+            .as_str()
+            .is_some_and(|jws| !jws.is_empty())
+    );
+    assert_eq!(
+        resource_receipt.proof["signed_payload"]["resource_id"],
+        "cx:realm:takedown-withdraw"
+    );
+
+    // Path 3: operator takedown signs a service receipt over the full
+    // takedown statement and removes the indexed row.
+    let operator_resource_id = "did:web:takedown-operator.example";
+    let mut res = TestClient::post("http://local/api/admin/v1/resources")
+        .add_header("authorization", "Bearer cotest-admin", true)
+        .json(&json!({
+            "resource_kind": "organization",
+            "resource_id": operator_resource_id,
+            "principal_server_did": "did:web:directory.test",
+            "public_projection": {
+                "organization_did": operator_resource_id,
+                "name": "Operator Takedown Target"
+            },
+            "discoverability": "listed",
+            "as_of": Utc::now(),
+            "source_refs": ["admin:takedown-target"],
+            "policy_revision": "admin-takedown-r1",
+            "effective_ttl_seconds": 3600,
+            "via_services": ["did:web:directory.test"]
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+
+    let mut res = TestClient::post("http://local/api/admin/v1/takedown")
+        .add_header("authorization", "Bearer cotest-admin", true)
+        .json(&json!({
+            "resource_kind": "organization",
+            "resource_id": operator_resource_id,
+            "reason": "conformance operator receipt",
+            "operator": "cotest",
+            "evidence": { "case": "three-path" }
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    let operator_withdraw_id = body["withdraw_id"].as_str().expect("withdraw_id");
+
+    let res = TestClient::post("http://local/api/v1/directory/resolve-organization")
+        .json(&json!({ "organization_did": operator_resource_id }))
+        .send(service)
+        .await;
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::NOT_FOUND
+    );
+    let operator_receipt = withdrawal_proof(
+        db,
+        "organization",
+        operator_resource_id,
+        "operator_takedown",
+    )?;
+    assert_eq!(operator_receipt.withdraw_id, operator_withdraw_id);
+    assert_eq!(operator_receipt.proof["kind"], "operator_takedown");
+    assert_eq!(
+        operator_receipt.proof["receipt_version"],
+        "teabay.withdrawal_receipt.v1"
+    );
+    assert_eq!(
+        operator_receipt.proof["statement"]["withdraw_id"],
+        operator_withdraw_id
+    );
+    assert_eq!(
+        operator_receipt.proof["receipt_proof"]["verification_method"],
+        "did:web:directory.test#receipt-conformance"
+    );
+    assert!(
+        operator_receipt.proof["receipt_proof"]["jws"]
+            .as_str()
+            .is_some_and(|jws| !jws.is_empty())
+    );
+
+    Ok(())
+}
+
+fn withdrawal_proof(
+    db: &server::Db,
+    resource_kind: &str,
+    resource_id: &str,
+    withdrawal_kind: &str,
+) -> anyhow::Result<WithdrawalProofRow> {
+    let mut conn = db.get()?;
+    diesel::sql_query(
+        "SELECT withdraw_id, proof FROM withdrawals \
+         WHERE resource_kind = $1::resource_kind \
+           AND resource_id = $2 \
+           AND kind = $3::withdrawal_kind \
+         ORDER BY acked_at DESC \
+         LIMIT 1",
+    )
+    .bind::<Text, _>(resource_kind)
+    .bind::<Text, _>(resource_id)
+    .bind::<Text, _>(withdrawal_kind)
+    .get_result(&mut conn)
+    .map_err(Into::into)
+}
+
 async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> {
     let managed_resource_id = "did:web:admin-managed.example";
 
@@ -861,8 +1086,16 @@ fn did_key_multibase(signing_key: &SigningKey) -> String {
 }
 
 fn sign_detached_jws(payload: &JsonValue, signing_key: &SigningKey) -> anyhow::Result<String> {
+    sign_detached_jws_with_proof_key(payload, "proof", signing_key)
+}
+
+fn sign_detached_jws_with_proof_key(
+    payload: &JsonValue,
+    proof_key: &str,
+    signing_key: &SigningKey,
+) -> anyhow::Result<String> {
     let protected = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({ "alg": "EdDSA" }))?);
-    let canonical = canonical_payload_without_jws(payload)?;
+    let canonical = canonical_payload_without_jws_at(payload, proof_key)?;
     let signing_input = format!("{protected}.{}", URL_SAFE_NO_PAD.encode(canonical));
     let signature = signing_key.sign(signing_input.as_bytes());
     Ok(format!(
@@ -872,13 +1105,43 @@ fn sign_detached_jws(payload: &JsonValue, signing_key: &SigningKey) -> anyhow::R
 }
 
 fn canonical_payload_without_jws(payload: &JsonValue) -> anyhow::Result<Vec<u8>> {
+    canonical_payload_without_jws_at(payload, "proof")
+}
+
+fn canonical_payload_without_jws_at(
+    payload: &JsonValue,
+    proof_key: &str,
+) -> anyhow::Result<Vec<u8>> {
     let mut unsigned = payload.clone();
     let proof = unsigned
-        .get_mut("proof")
+        .get_mut(proof_key)
         .and_then(JsonValue::as_object_mut)
         .ok_or_else(|| anyhow::anyhow!("proof object missing"))?;
     proof.remove("jws");
     canonical_json_bytes(&unsigned)
+}
+
+fn signed_withdraw_body(
+    resource_kind: &str,
+    resource_id: &str,
+    verification_method: &str,
+    signing_key: &SigningKey,
+    reason: &str,
+) -> anyhow::Result<JsonValue> {
+    let mut body = json!({
+        "resource_kind": resource_kind,
+        "resource_id": resource_id,
+        "governance_proof": {
+            "kind": "detached_jws",
+            "verification_method": verification_method,
+            "jws": "",
+        },
+        "reason": reason,
+        "effective_at": Utc::now(),
+    });
+    let jws = sign_detached_jws_with_proof_key(&body, "governance_proof", signing_key)?;
+    body["governance_proof"]["jws"] = JsonValue::String(jws);
+    Ok(body)
 }
 
 fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {

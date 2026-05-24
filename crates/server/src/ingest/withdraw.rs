@@ -17,6 +17,7 @@ use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
+use crate::ingest::receipt::resource_withdrawal_proof;
 use crate::ingest::{ResourceKindWire, WithdrawalKindWire, verify};
 use crate::state::AppState;
 
@@ -104,7 +105,22 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let acked_at = Utc::now();
     let effective_at = body.effective_at.unwrap_or(acked_at);
 
-    if let Err(e) = persist_withdraw(&state, &body, &withdraw_id, acked_at, effective_at) {
+    let proof = match resource_withdrawal_proof(
+        state.config(),
+        &body,
+        &withdraw_id,
+        acked_at,
+        effective_at,
+    ) {
+        Ok(proof) => proof,
+        Err(error) => {
+            ingest_metric.set_outcome("persist_error");
+            ApiErrorCode::InternalError.render(res, format!("build withdraw receipt: {error}"));
+            return;
+        }
+    };
+
+    if let Err(e) = persist_withdraw(&state, &body, &withdraw_id, &proof, acked_at, effective_at) {
         ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
         return;
@@ -131,7 +147,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }));
 }
 
-fn withdraw_payload_without_jws(
+pub(crate) fn withdraw_payload_without_jws(
     body: &WithdrawRequest,
 ) -> Result<JsonValue, (ApiErrorCode, String)> {
     let mut payload = serde_json::to_value(body).map_err(|e| {
@@ -160,6 +176,7 @@ fn persist_withdraw(
     state: &AppState,
     body: &WithdrawRequest,
     withdraw_id: &str,
+    proof: &JsonValue,
     acked_at: chrono::DateTime<Utc>,
     effective_at: chrono::DateTime<Utc>,
 ) -> anyhow::Result<()> {
@@ -175,7 +192,7 @@ fn persist_withdraw(
                 w::resource_id.eq(&body.resource_id),
                 w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
                 w::reason.eq(&body.reason),
-                w::proof.eq(&body.governance_proof),
+                w::proof.eq(proof),
                 w::effective_at.eq(effective_at),
                 w::acked_at.eq(acked_at),
                 w::operator.eq::<Option<&str>>(None),

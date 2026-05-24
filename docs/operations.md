@@ -141,6 +141,16 @@ For suspected unauthorized ingest:
 5. Use operator takedown or resource withdrawal for rows that should no longer
    be searchable.
 
+For receipt verification:
+
+1. Load the `withdrawals.proof` JSONB value for the target `withdraw_id`.
+2. For `kind=resource_withdraw`, verify `governance_proof.jws` over
+   `signed_payload`.
+3. For `kind=operator_takedown`, verify `receipt_proof.jws` over `statement`
+   using `receipt_proof.verification_method`.
+4. Confirm statement fields match the row's resource, reason, and timestamps.
+5. See [Takedown receipts](takedown-receipts.md) for the exact receipt shapes.
+
 For admin access checks:
 
 1. Confirm `TEABAY_DEVELOPMENT_MODE=false` in production.

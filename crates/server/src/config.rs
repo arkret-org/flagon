@@ -4,12 +4,14 @@
 //! runtime can both honor and advertise them coherently.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 
 use crate::middleware::http_sig::{DidResolverKeyDirectory, Ed25519PublicKey};
@@ -70,6 +72,46 @@ pub struct AppConfig {
     /// `TEABAY_HTTP_SIG_PUBKEYS` (comma-separated `keyid=BASE64URL32`
     /// pairs). Empty when `require_http_sig=false`.
     pub http_sig_pubkeys: HashMap<String, Ed25519PublicKey>,
+    /// Optional Ed25519 signing key for operator-takedown receipts stored in
+    /// `withdrawals.proof`. Resource-initiated withdrawals carry the resource
+    /// governance signature; operator takedowns need a service receipt key.
+    pub receipt_signing_key: Option<ReceiptSigningKey>,
+}
+
+#[derive(Clone)]
+pub struct ReceiptSigningKey {
+    key_id: String,
+    signing_key: SigningKey,
+}
+
+impl ReceiptSigningKey {
+    pub(crate) fn from_raw(key_id: String, bytes: [u8; 32]) -> Self {
+        Self {
+            key_id,
+            signing_key: SigningKey::from_bytes(&bytes),
+        }
+    }
+
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    pub(crate) fn signing_key(&self) -> &SigningKey {
+        &self.signing_key
+    }
+
+    pub(crate) fn public_key_base64url(&self) -> String {
+        URL_SAFE_NO_PAD.encode(self.signing_key.verifying_key().as_bytes())
+    }
+}
+
+impl fmt::Debug for ReceiptSigningKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReceiptSigningKey")
+            .field("key_id", &self.key_id)
+            .field("signing_key", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +290,14 @@ impl AppConfig {
         let require_http_sig = read_bool("TEABAY_REQUIRE_HTTP_SIG", true)?;
         let http_sig_pubkeys =
             parse_http_sig_pubkeys(std::env::var("TEABAY_HTTP_SIG_PUBKEYS").ok().as_deref())?;
+        let receipt_signing_key = parse_receipt_signing_key(
+            std::env::var("TEABAY_RECEIPT_SIGNING_KEY_B64")
+                .ok()
+                .as_deref(),
+            std::env::var("TEABAY_RECEIPT_KEY_ID")
+                .ok()
+                .unwrap_or_else(|| format!("{service_did}#teabay-receipt-1")),
+        )?;
         if psi_epoch_seconds == 0 {
             anyhow::bail!("TEABAY_PSI_EPOCH_SECONDS must be > 0");
         }
@@ -287,6 +337,7 @@ impl AppConfig {
             query_latency_jitter: Duration::from_millis(query_latency_jitter_ms),
             require_http_sig,
             http_sig_pubkeys,
+            receipt_signing_key,
         })
     }
 
@@ -343,6 +394,31 @@ fn parse_http_sig_pubkeys(
         map.insert(key_id, key);
     }
     Ok(map)
+}
+
+fn parse_receipt_signing_key(
+    value: Option<&str>,
+    key_id: String,
+) -> anyhow::Result<Option<ReceiptSigningKey>> {
+    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let bytes = URL_SAFE_NO_PAD
+        .decode(raw)
+        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(raw))
+        .map_err(|error| {
+            anyhow::anyhow!("TEABAY_RECEIPT_SIGNING_KEY_B64 is not base64: {error}")
+        })?;
+    let bytes: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        anyhow::anyhow!(
+            "TEABAY_RECEIPT_SIGNING_KEY_B64 must decode to a 32-byte Ed25519 signing key"
+        )
+    })?;
+    let key_id = key_id.trim();
+    if key_id.is_empty() {
+        anyhow::bail!("TEABAY_RECEIPT_KEY_ID must not be empty when receipt signing is enabled");
+    }
+    Ok(Some(ReceiptSigningKey::from_raw(key_id.to_owned(), bytes)))
 }
 
 fn read_bool(key: &str, default: bool) -> anyhow::Result<bool> {

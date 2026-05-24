@@ -100,6 +100,8 @@ Recommended production settings:
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
 | `TEABAY_ADMIN_TOKEN` | Non-empty bearer token for `/api/admin/v1/*`. |
+| `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
+| `TEABAY_RECEIPT_KEY_ID` | Verification method recorded in signed operator receipts. |
 | `TEABAY_CORS_ALLOW_ORIGIN` | Exact browser origin, never `*` in production. |
 | `TEABAY_ACCEPT_POLICY_KIND` | `open`, `allowlist`, `trust_root_signed`, or `operator_review`. |
 | `TEABAY_ALLOWLIST_DIDS` | Resource DID list when accept policy is `allowlist`. |
@@ -151,6 +153,15 @@ unset or empty, admin requests return `unauthenticated` instead of becoming
 anonymous. `/health.hardening.admin_auth_mode` reports `production` only when
 development mode is disabled and a non-empty admin token is configured; without
 that token it reports `closed`.
+
+### Takedown Receipt Signing
+
+Resource-initiated withdrawals persist the resource governance detached JWS and
+the signed withdraw payload in `withdrawals.proof`. Operator takedowns are
+service-issued receipts and require `TEABAY_RECEIPT_SIGNING_KEY_B64` so the
+stored `receipt_proof` is independently verifiable. See
+[`docs/takedown-receipts.md`](takedown-receipts.md) for the JSON shape and
+verification procedure.
 
 ## Freshness Configuration
 

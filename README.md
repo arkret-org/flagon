@@ -297,11 +297,20 @@ only when `TEABAY_DEVELOPMENT_MODE=false` and a non-empty
 `TEABAY_ADMIN_TOKEN` is configured; otherwise the admin surface is reported as
 `closed`.
 
+### Takedown receipts
+
+`withdrawals.proof` carries verifiable receipt material. Resource-initiated
+withdrawals store the resource governance detached JWS and signed payload.
+Operator takedowns store a service-signed detached JWS receipt and require
+`TEABAY_RECEIPT_SIGNING_KEY_B64`; the verification method is
+`TEABAY_RECEIPT_KEY_ID` or `$TEABAY_SERVICE_DID#teabay-receipt-1`.
+
 - [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
 - [ ] TLS enabled at the reverse proxy (or `TEABAY_TLS_CERT_PATH` / `TEABAY_TLS_KEY_PATH` when terminated in-process)
 - [ ] CSP header configured at the reverse proxy
 - [ ] CORS limited to the allowed origins for principal-server / sodmin callers
 - [ ] Secret env vars injected by the deployment platform, not committed `.env` files
+- [ ] Receipt signing key provisioned (`TEABAY_RECEIPT_SIGNING_KEY_B64`)
 - [ ] Log redaction enabled (default outside dev mode)
 - [ ] Admin auth in production mode (`TEABAY_ADMIN_TOKEN`)
 - [ ] Rate limit enabled

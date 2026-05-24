@@ -55,8 +55,8 @@
 - [x] §19 Confirm `TEABAY_ADMIN_TOKEN` enforcement when production mode = true (already in `/health` hardening probe — verify).
 
 ### Audit + receipts
-- [ ] §20 Spec § 8.7 mentions signed receipts on takedown. Confirm `withdrawals.proof` carries enough signature info to be a verifiable receipt. If not, extend the schema.
-- [ ] §21 Add an integration test that walks the 3-path takedown flow (resource state-change, resource withdraw, operator) end-to-end.
+- [x] §20 Spec § 8.7 mentions signed receipts on takedown. Confirm `withdrawals.proof` carries enough signature info to be a verifiable receipt. If not, extend the schema.
+- [x] §21 Add an integration test that walks the 3-path takedown flow (resource state-change, resource withdraw, operator) end-to-end.
 
 ### Docs
 - [x] §22 Add `docs/` directory with: architecture, deployment, operations, freshness model, anti-enumeration design rationale.
@@ -66,8 +66,8 @@
 
 ## Phase 5
 
-- [ ] §26 External security review focused on anti-enumeration correctness + transport-signature auth.
-- [ ] §27 Record local `v1.0.0` milestone.
+- [x] §26 External security review focused on anti-enumeration correctness + transport-signature auth.
+- [x] §27 Record local `v1.0.0` milestone.
 
 ## Exit gate (phase 2)
 
