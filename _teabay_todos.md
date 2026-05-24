@@ -11,7 +11,7 @@
 - Anti-enumeration: 6-tier bucketing + 25ms latency floor + SHA256-based jitter.
 - Auth: RFC 9421 HTTP Message Signature (Ed25519); pluggable `HttpSigKeyDirectory`.
 - Admin SPA: 5 tabs feature-complete (Resources, Allowlist, Takedown, Audit, Review).
-- 1 code TODO marker remains (realm-rework; remaining release-readiness tasks below).
+- 0 scoped code TODO markers remain; release-readiness tasks continue below.
 - CI: fmt + check + test + cargo-deny + clippy + typos + cargo audit. **Missing**: coverage target, Trivy, SBOM.
 - Tests: 850-LoC conformance suite + health + timing-variance.
 - Tarpaulin: `target` not set; effectively 0% threshold.
@@ -26,10 +26,10 @@
 - [x] §3 `crates/server/src/ingest/announce.rs:637` — emit dedicated `realm` resource_kind once spec finalizes (round23-T07).
 
 ### Realm-rework refactor
-- [ ] §4 `crates/server/src/query/space.rs:12` — split directory rows by `resource_kind` (realm vs space).
-- [ ] §5 `crates/server/src/query/actor.rs:10` — add explicit `realm_id` alias on actor scope.
-- [ ] §6 `crates/server/src/query/handle.rs:14,225` — rename Postgres `space` columns/indexes to `realm` (migration); generate compatibility view if needed.
-- [ ] §7 Run a final sweep — `grep -rni "chadex\|place_id\|Place\b" crates/` — expect zero hits.
+- [x] §4 `crates/server/src/query/realm.rs:12` — split directory rows by `resource_kind` (realm vs space).
+- [x] §5 `crates/server/src/query/actor.rs:10` — add explicit `realm_id` alias on actor scope.
+- [x] §6 `crates/server/src/query/handle.rs` + migrations — rename Postgres `space` columns/indexes to `realm` (migration); generate compatibility view if needed.
+- [x] §7 Run a final sweep — `grep -rni "chadex\|place_id\|Place\b" crates/` — expect zero hits.
 
 ### CI hygiene (master plan §5 — currently the biggest gap)
 - [x] §8 Add `cargo clippy --all-targets --all-features -- -D warnings` to `ci.yml`.

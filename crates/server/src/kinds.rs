@@ -44,8 +44,8 @@ pub const OP_DIRECTORY_SUBSCRIBE: &str = contrix_sdk::OP_DIRECTORY_SUBSCRIBE;
 // ---- §9 query operations (declared for profile self-check) --------------
 
 pub const OP_DIRECTORY_DESCRIBE: &str = contrix_sdk::OP_DIRECTORY_DESCRIBE;
-pub const OP_DIRECTORY_SEARCH_SPACES: &str = contrix_sdk::OP_DIRECTORY_SEARCH_REALMS;
-pub const OP_DIRECTORY_RESOLVE_SPACE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_REALM;
+pub const OP_DIRECTORY_SEARCH_REALMS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_REALMS;
+pub const OP_DIRECTORY_RESOLVE_REALM: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_REALM;
 pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ORGANIZATIONS;
 pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_ORGANIZATION;
 pub const OP_DIRECTORY_SEARCH_ACTORS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ACTORS;
@@ -56,8 +56,8 @@ pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_
 /// `cx.profile.directory_service.v1#/required_endpoints`.
 pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_DESCRIBE,
-    OP_DIRECTORY_SEARCH_SPACES,
-    OP_DIRECTORY_RESOLVE_SPACE,
+    OP_DIRECTORY_SEARCH_REALMS,
+    OP_DIRECTORY_RESOLVE_REALM,
     OP_DIRECTORY_SEARCH_ORGANIZATIONS,
     OP_DIRECTORY_RESOLVE_ORGANIZATION,
     OP_DIRECTORY_SEARCH_ACTORS,
@@ -90,8 +90,8 @@ mod tests {
         assert_eq!(OP_DIRECTORY_WITHDRAW, "cx.directory.withdraw");
         assert_eq!(OP_DIRECTORY_SUBSCRIBE, "cx.directory.push.register");
         assert_eq!(OP_DIRECTORY_DESCRIBE, "cx.directory.describe");
-        assert_eq!(OP_DIRECTORY_SEARCH_SPACES, "cx.directory.search_realms");
-        assert_eq!(OP_DIRECTORY_RESOLVE_SPACE, "cx.directory.resolve_realm");
+        assert_eq!(OP_DIRECTORY_SEARCH_REALMS, "cx.directory.search_realms");
+        assert_eq!(OP_DIRECTORY_RESOLVE_REALM, "cx.directory.resolve_realm");
         assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "cx.directory.resolve_handle");
     }
 }

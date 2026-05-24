@@ -9,7 +9,14 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-const RESOURCE_KINDS: [&str; 5] = ["realm", "organization", "actor", "applet", "handle"];
+const RESOURCE_KINDS: [&str; 6] = [
+    "realm",
+    "space",
+    "organization",
+    "actor",
+    "applet",
+    "handle",
+];
 const DISCOVERABILITY_LEVELS: [&str; 6] = [
     "public",
     "listed",

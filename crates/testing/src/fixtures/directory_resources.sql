@@ -18,86 +18,81 @@ INSERT INTO directory_resources (
 ) VALUES
 (
     'realm'::resource_kind,
-    'cx:space:tea',
+    'cx:realm:tea',
     'did:web:principal.test',
     -- Round 4 (spec a77b995): the §3 discovery event kind for the
-    -- Realm/Space security boundary is `cx.realm.discovery`. The
-    -- legacy `cx.space.discovery` was a pre-realm-rework residue and
-    -- is wire-broken under aggressive mode.
+    -- Realm security boundary is `cx.realm.discovery`.
     '{"kind":"cx.realm.discovery","discoverability":"public"}'::jsonb,
-    -- Spec sync 0a5ab85 / governance/join-policy §5.1.3 (post realm-rework):
+    -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
     -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
-    -- The `cx:space:tea` resource_id is retained for cross-service fixture
-    -- compatibility; resource_kind now records the security boundary as a
-    -- Realm directly.
-    '{"name":"Tea Research","summary":"Public teabay conformance space","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allow_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
+    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allow_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
-    ARRAY['evt-space-tea'],
-    'rev-space-1',
+    ARRAY['evt-realm-tea'],
+    'rev-realm-1',
     now(),
     86400,
     now() + interval '1 day',
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-space'
+    'cx:announce:test-realm'
 ),
 (
     'realm'::resource_kind,
-    'cx:space:tea-lab',
+    'cx:realm:tea-lab',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"listed"}'::jsonb,
-    '{"name":"Tea Protocol Lab","summary":"Second public conformance space","member_count_bucket":"11-50"}'::jsonb,
+    '{"name":"Tea Protocol Lab","summary":"Second public conformance realm","member_count_bucket":"11-50"}'::jsonb,
     'listed'::discoverability,
     now() - interval '1 minute',
-    ARRAY['evt-space-tea-lab'],
-    'rev-space-2',
+    ARRAY['evt-realm-tea-lab'],
+    'rev-realm-2',
     now() - interval '1 minute',
     86400,
     now() + interval '1 day',
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-space-lab'
+    'cx:announce:test-realm-lab'
 ),
 (
     'realm'::resource_kind,
-    'cx:space:restricted',
+    'cx:realm:restricted',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"restricted"}'::jsonb,
-    '{"name":"Restricted Tea","summary":"Gated conformance space","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
+    '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
     'restricted'::discoverability,
     now(),
-    ARRAY['evt-space-restricted'],
-    'rev-space-restricted',
+    ARRAY['evt-realm-restricted'],
+    'rev-realm-restricted',
     now(),
     86400,
     now() + interval '1 day',
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-space-restricted'
+    'cx:announce:test-realm-restricted'
 ),
 (
     'realm'::resource_kind,
-    'cx:space:secret',
+    'cx:realm:secret',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
     'secret'::discoverability,
     now(),
-    ARRAY['evt-space-secret'],
-    'rev-space-secret',
+    ARRAY['evt-realm-secret'],
+    'rev-realm-secret',
     now(),
     86400,
     now() + interval '1 day',
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-space-secret'
+    'cx:announce:test-realm-secret'
 ),
 (
     'organization'::resource_kind,
@@ -122,7 +117,7 @@ INSERT INTO directory_resources (
     'did:web:alice.example',
     'did:web:principal.test',
     '{"kind":"cx.actor.discovery","discoverability":"public"}'::jsonb,
-    '{"handle":"alice.example","display_name":"Alice Tea","space_ids":["cx:space:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
+    '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["cx:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-actor-alice'],
@@ -142,7 +137,7 @@ INSERT INTO directory_resources (
     '{"kind":"cx.handle.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
     -- carries `member_delivery_binding.recipient_service_did` + binding_source
-    -- so `resolve_handle(intent=member_add)` can run the Space policy filter.
+    -- so `resolve_handle(intent=member_add)` can run the Realm policy filter.
     '{"handle":"alice.example","did":"did:web:alice.example","verified":true,"member_delivery_binding":{"recipient_service_did":"did:web:principal.test","binding_source":"join_policy"}}'::jsonb,
     'public'::discoverability,
     now(),

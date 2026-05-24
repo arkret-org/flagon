@@ -99,6 +99,7 @@ impl AcceptPolicyKind {
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKindAccept {
     Realm,
+    Space,
     Organization,
     Actor,
     Applet,
@@ -108,6 +109,7 @@ pub enum ResourceKindAccept {
 impl ResourceKindAccept {
     pub const ALL: &'static [Self] = &[
         Self::Realm,
+        Self::Space,
         Self::Organization,
         Self::Actor,
         Self::Applet,
@@ -117,6 +119,7 @@ impl ResourceKindAccept {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Realm => "realm",
+            Self::Space => "space",
             Self::Organization => "organization",
             Self::Actor => "actor",
             Self::Applet => "applet",

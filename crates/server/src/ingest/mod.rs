@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKindWire {
     Realm,
-    #[serde(skip_deserializing)]
     Space,
     Organization,
     Actor,
@@ -41,13 +40,12 @@ impl ResourceKindWire {
 
     /// Spec `cx.{kind}.discovery` event kind for this resource.
     ///
-    /// Note: `Space` is retained only for legacy database rows created
-    /// before the dedicated `realm` resource_kind existed. New Realm
-    /// discovery announces deserialize as `Realm`.
+    /// Realm is the security boundary. Space is the separate container
+    /// resource kind and does not resolve through the Realm query surface.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
             Self::Realm => "cx.realm.discovery",
-            Self::Space => "cx.realm.discovery",
+            Self::Space => "cx.space.discovery",
             Self::Organization => "cx.organization.discovery",
             Self::Actor => "cx.actor.discovery",
             Self::Applet => "cx.applet.discovery",
@@ -173,6 +171,10 @@ mod tests {
         let sdk_kind: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
         assert_eq!(sdk_kind, contrix_sdk::DirectoryResourceKind::Space);
         assert_eq!(ResourceKindWire::from(sdk_kind), ResourceKindWire::Realm);
+        assert_eq!(
+            ResourceKindWire::Space.discovery_event_kind(),
+            "cx.space.discovery"
+        );
     }
 
     #[test]

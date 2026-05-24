@@ -1,6 +1,6 @@
 //! Handle resolution. Spec §9 (`cx.directory.resolve_handle`).
 //!
-//! Spec sync 0a5ab85 / governance/join-policy §5.1.3 (post realm-rework):
+//! Spec sync 0a5ab85 / governance/join-policy §5.1.3:
 //! `cx.directory.resolve_handle` MUST gate `intent=member_add | invite`
 //! requests on the target **Realm**'s `delivery_binding_policy`
 //! (`allowed_recipient_services`, `allow_binding_sources`) and on the
@@ -27,7 +27,7 @@ pub struct ResolveHandleRequest {
     pub expected_did: Option<String>,
     #[serde(default)]
     pub proof_challenge: Option<String>,
-    /// Why the handle is being resolved. Spec 0a5ab85 / realm-rework:
+    /// Why the handle is being resolved. Spec 0a5ab85:
     /// gates audience binding on the response claim and selects the
     /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
     /// filter when `intent ∈ {member_add, invite}`.
@@ -45,13 +45,10 @@ pub struct ResolveHandleRequest {
     /// Target Realm DID for `intent=member_add | invite`. When present we
     /// load the Realm `delivery_binding_policy` baseline and filter
     /// candidate bindings against `allowed_recipient_services`.
-    ///
-    /// Accepts the legacy `space_id` alias for clients that have not
-    /// yet migrated to the realm-rework wire shape.
-    #[serde(default, alias = "space_id")]
+    #[serde(default)]
     pub realm_id: Option<String>,
     /// Optional proofs / claim ids the requester presents to be admitted as
-    /// a Realm audience. Mirrors `resolve_space` semantics.
+    /// a Realm audience. Mirrors `resolve_realm` semantics.
     #[serde(default)]
     pub proofs: Vec<String>,
 }
@@ -171,9 +168,7 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
 
 /// Baseline projection of a Realm's `delivery_binding_policy` as cached in
 /// the directory's `public_projection`. Mirrors the schema in
-/// governance/join-policy.md §5.1.3. (Pre realm-rework this struct was
-/// `SpaceDeliveryBindingPolicy`; the underlying security-boundary
-/// resource is now Realm.)
+/// governance/join-policy.md §5.1.3.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RealmDeliveryBindingPolicy {
     /// `allowed_recipient_services`: closed set of recipient principal-server
@@ -265,8 +260,8 @@ impl RealmDeliveryBindingPolicy {
     }
 
     /// True iff the requester is in the audience-binding allow-list, either
-    /// via `trusted_audiences` (preferred) or `allowed_discoverers` (legacy
-    /// fallback shared with `resolve_space`).
+    /// via `trusted_audiences` (preferred) or `allowed_discoverers`
+    /// fallback shared with `resolve_realm`.
     fn audience_authorized(&self, requester: Option<&str>, proofs: &[String]) -> bool {
         if self.trusted_audiences.is_empty() && !has_allowed_discoverers(&self.raw_projection) {
             // No audience constraint declared — fall through to the default
@@ -278,8 +273,8 @@ impl RealmDeliveryBindingPolicy {
                 return true;
             }
         }
-        // Legacy: reuse the `allowed_discoverers` shape so existing Space
-        // fixtures keep granting access without policy migration.
+        // Reuse the `allowed_discoverers` shape when the Realm does not
+        // declare explicit trusted audiences.
         allowed_discoverers_match(&self.raw_projection, requester, proofs)
     }
 }
@@ -627,7 +622,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -646,7 +641,7 @@ mod tests {
                 "binding_source": "join_policy"
             }
         }));
-        let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -680,7 +675,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("cx:space:tea", "did:web:eve.example");
+        let body = member_add_request("cx:realm:tea", "did:web:eve.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -699,7 +694,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -745,9 +740,9 @@ mod tests {
         let warmup = 256;
         let iters = 4096;
 
-        let found_body = member_add_request("cx:space:tea", "did:web:tea-org.example");
-        let unauthorized_body = member_add_request("cx:space:tea", "did:web:eve.example");
-        let filtered_body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let found_body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
+        let unauthorized_body = member_add_request("cx:realm:tea", "did:web:eve.example");
+        let filtered_body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
 
         // Warm caches / branch predictor.
         for _ in 0..warmup {
@@ -801,8 +796,8 @@ mod tests {
     #[test]
     fn policy_with_no_audience_constraint_lets_everyone_through() {
         // No `trusted_audiences`, no `allowed_discoverers` ⇒ resolver
-        // SHOULD treat the Space as unrestricted (per §9 default for
-        // Public/Listed Spaces).
+        // SHOULD treat the Realm as unrestricted (per §9 default for
+        // Public/Listed Realms).
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "allowed_recipient_services": ["did:web:principal.tea"],
         }));
@@ -824,7 +819,7 @@ mod tests {
             "allow_binding_sources": ["join_policy"],
             "trusted_audiences": ["did:web:tea-org.example"],
         }));
-        let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
         assert!(matches!(outcome, ResolveOutcome::NotFound));
@@ -857,7 +852,7 @@ mod tests {
                 "binding_source": "join_policy"
             }
         }));
-        let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
+        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
         assert!(matches!(outcome, ResolveOutcome::NotFound));

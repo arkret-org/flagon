@@ -3,12 +3,9 @@
 //! `cx.directory.search_actors` and `cx.directory.search_users` (mention
 //! autocomplete).
 //!
-//! Realm-rework note: the `space_id` parameter on `search_users` /
-//! `search_actors` continues to identify the **security boundary**
-//! (which the protocol now calls a Realm — `cx:realm:` URI prefix).
-//! Container "Spaces" are not addressable here yet.
-// TODO(realm-rework): add an explicit `realm_id` request alias and
-// surface a separate container-Space autocomplete path.
+//! `realm_id` scopes `search_users` / `search_actors` to the security
+//! boundary. Container Spaces are a separate resource kind and are not
+//! used for audience gating here.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -26,8 +23,8 @@ use crate::state::AppState;
 pub struct SearchActorsRequest {
     #[serde(default)]
     pub query: Option<String>,
-    #[serde(default)]
-    pub space_id: Option<String>,
+    #[serde(default, alias = "space_id")]
+    pub realm_id: Option<String>,
     #[serde(default)]
     pub organization_did: Option<String>,
     #[serde(default)]
@@ -42,8 +39,8 @@ pub struct SearchUsersRequest {
     pub query: Option<String>,
     #[serde(default)]
     pub requester: Option<String>,
-    #[serde(default)]
-    pub space_id: Option<String>,
+    #[serde(default, alias = "space_id")]
+    pub realm_id: Option<String>,
     #[serde(default)]
     pub limit: Option<u32>,
     /// Why the requester wants to enumerate users. Spec 0a5ab85:
@@ -70,9 +67,9 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_jitter,
     );
     let privacy_key = format!(
-        "q={};space={};org={};cursor={};limit={limit}",
+        "q={};realm={};org={};cursor={};limit={limit}",
         body.query.as_deref().unwrap_or_default(),
-        body.space_id.as_deref().unwrap_or_default(),
+        body.realm_id.as_deref().unwrap_or_default(),
         body.organization_did.as_deref().unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );
@@ -115,10 +112,10 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
             return;
         }
     };
-    let space_id = match query.space_id.as_deref().filter(|value| !value.is_empty()) {
-        Some(space_id) => space_id,
+    let realm_id = match query.realm_id.as_deref().filter(|value| !value.is_empty()) {
+        Some(realm_id) => realm_id,
         None => {
-            ApiErrorCode::MissingParam.render(res, "space_id is required");
+            ApiErrorCode::MissingParam.render(res, "realm_id is required");
             return;
         }
     };
@@ -129,9 +126,9 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let privacy_key = format!("q={needle};requester={requester};space={space_id};limit={limit}");
+    let privacy_key = format!("q={needle};requester={requester};realm={realm_id};limit={limit}");
     let result = pad_to_budget(budget, "cx.directory.search_users", &privacy_key, async {
-        run_user_search(&state, &needle, requester, space_id, limit).await
+        run_user_search(&state, &needle, requester, realm_id, limit).await
     })
     .await;
 
@@ -197,7 +194,7 @@ async fn run_user_search(
     state: &AppState,
     needle: &str,
     requester: &str,
-    space_id: &str,
+    realm_id: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<ActorRow>> {
     use crate::schema::directory_resources::dsl as r;
@@ -224,7 +221,7 @@ async fn run_user_search(
     Ok(rows
         .into_iter()
         .filter(|row| {
-            row.resource_id == requester || actor_lists_space(&row.public_projection, space_id)
+            row.resource_id == requester || actor_lists_realm(&row.public_projection, realm_id)
         })
         .filter(|row| {
             needle.is_empty() || actor_matches(&row.public_projection, &row.resource_id, &needle)
@@ -261,26 +258,26 @@ fn actor_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> boo
             .any(|value| value.to_ascii_lowercase().contains(needle))
 }
 
-fn actor_lists_space(projection: &JsonValue, space_id: &str) -> bool {
-    ["space_id", "common_space_id", "primary_space_id"]
+fn actor_lists_realm(projection: &JsonValue, realm_id: &str) -> bool {
+    ["realm_id", "common_realm_id", "primary_realm_id"]
         .iter()
         .filter_map(|key| projection.get(*key).and_then(JsonValue::as_str))
-        .any(|value| value == space_id)
+        .any(|value| value == realm_id)
         || [
-            "space_ids",
-            "common_space_ids",
-            "member_of_spaces",
+            "realm_ids",
+            "common_realm_ids",
+            "member_of_realms",
             "memberships",
-            "spaces",
+            "realms",
         ]
         .iter()
         .filter_map(|key| projection.get(*key).and_then(JsonValue::as_array))
         .flatten()
         .any(|value| match value {
-            JsonValue::String(value) => value == space_id,
-            JsonValue::Object(obj) => ["space_id", "id"]
+            JsonValue::String(value) => value == realm_id,
+            JsonValue::Object(obj) => ["realm_id", "id"]
                 .iter()
-                .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(space_id)),
+                .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(realm_id)),
             _ => false,
         })
 }

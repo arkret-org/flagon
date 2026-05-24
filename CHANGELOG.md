@@ -27,6 +27,10 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
 - **Added** handle-claim and member-delivery-binding-candidate schemas
   swept for the tightened DID method-name regex
   (`^did:[a-z0-9]+:[^\s]+$`); fixture SQL refreshed.
+- **BREAKING** Realm rows are now distinct from container Space rows:
+  Realm query surfaces use `resource_kind=realm`, `realm_id` projection keys,
+  and `cx:realm:` fixture identifiers; `space` remains available only as the
+  separate container resource kind.
 
 ### Round R2/R3 (2026-05-20) — 17 P0/P1 tasks closed against contrix-spec
 

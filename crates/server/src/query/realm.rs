@@ -1,14 +1,13 @@
-//! Space search and resolve. Spec §9.
+//! Realm search and resolve. Spec §9.
 //!
 //! `cx.directory.search_realms` and `cx.directory.resolve_realm`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
 //!
-//! The "security boundary" resource on this surface is a **Realm**
-//! (`cx:realm:` URI prefix). `Space` remains in the module name only as
-//! legacy implementation vocabulary; storage now uses `resource_kind=realm`
-//! for newly indexed Realm discovery rows.
+//! The security boundary resource on this surface is a **Realm**
+//! (`cx:realm:` URI prefix). Container Spaces are a separate
+//! `resource_kind=space` row type and are intentionally not returned here.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -26,7 +25,7 @@ use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct SearchSpacesRequest {
+pub struct SearchRealmsRequest {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
@@ -46,11 +45,11 @@ pub struct SearchScope {
     #[serde(default)]
     pub organization_did: Option<String>,
     #[serde(default)]
-    pub parent_space_id: Option<String>,
+    pub parent_realm_id: Option<String>,
 }
 
 #[handler]
-pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
@@ -58,7 +57,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
             return;
         }
     };
-    let body: SearchSpacesRequest = req.parse_json().await.unwrap_or_default();
+    let body: SearchRealmsRequest = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
     let needle = body.query.unwrap_or_default();
@@ -80,14 +79,14 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let privacy_key = format!(
         "q={needle};org={};parent={};cursor={};limit={limit}",
         scope.organization_did.as_deref().unwrap_or_default(),
-        scope.parent_space_id.as_deref().unwrap_or_default(),
+        scope.parent_realm_id.as_deref().unwrap_or_default(),
         cursor
             .as_ref()
             .map(|cursor| cursor.resource_id.as_str())
             .unwrap_or_default(),
     );
     let result = pad_to_budget(budget, "cx.directory.search_realms", &privacy_key, async {
-        run_visible_space_search(
+        run_visible_realm_search(
             &state,
             &needle,
             &scope,
@@ -111,7 +110,7 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
             let next_cursor = match next_cursor {
                 Ok(cursor) => cursor,
                 Err(e) => {
-                    ApiErrorCode::InternalError.render(res, format!("space cursor: {e}"));
+                    ApiErrorCode::InternalError.render(res, format!("realm cursor: {e}"));
                     return;
                 }
             };
@@ -122,13 +121,13 @@ pub async fn search_spaces(req: &mut Request, depot: &mut Depot, res: &mut Respo
             })));
         }
         Err(e) => {
-            ApiErrorCode::InternalError.render(res, format!("space search: {e}"));
+            ApiErrorCode::InternalError.render(res, format!("realm search: {e}"));
         }
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ResolveSpaceRequest {
+pub struct ResolveRealmRequest {
     #[serde(default)]
     pub realm_id: Option<String>,
     #[serde(default)]
@@ -144,7 +143,7 @@ pub struct ResolveSpaceRequest {
 }
 
 #[handler]
-pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
@@ -152,7 +151,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
             return;
         }
     };
-    let body: ResolveSpaceRequest = match req.parse_json().await {
+    let body: ResolveRealmRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
@@ -182,7 +181,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_jitter,
     );
     let row = pad_to_budget(budget, "cx.directory.resolve_realm", &key, async {
-        load_space_row(&state, &key).await
+        load_realm_row(&state, &key).await
     })
     .await;
 
@@ -200,7 +199,7 @@ pub async fn resolve_space(req: &mut Request, depot: &mut Depot, res: &mut Respo
 // ---- internal load primitives -------------------------------------------
 
 #[derive(Debug, Queryable)]
-struct SpaceStoredRow {
+struct RealmStoredRow {
     resource_id: String,
     public_projection: JsonValue,
     discoverability: DiscoverabilityWire,
@@ -218,7 +217,7 @@ struct SpaceStoredRow {
 }
 
 #[derive(Debug)]
-struct SpaceRow {
+struct RealmRow {
     resource_id: String,
     public_projection: JsonValue,
     discoverability: DiscoverabilityWire,
@@ -235,7 +234,7 @@ struct SpaceRow {
 }
 
 #[derive(Debug, QueryableByName)]
-struct SpaceSqlRow {
+struct RealmSqlRow {
     #[diesel(sql_type = Text)]
     resource_id: String,
     #[diesel(sql_type = Jsonb)]
@@ -265,50 +264,50 @@ struct SpaceSqlRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SpaceCursor {
+struct RealmCursor {
     score: f64,
     indexed_at: DateTime<Utc>,
     resource_id: String,
 }
 
-async fn run_space_search(
+async fn run_realm_search(
     state: &AppState,
     needle: &str,
     scope: &SearchScope,
-    cursor: Option<&SpaceCursor>,
+    cursor: Option<&RealmCursor>,
     limit: i64,
-) -> anyhow::Result<Vec<SpaceRow>> {
+) -> anyhow::Result<Vec<RealmRow>> {
     let mut conn = state.db().get()?;
 
     let needle = needle.trim();
     let organization_did = scope.organization_did.as_deref();
-    let parent_space_id = scope.parent_space_id.as_deref();
+    let parent_realm_id = scope.parent_realm_id.as_deref();
     let cursor_score = cursor.map(|c| c.score);
     let cursor_indexed_at = cursor.map(|c| c.indexed_at);
     let cursor_resource_id = cursor.map(|c| c.resource_id.as_str());
 
-    let rows: Vec<SpaceSqlRow> = diesel::sql_query(SPACE_SEARCH_SQL)
+    let rows: Vec<RealmSqlRow> = diesel::sql_query(REALM_SEARCH_SQL)
         .bind::<Text, _>(needle)
         .bind::<Nullable<Text>, _>(organization_did)
-        .bind::<Nullable<Text>, _>(parent_space_id)
+        .bind::<Nullable<Text>, _>(parent_realm_id)
         .bind::<Nullable<Double>, _>(cursor_score)
         .bind::<Nullable<Timestamptz>, _>(cursor_indexed_at)
         .bind::<Nullable<Text>, _>(cursor_resource_id)
         .bind::<BigInt, _>(limit)
         .load(&mut conn)?;
 
-    rows.into_iter().map(SpaceRow::try_from).collect()
+    rows.into_iter().map(RealmRow::try_from).collect()
 }
 
-async fn run_visible_space_search(
+async fn run_visible_realm_search(
     state: &AppState,
     needle: &str,
     scope: &SearchScope,
-    cursor: Option<&SpaceCursor>,
+    cursor: Option<&RealmCursor>,
     requester: Option<&str>,
     proofs: &[String],
     visible_limit: i64,
-) -> anyhow::Result<Vec<SpaceRow>> {
+) -> anyhow::Result<Vec<RealmRow>> {
     let target_len = visible_limit.max(1) as usize;
     let batch_limit = visible_limit.max(64);
     let mut scan_cursor = cursor.cloned();
@@ -316,7 +315,7 @@ async fn run_visible_space_search(
 
     loop {
         let rows =
-            run_space_search(state, needle, scope, scan_cursor.as_ref(), batch_limit).await?;
+            run_realm_search(state, needle, scope, scan_cursor.as_ref(), batch_limit).await?;
         if rows.is_empty() {
             break;
         }
@@ -345,10 +344,10 @@ async fn run_visible_space_search(
     Ok(visible_rows)
 }
 
-async fn load_space_row(state: &AppState, key: &str) -> anyhow::Result<Option<SpaceRow>> {
+async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<RealmRow>> {
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get()?;
-    let row: Option<SpaceStoredRow> = r::directory_resources
+    let row: Option<RealmStoredRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Realm))
         .filter(r::resource_id.eq(key))
         .select((
@@ -367,17 +366,16 @@ async fn load_space_row(state: &AppState, key: &str) -> anyhow::Result<Option<Sp
         ))
         .first(&mut conn)
         .optional()?;
-    Ok(row.map(SpaceRow::from))
+    Ok(row.map(RealmRow::from))
 }
 
-fn envelope_from_row(row: SpaceRow) -> ResultEnvelope {
+fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
     // Round R2/R3 T07 — once `cx.realm.destroy` has anchored, the row's
     // projection collapses to a deterministic tombstone so the resolve
     // / search face surfaces `[erased]` instead of leaking the historical
     // governance state.
     if let Some(destroyed_at) = row.realm_destroyed_at {
         let payload = serde_json::json!({
-            "space_id": row.resource_id,
             "realm_id": row.resource_id,
             "discoverability": row.discoverability.as_pg(),
             "name": "[erased]",
@@ -405,7 +403,6 @@ fn envelope_from_row(row: SpaceRow) -> ResultEnvelope {
             "realm_id".into(),
             JsonValue::String(row.resource_id.clone()),
         );
-        obj.insert("space_id".into(), JsonValue::String(row.resource_id));
         obj.insert(
             "discoverability".into(),
             JsonValue::String(row.discoverability.as_pg().to_string()),
@@ -422,7 +419,7 @@ fn envelope_from_row(row: SpaceRow) -> ResultEnvelope {
     )
 }
 
-fn is_result_visible(row: &SpaceRow, requester: Option<&str>, proofs: &[String]) -> bool {
+fn is_result_visible(row: &RealmRow, requester: Option<&str>, proofs: &[String]) -> bool {
     // Round R2/R3 T17 — once reachability has been revoked for the
     // affected actor we drop the row from the search face. Resolve
     // still surfaces the row (so existing in-flight conversations can
@@ -475,10 +472,10 @@ fn allowed_discoverers(projection: &JsonValue) -> Option<&Vec<JsonValue>> {
         .and_then(JsonValue::as_array)
 }
 
-impl TryFrom<SpaceSqlRow> for SpaceRow {
+impl TryFrom<RealmSqlRow> for RealmRow {
     type Error = anyhow::Error;
 
-    fn try_from(row: SpaceSqlRow) -> Result<Self, Self::Error> {
+    fn try_from(row: RealmSqlRow) -> Result<Self, Self::Error> {
         Ok(Self {
             resource_id: row.resource_id,
             public_projection: row.public_projection,
@@ -497,8 +494,8 @@ impl TryFrom<SpaceSqlRow> for SpaceRow {
     }
 }
 
-impl From<SpaceStoredRow> for SpaceRow {
-    fn from(row: SpaceStoredRow) -> Self {
+impl From<RealmStoredRow> for RealmRow {
+    fn from(row: RealmStoredRow) -> Self {
         Self {
             resource_id: row.resource_id,
             public_projection: row.public_projection,
@@ -529,19 +526,19 @@ fn discoverability_from_str(value: &str) -> anyhow::Result<DiscoverabilityWire> 
     }
 }
 
-fn encode_cursor(row: &SpaceRow) -> anyhow::Result<String> {
+fn encode_cursor(row: &RealmRow) -> anyhow::Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor_from_row(row))?))
 }
 
-fn cursor_from_row(row: &SpaceRow) -> SpaceCursor {
-    SpaceCursor {
+fn cursor_from_row(row: &RealmRow) -> RealmCursor {
+    RealmCursor {
         score: row.score,
         indexed_at: row.indexed_at,
         resource_id: row.resource_id.clone(),
     }
 }
 
-fn decode_cursor(cursor: &str) -> Result<SpaceCursor, String> {
+fn decode_cursor(cursor: &str) -> Result<RealmCursor, String> {
     let bytes = URL_SAFE_NO_PAD
         .decode(cursor)
         .map_err(|e| format!("invalid cursor encoding: {e}"))?;
@@ -586,7 +583,7 @@ mod tests {
     }
 }
 
-const SPACE_SEARCH_SQL: &str = r#"
+const REALM_SEARCH_SQL: &str = r#"
 WITH ranked AS (
     SELECT
         resource_id,
@@ -638,8 +635,8 @@ WITH ranked AS (
       )
       AND (
           $3::text IS NULL
-          OR public_projection->>'parent_space_id' = $3
-          OR public_projection->'parent_space_ids' ? $3
+          OR public_projection->>'parent_realm_id' = $3
+          OR public_projection->'parent_realm_ids' ? $3
       )
 )
 SELECT

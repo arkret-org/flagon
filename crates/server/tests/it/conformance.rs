@@ -76,7 +76,7 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
         .block_on(async {
             assert_describe_advertises_core_and_psi(&service).await?;
             assert_query_surface_matrix(&service).await?;
-            assert_search_spaces_finds_seeded_space(&service).await?;
+            assert_search_realms_finds_seeded_realm(&service).await?;
             assert_pull_subscribe_registers_webhook(&service).await?;
             assert_push_announce_uses_mock_principal_server(&service).await?;
             assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
@@ -131,7 +131,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
     Ok(())
 }
 
-async fn assert_search_spaces_finds_seeded_space(service: &Service) -> anyhow::Result<()> {
+async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::Result<()> {
     let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
@@ -143,7 +143,7 @@ async fn assert_search_spaces_finds_seeded_space(service: &Service) -> anyhow::R
             .as_array()
             .unwrap()
             .iter()
-            .any(|result| result["space_id"] == "cx:space:tea")
+            .any(|result| result["realm_id"] == "cx:realm:tea")
     );
     Ok(())
 }
@@ -193,19 +193,19 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         StatusCode::BAD_REQUEST
     );
 
-    assert_resolve_space_status(service, "cx:space:tea", StatusCode::OK, json!({})).await?;
-    assert_resolve_space_status(service, "cx:space:secret", StatusCode::NOT_FOUND, json!({}))
+    assert_resolve_realm_status(service, "cx:realm:tea", StatusCode::OK, json!({})).await?;
+    assert_resolve_realm_status(service, "cx:realm:secret", StatusCode::NOT_FOUND, json!({}))
         .await?;
-    assert_resolve_space_status(
+    assert_resolve_realm_status(
         service,
-        "cx:space:restricted",
+        "cx:realm:restricted",
         StatusCode::NOT_FOUND,
         json!({}),
     )
     .await?;
-    assert_resolve_space_status(
+    assert_resolve_realm_status(
         service,
-        "cx:space:restricted",
+        "cx:realm:restricted",
         StatusCode::OK,
         json!({ "requester": "did:web:alice.example" }),
     )
@@ -242,7 +242,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .json(&json!({
             "q": "alice",
             "requester": "did:web:alice.example",
-            "space_id": "cx:space:tea",
+            "realm_id": "cx:realm:tea",
             "limit": 10
         }))
         .send(service)
@@ -267,13 +267,13 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn assert_resolve_space_status(
+async fn assert_resolve_realm_status(
     service: &Service,
-    space_id: &str,
+    realm_id: &str,
     expected: StatusCode,
     extra: JsonValue,
 ) -> anyhow::Result<()> {
-    let mut body = json!({ "realm_id": space_id });
+    let mut body = json!({ "realm_id": realm_id });
     if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
         target.extend(source.clone());
     }
@@ -326,20 +326,20 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
 }
 
 async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> anyhow::Result<()> {
-    let mock = MockPrincipalServer::spawn("evt-announce-space")?;
+    let mock = MockPrincipalServer::spawn("evt-announce-realm")?;
     let signing_key = SigningKey::from_bytes(&[7; 32]);
     let public_key = did_key_multibase(&signing_key);
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
-    let discovery_state = signed_space_discovery_state(&verification_method, &signing_key)?;
+    let discovery_state = signed_realm_discovery_state(&verification_method, &signing_key)?;
 
     let mut res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "cx:space:pushed",
+            "resource_id": "cx:realm:pushed",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": discovery_state,
-            "source_refs": ["evt-announce-space"],
+            "source_refs": ["evt-announce-realm"],
             "as_of": Utc::now(),
             "ttl_seconds": 3600,
         }))
@@ -358,14 +358,14 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     );
 
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:space:pushed" }))
+        .json(&json!({ "realm_id": "cx:realm:pushed" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["space_id"], "cx:space:pushed");
+    assert_eq!(body["realm_id"], "cx:realm:pushed");
     assert_eq!(body["member_count_bucket"], "11-50");
-    assert_eq!(body["source_refs"][0], "evt-announce-space");
+    assert_eq!(body["source_refs"][0], "evt-announce-realm");
     assert_eq!(body["via_services"][0], mock.principal_server_did());
     Ok(())
 }
@@ -376,7 +376,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
                 "resource_kind": "realm",
-                "resource_id": "cx:space:pushed"
+                "resource_id": "cx:realm:pushed"
             },
             "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
             "webhook_secret": "0123456789abcdef"
@@ -410,17 +410,17 @@ async fn assert_pull_worker_refreshes_due_entry(
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
     let pulled_state =
-        signed_space_discovery_state_named(&verification_method, &signing_key, "Pulled Tea")?;
+        signed_realm_discovery_state_named(&verification_method, &signing_key, "Pulled Tea")?;
     let mock =
-        MockPrincipalServer::spawn_with_discovery_state("evt-pull-space", pulled_state.clone())?;
+        MockPrincipalServer::spawn_with_discovery_state("evt-pull-realm", pulled_state.clone())?;
 
     let mut res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "cx:space:pull",
+            "resource_id": "cx:realm:pull",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": pulled_state,
-            "source_refs": ["evt-pull-space"],
+            "source_refs": ["evt-pull-realm"],
             "as_of": Utc::now(),
             "ttl_seconds": 3600,
         }))
@@ -437,7 +437,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET next_revalidation_after = now() - interval '1 second' \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:space:pull'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:realm:pull'",
         )
         .execute(&mut conn)?;
     }
@@ -448,7 +448,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         .await?;
 
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:space:pull" }))
+        .json(&json!({ "realm_id": "cx:realm:pull" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -459,7 +459,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let pull_count: i64 = diesel::sql_query(
         "SELECT count(*) FROM ingest_announces \
          WHERE resource_kind = 'realm'::resource_kind \
-           AND resource_id = 'cx:space:pull' \
+           AND resource_id = 'cx:realm:pull' \
            AND ingest_mode = 'pull'::ingest_mode",
     )
     .get_result::<CountRow>(&mut conn)?
@@ -477,12 +477,12 @@ async fn assert_freshness_flags_are_exposed(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET stale = true \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:space:tea'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:realm:tea'",
         )
         .execute(&mut conn)?;
     }
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:space:tea" }))
+        .json(&json!({ "realm_id": "cx:realm:tea" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -823,14 +823,14 @@ fn handle_mock_principal_connection(
     let _ = stream.write_all(response.as_bytes());
 }
 
-fn signed_space_discovery_state(
+fn signed_realm_discovery_state(
     verification_method: &str,
     signing_key: &SigningKey,
 ) -> anyhow::Result<JsonValue> {
-    signed_space_discovery_state_named(verification_method, signing_key, "Pushed Tea")
+    signed_realm_discovery_state_named(verification_method, signing_key, "Pushed Tea")
 }
 
-fn signed_space_discovery_state_named(
+fn signed_realm_discovery_state_named(
     verification_method: &str,
     signing_key: &SigningKey,
     name: &str,

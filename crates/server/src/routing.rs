@@ -92,8 +92,8 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     // handled per-handler where applicable).
     let query_routes = Router::new()
         .push(Router::with_path("describe").get(query::describe::describe))
-        .push(Router::with_path("search-realms").post(query::space::search_spaces))
-        .push(Router::with_path("resolve-realm").post(query::space::resolve_space))
+        .push(Router::with_path("search-realms").post(query::realm::search_realms))
+        .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
         .push(
             Router::with_path("search-organizations")
                 .post(query::organization::search_organizations),
@@ -435,7 +435,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "cx.directory.search_users",
             "query",
             "Search Users",
-            "Common-Space gated user search using indexed membership hints.",
+            "Realm-gated user search using indexed membership hints.",
         ),
         (
             "/api/v1/directory/resolve-handle",

@@ -120,7 +120,7 @@ CREATE INDEX directory_resources_realm_scope_org_idx
     WHERE resource_kind = 'realm';
 
 CREATE INDEX directory_resources_realm_scope_parent_idx
-    ON directory_resources ((public_projection->>'parent_space_id'))
+    ON directory_resources ((public_projection->>'parent_realm_id'))
     WHERE resource_kind = 'realm';
 
 -- ---- Ingest audit (every accepted announce, push and pull) ---------------
