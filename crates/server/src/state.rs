@@ -58,7 +58,7 @@ impl AppState {
     /// Round R2/R3 T14 — look up the federation idempotency cache by the
     /// extended four-field key. `digest` is SHA-256 over `(request_digest
     /// || source_service_did || verification_method ||
-    /// service_binding_ref || origin_key_state_hash)`.
+    /// service_binding_ref || origin_key_state_digest)`.
     pub fn cached_federation_replay(&self, key: &[u8]) -> Option<CachedAnnounceResponse> {
         self.inner.announce_replay_cache.get(key)
     }

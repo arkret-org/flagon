@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use contrix_sdk::{
-    HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_HASH, HEADER_SOURCE_TRUST_DOMAIN,
+    HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_DIGEST, HEADER_SOURCE_TRUST_DOMAIN,
     federation_trust_domain_transcript_fragment,
 };
 use diesel::prelude::*;
@@ -73,8 +73,8 @@ fn is_false(value: &bool) -> bool {
 ///
 /// Round 4 adds the `Source-Trust-Domain` triad
 /// (`Source-Trust-Domain` / `Destination-Trust-Domain` /
-/// `Request-Canonical-Hash`) so a sender from trust domain A cannot
-/// replay the same idempotency key (with the same `origin_key_state_hash`)
+/// `Request-Canonical-Digest`) so a sender from trust domain A cannot
+/// replay the same idempotency key (with the same `origin_key_state_digest`)
 /// into trust domain B. The destination + canonical-hash also feed into
 /// the signing transcript via
 /// [`contrix_sdk::federation_trust_domain_transcript_fragment`].
@@ -83,7 +83,7 @@ pub struct FederationCacheKeyInputs {
     pub source_service_did: String,
     pub verification_method: String,
     pub service_binding_ref: String,
-    pub origin_key_state_hash: Vec<u8>,
+    pub origin_key_state_digest: Vec<u8>,
     /// Round 4 — `Source-Trust-Domain` header value (lowercased per
     /// RFC 9421 §2.2 — `cx:trust_domain:<scope>` is already lowercase).
     /// Empty when the request is not a cross-trust-domain federation
@@ -94,11 +94,11 @@ pub struct FederationCacheKeyInputs {
     /// directory; included in the cache key so a misaddressed replay
     /// from another deployment cannot reuse a cache row.
     pub destination_trust_domain: String,
-    /// Round 4 — `Request-Canonical-Hash` header value. Tied to the
+    /// Round 4 — `Request-Canonical-Digest` header value. Tied to the
     /// canonical hash of the request body in the signing transcript so
     /// transport-level body tampering after the signature was computed
     /// is detectable.
-    pub request_canonical_hash: String,
+    pub request_canonical_digest: String,
 }
 
 impl FederationCacheKeyInputs {
@@ -115,7 +115,7 @@ impl FederationCacheKeyInputs {
         let service_binding_ref = header_value(req, "service-binding-ref")
             .or_else(|| header_value(req, "x-service-binding-ref"))
             .unwrap_or_default();
-        let origin_key_state_hash = header_value(req, "origin-key-state-hash")
+        let origin_key_state_digest = header_value(req, "origin-key-state-hash")
             .or_else(|| header_value(req, "x-origin-key-state-hash"))
             .map(|raw| raw.into_bytes())
             .unwrap_or_default();
@@ -124,17 +124,17 @@ impl FederationCacheKeyInputs {
         let destination_trust_domain =
             header_value(req, &HEADER_DESTINATION_TRUST_DOMAIN.to_ascii_lowercase())
                 .unwrap_or_default();
-        let request_canonical_hash =
-            header_value(req, &HEADER_REQUEST_CANONICAL_HASH.to_ascii_lowercase())
+        let request_canonical_digest =
+            header_value(req, &HEADER_REQUEST_CANONICAL_DIGEST.to_ascii_lowercase())
                 .unwrap_or_default();
         Self {
             source_service_did,
             verification_method,
             service_binding_ref,
-            origin_key_state_hash,
+            origin_key_state_digest,
             source_trust_domain,
             destination_trust_domain,
-            request_canonical_hash,
+            request_canonical_digest,
         }
     }
 
@@ -144,7 +144,7 @@ impl FederationCacheKeyInputs {
     pub fn is_federation_hop(&self) -> bool {
         !self.source_trust_domain.is_empty()
             || !self.destination_trust_domain.is_empty()
-            || !self.request_canonical_hash.is_empty()
+            || !self.request_canonical_digest.is_empty()
     }
 
     pub fn key(&self, request_digest: &[u8]) -> Vec<u8> {
@@ -157,7 +157,7 @@ impl FederationCacheKeyInputs {
         h.update(b"\x1fSBR\x1e");
         h.update(self.service_binding_ref.as_bytes());
         h.update(b"\x1fOKSH\x1e");
-        h.update(&self.origin_key_state_hash);
+        h.update(&self.origin_key_state_digest);
         // Round 4 — bind the trust-domain triad into the cache key so
         // a sender from A cannot replay into B with the same
         // idempotency key.
@@ -166,7 +166,7 @@ impl FederationCacheKeyInputs {
         h.update(b"\x1fDTD\x1e");
         h.update(self.destination_trust_domain.as_bytes());
         h.update(b"\x1fRCH\x1e");
-        h.update(self.request_canonical_hash.as_bytes());
+        h.update(self.request_canonical_digest.as_bytes());
         h.finalize().to_vec()
     }
 }
@@ -177,7 +177,7 @@ impl FederationCacheKeyInputs {
 /// accept a body whose:
 /// - `Destination-Trust-Domain` is not this directory's configured
 ///   `trust_domain`, OR
-/// - `Request-Canonical-Hash` does not match the canonical SHA-256
+/// - `Request-Canonical-Digest` does not match the canonical SHA-256
 ///   digest of the request body, OR
 /// - `Source-Trust-Domain` is malformed (not a `cx:trust_domain:`
 ///   identifier).
@@ -201,7 +201,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     // All three headers MUST be present on a federation hop.
     if inputs.source_trust_domain.is_empty()
         || inputs.destination_trust_domain.is_empty()
-        || inputs.request_canonical_hash.is_empty()
+        || inputs.request_canonical_digest.is_empty()
     {
         return Err((
             ApiErrorCode::CrossDomainReplayRejected,
@@ -209,7 +209,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
                 "federation S2S request must carry all three of {}, {}, {} headers",
                 HEADER_SOURCE_TRUST_DOMAIN,
                 HEADER_DESTINATION_TRUST_DOMAIN,
-                HEADER_REQUEST_CANONICAL_HASH,
+                HEADER_REQUEST_CANONICAL_DIGEST,
             ),
         ));
     }
@@ -241,7 +241,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
             ),
         ));
     }
-    // Verify the request-canonical-hash matches the request digest the
+    // Verify the request-canonical-digest matches the request digest the
     // handler computed over the parsed body. The SDK uses a hex-encoded
     // SHA-256 over the canonical JSON body; teabay's `digest_request`
     // is a SHA-256 over `(resource_id, principal_server_did, as_of,
@@ -254,7 +254,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     // the verifier chain.
     let computed_hash = format!("sha256:{}", hex_lower_sha256(request_digest));
     if !inputs
-        .request_canonical_hash
+        .request_canonical_digest
         .eq_ignore_ascii_case(&computed_hash)
     {
         // For round 4 wire-shape only: trust the canonical hash header
@@ -262,12 +262,12 @@ pub(crate) fn verify_federation_trust_domain_headers(
         // over the body, but DO NOT accept a placeholder. A header
         // that does not split into `algorithm:hex_digest` is rejected
         // outright.
-        if !inputs.request_canonical_hash.contains(':') {
+        if !inputs.request_canonical_digest.contains(':') {
             return Err((
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!(
-                    "{HEADER_REQUEST_CANONICAL_HASH} header value `{}` is malformed (expected `<alg>:<hex>`)",
-                    inputs.request_canonical_hash
+                    "{HEADER_REQUEST_CANONICAL_DIGEST} header value `{}` is malformed (expected `<alg>:<hex>`)",
+                    inputs.request_canonical_digest
                 ),
             ));
         }
@@ -279,22 +279,22 @@ pub(crate) fn verify_federation_trust_domain_headers(
         // produced is still caught by the SDK signature verifier
         // (transcript drift).
         tracing::warn!(
-            sent = %inputs.request_canonical_hash,
+            sent = %inputs.request_canonical_digest,
             computed = %computed_hash,
-            "Request-Canonical-Hash differs from teabay legacy digest domain; allowed pending TODO(round4-fed-canonical)"
+            "Request-Canonical-Digest differs from teabay legacy digest domain; allowed pending TODO(round4-fed-canonical)"
         );
     }
     // Build the signing-transcript fragment per RFC 9421 §2.2 so the
     // caller can append it to the canonical signature base. The
-    // request-canonical-hash MUST be re-parsed by the SDK as a `Hash`,
+    // request-canonical-digest MUST be re-parsed by the SDK as a `Hash`,
     // but teabay's announce path does not yet sign the response with
     // an RFC 9421 envelope — the transcript fragment is emitted so the
     // federation outbound path (when wired) reuses the same value.
     let canonical_hash =
-        contrix_sdk::Hash::new(inputs.request_canonical_hash.clone()).map_err(|err| {
+        contrix_sdk::Hash::new(inputs.request_canonical_digest.clone()).map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
-                format!("{HEADER_REQUEST_CANONICAL_HASH} is not a valid Hash: {err}"),
+                format!("{HEADER_REQUEST_CANONICAL_DIGEST} is not a valid Hash: {err}"),
             )
         })?;
     Ok(Some(federation_trust_domain_transcript_fragment(
@@ -307,7 +307,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
 fn hex_lower_sha256(bytes: &[u8]) -> String {
     // teabay's announce-request digest is already a SHA-256; we just
     // hex-encode it here so it can be compared to the wire
-    // Request-Canonical-Hash header.
+    // Request-Canonical-Digest header.
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         out.push_str(&format!("{byte:02x}"));
@@ -353,8 +353,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // Round R2/R3 T14 — federation idempotency cache key is the
     // SHA-256 over (request_digest || Source-Service-DID ||
     // verification_method || service_binding_ref ||
-    // origin_key_state_hash || Source-Trust-Domain ||
-    // Destination-Trust-Domain || Request-Canonical-Hash). On hit we
+    // origin_key_state_digest || Source-Trust-Domain ||
+    // Destination-Trust-Domain || Request-Canonical-Digest). On hit we
     // still re-do the capability check; if it now fails (e.g. revoked
     // service key), we serve the cached body with
     // `historical_only=true` and trigger no new side effects.
@@ -533,7 +533,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             source_service_did: cache_inputs.source_service_did.clone(),
             verification_method: cache_inputs.verification_method.clone(),
             service_binding_ref: cache_inputs.service_binding_ref.clone(),
-            origin_key_state_hash: cache_inputs.origin_key_state_hash.clone(),
+            origin_key_state_digest: cache_inputs.origin_key_state_digest.clone(),
             historical_only: false,
         },
         realm_terminal,
@@ -803,7 +803,7 @@ pub(crate) fn latest_as_of_for(
 /// discovery proof on the push path; defaulted to empty on the pull
 /// path until the pull worker grows symmetric handling.
 // TODO(round23-T14): once the pull worker observes Source-Service-DID
-// and origin_key_state_hash from the upstream Principal Server, plumb
+// and origin_key_state_digest from the upstream Principal Server, plumb
 // those into `FederationCachePersist::default_for_pull` so the cache
 // keys match push-path replays.
 #[derive(Debug, Clone, Default)]
@@ -811,7 +811,7 @@ pub struct FederationCachePersist {
     pub source_service_did: String,
     pub verification_method: String,
     pub service_binding_ref: String,
-    pub origin_key_state_hash: Vec<u8>,
+    pub origin_key_state_digest: Vec<u8>,
     pub historical_only: bool,
 }
 
@@ -852,7 +852,7 @@ pub(crate) fn upsert_resource_and_audit(
                 a::source_service_did.eq(&federation_cache.source_service_did),
                 a::verification_method.eq(&federation_cache.verification_method),
                 a::service_binding_ref.eq(&federation_cache.service_binding_ref),
-                a::origin_key_state_hash.eq(&federation_cache.origin_key_state_hash),
+                a::origin_key_state_digest.eq(&federation_cache.origin_key_state_digest),
                 a::historical_only.eq(federation_cache.historical_only),
             ))
             .on_conflict((a::resource_kind, a::resource_id, a::as_of))
@@ -938,16 +938,16 @@ mod tests {
     fn inputs_with_triad(
         source_trust_domain: &str,
         destination_trust_domain: &str,
-        request_canonical_hash: &str,
+        request_canonical_digest: &str,
     ) -> FederationCacheKeyInputs {
         FederationCacheKeyInputs {
             source_service_did: "did:web:peer.example".to_owned(),
             verification_method: "did:web:peer.example#key-1".to_owned(),
             service_binding_ref: "binding-1".to_owned(),
-            origin_key_state_hash: vec![1, 2, 3],
+            origin_key_state_digest: vec![1, 2, 3],
             source_trust_domain: source_trust_domain.to_owned(),
             destination_trust_domain: destination_trust_domain.to_owned(),
-            request_canonical_hash: request_canonical_hash.to_owned(),
+            request_canonical_digest: request_canonical_digest.to_owned(),
         }
     }
 
@@ -1014,7 +1014,7 @@ mod tests {
                 .expect("fragment emitted for federation hop");
         assert!(fragment.contains("\"source-trust-domain\""));
         assert!(fragment.contains("\"destination-trust-domain\""));
-        assert!(fragment.contains("\"request-canonical-hash\""));
+        assert!(fragment.contains("\"request-canonical-digest\""));
         assert!(fragment.contains("cx:trust_domain:other.example"));
         assert!(fragment.contains("cx:trust_domain:teabay.test"));
     }

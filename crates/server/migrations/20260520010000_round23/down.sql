@@ -6,7 +6,7 @@ DROP INDEX IF EXISTS directory_resources_realm_destroyed_idx;
 
 ALTER TABLE ingest_announces
     DROP COLUMN IF EXISTS historical_only,
-    DROP COLUMN IF EXISTS origin_key_state_hash,
+    DROP COLUMN IF EXISTS origin_key_state_digest,
     DROP COLUMN IF EXISTS service_binding_ref,
     DROP COLUMN IF EXISTS verification_method,
     DROP COLUMN IF EXISTS source_service_did;

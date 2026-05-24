@@ -471,7 +471,7 @@ mod tests {
                 profile_id: "cx.profile.directory_service.v1".to_owned(),
                 claim_kind: contrix_sdk::CotestVerifiedKind::CotestVerified,
                 cotest_run_id: "test-run".to_owned(),
-                artifact_hash:
+                artifact_digest:
                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                         .to_owned(),
                 artifact_ref: "file:///tmp/verified-profiles.json".to_owned(),

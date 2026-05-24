@@ -18,7 +18,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   `development_mode`).
 - **BREAKING** Federation S2S transport now verifies the three new
   headers `Source-Trust-Domain` / `Destination-Trust-Domain` /
-  `Request-Canonical-Hash` and folds them into the HTTP-message-signature
+  `Request-Canonical-Digest` and folds them into the HTTP-message-signature
   transcript. Mismatch rejects as `cross_domain_replay_rejected`.
 - **Added** Federation idempotency cache adopts the soland `historical_only`
   semantics: post-key-revoke cache hits return the cached body with
@@ -36,13 +36,13 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   announce` replay cache key now includes the four federation-identity
   fields: `Source-Service-DID` header, `verification_method` (from the
   discovery proof), `service_binding_ref` header, and
-  `origin_key_state_hash` header. On a cache hit the announce handler
+  `origin_key_state_digest` header. On a cache hit the announce handler
   re-runs the §8.5 capability chain; if the new check fails (e.g. the
   source service key has been revoked) the cached body is served with
   `historical_only=true` and no new side effects are triggered. New audit
   kind `ingest_historical_only` records the replay-after-revocation path.
   `ingest_announces` grew matching columns (`source_service_did`,
-  `verification_method`, `service_binding_ref`, `origin_key_state_hash`,
+  `verification_method`, `service_binding_ref`, `origin_key_state_digest`,
   `historical_only`) so the audit trail captures the full cache key.
 - **T17 — `consent_revoke{scope=any}` directory reachability
   invalidation.** New admin endpoint `POST /api/admin/v1/consent-revoke`
@@ -91,5 +91,5 @@ Round-scoped follow-up markers (grep for `TODO(round23-T07)` /
 - `round23-T07` — split the directory row by introducing a distinct
   `realm` resource_kind (currently piggybacking on `space`).
 - `round23-T14` — plumb `Source-Service-DID` and
-  `origin_key_state_hash` into the pull worker so pull-mode replays
+  `origin_key_state_digest` into the pull worker so pull-mode replays
   share cache keys with push-mode replays.

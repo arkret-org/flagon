@@ -40,7 +40,7 @@ wire-breaking list.
   fields including `trust_domain` and `plaintext_visibility`.
 - **Federation S2S transport adds three signed headers** —
   `Source-Trust-Domain` / `Destination-Trust-Domain` /
-  `Request-Canonical-Hash` are verified and folded into the
+  `Request-Canonical-Digest` are verified and folded into the
   HTTP-message-signature transcript.
 - **Idempotency `historical_only`** — directory-announce replays after
   source-key revocation return the cached body with
@@ -52,7 +52,7 @@ wire-breaking list.
 Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
 key on `cx.directory.announce`. The cache key now includes
 `Source-Service-DID` / `verification_method` / `service_binding_ref` /
-`origin_key_state_hash` — see [`CHANGELOG.md`](CHANGELOG.md)
+`origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and
 [`../contrix-spec/CHANGELOG.md`](../contrix-spec/CHANGELOG.md) (T14)
 for the normative source.

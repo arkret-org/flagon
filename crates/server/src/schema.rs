@@ -79,7 +79,7 @@ diesel::table! {
         source_service_did -> Text,
         verification_method -> Text,
         service_binding_ref -> Text,
-        origin_key_state_hash -> Bytea,
+        origin_key_state_digest -> Bytea,
         historical_only -> Bool,
     }
 }

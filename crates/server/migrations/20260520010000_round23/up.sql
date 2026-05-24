@@ -28,7 +28,7 @@ ALTER TABLE ingest_announces
     ADD COLUMN source_service_did TEXT NOT NULL DEFAULT '',
     ADD COLUMN verification_method TEXT NOT NULL DEFAULT '',
     ADD COLUMN service_binding_ref TEXT NOT NULL DEFAULT '',
-    ADD COLUMN origin_key_state_hash BYTEA NOT NULL DEFAULT '\x'::bytea,
+    ADD COLUMN origin_key_state_digest BYTEA NOT NULL DEFAULT '\x'::bytea,
     ADD COLUMN historical_only BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX ingest_announces_cache_key_idx
@@ -36,7 +36,7 @@ CREATE INDEX ingest_announces_cache_key_idx
         source_service_did,
         verification_method,
         service_binding_ref,
-        origin_key_state_hash
+        origin_key_state_digest
     );
 
 -- New audit event kinds — Round R2/R3.
