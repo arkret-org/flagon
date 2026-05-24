@@ -265,6 +265,7 @@ fn is_remote_https_service(state: &AppState, service: &str) -> bool {
 
 fn directory_resolve_path(kind: ResourceKindWire) -> Option<&'static str> {
     match kind {
+        ResourceKindWire::Realm => Some("resolve-realm"),
         ResourceKindWire::Space => Some("resolve-realm"),
         ResourceKindWire::Organization => Some("resolve-organization"),
         ResourceKindWire::Handle => Some("resolve-handle"),
@@ -274,6 +275,7 @@ fn directory_resolve_path(kind: ResourceKindWire) -> Option<&'static str> {
 
 fn directory_resolve_payload(kind: ResourceKindWire, resource_id: &str) -> Option<JsonValue> {
     match kind {
+        ResourceKindWire::Realm => Some(json!({ "realm_id": resource_id })),
         ResourceKindWire::Space => Some(json!({ "realm_id": resource_id })),
         ResourceKindWire::Organization => Some(json!({ "organization_did": resource_id })),
         ResourceKindWire::Handle => Some(json!({ "handle": resource_id })),

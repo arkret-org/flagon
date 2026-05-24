@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 #[db_enum(existing_type_path = "crate::schema::sql_types::ResourceKind")]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKindWire {
+    Realm,
+    #[serde(skip_deserializing)]
     Space,
     Organization,
     Actor,
@@ -28,6 +30,7 @@ pub enum ResourceKindWire {
 impl ResourceKindWire {
     pub fn as_pg(self) -> &'static str {
         match self {
+            Self::Realm => "realm",
             Self::Space => "space",
             Self::Organization => "organization",
             Self::Actor => "actor",
@@ -38,12 +41,12 @@ impl ResourceKindWire {
 
     /// Spec `cx.{kind}.discovery` event kind for this resource.
     ///
-    /// Note: the `Space` enum variant retains its name because it maps to
-    /// the `'space'` value of the `resource_kind` Postgres enum (container
-    /// category, not the security-boundary Realm term). The *wire* kind
-    /// for that variant is the post-inversion `cx.realm.discovery`.
+    /// Note: `Space` is retained only for legacy database rows created
+    /// before the dedicated `realm` resource_kind existed. New Realm
+    /// discovery announces deserialize as `Realm`.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
+            Self::Realm => "cx.realm.discovery",
             Self::Space => "cx.realm.discovery",
             Self::Organization => "cx.organization.discovery",
             Self::Actor => "cx.actor.discovery",
@@ -56,6 +59,7 @@ impl ResourceKindWire {
 impl From<ResourceKindWire> for contrix_sdk::DirectoryResourceKind {
     fn from(kind: ResourceKindWire) -> Self {
         match kind {
+            ResourceKindWire::Realm => Self::Space,
             ResourceKindWire::Space => Self::Space,
             ResourceKindWire::Organization => Self::Organization,
             ResourceKindWire::Actor => Self::Actor,
@@ -68,7 +72,7 @@ impl From<ResourceKindWire> for contrix_sdk::DirectoryResourceKind {
 impl From<contrix_sdk::DirectoryResourceKind> for ResourceKindWire {
     fn from(kind: contrix_sdk::DirectoryResourceKind) -> Self {
         match kind {
-            contrix_sdk::DirectoryResourceKind::Space => Self::Space,
+            contrix_sdk::DirectoryResourceKind::Space => Self::Realm,
             contrix_sdk::DirectoryResourceKind::Organization => Self::Organization,
             contrix_sdk::DirectoryResourceKind::Actor => Self::Actor,
             contrix_sdk::DirectoryResourceKind::Applet => Self::Applet,
@@ -166,9 +170,9 @@ mod tests {
 
     #[test]
     fn db_resource_kind_round_trips_through_sdk_type() {
-        let sdk_kind: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Space.into();
+        let sdk_kind: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
         assert_eq!(sdk_kind, contrix_sdk::DirectoryResourceKind::Space);
-        assert_eq!(ResourceKindWire::from(sdk_kind), ResourceKindWire::Space);
+        assert_eq!(ResourceKindWire::from(sdk_kind), ResourceKindWire::Realm);
     }
 
     #[test]

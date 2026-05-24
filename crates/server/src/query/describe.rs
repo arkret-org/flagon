@@ -230,7 +230,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     );
     object.insert(
         "resource_types".to_owned(),
-        json!(["space", "organization", "actor", "applet", "handle"]),
+        json!(["realm", "organization", "actor", "applet", "handle"]),
     );
     object.insert("restricted_query_proof".to_owned(), JsonValue::Bool(true));
     object.insert(

@@ -4,17 +4,9 @@
 //! `cx.directory.resolve_handle` MUST gate `intent=member_add | invite`
 //! requests on the target **Realm**'s `delivery_binding_policy`
 //! (`allowed_recipient_services`, `allow_binding_sources`) and on the
-//! Realm's audience-binding list. Realms are the security boundary
-//! (`cx:realm:`); the term "Space" is preserved here only for legacy
-//! wire / DB-enum compatibility (the Postgres `resource_kind` enum value
-//! `'space'` literally encodes today's Realm — full enum rename is a
-//! separate migration). Unauthorized requesters MUST NOT receive the
-//! underlying subject / service DID — they collapse to `not_found` with
+//! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
+//! the underlying subject / service DID — they collapse to `not_found` with
 //! the same response shape and latency tier as a genuine miss (§10).
-// TODO(realm-rework): rename Postgres `resource_kind = 'space'` enum
-// value to `'realm'` (security boundary) and introduce a separate
-// `'space'` (container) value. Until then `ResourceKindWire::Space`
-// continues to mean Realm in this module.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -222,13 +214,10 @@ async fn load_realm_policy(
     state: &AppState,
     realm_id: &str,
 ) -> anyhow::Result<RealmDeliveryBindingPolicy> {
-    // TODO(realm-rework): once the `resource_kind` enum gains a dedicated
-    // `'realm'` variant this MUST filter on `ResourceKindWire::Realm`. For
-    // now `Space` is the security-boundary row.
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get()?;
     let projection: Option<(JsonValue, DiscoverabilityWire)> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Space))
+        .filter(r::resource_kind.eq(ResourceKindWire::Realm))
         .filter(r::resource_id.eq(realm_id))
         .select((r::public_projection, r::discoverability))
         .first(&mut conn)

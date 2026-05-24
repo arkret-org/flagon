@@ -5,13 +5,10 @@
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
 //!
-//! Realm-rework note: post-spec sync the "security boundary" is now
-//! called a **Realm** (`cx:realm:` URI prefix) while "Space" denotes a
-//! pure container. The DB `resource_kind` enum value on this surface is still
-//! `space` until the storage layer is renamed.
-// TODO(realm-rework): split the directory rows by introducing a
-// `realm` resource_kind and a separate `space` (container) kind; this
-// handler then becomes Realm-scoped only.
+//! The "security boundary" resource on this surface is a **Realm**
+//! (`cx:realm:` URI prefix). `Space` remains in the module name only as
+//! legacy implementation vocabulary; storage now uses `resource_kind=realm`
+//! for newly indexed Realm discovery rows.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -352,7 +349,7 @@ async fn load_space_row(state: &AppState, key: &str) -> anyhow::Result<Option<Sp
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get()?;
     let row: Option<SpaceStoredRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Space))
+        .filter(r::resource_kind.eq(ResourceKindWire::Realm))
         .filter(r::resource_id.eq(key))
         .select((
             r::resource_id,
@@ -404,6 +401,10 @@ fn envelope_from_row(row: SpaceRow) -> ResultEnvelope {
     // Inject the canonical key so clients can act on the row immediately.
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
+        obj.insert(
+            "realm_id".into(),
+            JsonValue::String(row.resource_id.clone()),
+        );
         obj.insert("space_id".into(), JsonValue::String(row.resource_id));
         obj.insert(
             "discoverability".into(),
@@ -617,7 +618,7 @@ WITH ranked AS (
             ELSE 0
         END AS member_count_rank
     FROM directory_resources
-    WHERE resource_kind = 'space'::resource_kind
+    WHERE resource_kind = 'realm'::resource_kind
       AND discoverability IN (
           'public'::discoverability,
           'listed'::discoverability,

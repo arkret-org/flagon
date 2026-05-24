@@ -7,6 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ---- Enums ---------------------------------------------------------------
 
 CREATE TYPE resource_kind AS ENUM (
+    'realm',
     'space',
     'organization',
     'actor',
@@ -114,13 +115,13 @@ CREATE INDEX directory_resources_search_text_trgm_idx
 CREATE INDEX directory_resources_search_vector_gin_idx
     ON directory_resources USING GIN (search_vector);
 
-CREATE INDEX directory_resources_space_scope_org_idx
+CREATE INDEX directory_resources_realm_scope_org_idx
     ON directory_resources ((public_projection->>'organization_did'))
-    WHERE resource_kind = 'space';
+    WHERE resource_kind = 'realm';
 
-CREATE INDEX directory_resources_space_scope_parent_idx
+CREATE INDEX directory_resources_realm_scope_parent_idx
     ON directory_resources ((public_projection->>'parent_space_id'))
-    WHERE resource_kind = 'space';
+    WHERE resource_kind = 'realm';
 
 -- ---- Ingest audit (every accepted announce, push and pull) ---------------
 

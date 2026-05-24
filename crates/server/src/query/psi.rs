@@ -398,7 +398,10 @@ fn contact_candidate_inputs(
                 }
             }
         }
-        ResourceKindWire::Space | ResourceKindWire::Organization | ResourceKindWire::Applet => {}
+        ResourceKindWire::Realm
+        | ResourceKindWire::Space
+        | ResourceKindWire::Organization
+        | ResourceKindWire::Applet => {}
     }
     out
 }

@@ -20,8 +20,8 @@ DROP INDEX IF EXISTS ingest_announces_request_digest_idx;
 DROP INDEX IF EXISTS ingest_announces_resource_idx;
 DROP TABLE IF EXISTS ingest_announces;
 
-DROP INDEX IF EXISTS directory_resources_space_scope_parent_idx;
-DROP INDEX IF EXISTS directory_resources_space_scope_org_idx;
+DROP INDEX IF EXISTS directory_resources_realm_scope_parent_idx;
+DROP INDEX IF EXISTS directory_resources_realm_scope_org_idx;
 DROP INDEX IF EXISTS directory_resources_search_vector_gin_idx;
 DROP INDEX IF EXISTS directory_resources_search_text_trgm_idx;
 DROP INDEX IF EXISTS directory_resources_public_projection_gin;

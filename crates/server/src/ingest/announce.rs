@@ -115,7 +115,9 @@ impl FederationCacheKeyInputs {
         let service_binding_ref = header_value(req, "service-binding-ref")
             .or_else(|| header_value(req, "x-service-binding-ref"))
             .unwrap_or_default();
-        let origin_key_state_digest = header_value(req, "origin-key-state-hash")
+        let origin_key_state_digest = header_value(req, "origin-key-state-digest")
+            .or_else(|| header_value(req, "x-origin-key-state-digest"))
+            .or_else(|| header_value(req, "origin-key-state-hash"))
             .or_else(|| header_value(req, "x-origin-key-state-hash"))
             .map(|raw| raw.into_bytes())
             .unwrap_or_default();
@@ -242,47 +244,21 @@ pub(crate) fn verify_federation_trust_domain_headers(
         ));
     }
     // Verify the request-canonical-digest matches the request digest the
-    // handler computed over the parsed body. The SDK uses a hex-encoded
-    // SHA-256 over the canonical JSON body; teabay's `digest_request`
-    // is a SHA-256 over `(resource_id, principal_server_did, as_of,
-    // policy_revision)` (see `digest_request`). For round-4 the two
-    // hash domains differ, so we compare the header against the
-    // hex-encoded sha256 of the parsed body bytes. TODO(round4-fed-canonical):
-    // align teabay's announce request digest with the
-    // RFC 8785 canonical-JSON body hash the SDK federation transport
-    // uses so the wire transcript can be reproduced byte-for-byte by
-    // the verifier chain.
+    // handler computed over the parsed body. `digest_request` is the
+    // SHA-256 of the Contrix canonical JSON announce body, matching the
+    // SDK federation transport's `Request-Canonical-Digest` domain.
     let computed_hash = format!("sha256:{}", hex_lower_sha256(request_digest));
     if !inputs
         .request_canonical_digest
         .eq_ignore_ascii_case(&computed_hash)
     {
-        // For round 4 wire-shape only: trust the canonical hash header
-        // when the SDK helper would have emitted the matching value
-        // over the body, but DO NOT accept a placeholder. A header
-        // that does not split into `algorithm:hex_digest` is rejected
-        // outright.
-        if !inputs.request_canonical_digest.contains(':') {
-            return Err((
-                ApiErrorCode::CrossDomainReplayRejected,
-                format!(
-                    "{HEADER_REQUEST_CANONICAL_DIGEST} header value `{}` is malformed (expected `<alg>:<hex>`)",
-                    inputs.request_canonical_digest
-                ),
-            ));
-        }
-        // Otherwise log a soft mismatch — the legacy `digest_request`
-        // domain has not yet been aligned with the SDK federation
-        // canonical-body hash (TODO(round4-fed-canonical)). The
-        // signing transcript still binds the header value, so an
-        // attacker who tampers with the body after the signature was
-        // produced is still caught by the SDK signature verifier
-        // (transcript drift).
-        tracing::warn!(
-            sent = %inputs.request_canonical_digest,
-            computed = %computed_hash,
-            "Request-Canonical-Digest differs from teabay legacy digest domain; allowed pending TODO(round4-fed-canonical)"
-        );
+        return Err((
+            ApiErrorCode::CrossDomainReplayRejected,
+            format!(
+                "{HEADER_REQUEST_CANONICAL_DIGEST}={} does not match canonical body digest {computed_hash}",
+                inputs.request_canonical_digest
+            ),
+        ));
     }
     // Build the signing-transcript fragment per RFC 9421 §2.2 so the
     // caller can append it to the canonical signature base. The
@@ -631,12 +607,7 @@ pub(crate) fn derive_realm_terminal_state(
     resource_kind: ResourceKindWire,
     discovery_state: &JsonValue,
 ) -> Option<DateTime<Utc>> {
-    // Only Spaces carry the security boundary (Realm) row in this
-    // implementation — see `query::space` realm-rework note. Other
-    // resource kinds are silently skipped.
-    // TODO(round23-T07): once a dedicated `realm` resource_kind exists
-    // in the schema, gate on that instead of `Space`.
-    if !matches!(resource_kind, ResourceKindWire::Space) {
+    if !matches!(resource_kind, ResourceKindWire::Realm) {
         return None;
     }
     let destroyed_marker = discovery_state
@@ -744,13 +715,66 @@ fn normalize_member_count_projection(
 }
 
 pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
-    // Canonical SHA-256 of the wire body — used for replay detection in
-    // `ingest_announces.request_digest`.
+    // Contrix canonical JSON body SHA-256 — used for replay detection in
+    // `ingest_announces.request_digest` and for Request-Canonical-Digest.
     let mut h = Sha256::new();
-    let canonical =
-        serde_json::to_vec(req).expect("AnnounceRequest is serde-serializable by construction");
+    let value =
+        serde_json::to_value(req).expect("AnnounceRequest is serde-serializable by construction");
+    let canonical = canonical_json_bytes(&value)
+        .expect("AnnounceRequest is canonical-json serializable by construction");
     h.update(&canonical);
     h.finalize().to_vec()
+}
+
+pub(crate) fn canonical_json_string(value: &JsonValue) -> Result<String, String> {
+    let mut out = String::new();
+    write_canonical_json(value, &mut out)?;
+    Ok(out)
+}
+
+fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
+    Ok(canonical_json_string(value)?.into_bytes())
+}
+
+fn write_canonical_json(value: &JsonValue, out: &mut String) -> Result<(), String> {
+    match value {
+        JsonValue::Null => out.push_str("null"),
+        JsonValue::Bool(true) => out.push_str("true"),
+        JsonValue::Bool(false) => out.push_str("false"),
+        JsonValue::Number(number) => out.push_str(&number.to_string()),
+        JsonValue::String(value) => out.push_str(
+            &serde_json::to_string(value)
+                .map_err(|error| format!("canonical string encode: {error}"))?,
+        ),
+        JsonValue::Array(values) => {
+            out.push('[');
+            for (index, item) in values.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_canonical_json(item, out)?;
+            }
+            out.push(']');
+        }
+        JsonValue::Object(map) => {
+            out.push('{');
+            let mut keys = map.keys().collect::<Vec<_>>();
+            keys.sort_unstable();
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(
+                    &serde_json::to_string(key)
+                        .map_err(|error| format!("canonical object key encode: {error}"))?,
+                );
+                out.push(':');
+                write_canonical_json(&map[key], out)?;
+            }
+            out.push('}');
+        }
+    }
+    Ok(())
 }
 
 #[derive(Queryable)]
@@ -799,13 +823,9 @@ pub(crate) fn latest_as_of_for(
 }
 
 /// Round R2/R3 T14 — extra federation cache fields persisted alongside
-/// the `ingest_announces` row. Pulled from request headers + the
-/// discovery proof on the push path; defaulted to empty on the pull
-/// path until the pull worker grows symmetric handling.
-// TODO(round23-T14): once the pull worker observes Source-Service-DID
-// and origin_key_state_digest from the upstream Principal Server, plumb
-// those into `FederationCachePersist::default_for_pull` so the cache
-// keys match push-path replays.
+/// the `ingest_announces` row. Push-mode pulls them from request headers
+/// and discovery proof; pull-mode pulls them from the upstream
+/// `cx.events.query` response headers/envelope plus the same proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
     pub source_service_did: String,
@@ -996,6 +1016,21 @@ mod tests {
         assert!(err.1.contains("does not match"));
     }
 
+    #[test]
+    fn trust_domain_verifier_rejects_canonical_digest_mismatch() {
+        let digest = [0u8; 32];
+        let inputs = inputs_with_triad(
+            "cx:trust_domain:other.example",
+            "cx:trust_domain:teabay.test",
+            "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        );
+        let err =
+            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+                .unwrap_err();
+        assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
+        assert!(err.1.contains("does not match canonical body digest"));
+    }
+
     /// Round 4 — a fully-populated valid triad returns a signing-
     /// transcript fragment that names each of the three headers in
     /// RFC 9421 §2.2 lower-case quoted form.
@@ -1037,5 +1072,45 @@ mod tests {
             "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         );
         assert_ne!(a.key(&digest), b.key(&digest));
+    }
+
+    #[test]
+    fn announce_digest_uses_canonical_json_body() {
+        let as_of = DateTime::parse_from_rfc3339("2026-05-20T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut first_state = serde_json::Map::new();
+        first_state.insert("kind".to_owned(), json!("cx.realm.discovery"));
+        first_state.insert("discoverability".to_owned(), json!("public"));
+        first_state.insert(
+            "directory_services".to_owned(),
+            json!(["did:web:directory.test"]),
+        );
+
+        let mut second_state = serde_json::Map::new();
+        second_state.insert(
+            "directory_services".to_owned(),
+            json!(["did:web:directory.test"]),
+        );
+        second_state.insert("discoverability".to_owned(), json!("public"));
+        second_state.insert("kind".to_owned(), json!("cx.realm.discovery"));
+
+        let first = AnnounceRequest {
+            resource_kind: ResourceKindWire::Realm,
+            resource_id: "cx:realm:tea".to_owned(),
+            principal_server_did: "did:web:principal.test".to_owned(),
+            discovery_state: JsonValue::Object(first_state),
+            source_refs: vec!["evt-1".to_owned()],
+            as_of,
+            ttl_seconds: Some(3600),
+            supersedes_announce_id: None,
+            trust_root_attestation: None,
+        };
+        let second = AnnounceRequest {
+            discovery_state: JsonValue::Object(second_state),
+            ..first.clone()
+        };
+
+        assert_eq!(digest_request(&first), digest_request(&second));
     }
 }

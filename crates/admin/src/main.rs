@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-const RESOURCE_KINDS: [&str; 5] = ["space", "organization", "actor", "applet", "handle"];
+const RESOURCE_KINDS: [&str; 5] = ["realm", "organization", "actor", "applet", "handle"];
 const DISCOVERABILITY_LEVELS: [&str; 6] = [
     "public",
     "listed",
@@ -219,7 +219,7 @@ struct ResourceEditorForm {
 impl Default for ResourceEditorForm {
     fn default() -> Self {
         Self {
-            resource_kind: "space".to_string(),
+            resource_kind: "realm".to_string(),
             resource_id: String::new(),
             principal_server_did: String::new(),
             discoverability: "public".to_string(),
@@ -1135,7 +1135,7 @@ fn AllowlistRow(
 
 #[component]
 fn TakedownPanel(base_url: String, token: String) -> Element {
-    let mut resource_kind = use_signal(|| "space".to_string());
+    let mut resource_kind = use_signal(|| "realm".to_string());
     let mut resource_id = use_signal(String::new);
     let mut reason = use_signal(String::new);
     let mut operator = use_signal(|| "admin-console".to_string());

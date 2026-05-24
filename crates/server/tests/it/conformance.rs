@@ -103,7 +103,12 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
     assert!(profiles.contains(&json!("cx.profile.directory_service.v1")));
     assert!(profiles.contains(&json!("cx.private_contact_discovery.v1")));
     assert_eq!(body["service_did"], "did:web:directory.test");
-    assert!(body["accepted_resource_kinds"].as_array().unwrap().len() >= 5);
+    assert!(
+        body["accepted_resource_kinds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("realm"))
+    );
     assert!(
         body["ingest_modes"]
             .as_array()
@@ -330,7 +335,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
 
     let mut res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
-            "resource_kind": "space",
+            "resource_kind": "realm",
             "resource_id": "cx:space:pushed",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": discovery_state,
@@ -370,7 +375,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
         .json(&json!({
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
-                "resource_kind": "space",
+                "resource_kind": "realm",
                 "resource_id": "cx:space:pushed"
             },
             "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
@@ -411,7 +416,7 @@ async fn assert_pull_worker_refreshes_due_entry(
 
     let mut res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
-            "resource_kind": "space",
+            "resource_kind": "realm",
             "resource_id": "cx:space:pull",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": pulled_state,
@@ -432,7 +437,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET next_revalidation_after = now() - interval '1 second' \
-             WHERE resource_kind = 'space'::resource_kind AND resource_id = 'cx:space:pull'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:space:pull'",
         )
         .execute(&mut conn)?;
     }
@@ -453,7 +458,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let mut conn = db.get()?;
     let pull_count: i64 = diesel::sql_query(
         "SELECT count(*) FROM ingest_announces \
-         WHERE resource_kind = 'space'::resource_kind \
+         WHERE resource_kind = 'realm'::resource_kind \
            AND resource_id = 'cx:space:pull' \
            AND ingest_mode = 'pull'::ingest_mode",
     )
@@ -472,7 +477,7 @@ async fn assert_freshness_flags_are_exposed(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET stale = true \
-             WHERE resource_kind = 'space'::resource_kind AND resource_id = 'cx:space:tea'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:space:tea'",
         )
         .execute(&mut conn)?;
     }
@@ -497,7 +502,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         StatusCode::UNAUTHORIZED
     );
 
-    let mut res = TestClient::get("http://local/api/admin/v1/resources?resource_kind=space&divergent=false&stale=false&limit=10")
+    let mut res = TestClient::get("http://local/api/admin/v1/resources?resource_kind=realm&divergent=false&stale=false&limit=10")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;

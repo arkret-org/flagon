@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 use tokio::time::interval;
@@ -34,8 +35,9 @@ use tracing::{info, warn};
 use crate::audit::{self, AuditEventKind};
 use crate::ids::{IdClass, new_id};
 use crate::ingest::announce::{
-    AnnounceRequest, FederationCachePersist, derive_public_projection, derive_realm_terminal_state,
-    digest_request, effective_ttl_seconds, latest_as_of_for, upsert_resource_and_audit,
+    AnnounceRequest, FederationCachePersist, canonical_json_string, derive_public_projection,
+    derive_realm_terminal_state, digest_request, effective_ttl_seconds, latest_as_of_for,
+    upsert_resource_and_audit,
 };
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::{
@@ -218,13 +220,12 @@ impl PullWorker {
             })?;
         let fanout_projection = public_projection.clone();
 
-        // Round R2/R3 T07 — surface realm terminal state on the pull
-        // path too. Pull-mode federation cache fields are intentionally
-        // empty (the pull worker is internal and does not federate
-        // through Source-Service-DID); see FederationCachePersist
-        // TODO(round23-T14).
+        // Round R2/R3 T07/T14 — surface realm terminal state on the pull
+        // path too, and persist the federation cache-key identity fields
+        // observed from the upstream `cx.events.query` response/envelope.
         let realm_terminal =
             derive_realm_terminal_state(announce.resource_kind, &announce.discovery_state);
+        let federation_cache = FederationCachePersist::from_pull_event(&entry, &pulled);
         upsert_resource_and_audit(
             self.state.db(),
             &announce,
@@ -236,7 +237,7 @@ impl PullWorker {
             next_revalidation,
             digest_request(&announce),
             public_projection,
-            FederationCachePersist::default(),
+            federation_cache,
             realm_terminal,
         )?;
 
@@ -309,12 +310,28 @@ impl PullWorker {
         if !response.status().is_success() {
             anyhow::bail!("events query returned {}", response.status());
         }
+        let source_service_did = response_header_value(response.headers(), "source-service-did");
+        let service_binding_ref = response_header_value(response.headers(), "service-binding-ref");
+        let origin_key_state_digest =
+            response_header_value(response.headers(), "origin-key-state-digest")
+                .or_else(|| response_header_value(response.headers(), "origin-key-state-hash"));
         let body = response.json::<EventsQueryResBody>().await?;
-        body.events
+        let mut event = body
+            .events
             .into_iter()
             .next()
             .map(|envelope| envelope.event)
-            .ok_or_else(|| anyhow::anyhow!("events query returned no discovery state"))
+            .ok_or_else(|| anyhow::anyhow!("events query returned no discovery state"))?;
+        if event.source_service_did.is_empty() {
+            event.source_service_did = source_service_did.unwrap_or_default();
+        }
+        if event.service_binding_ref.is_none() {
+            event.service_binding_ref = service_binding_ref.map(JsonValue::String);
+        }
+        if event.origin_key_state_digest.is_empty() {
+            event.origin_key_state_digest = origin_key_state_digest.unwrap_or_default();
+        }
+        Ok(event)
     }
 
     fn record_success(
@@ -468,6 +485,107 @@ struct PulledEvent {
     kind: String,
     created_at: DateTime<Utc>,
     content: JsonValue,
+    #[serde(default)]
+    source_service_did: String,
+    #[serde(default)]
+    service_binding_ref: Option<JsonValue>,
+    #[serde(default)]
+    origin_key_state_digest: String,
+    #[serde(default)]
+    origin_key_state_hash: String,
+}
+
+impl FederationCachePersist {
+    fn from_pull_event(entry: &DueEntry, pulled: &PulledEvent) -> Self {
+        let source_service_did = if pulled.source_service_did.trim().is_empty() {
+            entry.principal_server_did.clone()
+        } else {
+            pulled.source_service_did.trim().to_owned()
+        };
+        let verification_method = pulled
+            .content
+            .pointer("/proof/verification_method")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let service_binding_ref = pulled
+            .service_binding_ref
+            .as_ref()
+            .map(canonical_field_value)
+            .unwrap_or_default();
+        let origin_key_state_digest = if pulled.origin_key_state_digest.trim().is_empty() {
+            pulled.origin_key_state_hash.trim()
+        } else {
+            pulled.origin_key_state_digest.trim()
+        }
+        .as_bytes()
+        .to_vec();
+        Self {
+            source_service_did,
+            verification_method,
+            service_binding_ref,
+            origin_key_state_digest,
+            historical_only: false,
+        }
+    }
+}
+
+fn canonical_field_value(value: &JsonValue) -> String {
+    match value {
+        JsonValue::String(value) => value.trim().to_owned(),
+        other => canonical_json_string(other).unwrap_or_default(),
+    }
+}
+
+fn response_header_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    #[test]
+    fn pull_event_populates_federation_cache_fields() {
+        let entry = DueEntry {
+            resource_kind: ResourceKindWire::Realm,
+            resource_id: "cx:realm:tea".to_owned(),
+            principal_server_did: "did:web:principal.example".to_owned(),
+            effective_ttl_seconds: 3600,
+            last_revision: Some("rev-1".to_owned()),
+        };
+        let pulled = PulledEvent {
+            event_id: "evt-1".to_owned(),
+            kind: "cx.realm.discovery".to_owned(),
+            created_at: Utc.timestamp_opt(0, 0).unwrap(),
+            content: json!({
+                "proof": {
+                    "verification_method": "did:web:principal.example#key-1"
+                }
+            }),
+            source_service_did: "did:web:source-service.example".to_owned(),
+            service_binding_ref: Some(json!({
+                "realm_id": "cx:realm:tea",
+                "frontier": ["evt-0"]
+            })),
+            origin_key_state_digest: "sha256:abc123".to_owned(),
+            origin_key_state_hash: String::new(),
+        };
+
+        let cache = FederationCachePersist::from_pull_event(&entry, &pulled);
+
+        assert_eq!(cache.source_service_did, "did:web:source-service.example");
+        assert_eq!(cache.verification_method, "did:web:principal.example#key-1");
+        assert!(cache.service_binding_ref.contains("\"frontier\""));
+        assert_eq!(cache.origin_key_state_digest, b"sha256:abc123");
+        assert!(!cache.historical_only);
+    }
 }
 
 // Allow `Arc<AppState>` style usage in test fixtures without changing public API.

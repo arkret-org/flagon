@@ -85,11 +85,12 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
 
 #### Internal markers
 
-Round-scoped follow-up markers (grep for `TODO(round23-T07)` /
-`TODO(round23-T14)`):
+Closed in the Phase 2 `§1`-`§3` slice:
 
-- `round23-T07` — split the directory row by introducing a distinct
-  `realm` resource_kind (currently piggybacking on `space`).
-- `round23-T14` — plumb `Source-Service-DID` and
-  `origin_key_state_digest` into the pull worker so pull-mode replays
-  share cache keys with push-mode replays.
+- `round4-fed-canonical` — announce replay digests now use the canonical
+  JSON body hash, matching `Request-Canonical-Digest`.
+- `round23-T07` — new Realm discovery rows use the dedicated `realm`
+  `resource_kind`; the legacy `space` variant remains readable for old rows.
+- `round23-T14` — the pull worker records `Source-Service-DID` and
+  origin key state digest inputs so pull-mode replays align with push-mode
+  cache keys.

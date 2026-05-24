@@ -11,7 +11,7 @@
 - Anti-enumeration: 6-tier bucketing + 25ms latency floor + SHA256-based jitter.
 - Auth: RFC 9421 HTTP Message Signature (Ed25519); pluggable `HttpSigKeyDirectory`.
 - Admin SPA: 5 tabs feature-complete (Resources, Allowlist, Takedown, Audit, Review).
-- 11 TODOs (round4-fed-canonical ×3, realm-rework ×4, round23-T07 ×1, round23-T14 ×2).
+- 1 code TODO marker remains (realm-rework; remaining release-readiness tasks below).
 - CI: fmt + check + test + cargo-deny + clippy + typos + cargo audit. **Missing**: coverage target, Trivy, SBOM.
 - Tests: 850-LoC conformance suite + health + timing-variance.
 - Tarpaulin: `target` not set; effectively 0% threshold.
@@ -21,9 +21,9 @@
 ## Phase 2 tasks
 
 ### Round-4 + round23 closures
-- [ ] §1 `crates/server/src/ingest/announce.rs:250,276,284` — finalize canonical-body digest domain once spec confirms (round4-fed-canonical).
-- [ ] §2 `crates/server/src/ingest/announce.rs:805` + `pull_worker.rs:225` — observe `Source-Service-DID` for cache-key alignment (round23-T14).
-- [ ] §3 `crates/server/src/ingest/announce.rs:637` — emit dedicated `realm` resource_kind once spec finalizes (round23-T07).
+- [x] §1 `crates/server/src/ingest/announce.rs:250,276,284` — finalize canonical-body digest domain once spec confirms (round4-fed-canonical).
+- [x] §2 `crates/server/src/ingest/announce.rs:805` + `pull_worker.rs:225` — observe `Source-Service-DID` for cache-key alignment (round23-T14).
+- [x] §3 `crates/server/src/ingest/announce.rs:637` — emit dedicated `realm` resource_kind once spec finalizes (round23-T07).
 
 ### Realm-rework refactor
 - [ ] §4 `crates/server/src/query/space.rs:12` — split directory rows by `resource_kind` (realm vs space).

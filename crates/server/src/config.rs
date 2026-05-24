@@ -98,7 +98,7 @@ impl AcceptPolicyKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKindAccept {
-    Space,
+    Realm,
     Organization,
     Actor,
     Applet,
@@ -107,7 +107,7 @@ pub enum ResourceKindAccept {
 
 impl ResourceKindAccept {
     pub const ALL: &'static [Self] = &[
-        Self::Space,
+        Self::Realm,
         Self::Organization,
         Self::Actor,
         Self::Applet,
@@ -116,7 +116,7 @@ impl ResourceKindAccept {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Space => "space",
+            Self::Realm => "realm",
             Self::Organization => "organization",
             Self::Actor => "actor",
             Self::Applet => "applet",

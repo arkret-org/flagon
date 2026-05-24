@@ -17,7 +17,7 @@ INSERT INTO directory_resources (
     last_announce_id
 ) VALUES
 (
-    'space'::resource_kind,
+    'realm'::resource_kind,
     'cx:space:tea',
     'did:web:principal.test',
     -- Round 4 (spec a77b995): the §3 discovery event kind for the
@@ -29,11 +29,9 @@ INSERT INTO directory_resources (
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
     -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
-    -- NOTE: `resource_kind = 'space'` here is the legacy enum value for the
-    -- security boundary; under the realm-rework these rows are conceptually
-    -- Realms (`cx:realm:` URI prefix). The `cx:space:tea` resource_id is kept
-    -- to avoid a coordinated multi-service rename — see TODO(realm-rework)
-    -- in crates/server/src/query/handle.rs.
+    -- The `cx:space:tea` resource_id is retained for cross-service fixture
+    -- compatibility; resource_kind now records the security boundary as a
+    -- Realm directly.
     '{"name":"Tea Research","summary":"Public teabay conformance space","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allow_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
@@ -48,7 +46,7 @@ INSERT INTO directory_resources (
     'cx:announce:test-space'
 ),
 (
-    'space'::resource_kind,
+    'realm'::resource_kind,
     'cx:space:tea-lab',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"listed"}'::jsonb,
@@ -66,7 +64,7 @@ INSERT INTO directory_resources (
     'cx:announce:test-space-lab'
 ),
 (
-    'space'::resource_kind,
+    'realm'::resource_kind,
     'cx:space:restricted',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"restricted"}'::jsonb,
@@ -84,7 +82,7 @@ INSERT INTO directory_resources (
     'cx:announce:test-space-restricted'
 ),
 (
-    'space'::resource_kind,
+    'realm'::resource_kind,
     'cx:space:secret',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"secret"}'::jsonb,
