@@ -52,7 +52,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   audit-preserving UPDATE, never DELETE. Search face hides revoked rows;
   resolve still surfaces them so in-flight callers can observe the
   tombstone. Best-effort tombstone webhook fanout reuses the
-  `cx.directory.subscribe` channel. New audit kind
+  `cx.directory.push.register` channel. New audit kind
   `consent_revoke_invalidation`.
 - **T07 — Realm terminal state.** When the ingest face observes a
   `cx.realm.destroy` anchor (signalled either by `terminal_state:

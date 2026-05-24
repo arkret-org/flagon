@@ -116,17 +116,17 @@ async fn branch_not_found() {
 }
 
 async fn branch_unauthorized() {
-    // Simulate the policy-filter that prunes recipient candidates.
+    // Simulate the policy-filter that prunes the member delivery binding.
     let payload = serde_json::json!({
-        "binding_candidates": [
-            { "recipient_service_did": "did:web:rs.a", "binding_source": "explicit" },
-            { "recipient_service_did": "did:web:rs.b", "binding_source": "explicit" },
-        ]
+        "member_delivery_binding": {
+            "recipient_service_did": "did:web:rs.a",
+            "binding_source": "explicit",
+        }
     });
     let _ = payload
-        .get("binding_candidates")
-        .and_then(serde_json::Value::as_array)
-        .map(|arr| arr.len());
+        .get("member_delivery_binding")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|binding| binding.get("recipient_service_did"));
 }
 
 // ---- Statistics ----------------------------------------------------------

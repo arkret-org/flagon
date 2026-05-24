@@ -523,7 +523,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
 /// so the audit trail is preserved — the row is marked with
 /// `reachability_revoked_at` and the search face hides it (resolve
 /// still surfaces it so in-flight subscribers can observe the
-/// revocation tombstone). A `cx.directory.subscribe` tombstone webhook
+/// revocation tombstone). A `cx.directory.push.register` tombstone webhook
 /// fires on a best-effort basis through the same fanout path the
 /// announce handler uses.
 #[derive(Debug, Deserialize)]
@@ -610,7 +610,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         }),
     );
 
-    // Best-effort tombstone fanout for in-flight `cx.directory.subscribe`
+    // Best-effort tombstone fanout for in-flight `cx.directory.push.register`
     // webhook listeners. T07 reuses the same channel for realm destroys.
     let tombstoned_subscriptions =
         crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &affected).await;

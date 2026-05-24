@@ -88,7 +88,7 @@ filters and membership hints where the Directory profile needs them.
 honesty. Current limitations are: pull-mode ingest is declared disabled when
 `TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown is audit-backed but
 resource-side notification transport is not implemented; webhook fanout from
-`cx.directory.subscribe` is HMAC-signed best-effort delivery without a durable
+`cx.directory.push.register` is HMAC-signed best-effort delivery without a durable
 retry queue.
 
 ## Tech stack
@@ -163,7 +163,7 @@ cargo deny check
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
-behavior, `cx.directory.subscribe`, signed push announce against a mock
+behavior, `cx.directory.push.register`, signed push announce against a mock
 Principal Server, pull-mode revalidation, freshness flags, PSI blind / match,
 and takedown audit through the admin operator surface.
 

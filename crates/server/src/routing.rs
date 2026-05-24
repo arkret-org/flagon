@@ -472,7 +472,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/api/v1/directory/subscribe",
             PathItemType::Post,
-            "cx.directory.subscribe",
+            "cx.directory.push.register",
             "ingest",
             "Subscribe To Directory Updates",
             "Register an HMAC-signed webhook subscription for accepted ingest updates.",

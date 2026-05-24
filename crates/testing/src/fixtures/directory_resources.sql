@@ -143,9 +143,9 @@ INSERT INTO directory_resources (
     'did:web:principal.test',
     '{"kind":"cx.handle.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
-    -- carries `recipient_service_did` + `delivery_binding_hint.binding_source`
+    -- carries `member_delivery_binding.recipient_service_did` + binding_source
     -- so `resolve_handle(intent=member_add)` can run the Space policy filter.
-    '{"handle":"alice.example","did":"did:web:alice.example","verified":true,"recipient_service_did":"did:web:principal.test","delivery_binding_hint":{"recipient_service_did":"did:web:principal.test","binding_source":"join_policy"}}'::jsonb,
+    '{"handle":"alice.example","did":"did:web:alice.example","verified":true,"member_delivery_binding":{"recipient_service_did":"did:web:principal.test","binding_source":"join_policy"}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-handle-alice'],

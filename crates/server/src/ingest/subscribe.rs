@@ -1,4 +1,4 @@
-//! `cx.directory.subscribe` webhook registration and fanout.
+//! `cx.directory.push.register` webhook registration and fanout.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;

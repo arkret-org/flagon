@@ -372,12 +372,12 @@ fn evaluate_handle_disclosure(
     if let Some(policy) = policy {
         if !policy.audience_authorized(body.requester.as_deref(), &body.proofs) {
             // Unauthorized requester: collapse to not_found so the
-            // directory does not disclose subject_did / recipient_service_did.
+            // directory does not disclose subject_id / member_delivery_binding.
             return ResolveOutcome::NotFound;
         }
         let filtered = filter_projection_against_policy(row.public_projection.clone(), policy);
         let Some(projection) = filtered else {
-            // All recipient_service_did candidates pruned — same not_found
+            // The member_delivery_binding was pruned — same not_found
             // shape so the requester cannot enumerate the Realm's policy.
             return ResolveOutcome::NotFound;
         };
@@ -414,8 +414,8 @@ fn evaluate_handle_disclosure(
 
 /// Apply Realm `allowed_recipient_services` (and, when declared,
 /// `allow_binding_sources`) to the handle's public projection. Returns
-/// `None` when every candidate was pruned — signaling the resolver should
-/// emit `not_found` rather than disclose the bare subject_did.
+/// `None` when the member_delivery_binding was pruned — signaling the resolver
+/// should emit `not_found` rather than disclose the bare subject_id.
 fn filter_projection_against_policy(
     mut projection: JsonValue,
     policy: &RealmDeliveryBindingPolicy,
@@ -429,72 +429,22 @@ fn filter_projection_against_policy(
     // BEFORE any pruning. If it did and we drop them all, the resolver MUST
     // emit `not_found` rather than a stripped envelope so the requester
     // cannot tell whether the handle exists.
-    let had_top_recipient = projection.get("recipient_service_did").is_some();
-    let had_binding_hint = projection.get("delivery_binding_hint").is_some();
-    let had_binding_candidates = projection.get("binding_candidates").is_some();
-    let had_any_candidate_field = had_top_recipient || had_binding_hint || had_binding_candidates;
+    let had_member_binding = projection.get("member_delivery_binding").is_some();
+    let had_any_candidate_field = had_member_binding;
 
     let mut kept_any_candidate = false;
 
-    // Top-level `recipient_service_did` (handle-claim §3.7 single binding).
-    if had_top_recipient {
-        let top_recipient_ok = match projection
-            .get("recipient_service_did")
-            .and_then(JsonValue::as_str)
-        {
-            // Round 4 — tightened DID regex applies here too.
-            Some(did) => {
-                is_round4_tight_did(did)
-                    && (unrestricted_recipient || allow_recipient.iter().any(|a| a == did))
-            }
-            None => false,
-        };
-        if top_recipient_ok {
-            kept_any_candidate = true;
-        } else if let Some(obj) = projection.as_object_mut() {
-            obj.remove("recipient_service_did");
-        }
-    }
-
-    // `delivery_binding_hint` (member-delivery-binding-candidate §3.7).
-    if had_binding_hint {
-        let hint_ok = projection
-            .get("delivery_binding_hint")
+    // `member_delivery_binding` (member-delivery-binding-candidate §3.7).
+    if had_member_binding {
+        let binding_ok = projection
+            .get("member_delivery_binding")
             .and_then(JsonValue::as_object)
             .map(|hint| binding_passes(hint, policy, unrestricted_recipient, unrestricted_source))
             .unwrap_or(false);
-        if hint_ok {
+        if binding_ok {
             kept_any_candidate = true;
         } else if let Some(obj) = projection.as_object_mut() {
-            obj.remove("delivery_binding_hint");
-        }
-    }
-
-    // `binding_candidates` array — newer multi-binding shape.
-    if had_binding_candidates {
-        if let Some(arr) = projection
-            .get("binding_candidates")
-            .and_then(JsonValue::as_array)
-            .cloned()
-        {
-            let filtered: Vec<JsonValue> = arr
-                .into_iter()
-                .filter(|cand| match cand.as_object() {
-                    Some(obj) => {
-                        binding_passes(obj, policy, unrestricted_recipient, unrestricted_source)
-                    }
-                    None => false,
-                })
-                .collect();
-            let has_any = !filtered.is_empty();
-            if let Some(obj) = projection.as_object_mut() {
-                if has_any {
-                    obj.insert("binding_candidates".into(), JsonValue::Array(filtered));
-                    kept_any_candidate = true;
-                } else {
-                    obj.remove("binding_candidates");
-                }
-            }
+            obj.remove("member_delivery_binding");
         }
     }
 
@@ -569,9 +519,7 @@ fn envelope_from_projection(
     // Carry the post-filter binding fields forward so downstream builders
     // see exactly the Realm-policy-approved subset.
     for key in [
-        "recipient_service_did",
-        "delivery_binding_hint",
-        "binding_candidates",
+        "member_delivery_binding",
     ] {
         if let Some(value) = public_projection.get(key) {
             payload[key] = value.clone();
@@ -687,7 +635,10 @@ mod tests {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "recipient_service_did": "did:web:principal.other",
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web:principal.other",
+                "binding_source": "join_policy",
+            },
         }));
         let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
@@ -696,23 +647,17 @@ mod tests {
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
-    /// When a multi-binding candidate set is partially pruned the resolver
-    /// MUST surface only the surviving candidate.
+    /// When a member_delivery_binding passes policy the resolver MUST surface
+    /// that single-source binding.
     #[test]
-    fn resolve_handle_keeps_allowed_binding_candidate() {
+    fn resolve_handle_keeps_allowed_member_delivery_binding() {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "binding_candidates": [
-                {
-                    "recipient_service_did": "did:web:principal.tea",
-                    "binding_source": "join_policy"
-                },
-                {
-                    "recipient_service_did": "did:web:principal.other",
-                    "binding_source": "join_policy"
-                }
-            ]
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web:principal.tea",
+                "binding_source": "join_policy"
+            }
         }));
         let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
@@ -722,16 +667,13 @@ mod tests {
             ResolveOutcome::Found(envelope) => envelope,
             ResolveOutcome::NotFound => panic!("expected Found, got NotFound"),
         };
-        let candidates = envelope
+        let binding = envelope
             .payload
-            .get("binding_candidates")
-            .and_then(JsonValue::as_array)
-            .expect("binding_candidates surface");
-        assert_eq!(candidates.len(), 1);
+            .get("member_delivery_binding")
+            .and_then(JsonValue::as_object)
+            .expect("member_delivery_binding surface");
         assert_eq!(
-            candidates[0]
-                .get("recipient_service_did")
-                .and_then(JsonValue::as_str),
+            binding.get("recipient_service_did").and_then(JsonValue::as_str),
             Some("did:web:principal.tea")
         );
     }
@@ -744,7 +686,10 @@ mod tests {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "recipient_service_did": "did:web:principal.tea",
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web:principal.tea",
+                "binding_source": "join_policy",
+            },
         }));
         let body = member_add_request("cx:space:tea", "did:web:eve.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
@@ -760,7 +705,10 @@ mod tests {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "recipient_service_did": "did:web:principal.anywhere",
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web:principal.anywhere",
+                "binding_source": "join_policy",
+            },
         }));
         let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
@@ -773,7 +721,9 @@ mod tests {
         assert_eq!(
             envelope
                 .payload
-                .get("recipient_service_did")
+                .get("member_delivery_binding")
+                .and_then(JsonValue::as_object)
+                .and_then(|binding| binding.get("recipient_service_did"))
                 .and_then(JsonValue::as_str),
             Some("did:web:principal.anywhere")
         );
@@ -789,12 +739,18 @@ mod tests {
         let allowed_row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "recipient_service_did": "did:web:principal.tea",
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web:principal.tea",
+                "binding_source": "join_policy",
+            },
         }));
         let filtered_row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "recipient_service_did": "did:web:principal.other",
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web:principal.other",
+                "binding_source": "join_policy",
+            },
         }));
 
         let warmup = 256;
@@ -869,7 +825,7 @@ mod tests {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "delivery_binding_hint": {
+            "member_delivery_binding": {
                 "recipient_service_did": "did:web:principal.tea",
                 "binding_source": "explicit",
             }
@@ -907,12 +863,10 @@ mod tests {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
-            "binding_candidates": [
-                {
-                    "recipient_service_did": "did:web.legacy:peer", // ROUND4-ALLOW: negative test for round-4 regex
-                    "binding_source": "join_policy"
-                }
-            ]
+            "member_delivery_binding": {
+                "recipient_service_did": "did:web.legacy:peer", // ROUND4-ALLOW: negative test for round-4 regex
+                "binding_source": "join_policy"
+            }
         }));
         let body = member_add_request("cx:space:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);

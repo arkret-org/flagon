@@ -77,7 +77,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "cx.directory.resolve_handle",
         "cx.directory.announce",
         "cx.directory.withdraw",
-        "cx.directory.subscribe",
+        "cx.directory.push.register",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -337,7 +337,7 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     limitations.push(json!({
         "feature": "webhook_fanout_delivery",
         "status": "best_effort",
-        "detail": "cx.directory.subscribe webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
+        "detail": "cx.directory.push.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
     limitations
 }
@@ -478,7 +478,7 @@ mod tests {
                 cotest_issuer_did: Did::new("did:web:cotest.example").unwrap(),
                 signature: "eddsa-jcs-b64url:test-signature".to_owned(),
                 timestamp: chrono::Utc::now(),
-                valid_until: None,
+                expires_at: None,
                 extra: Default::default(),
             }],
             experimental_features: Vec::new(),

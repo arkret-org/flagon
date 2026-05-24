@@ -14,7 +14,7 @@
     "cx.directory.resolve_handle",
     "cx.directory.announce",
     "cx.directory.withdraw",
-    "cx.directory.subscribe"
+    "cx.directory.push.register"
   ],
   "required_event_kinds": [
     "cx.realm.discovery",

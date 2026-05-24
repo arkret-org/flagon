@@ -88,7 +88,7 @@ mod tests {
     fn directory_ops_match_sdk() {
         assert_eq!(OP_DIRECTORY_ANNOUNCE, "cx.directory.announce");
         assert_eq!(OP_DIRECTORY_WITHDRAW, "cx.directory.withdraw");
-        assert_eq!(OP_DIRECTORY_SUBSCRIBE, "cx.directory.subscribe");
+        assert_eq!(OP_DIRECTORY_SUBSCRIBE, "cx.directory.push.register");
         assert_eq!(OP_DIRECTORY_DESCRIBE, "cx.directory.describe");
         assert_eq!(OP_DIRECTORY_SEARCH_SPACES, "cx.directory.search_realms");
         assert_eq!(OP_DIRECTORY_RESOLVE_SPACE, "cx.directory.resolve_realm");
