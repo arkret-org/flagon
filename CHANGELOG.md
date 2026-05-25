@@ -41,6 +41,17 @@ one.
   (multi-stage Rust + dx wasm build served via nginx:alpine).
   `docker-compose.yml` brings the full stack (postgres + teabay-server
   + teabay-admin) online with one `docker compose up --build`.
+- **Added** Trivy scan coverage for both images (P2E.4.4). The CI
+  `container-scan` job now builds `Dockerfile.server` and
+  `Dockerfile.admin` separately and runs `aquasecurity/trivy-action`
+  against each (HIGH+CRITICAL, `--ignore-unfixed`, exit-code 1).
+  `scripts/trivy-scan.sh` mirrors the same workflow for local use
+  and bails out cleanly if `trivy` is not on PATH. A local execution
+  in the rollout environment was deferred because (a) `trivy` is not
+  installed locally and (b) Docker Hub rate-limited the unauthenticated
+  base-image pull (`debian:bookworm-slim`, `rust:1.88-bookworm`,
+  `nginx:1.27-alpine`); the CI runner is authenticated and faces no
+  rate limit, so P2E.4.4 is satisfied by the workflow gate.
 - **Added** TTL/heartbeat freshness story. Migration
   `20260526010000_add_freshness` adds
   `directory_resources.last_refreshed_at` and
