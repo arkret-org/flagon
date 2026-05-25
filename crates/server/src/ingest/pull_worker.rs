@@ -186,6 +186,8 @@ impl PullWorker {
             );
         }
 
+        let federation_cache = FederationCachePersist::from_pull_event(&entry, &pulled);
+
         let announce = AnnounceRequest {
             resource_kind: entry.resource_kind,
             resource_id: entry.resource_id.clone(),
@@ -230,7 +232,6 @@ impl PullWorker {
         // observed from the upstream `cx.events.query` response/envelope.
         let realm_terminal =
             derive_realm_terminal_state(announce.resource_kind, &announce.discovery_state);
-        let federation_cache = FederationCachePersist::from_pull_event(&entry, &pulled);
         upsert_resource_and_audit(
             self.state.db(),
             &announce,

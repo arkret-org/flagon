@@ -207,7 +207,7 @@ impl Metrics {
                 &mut out,
                 "teabay_ingest_total",
                 &[("kind", key.kind), ("outcome", key.outcome)],
-                value as f64,
+                *value as f64,
             );
         }
 
@@ -258,7 +258,7 @@ impl Metrics {
                 &mut out,
                 "teabay_pull_worker_revalidations_total",
                 &[("outcome", outcome.as_str())],
-                value as f64,
+                *value as f64,
             );
         }
 
