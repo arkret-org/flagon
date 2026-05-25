@@ -390,6 +390,7 @@ mod tests {
             require_http_sig: false,
             http_sig_pubkeys: HashMap::new(),
             receipt_signing_key: None,
+            db_pool: crate::config::DbPoolConfig::default(),
         }
     }
 

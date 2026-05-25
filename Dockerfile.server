@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.7
+#
+# teabay server image — Rust workspace built against the local Contrix
+# SDK by path. Build from the contrix-dev root with:
+#
+#   docker build \
+#     --build-context contrix-rust-sdk=../contrix-rust-sdk \
+#     -f Dockerfile.server -t teabay-server .
+#
+# P2E.4 — split out from the previous monolithic `Dockerfile` so the
+# admin SPA has its own image (`Dockerfile.admin`).
+
+FROM --platform=$BUILDPLATFORM rust:1.88-bookworm AS builder
+
+WORKDIR /workspace
+
+# teabay depends on the local Contrix SDK by path.
+COPY --from=contrix-rust-sdk . ./contrix-rust-sdk
+COPY . ./teabay
+
+WORKDIR /workspace/teabay
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/workspace/teabay/target \
+    cargo build --locked --release -p server && \
+    cp target/release/server /usr/local/bin/server
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        wget && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/bin/server /usr/local/bin/server
+
+USER 10001:10001
+WORKDIR /var/lib/teabay
+
+ENV TEABAY_BIND=0.0.0.0:7781
+EXPOSE 7781
+
+# HEALTHCHECK probes the in-process /health endpoint (P4 hygiene
+# requirement). Falls back to a non-zero exit if the server is not
+# responsive within 5 s.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD wget --quiet --tries=1 --spider \
+        "http://127.0.0.1:7781/health" || exit 1
+
+ENTRYPOINT ["/usr/local/bin/server"]

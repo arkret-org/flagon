@@ -122,13 +122,27 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build local image
-        run: docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay:ci .
+      - name: Build server image
+        run: docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -f Dockerfile.server -t teabay-server:ci .
 
-      - name: Scan local image
+      - name: Build admin image
+        run: docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -f Dockerfile.admin -t teabay-admin:ci .
+
+      - name: Scan server image
         uses: aquasecurity/trivy-action@0.28.0
         with:
-          image-ref: teabay:ci
+          image-ref: teabay-server:ci
+          scan-type: image
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Scan admin image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: teabay-admin:ci
           scan-type: image
           format: table
           exit-code: "1"

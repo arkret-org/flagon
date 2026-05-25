@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::error::ApiErrorCode;
+use crate::filter::circle_isolation;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::{IngestModeWire, ResourceKindWire};
@@ -92,6 +93,30 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     if !body.resource_filter.is_object() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
+        return;
+    }
+    // CXP-0007 / P2E.2 — a subscribe filter that asks for Circle-scoped
+    // rows leaks the existence of the Circle (via the eventual fanout
+    // pattern) even if no row is ever delivered. Reject before persist.
+    // The audit row captures *which* violation (forbidden key or
+    // typed-id) for operator review; the wire response is the standard
+    // low-information `schema_violation`.
+    if let Err(rejection) = circle_isolation::reject_circle_payload(&body.resource_filter) {
+        ingest_metric.set_outcome("circle_isolation_violation");
+        let _ = crate::audit::record(
+            state.db(),
+            crate::audit::AuditEventKind::IngestRejected,
+            None,
+            None,
+            Some(&body.subscriber_did),
+            json!({
+                "code": ApiErrorCode::SchemaViolation.wire_code(),
+                "reason": "circle_isolation_violation",
+                "violation": rejection.audit_label(),
+                "endpoint": "directory.subscribe",
+            }),
+        );
+        ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
         return;
     }
     if let Err(message) = validate_endpoint(&body.webhook_endpoint, state.config().development_mode)

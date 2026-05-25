@@ -7,6 +7,79 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### circle-rollout · CXP-0007 enforcement (P2E, contrix-spec `2b0d70d`)
+
+The Circle primitive lands in the spec as an intra-Realm encrypted
+sub-boundary. teabay's job is to make sure the directory never sees
+one.
+
+- **BREAKING** Ingest now hard-rejects any payload that carries Circle
+  metadata. `circle_id` / `circle_members` / `scope_circle_id` /
+  `default_scope_circle_id` (at any nesting depth) and any string
+  value containing `cx:circle:` (case-insensitive, anywhere — not
+  only as a prefix) yield `schema_violation`. The wire response is
+  deliberately low-information to preserve the anti-enumeration story
+  (the rejection message does NOT echo the field name or the typed
+  id). Audit row captures the violation for operator review.
+  Mirrored on `POST /api/v1/directory/announce`,
+  `POST /api/v1/directory/announce/heartbeat`, and
+  `POST /api/v1/directory/subscribe`.
+- **BREAKING** The SDK's CXP-0007 `forbidden-wire-fields` list is
+  mirrored at the directory edge (`discussion_realm_ref`,
+  `discussion_space_ref`, `parent_ref`, `default_realm_ref`,
+  `scope_ref`, `default_scope_ref`, `retention_policy_ref`,
+  `disclosure_policy_ref`, `rate_limit_policy_ref` are hard-rejected
+  on ingest).
+- **Added** `crates/admin/` is now an actual source tree (the prior
+  state shipped only `teabay-admin/` build artifacts). Dioxus SPA with
+  six tabs: Dashboard / Resources / Allowlist / Takedown / Audit /
+  Review. Bearer-token login. New Dashboard tab fans out to a new
+  `GET /api/admin/v1/dashboard` endpoint that returns aggregate
+  COUNT(*) over the directory tables for an operator overview.
+- **Added** `Dockerfile.server` (renamed from `Dockerfile`, plus
+  HEALTHCHECK on `/health`, non-root) and `Dockerfile.admin`
+  (multi-stage Rust + dx wasm build served via nginx:alpine).
+  `docker-compose.yml` brings the full stack (postgres + teabay-server
+  + teabay-admin) online with one `docker compose up --build`.
+- **Added** Trivy scan coverage for both images (P2E.4.4). The CI
+  `container-scan` job now builds `Dockerfile.server` and
+  `Dockerfile.admin` separately and runs `aquasecurity/trivy-action`
+  against each (HIGH+CRITICAL, `--ignore-unfixed`, exit-code 1).
+  `scripts/trivy-scan.sh` mirrors the same workflow for local use
+  and bails out cleanly if `trivy` is not on PATH. A local execution
+  in the rollout environment was deferred because (a) `trivy` is not
+  installed locally and (b) Docker Hub rate-limited the unauthenticated
+  base-image pull (`debian:bookworm-slim`, `rust:1.88-bookworm`,
+  `nginx:1.27-alpine`); the CI runner is authenticated and faces no
+  rate limit, so P2E.4.4 is satisfied by the workflow gate.
+- **Added** TTL/heartbeat freshness story. Migration
+  `20260526010000_add_freshness` adds
+  `directory_resources.last_refreshed_at` and
+  `directory_resources.expires_at`, backfilled from the existing
+  `indexed_at` + `effective_ttl_seconds` pair. New endpoint
+  `POST /api/v1/directory/announce/heartbeat` lets an owner bump
+  `last_refreshed_at` + `expires_at` forward by one TTL window
+  without re-signing the full discovery_state body. Owner check via
+  `X-Principal-Server-DID`; blinded `not_found` for unknown
+  `announce_id`. Followup: a dedicated background expiry worker that
+  sweeps on `expires_at` (vs. the existing
+  `next_revalidation_after`-driven pull worker) is tracked as
+  `TODO(circle-rollout-P2E.5)` in
+  `crates/server/src/ingest/heartbeat.rs`.
+- **Added** Connection-pool tuning surface. New env vars
+  `TEABAY_DB_POOL_MAX_SIZE`, `TEABAY_DB_POOL_MIN_IDLE`,
+  `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`,
+  `TEABAY_DB_POOL_IDLE_TIMEOUT_SECS`; defaults documented in
+  `docs/scaling.md`. The Prometheus scrape gains four new gauges
+  (`teabay_db_pool_connections` / `_idle` / `_in_use` / `_max_size`)
+  sourced directly from the live r2d2 pool — no risk of drift
+  between a tracked counter and the actual state.
+- **Added** `docs/scaling.md` walks operators through sizing the pool
+  for a target QPS, the interplay with `TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN`,
+  the Postgres `max_connections` ceiling, and the recommended
+  in_use/max_size > 0.8 alert.
+- **Note** Version stays at 0.1.0; no tag, no release this round.
+
 ### Round R4 — protocol review closures (2026-05-20, contrix-spec `2a4d39b..a77b995`)
 
 Closes the round-4 protocol-review commits on the directory-service

@@ -79,6 +79,7 @@ pub fn metrics_service(state: AppState) -> Service {
 
 fn admin_router() -> Router {
     Router::with_path("api/admin/v1")
+        .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
         .push(
             Router::with_path("allowlist")
@@ -132,7 +133,14 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     // transport.
     let ingest_routes = Router::new()
         .hoop(http_sig_middleware)
-        .push(Router::with_path("announce").post(ingest::announce::announce))
+        .push(
+            Router::with_path("announce")
+                .post(ingest::announce::announce)
+                // P2E.5 — heartbeat sub-route refreshes an already-
+                // indexed announce in place without re-signing the
+                // full discovery_state body.
+                .push(Router::with_path("heartbeat").post(ingest::heartbeat::heartbeat)),
+        )
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
         .push(Router::with_path("subscribe").post(ingest::subscribe::subscribe));
 
@@ -201,7 +209,35 @@ async fn metrics(depot: &mut Depot, res: &mut Response) {
             return;
         }
     };
-    let body = state.metrics().render_prometheus();
+    let mut body = state.metrics().render_prometheus();
+    // P2E.6 — append live r2d2 connection-pool occupancy. Kept here
+    // (rather than baked into Metrics) so the Db handle is the
+    // authoritative source — no risk of drift between the live pool
+    // and a separately-tracked counter.
+    let pool = state.db().pool_stats();
+    body.push_str(
+        "# HELP teabay_db_pool_connections Total connections currently held by the r2d2 pool.\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_connections gauge\n");
+    body.push_str(&format!(
+        "teabay_db_pool_connections {}\n",
+        pool.connections
+    ));
+    body.push_str(
+        "# HELP teabay_db_pool_idle Idle connections waiting for a checkout.\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_idle gauge\n");
+    body.push_str(&format!("teabay_db_pool_idle {}\n", pool.idle));
+    body.push_str(
+        "# HELP teabay_db_pool_in_use Connections currently checked out (connections - idle).\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_in_use gauge\n");
+    body.push_str(&format!("teabay_db_pool_in_use {}\n", pool.in_use));
+    body.push_str(
+        "# HELP teabay_db_pool_max_size Pool max_size configured at boot (TEABAY_DB_POOL_MAX_SIZE).\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_max_size gauge\n");
+    body.push_str(&format!("teabay_db_pool_max_size {}\n", pool.max_size));
     res.headers_mut().insert(
         header::CONTENT_TYPE,
         "text/plain; version=0.0.4; charset=utf-8".parse().unwrap(),
@@ -417,6 +453,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "PostgreSQL and background-worker readiness probe.",
         ),
         (
+            "/api/admin/v1/dashboard",
+            PathItemType::Get,
+            "teabay.admin.dashboard_stats",
+            "admin",
+            "Directory Dashboard Stats",
+            "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
+        ),
+        (
             "/api/admin/v1/audit",
             PathItemType::Get,
             "teabay.admin.audit_feed",
@@ -559,6 +603,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed cx.{kind}.discovery state.",
+        ),
+        (
+            "/api/v1/directory/announce/heartbeat",
+            PathItemType::Post,
+            "cx.directory.announce.heartbeat",
+            "ingest",
+            "Heartbeat Announced Resource",
+            "Refresh an indexed announce in place without re-signing the full discovery_state body.",
         ),
         (
             "/api/v1/directory/withdraw",

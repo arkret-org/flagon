@@ -55,6 +55,10 @@ diesel::table! {
         realm_destroyed_at -> Nullable<Timestamptz>,
         reachability_revoked_at -> Nullable<Timestamptz>,
         reachability_revoked_reason -> Nullable<Text>,
+        // P2E.5 — operator-facing freshness columns. See migration
+        // 20260526010000_add_freshness.
+        last_refreshed_at -> Timestamptz,
+        expires_at -> Timestamptz,
     }
 }
 

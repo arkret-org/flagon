@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 use crate::audit::{self, AuditEventKind};
 use crate::db::Db;
 use crate::error::ApiErrorCode;
+use crate::filter::circle_isolation::{self, CircleRejection};
 use crate::filter::enumeration::{bucket_member_count, is_valid_member_count_bucket};
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
@@ -318,6 +319,56 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             return;
         }
     };
+
+    // CXP-0007 / P2E.2 — hard reject any Circle-scoped metadata BEFORE
+    // anything else looks at the body. Circle is an intra-Realm
+    // sub-boundary; the directory's anti-enumeration guarantees rely
+    // on Circle membership/existence NEVER reaching teabay's index.
+    // The wire message is deliberately low-information so an attacker
+    // can't probe directory state by injecting a `cx:circle:` id.
+    if let Err(rejection) = circle_isolation::reject_circle_payload(&body.discovery_state) {
+        ingest_metric.set_outcome("circle_isolation_violation");
+        let _ = audit::record(
+            state.db(),
+            AuditEventKind::IngestRejected,
+            Some(body.resource_kind),
+            Some(&body.resource_id),
+            Some(&body.principal_server_did),
+            json!({
+                "code": ApiErrorCode::SchemaViolation.wire_code(),
+                "reason": "circle_isolation_violation",
+                "violation": rejection.audit_label(),
+            }),
+        );
+        ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
+        return;
+    }
+    // Defence in depth: a few top-level announce fields are free-form
+    // strings (`resource_id`, `principal_server_did`,
+    // `supersedes_announce_id`) and could carry a smuggled
+    // `cx:circle:` id if a caller is misbehaving. Re-run the typed-id
+    // sentinel over the whole request envelope.
+    if let Ok(envelope) = serde_json::to_value(&body) {
+        if let Err(rejection) = circle_isolation::reject_circle_payload(&envelope) {
+            if !matches!(rejection, CircleRejection::ForbiddenLegacyWireField(_)) {
+                ingest_metric.set_outcome("circle_isolation_violation");
+                let _ = audit::record(
+                    state.db(),
+                    AuditEventKind::IngestRejected,
+                    Some(body.resource_kind),
+                    Some(&body.resource_id),
+                    Some(&body.principal_server_did),
+                    json!({
+                        "code": ApiErrorCode::SchemaViolation.wire_code(),
+                        "reason": "circle_isolation_violation",
+                        "violation": rejection.audit_label(),
+                    }),
+                );
+                ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
+                return;
+            }
+        }
+    }
 
     if let Err((code, msg)) = validate_request_shape(&body, state.config().max_ttl) {
         ingest_metric.set_outcome("schema_rejected");
@@ -931,6 +982,11 @@ pub(crate) fn upsert_resource_and_audit(
                 r::via_services.eq(&verified.via_services),
                 r::last_announce_id.eq(Some(stored_announce_id.as_str())),
                 r::realm_destroyed_at.eq(realm_terminal_state),
+                // P2E.5 — on insert the row was just refreshed at the
+                // current announce; expires_at = last_refreshed_at +
+                // effective_ttl_seconds.
+                r::last_refreshed_at.eq(indexed_at),
+                r::expires_at.eq(next_revalidation),
             ))
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
@@ -956,6 +1012,9 @@ pub(crate) fn upsert_resource_and_audit(
                 >(
                     "COALESCE(directory_resources.realm_destroyed_at, EXCLUDED.realm_destroyed_at)",
                 )),
+                // P2E.5 — every successful announce is a refresh.
+                r::last_refreshed_at.eq(indexed_at),
+                r::expires_at.eq(next_revalidation),
             ))
             .execute(conn)?;
 

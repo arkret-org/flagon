@@ -76,6 +76,47 @@ pub struct AppConfig {
     /// `withdrawals.proof`. Resource-initiated withdrawals carry the resource
     /// governance signature; operator takedowns need a service receipt key.
     pub receipt_signing_key: Option<ReceiptSigningKey>,
+    /// P2E.6 — diesel + r2d2 connection pool tunables. Operators surface
+    /// these as env vars; see `docs/scaling.md` for sizing guidance and
+    /// `Db::connect_with` for the live behaviour.
+    pub db_pool: DbPoolConfig,
+}
+
+/// Pool sizing knobs for the diesel + r2d2 PostgreSQL connection pool.
+/// Every field is overridable via env. Defaults match the "small
+/// production" sizing recommended in `docs/scaling.md`.
+#[derive(Clone, Debug)]
+pub struct DbPoolConfig {
+    /// Hard ceiling on concurrent Postgres connections this teabay
+    /// instance will open. Includes connections held by background
+    /// workers (`pull_worker`, `divergence_worker`) and admin queries.
+    /// Default: 16. Env: `TEABAY_DB_POOL_MAX_SIZE`.
+    pub max_size: u32,
+    /// Minimum idle connections kept warm. Avoid setting this above
+    /// `max_size`; r2d2 will silently clamp. `None` lets r2d2 default
+    /// (currently equal to `max_size`).
+    /// Default: 2. Env: `TEABAY_DB_POOL_MIN_IDLE`.
+    pub min_idle: Option<u32>,
+    /// How long `pool.get()` waits for an available connection before
+    /// returning a `Timeout` error. Tune this together with the
+    /// ingest rate limit so a burst can't tarpit the request thread.
+    /// Default: 5 s. Env: `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`.
+    pub connection_timeout: Duration,
+    /// How long an idle connection sits in the pool before reaper
+    /// closes it.
+    /// Default: 60 s. Env: `TEABAY_DB_POOL_IDLE_TIMEOUT_SECS`.
+    pub idle_timeout: Option<Duration>,
+}
+
+impl Default for DbPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_size: 16,
+            min_idle: Some(2),
+            connection_timeout: Duration::from_secs(5),
+            idle_timeout: Some(Duration::from_secs(60)),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -305,6 +346,50 @@ impl AppConfig {
             anyhow::bail!("TEABAY_PSI_KEY_RETENTION_SECONDS must be <= 90 days");
         }
 
+        // P2E.6 — db pool tunables.
+        let defaults = DbPoolConfig::default();
+        let pool_max = read_u64("TEABAY_DB_POOL_MAX_SIZE", defaults.max_size as u64)? as u32;
+        if pool_max == 0 {
+            anyhow::bail!("TEABAY_DB_POOL_MAX_SIZE must be > 0");
+        }
+        let pool_min_idle = match std::env::var("TEABAY_DB_POOL_MIN_IDLE") {
+            Ok(v) if v.trim().is_empty() => defaults.min_idle,
+            Ok(v) => {
+                let parsed: u32 = v
+                    .trim()
+                    .parse()
+                    .map_err(|e| anyhow::anyhow!("invalid TEABAY_DB_POOL_MIN_IDLE={v}: {e}"))?;
+                Some(parsed.min(pool_max))
+            }
+            Err(_) => defaults.min_idle,
+        };
+        let pool_connection_timeout_secs = read_u64(
+            "TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS",
+            defaults.connection_timeout.as_secs(),
+        )?;
+        if pool_connection_timeout_secs == 0 {
+            anyhow::bail!("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS must be > 0");
+        }
+        let pool_idle_timeout_secs = match std::env::var("TEABAY_DB_POOL_IDLE_TIMEOUT_SECS") {
+            Ok(v) if v.trim().is_empty() => {
+                defaults.idle_timeout.map(|d| d.as_secs()).unwrap_or(0)
+            }
+            Ok(v) => v.trim().parse::<u64>().map_err(|e| {
+                anyhow::anyhow!("invalid TEABAY_DB_POOL_IDLE_TIMEOUT_SECS={v}: {e}")
+            })?,
+            Err(_) => defaults.idle_timeout.map(|d| d.as_secs()).unwrap_or(0),
+        };
+        let db_pool = DbPoolConfig {
+            max_size: pool_max,
+            min_idle: pool_min_idle,
+            connection_timeout: Duration::from_secs(pool_connection_timeout_secs),
+            idle_timeout: if pool_idle_timeout_secs == 0 {
+                None
+            } else {
+                Some(Duration::from_secs(pool_idle_timeout_secs))
+            },
+        };
+
         Ok(Self {
             bind,
             metrics_bind,
@@ -338,6 +423,7 @@ impl AppConfig {
             require_http_sig,
             http_sig_pubkeys,
             receipt_signing_key,
+            db_pool,
         })
     }
 
