@@ -293,6 +293,35 @@ mod tests {
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
+    /// P2E.7 — the parser-tolerance plank: a `cx:circle:<ulid>`
+    /// living in the `resource_id` field of an announce envelope (i.e.
+    /// the attacker tries to "announce a Circle into the directory")
+    /// MUST be recognised and rejected. The directory never adds an
+    /// `IdClass::Circle` variant — see crate::ids docs.
+    #[test]
+    fn rejects_cx_circle_in_resource_id_field() {
+        let envelope = json!({
+            "resource_kind": "realm",
+            "resource_id": "cx:circle:01J0CIRCLEULIDV4XYZ",
+            "principal_server_did": "did:web:principal.test",
+            "discovery_state": {"kind": "cx.realm.discovery"},
+        });
+        let err = reject_circle_payload(&envelope).unwrap_err();
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
+    }
+
+    /// P2E.7 — uppercase / mixed-case `Cx:CIRCLE:` MUST still be
+    /// caught (typed-id parsers are case-insensitive per spec
+    /// §id-format).
+    #[test]
+    fn rejects_mixed_case_cx_circle_prefix() {
+        let envelope = json!({
+            "discovery_state": {"note": "Cx:CIRCLE:0123ABC"},
+        });
+        let err = reject_circle_payload(&envelope).unwrap_err();
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
+    }
+
     #[test]
     fn rejects_legacy_discussion_realm_ref() {
         // CXP-0007 pre-rename field; the SDK's forbidden-wire-fields
