@@ -209,7 +209,35 @@ async fn metrics(depot: &mut Depot, res: &mut Response) {
             return;
         }
     };
-    let body = state.metrics().render_prometheus();
+    let mut body = state.metrics().render_prometheus();
+    // P2E.6 — append live r2d2 connection-pool occupancy. Kept here
+    // (rather than baked into Metrics) so the Db handle is the
+    // authoritative source — no risk of drift between the live pool
+    // and a separately-tracked counter.
+    let pool = state.db().pool_stats();
+    body.push_str(
+        "# HELP teabay_db_pool_connections Total connections currently held by the r2d2 pool.\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_connections gauge\n");
+    body.push_str(&format!(
+        "teabay_db_pool_connections {}\n",
+        pool.connections
+    ));
+    body.push_str(
+        "# HELP teabay_db_pool_idle Idle connections waiting for a checkout.\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_idle gauge\n");
+    body.push_str(&format!("teabay_db_pool_idle {}\n", pool.idle));
+    body.push_str(
+        "# HELP teabay_db_pool_in_use Connections currently checked out (connections - idle).\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_in_use gauge\n");
+    body.push_str(&format!("teabay_db_pool_in_use {}\n", pool.in_use));
+    body.push_str(
+        "# HELP teabay_db_pool_max_size Pool max_size configured at boot (TEABAY_DB_POOL_MAX_SIZE).\n",
+    );
+    body.push_str("# TYPE teabay_db_pool_max_size gauge\n");
+    body.push_str(&format!("teabay_db_pool_max_size {}\n", pool.max_size));
     res.headers_mut().insert(
         header::CONTENT_TYPE,
         "text/plain; version=0.0.4; charset=utf-8".parse().unwrap(),

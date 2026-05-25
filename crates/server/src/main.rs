@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
         std::env::set_var("DATABASE_URL", &config.database_url);
     }
 
-    let db = Db::connect(&config.database_url)?;
+    let db = Db::connect_with(&config.database_url, &config.db_pool)?;
     db.run_migrations()?;
     let state = AppState::new(config.clone(), db);
 
