@@ -2,6 +2,7 @@
 
 pub mod announce;
 pub mod divergence_worker;
+pub mod heartbeat;
 pub mod operator;
 pub mod pull_worker;
 pub mod rate_limit;

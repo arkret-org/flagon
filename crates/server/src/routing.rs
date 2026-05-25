@@ -133,7 +133,14 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     // transport.
     let ingest_routes = Router::new()
         .hoop(http_sig_middleware)
-        .push(Router::with_path("announce").post(ingest::announce::announce))
+        .push(
+            Router::with_path("announce")
+                .post(ingest::announce::announce)
+                // P2E.5 — heartbeat sub-route refreshes an already-
+                // indexed announce in place without re-signing the
+                // full discovery_state body.
+                .push(Router::with_path("heartbeat").post(ingest::heartbeat::heartbeat)),
+        )
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
         .push(Router::with_path("subscribe").post(ingest::subscribe::subscribe));
 
@@ -568,6 +575,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed cx.{kind}.discovery state.",
+        ),
+        (
+            "/api/v1/directory/announce/heartbeat",
+            PathItemType::Post,
+            "cx.directory.announce.heartbeat",
+            "ingest",
+            "Heartbeat Announced Resource",
+            "Refresh an indexed announce in place without re-signing the full discovery_state body.",
         ),
         (
             "/api/v1/directory/withdraw",

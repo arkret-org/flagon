@@ -982,6 +982,11 @@ pub(crate) fn upsert_resource_and_audit(
                 r::via_services.eq(&verified.via_services),
                 r::last_announce_id.eq(Some(stored_announce_id.as_str())),
                 r::realm_destroyed_at.eq(realm_terminal_state),
+                // P2E.5 — on insert the row was just refreshed at the
+                // current announce; expires_at = last_refreshed_at +
+                // effective_ttl_seconds.
+                r::last_refreshed_at.eq(indexed_at),
+                r::expires_at.eq(next_revalidation),
             ))
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
@@ -1007,6 +1012,9 @@ pub(crate) fn upsert_resource_and_audit(
                 >(
                     "COALESCE(directory_resources.realm_destroyed_at, EXCLUDED.realm_destroyed_at)",
                 )),
+                // P2E.5 — every successful announce is a refresh.
+                r::last_refreshed_at.eq(indexed_at),
+                r::expires_at.eq(next_revalidation),
             ))
             .execute(conn)?;
 
