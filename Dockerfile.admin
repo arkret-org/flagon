@@ -1,0 +1,77 @@
+# syntax=docker/dockerfile:1.7
+#
+# teabay admin SPA image — Dioxus WASM build served by nginx. Build
+# from the contrix-dev root with:
+#
+#   docker build \
+#     --build-context contrix-rust-sdk=../contrix-rust-sdk \
+#     -f Dockerfile.admin -t teabay-admin .
+#
+# P2E.4 — splits the admin SPA out of the server image so operators
+# can deploy / scale the front-end independently of the server
+# (canary releases, CDN fronting, etc.).
+
+FROM --platform=$BUILDPLATFORM rust:1.88-bookworm AS builder
+
+WORKDIR /workspace
+
+# teabay depends on the local Contrix SDK by path; admin currently
+# does NOT import the SDK directly but we keep the build context
+# stable so a future shared module (e.g. typed wire structs) does not
+# need a separate build wiring.
+COPY --from=contrix-rust-sdk . ./contrix-rust-sdk
+COPY . ./teabay
+
+WORKDIR /workspace/teabay
+
+# wasm32 target + dx (dioxus-cli) for the static SPA build.
+RUN rustup target add wasm32-unknown-unknown
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install dioxus-cli --version 0.7.9 --locked
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/workspace/teabay/target \
+    cd crates/admin && \
+    dx build --release && \
+    mkdir -p /workspace/dist && \
+    cp -r dist/* /workspace/dist/
+
+FROM nginx:1.27-alpine AS runtime
+
+# nginx by default runs as root only for the master process; the
+# worker process drops to `nginx` user. Override the conf so the
+# SPA is served from /usr/share/nginx/html with single-page-app
+# fallback (any unmatched path falls back to index.html so client-
+# side routes don't 404).
+RUN rm -rf /usr/share/nginx/html/*
+
+COPY --from=builder /workspace/dist /usr/share/nginx/html
+
+RUN printf '%s\n' \
+    'server {' \
+    '    listen 8080;' \
+    '    listen [::]:8080;' \
+    '    root /usr/share/nginx/html;' \
+    '    index index.html;' \
+    '    server_tokens off;' \
+    '    location / {' \
+    '        try_files $uri $uri/ /index.html;' \
+    '    }' \
+    '    location = /health {' \
+    '        access_log off;' \
+    '        return 200 "ok\n";' \
+    '        add_header Content-Type text/plain;' \
+    '    }' \
+    '}' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget --quiet --tries=1 --spider \
+        "http://127.0.0.1:8080/health" || exit 1
+
+# nginx:alpine drops privileges for worker processes automatically.
+CMD ["nginx", "-g", "daemon off;"]
