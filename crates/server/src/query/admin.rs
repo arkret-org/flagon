@@ -1063,6 +1063,120 @@ impl From<AuditDbRow> for AuditFeedItem {
     }
 }
 
+/// P2E.3 — operator dashboard stats. Cheap COUNT(*) aggregates over
+/// the directory tables so the admin SPA can render a single-shot
+/// overview without scanning the full audit feed.
+#[derive(Debug, Serialize)]
+struct DashboardStats {
+    directory_resources: i64,
+    stale_resources: i64,
+    divergent_resources: i64,
+    realm_destroyed: i64,
+    ingest_announces: i64,
+    webhook_subscriptions: i64,
+    audit_events: i64,
+    allowlist_entries: i64,
+    /// Per-kind directory size breakdown; ordered by descending count
+    /// so the SPA can render a bar chart without sorting.
+    per_kind: Vec<DashboardKindCount>,
+    /// Server timestamp at which the snapshot was assembled. The SPA
+    /// uses this to label the dashboard refresh time.
+    as_of: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+struct DashboardKindCount {
+    resource_kind: &'static str,
+    count: i64,
+}
+
+#[handler]
+pub async fn dashboard_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(state) => state.clone(),
+        Err(_) => {
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
+            return;
+        }
+    };
+    if let Err(error) = require_admin(req, &state) {
+        error.render(res, "admin bearer token required");
+        return;
+    }
+    let stats = match collect_dashboard_stats(&state).await {
+        Ok(stats) => stats,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("dashboard stats: {error}"));
+            return;
+        }
+    };
+    res.render(Json(stats));
+}
+
+async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardStats> {
+    use crate::schema::accept_allowlist::dsl as al;
+    use crate::schema::directory_audit::dsl as au;
+    use crate::schema::directory_resources::dsl as r;
+    use crate::schema::ingest_announces::dsl as a;
+    use crate::schema::webhook_subscriptions::dsl as s;
+
+    let mut conn = state.db().get()?;
+
+    let directory_resources: i64 = r::directory_resources.count().get_result(&mut conn)?;
+    let stale_resources: i64 = r::directory_resources
+        .filter(r::stale.eq(true))
+        .count()
+        .get_result(&mut conn)?;
+    let divergent_resources: i64 = r::directory_resources
+        .filter(r::divergent.eq(true))
+        .count()
+        .get_result(&mut conn)?;
+    let realm_destroyed: i64 = r::directory_resources
+        .filter(r::realm_destroyed_at.is_not_null())
+        .count()
+        .get_result(&mut conn)?;
+    let ingest_announces: i64 = a::ingest_announces.count().get_result(&mut conn)?;
+    let webhook_subscriptions: i64 = s::webhook_subscriptions
+        .filter(s::expires_at.is_null().or(s::expires_at.gt(Utc::now())))
+        .count()
+        .get_result(&mut conn)?;
+    let audit_events: i64 = au::directory_audit.count().get_result(&mut conn)?;
+    let allowlist_entries: i64 = al::accept_allowlist.count().get_result(&mut conn)?;
+
+    let mut per_kind = Vec::with_capacity(6);
+    for kind in [
+        ResourceKindWire::Realm,
+        ResourceKindWire::Space,
+        ResourceKindWire::Organization,
+        ResourceKindWire::Actor,
+        ResourceKindWire::Applet,
+        ResourceKindWire::Handle,
+    ] {
+        let count: i64 = r::directory_resources
+            .filter(r::resource_kind.eq(kind))
+            .count()
+            .get_result(&mut conn)?;
+        per_kind.push(DashboardKindCount {
+            resource_kind: kind.as_pg(),
+            count,
+        });
+    }
+    per_kind.sort_by(|a, b| b.count.cmp(&a.count));
+
+    Ok(DashboardStats {
+        directory_resources,
+        stale_resources,
+        divergent_resources,
+        realm_destroyed,
+        ingest_announces,
+        webhook_subscriptions,
+        audit_events,
+        allowlist_entries,
+        per_kind,
+        as_of: Utc::now(),
+    })
+}
+
 impl From<ResourceAdminRow> for ResourceAdminItem {
     fn from(row: ResourceAdminRow) -> Self {
         Self {

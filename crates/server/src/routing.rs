@@ -79,6 +79,7 @@ pub fn metrics_service(state: AppState) -> Service {
 
 fn admin_router() -> Router {
     Router::with_path("api/admin/v1")
+        .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
         .push(
             Router::with_path("allowlist")
@@ -415,6 +416,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "health",
             "Readiness check",
             "PostgreSQL and background-worker readiness probe.",
+        ),
+        (
+            "/api/admin/v1/dashboard",
+            PathItemType::Get,
+            "teabay.admin.dashboard_stats",
+            "admin",
+            "Directory Dashboard Stats",
+            "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
         ),
         (
             "/api/admin/v1/audit",

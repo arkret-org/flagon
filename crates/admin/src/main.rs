@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::ld_icons::{
-    LdDatabase, LdFileText, LdListChecks, LdPlus, LdRefreshCw, LdSave, LdSearch, LdSend, LdShield,
-    LdTrash2,
+    LdDatabase, LdFileText, LdLayoutDashboard, LdListChecks, LdPlus, LdRefreshCw, LdSave, LdSearch,
+    LdSend, LdShield, LdTrash2,
 };
 use gloo_net::http::{Request, RequestBuilder, Response};
 use serde::de::DeserializeOwned;
@@ -32,6 +32,7 @@ fn main() {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
+    Dashboard,
     Resources,
     Allowlist,
     Takedown,
@@ -40,7 +41,8 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
+        Self::Dashboard,
         Self::Resources,
         Self::Allowlist,
         Self::Takedown,
@@ -50,6 +52,7 @@ impl Tab {
 
     fn label(self) -> &'static str {
         match self {
+            Self::Dashboard => "Dashboard",
             Self::Resources => "Resources",
             Self::Allowlist => "Allowlist",
             Self::Takedown => "Takedown",
@@ -57,6 +60,38 @@ impl Tab {
             Self::Review => "Review",
         }
     }
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq)]
+struct DashboardStats {
+    #[serde(default)]
+    directory_resources: i64,
+    #[serde(default)]
+    stale_resources: i64,
+    #[serde(default)]
+    divergent_resources: i64,
+    #[serde(default)]
+    realm_destroyed: i64,
+    #[serde(default)]
+    ingest_announces: i64,
+    #[serde(default)]
+    webhook_subscriptions: i64,
+    #[serde(default)]
+    audit_events: i64,
+    #[serde(default)]
+    allowlist_entries: i64,
+    #[serde(default)]
+    per_kind: Vec<DashboardKindCount>,
+    #[serde(default)]
+    as_of: String,
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq)]
+struct DashboardKindCount {
+    #[serde(default)]
+    resource_kind: String,
+    #[serde(default)]
+    count: i64,
 }
 
 #[derive(Clone, Default, Deserialize, PartialEq)]
@@ -357,12 +392,154 @@ fn App() -> Element {
             }
             section { class: "workspace",
                 match selected {
+                    Tab::Dashboard => rsx! { DashboardPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Resources => rsx! { ResourcesPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Allowlist => rsx! { AllowlistPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Takedown => rsx! { TakedownPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Audit => rsx! { AuditPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Review => rsx! { ReviewPanel { base_url: api_base.clone(), token: api_token.clone() } },
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn DashboardPanel(base_url: String, token: String) -> Element {
+    let mut stats = use_signal(Option::<DashboardStats>::default);
+    let mut loading = use_signal(|| false);
+    let mut status = use_signal(|| "Idle".to_string());
+    let mut error = use_signal(String::new);
+
+    let stats_view = stats();
+    let loading_now = loading();
+    let status_text = status();
+    let error_text = error();
+
+    let load = move |_| {
+        let base_url = base_url.clone();
+        let token = token.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Loading directory stats".to_string());
+        spawn(async move {
+            match get_admin::<DashboardStats>(base_url, token, "dashboard", vec![]).await {
+                Ok(payload) => {
+                    status.set(format!("Snapshot as of {}", payload.as_of));
+                    stats.set(Some(payload));
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Dashboard query failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    rsx! {
+        div { class: "panel",
+            div { class: "panel-head",
+                div { class: "panel-title",
+                    h1 { "Directory dashboard" }
+                    div { class: "metric-row",
+                        span { class: "badge neutral", "operator overview" }
+                    }
+                }
+                div { class: "actions",
+                    button {
+                        class: "button primary",
+                        disabled: loading_now,
+                        onclick: load,
+                        DashboardIcon {}
+                        "Refresh"
+                    }
+                }
+            }
+            StatusLine { status: status_text, error: error_text }
+            // TODO(circle-rollout-P2E.3): add live ingest QPS + webhook
+            // delivery success-rate sparklines (needs prometheus scrape
+            // wired through gloo_net first).
+            // TODO(circle-rollout-P2E.3): add explicit "Freshness" panel
+            // showing per-resource last_refreshed_at + expires_at + a
+            // heartbeat replay action button once P2E.5 endpoints land.
+            match stats_view {
+                Some(payload) => rsx! {
+                    div { class: "form-grid",
+                        DashboardTile {
+                            label: "Directory resources",
+                            value: payload.directory_resources.to_string(),
+                            tone: "ok".to_string(),
+                        }
+                        DashboardTile {
+                            label: "Stale",
+                            value: payload.stale_resources.to_string(),
+                            tone: if payload.stale_resources > 0 { "warn".to_string() } else { "ok".to_string() },
+                        }
+                        DashboardTile {
+                            label: "Divergent",
+                            value: payload.divergent_resources.to_string(),
+                            tone: if payload.divergent_resources > 0 { "danger".to_string() } else { "ok".to_string() },
+                        }
+                        DashboardTile {
+                            label: "Realms destroyed",
+                            value: payload.realm_destroyed.to_string(),
+                            tone: "neutral".to_string(),
+                        }
+                        DashboardTile {
+                            label: "Ingest announces",
+                            value: payload.ingest_announces.to_string(),
+                            tone: "neutral".to_string(),
+                        }
+                        DashboardTile {
+                            label: "Webhook subs (live)",
+                            value: payload.webhook_subscriptions.to_string(),
+                            tone: "neutral".to_string(),
+                        }
+                        DashboardTile {
+                            label: "Audit events",
+                            value: payload.audit_events.to_string(),
+                            tone: "neutral".to_string(),
+                        }
+                        DashboardTile {
+                            label: "Allowlist entries",
+                            value: payload.allowlist_entries.to_string(),
+                            tone: "neutral".to_string(),
+                        }
+                    }
+                    div { class: "table-wrap",
+                        table {
+                            thead {
+                                tr {
+                                    th { "Resource kind" }
+                                    th { "Indexed rows" }
+                                }
+                            }
+                            tbody {
+                                for row in payload.per_kind {
+                                    tr {
+                                        td { span { class: "badge neutral", "{row.resource_kind}" } }
+                                        td { class: "mono", "{row.count}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                None => rsx! { div { class: "muted", "Press Refresh to load directory statistics." } },
+            }
+        }
+    }
+}
+
+#[component]
+fn DashboardTile(label: String, value: String, tone: String) -> Element {
+    let badge_class = format!("badge {tone}");
+    rsx! {
+        div { class: "field span-3",
+            label { "{label}" }
+            div { class: "metric-row",
+                span { class: badge_class, "{value}" }
             }
         }
     }
@@ -1590,6 +1767,18 @@ fn ShieldIcon() -> Element {
             icon: LdShield,
             class: "button-icon",
             title: Some("Status".to_string()),
+            style: None,
+        }
+    }
+}
+
+#[component]
+fn DashboardIcon() -> Element {
+    rsx! {
+        Icon {
+            icon: LdLayoutDashboard,
+            class: "button-icon",
+            title: Some("Dashboard".to_string()),
             style: None,
         }
     }
