@@ -5,5 +5,6 @@
 //!   - §9.1 normative result envelope (`as_of`, `source_refs`, `policy_revision`, `stale?`,
 //!     `divergent?`, `via_services`)
 
+pub mod circle_isolation;
 pub mod enumeration;
 pub mod result;

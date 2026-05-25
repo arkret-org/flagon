@@ -1,4 +1,16 @@
 //! Anti-enumeration helpers (spec §3.x `member_count_mode` + §10).
+//!
+//! ## Circle isolation invariant (CXP-0007, P2E.2)
+//!
+//! The bucket grid below is a **Realm-level** projection only. It is
+//! computed from the Realm's announced membership, never from any
+//! Circle's membership: Circle (`cx:circle:`) is an intra-Realm
+//! sub-boundary whose existence and member list MUST NEVER reach the
+//! directory. The [`crate::filter::circle_isolation`] guard
+//! hard-rejects any ingest payload that mentions a Circle before
+//! anything in this module sees it, so the bucket emitter here can
+//! trust that `member_count` only ever reflects Realm-scoped totals.
+//! See `docs/anti-enumeration.md` for the wider non-leak surface.
 
 use std::time::Duration;
 
