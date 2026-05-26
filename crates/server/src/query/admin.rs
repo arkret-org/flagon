@@ -2,7 +2,6 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use salvo::http::header;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -11,12 +10,17 @@ use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ingest::announce::effective_ttl_seconds;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
 
 const DEFAULT_AUDIT_LIMIT: i64 = 100;
 const MAX_AUDIT_LIMIT: i64 = 500;
 const DEFAULT_ADMIN_LIMIT: i64 = 100;
 const MAX_ADMIN_LIMIT: i64 = 500;
+/// Hard ceiling on the `q` (text search) filter passed to
+/// `resources_browser`. Prevents a hostile operator from pinning a
+/// multi-megabyte ILIKE pattern against the directory_resources table.
+const MAX_RESOURCE_Q_CHARS: usize = 256;
 
 #[derive(Debug, Default, Deserialize)]
 struct AuditQuery {
@@ -697,26 +701,15 @@ fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<A
         error.render(res, "admin bearer token required");
         return None;
     }
+    if let Err(error) = require_admin_csrf(req, &state) {
+        error.render(res, "X-CSRF-Token header required");
+        return None;
+    }
     Some(state)
 }
 
 fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
-    let expected = state
-        .config()
-        .admin_token
-        .as_deref()
-        .ok_or(ApiErrorCode::Unauthenticated)?;
-    let actual = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-
-    if actual == Some(expected) {
-        Ok(())
-    } else {
-        Err(ApiErrorCode::Unauthenticated)
-    }
+    verify_admin_credential(req, state).map(|_| ())
 }
 
 fn parse_since(raw: &str) -> Result<DateTime<Utc>, String> {
@@ -826,31 +819,46 @@ async fn load_resources(
         rows_query = rows_query.filter(r::stale.eq(stale));
     }
     if let Some(q) = query.q.as_deref().filter(|value| !value.trim().is_empty()) {
-        rows_query = rows_query.filter(r::resource_id.ilike(format!("%{}%", q.trim())));
+        // SQL LIKE DoS guard: cap q length so a hostile operator cannot
+        // make Postgres ILIKE-scan a multi-megabyte pattern.
+        let trimmed = q.trim();
+        let bounded: &str = if trimmed.len() > MAX_RESOURCE_Q_CHARS {
+            &trimmed[..MAX_RESOURCE_Q_CHARS]
+        } else {
+            trimmed
+        };
+        rows_query = rows_query.filter(r::resource_id.ilike(format!("%{bounded}%")));
     }
 
-    let rows: Vec<ResourceAdminRow> = rows_query
-        .order(r::indexed_at.desc())
-        .limit(limit)
-        .select((
-            r::resource_kind,
-            r::resource_id,
-            r::principal_server_did,
-            r::discovery_state,
-            r::public_projection,
-            r::discoverability,
-            r::as_of,
-            r::source_refs,
-            r::policy_revision,
-            r::indexed_at,
-            r::effective_ttl_seconds,
-            r::next_revalidation_after,
-            r::stale,
-            r::divergent,
-            r::via_services,
-            r::last_announce_id,
-        ))
-        .load(&mut conn)?;
+    // Per-statement timeout for the resources-browser scan. `SET LOCAL`
+    // requires a transaction so a runaway ILIKE can't tie up a pool
+    // connection beyond 1 second. The transaction commits cleanly even
+    // when the underlying SELECT returned a TimedOut error.
+    let rows: Vec<ResourceAdminRow> = conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        diesel::sql_query("SET LOCAL statement_timeout = '1s'").execute(conn)?;
+        rows_query
+            .order(r::indexed_at.desc())
+            .limit(limit)
+            .select((
+                r::resource_kind,
+                r::resource_id,
+                r::principal_server_did,
+                r::discovery_state,
+                r::public_projection,
+                r::discoverability,
+                r::as_of,
+                r::source_refs,
+                r::policy_revision,
+                r::indexed_at,
+                r::effective_ttl_seconds,
+                r::next_revalidation_after,
+                r::stale,
+                r::divergent,
+                r::via_services,
+                r::last_announce_id,
+            ))
+            .load(conn)
+    })?;
     Ok(rows.into_iter().map(ResourceAdminItem::from).collect())
 }
 
@@ -1196,6 +1204,149 @@ impl From<ResourceAdminRow> for ResourceAdminItem {
             divergent: row.divergent,
             via_services: row.via_services,
             last_announce_id: row.last_announce_id,
+        }
+    }
+}
+
+// ---- B.8.6 — takedown audit export -------------------------------------
+
+const MAX_TAKEDOWN_LIMIT: i64 = 500;
+const DEFAULT_TAKEDOWN_LIMIT: i64 = 200;
+
+#[derive(Debug, Default, Deserialize)]
+struct TakedownExportQuery {
+    #[serde(default)]
+    since: Option<String>,
+    #[serde(default)]
+    until: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Queryable, Serialize)]
+struct TakedownAuditExportRow {
+    audit_id: i64,
+    occurred_at: DateTime<Utc>,
+    resource_kind: Option<ResourceKindWire>,
+    resource_id: Option<String>,
+    actor: Option<String>,
+    detail: JsonValue,
+    authentication_method: Option<String>,
+    authenticated_actor: Option<String>,
+    asserted_operator: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct TakedownAuditExportItem {
+    audit_id: i64,
+    occurred_at: DateTime<Utc>,
+    resource_kind: Option<&'static str>,
+    resource_id: Option<String>,
+    actor: Option<String>,
+    detail: JsonValue,
+    authentication_method: Option<String>,
+    authenticated_actor: Option<String>,
+    asserted_operator: Option<String>,
+}
+
+#[handler]
+pub async fn takedown_audit_export(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match admin_state(req, depot, res) {
+        Some(state) => state,
+        None => return,
+    };
+    let query: TakedownExportQuery = match req.parse_queries() {
+        Ok(query) => query,
+        Err(error) => {
+            ApiErrorCode::BadQuery.render(res, format!("malformed takedown export query: {error}"));
+            return;
+        }
+    };
+    let since = match query.since.as_deref().map(parse_since).transpose() {
+        Ok(since) => since,
+        Err(message) => {
+            ApiErrorCode::InvalidParam.render(res, message);
+            return;
+        }
+    };
+    let until = match query.until.as_deref().map(parse_since).transpose() {
+        Ok(until) => until,
+        Err(message) => {
+            ApiErrorCode::InvalidParam.render(res, message);
+            return;
+        }
+    };
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_TAKEDOWN_LIMIT)
+        .clamp(1, MAX_TAKEDOWN_LIMIT);
+
+    match load_takedown_export(&state, since, until, limit).await {
+        Ok(rows) => {
+            let items: Vec<TakedownAuditExportItem> = rows
+                .into_iter()
+                .map(TakedownAuditExportItem::from)
+                .collect();
+            res.render(Json(json!({
+                "items": items,
+                "since": since,
+                "until": until,
+            })));
+        }
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("takedown export: {error}"))
+        }
+    }
+}
+
+async fn load_takedown_export(
+    state: &AppState,
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+    limit: i64,
+) -> anyhow::Result<Vec<TakedownAuditExportRow>> {
+    use crate::schema::directory_audit::dsl as a;
+
+    let mut conn = state.db().get()?;
+    let mut query = a::directory_audit
+        .filter(a::kind.eq(AuditEventKind::OperatorTakedown))
+        .into_boxed();
+    if let Some(since) = since {
+        query = query.filter(a::occurred_at.ge(since));
+    }
+    if let Some(until) = until {
+        query = query.filter(a::occurred_at.le(until));
+    }
+    let rows = query
+        .order((a::occurred_at.desc(), a::audit_id.desc()))
+        .limit(limit)
+        .select((
+            a::audit_id,
+            a::occurred_at,
+            a::resource_kind,
+            a::resource_id,
+            a::actor,
+            a::detail,
+            a::authentication_method,
+            a::authenticated_actor,
+            a::asserted_operator,
+        ))
+        .load(&mut conn)?;
+    Ok(rows)
+}
+
+impl From<TakedownAuditExportRow> for TakedownAuditExportItem {
+    fn from(row: TakedownAuditExportRow) -> Self {
+        Self {
+            audit_id: row.audit_id,
+            occurred_at: row.occurred_at,
+            resource_kind: row.resource_kind.map(ResourceKindWire::as_pg),
+            resource_id: row.resource_id,
+            actor: row.actor,
+            detail: row.detail,
+            authentication_method: row.authentication_method,
+            authenticated_actor: row.authenticated_actor,
+            asserted_operator: row.asserted_operator,
         }
     }
 }

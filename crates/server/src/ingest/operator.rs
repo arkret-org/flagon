@@ -2,17 +2,17 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use salvo::http::header;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
-use crate::audit::{self, AuditEventKind};
+use crate::audit::{self, ActorIdentity, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::receipt::operator_takedown_proof;
 use crate::ingest::{ResourceKindWire, WithdrawalKindWire};
+use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -46,8 +46,15 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         }
     };
 
-    if let Err(error) = require_admin(req, &state) {
-        error.render(res, "admin bearer token required");
+    let credential = match verify_admin_credential(req, &state) {
+        Ok(credential) => credential,
+        Err(error) => {
+            error.render(res, "admin bearer token required");
+            return;
+        }
+    };
+    if let Err(error) = require_admin_csrf(req, &state) {
+        error.render(res, "X-CSRF-Token header required");
         return;
     }
 
@@ -94,7 +101,13 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         return;
     }
 
-    let _ = audit::record(
+    let authenticated_actor = credential.authenticated_actor();
+    let identity = ActorIdentity {
+        authentication_method: Some(credential.authentication_method()),
+        authenticated_actor: Some(&authenticated_actor),
+        asserted_operator: Some(operator),
+    };
+    let _ = audit::record_with_identity(
         state.db(),
         AuditEventKind::OperatorTakedown,
         Some(body.resource_kind),
@@ -106,7 +119,10 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
             "effective_at": effective_at,
             "notification_status": notification_status,
             "takedown_contact": state.config().takedown_contact,
+            "authentication_method": credential.authentication_method(),
+            "credential_key_id": credential.key_id,
         }),
+        identity,
     );
 
     res.render(Json(OperatorTakedownResponse {
@@ -115,25 +131,6 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         effective_at,
         notification_status,
     }));
-}
-
-fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
-    let expected = state
-        .config()
-        .admin_token
-        .as_deref()
-        .ok_or(ApiErrorCode::Unauthenticated)?;
-    let actual = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-
-    if actual == Some(expected) {
-        Ok(())
-    } else {
-        Err(ApiErrorCode::Unauthenticated)
-    }
 }
 
 #[allow(clippy::too_many_arguments)]

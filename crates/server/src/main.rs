@@ -1,5 +1,6 @@
 use salvo::prelude::*;
 use server::ingest::divergence_worker::DivergenceWorker;
+use server::ingest::freshness_worker::{DEFAULT_FRESHNESS_TICK, FreshnessWorker};
 use server::ingest::pull_worker::PullWorker;
 use server::{AppConfig, AppState, Db, metrics_service, profile, service};
 use tokio::signal;
@@ -39,6 +40,11 @@ async fn main() -> anyhow::Result<()> {
     if let Some(period) = config.divergence_interval {
         let _worker = DivergenceWorker::new(state.clone(), period).spawn();
     }
+    // P2E.5 follow-up — freshness sweep marks `stale=true` for rows
+    // whose heartbeat-driven `expires_at` lapsed. Always-on with a
+    // 10-minute tick; cheap (single UPDATE, partial index).
+    let _freshness_worker =
+        FreshnessWorker::new(state.clone(), DEFAULT_FRESHNESS_TICK).spawn();
 
     let metrics_acceptor = TcpListener::new(config.metrics_bind.to_string())
         .bind()

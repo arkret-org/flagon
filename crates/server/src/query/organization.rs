@@ -10,6 +10,7 @@ use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::query::rate_limit::{enforce_query_rate_limit, enforce_resolve_rate_limit};
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
@@ -34,6 +35,9 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let _query_timer = state.metrics().query_timer("search-organizations");
+    if !enforce_query_rate_limit(req, res, &state) {
+        return;
+    }
     let body: SearchOrgsRequest = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
@@ -105,6 +109,9 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
             return;
         }
     };
+    if !enforce_resolve_rate_limit(req, res, &state, &key) {
+        return;
+    }
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,

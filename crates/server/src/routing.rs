@@ -94,6 +94,9 @@ fn admin_router() -> Router {
                 .delete(query::admin::resource_delete),
         )
         .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
+        // B.8.6 — operator-facing export of every takedown row, for
+        // legal / ops review. Bearer-auth same as the rest of admin.
+        .push(Router::with_path("takedowns").get(query::admin::takedown_audit_export))
         // Round R2/R3 T17 — soland calls this to broadcast a
         // `consent_revoke{scope=any}` and trigger eager directory
         // reachability invalidation. Bearer auth, admin-only.
@@ -523,6 +526,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "admin",
             "Operator Takedown",
             "Admin-only operator takedown path for §8.7 path 3.",
+        ),
+        (
+            "/api/admin/v1/takedowns",
+            PathItemType::Get,
+            "teabay.admin.takedown_audit_export",
+            "admin",
+            "Export Takedown Audit",
+            "Return every operator-takedown audit row within an optional `since` / `until` window.",
         ),
         (
             "/api/v1/directory/describe",

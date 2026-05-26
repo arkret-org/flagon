@@ -6,4 +6,5 @@ pub mod describe;
 pub mod handle;
 pub mod organization;
 pub mod psi;
+pub mod rate_limit;
 pub mod realm;

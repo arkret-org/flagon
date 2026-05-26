@@ -32,7 +32,21 @@ pub struct AppConfig {
     pub trust_domain: String,
     pub database_url: String,
     pub cors_allow_origin: Option<String>,
+    /// C.10.10 — require browser callers to mint an X-CSRF-Token header
+    /// matching this configured value on every state-changing admin
+    /// call. Disabled by default for backwards compatibility; enable
+    /// via `TEABAY_ADMIN_CSRF_TOKEN`. When set, Set-Cookie is also
+    /// emitted with `SameSite=Strict` so cookie-bearing flows are
+    /// additionally CSRF-hardened.
+    pub admin_csrf_token: Option<String>,
     pub admin_token: Option<String>,
+    /// A.8.4 — sliding window during which a rotating HMAC token
+    /// remains valid. Defaults to 30 minutes; clients sign
+    /// `HMAC_SHA256(secret, format!("{key_id}:{timestamp}"))` and
+    /// teabay accepts the proof when `now - timestamp <=
+    /// admin_token_rotation_window`. Env:
+    /// `TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS` (default 1800).
+    pub admin_token_rotation_window: std::time::Duration,
     pub development_mode: bool,
 
     pub accept_policy_kind: AcceptPolicyKind,
@@ -53,6 +67,15 @@ pub struct AppConfig {
     pub ingest_modes: Vec<IngestModeAdvert>,
 
     pub rate_limit_per_resource_per_min: u32,
+    /// Query-face rate limit (per IP, per 60s window). Applies to every
+    /// `cx.directory.search_*` / `cx.directory.resolve_*` endpoint. 0
+    /// means disabled. Env: `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`.
+    pub query_max_queries_per_ip_per_min: u32,
+    /// Per-`resource_id` resolve rate limit. Cools off enumeration
+    /// attempts against a single resource without affecting general
+    /// search traffic. 0 means disabled. Env:
+    /// `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`.
+    pub query_max_resolves_per_resource_per_min: u32,
     pub max_psi_queries_per_epoch: u32,
     pub private_contact_discovery_enabled: bool,
     pub psi_epoch_seconds: u64,
@@ -264,6 +287,13 @@ impl AppConfig {
         let admin_token = std::env::var("TEABAY_ADMIN_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty());
+        let admin_csrf_token = std::env::var("TEABAY_ADMIN_CSRF_TOKEN")
+            .ok()
+            .filter(|token| !token.trim().is_empty());
+        let admin_token_rotation_window_secs =
+            read_u64("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", 1_800)?;
+        let admin_token_rotation_window =
+            Duration::from_secs(admin_token_rotation_window_secs.max(60));
 
         let development_mode = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
 
@@ -320,6 +350,13 @@ impl AppConfig {
 
         let rate_limit_per_resource_per_min =
             read_u64("TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN", 60)? as u32;
+        // Query-face rate limit (per IP). Default 600/min keeps every
+        // realistic browser dashboard happy while breaking obvious
+        // enumeration sweeps. Set to 0 to disable.
+        let query_max_queries_per_ip_per_min =
+            read_u64("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 600)? as u32;
+        let query_max_resolves_per_resource_per_min =
+            read_u64("TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", 120)? as u32;
         let max_psi_queries_per_epoch = read_u64("TEABAY_MAX_PSI_QUERIES_PER_EPOCH", 60)? as u32;
         let private_contact_discovery_enabled =
             read_bool("TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED", true)?;
@@ -398,7 +435,9 @@ impl AppConfig {
             trust_domain,
             database_url,
             cors_allow_origin,
+            admin_csrf_token,
             admin_token,
+            admin_token_rotation_window,
             development_mode,
             accept_policy_kind,
             accept_policy_ref,
@@ -414,6 +453,8 @@ impl AppConfig {
             divergence_interval,
             ingest_modes,
             rate_limit_per_resource_per_min,
+            query_max_queries_per_ip_per_min,
+            query_max_resolves_per_resource_per_min,
             max_psi_queries_per_epoch,
             private_contact_discovery_enabled,
             psi_epoch_seconds,

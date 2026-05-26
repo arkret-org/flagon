@@ -8,16 +8,20 @@
 //! the underlying subject / service DID — they collapse to `not_found` with
 //! the same response shape and latency tier as a genuine miss (§10).
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
+use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::query::rate_limit::enforce_resolve_rate_limit;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +78,9 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
     }
+    if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {
+        return;
+    }
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -81,14 +88,23 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     );
     // Privacy key bundles every input that affects the not_found / found /
     // unauthorized branch so the deterministic latency tier is stable
-    // per-request but does not leak the branch back to the caller.
+    // per-request but does not leak the branch back to the caller. C.10.9
+    // — hash the requester IP into the privacy key so the same handle
+    // + intent + requester from two different IPs lands on independent
+    // latency tiers (an attacker can no longer share probes across
+    // hosts to disambiguate a slow miss from a slow hit).
+    let requester_ip = req.remote_addr().to_string();
+    let mut ip_hasher = Sha256::new();
+    ip_hasher.update(requester_ip.as_bytes());
+    let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
     let privacy_key = format!(
-        "handle={};intent={};realm={};req={};aud={}",
+        "handle={};intent={};realm={};req={};aud={};iph={}",
         body.handle,
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id.as_deref().unwrap_or_default(),
         body.requester.as_deref().unwrap_or_default(),
         body.audience.as_deref().unwrap_or_default(),
+        requester_ip_hash,
     );
 
     let outcome = pad_to_budget_observed(
@@ -156,6 +172,9 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
     let row: Option<HandleRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Handle))
         .filter(r::resource_id.eq(handle))
+        // Freshness worker flips `stale=true` once `expires_at < now()`;
+        // stale rows MUST NOT surface through the resolve face.
+        .filter(r::stale.eq(false))
         .select((
             r::resource_id,
             r::public_projection,

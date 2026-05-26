@@ -166,6 +166,64 @@ diesel::table! {
         resource_id -> Nullable<Text>,
         actor -> Nullable<Text>,
         detail -> Jsonb,
+        // A.8.5 — chained audit digest + operator-credential split.
+        authentication_method -> Nullable<Text>,
+        authenticated_actor -> Nullable<Text>,
+        asserted_operator -> Nullable<Text>,
+        prev_digest -> Nullable<Bytea>,
+        audit_digest -> Nullable<Bytea>,
+    }
+}
+
+diesel::table! {
+    // A.8.4 — operator rotating HMAC tokens (30-minute window).
+    admin_tokens (key_id) {
+        key_id -> Text,
+        secret -> Bytea,
+        label -> Nullable<Text>,
+        created_at -> Timestamptz,
+        expires_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ResourceKind;
+
+    // B.8.8 — pending takedown proposals awaiting quorum approval.
+    pending_takedowns (pending_id) {
+        pending_id -> Text,
+        resource_kind -> ResourceKind,
+        resource_id -> Text,
+        reason -> Text,
+        proposed_by -> Text,
+        proposed_at -> Timestamptz,
+        quorum -> Int4,
+        status -> Text,
+        expires_at -> Timestamptz,
+        executed_at -> Nullable<Timestamptz>,
+        executed_withdraw_id -> Nullable<Text>,
+        notification_status -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    pending_takedown_approvals (pending_id, approver) {
+        pending_id -> Text,
+        approver -> Text,
+        approved_at -> Timestamptz,
+        note -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    pending_takedown_webhooks (webhook_id) {
+        webhook_id -> Text,
+        endpoint -> Text,
+        secret -> Nullable<Bytea>,
+        created_at -> Timestamptz,
+        expires_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -178,4 +236,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     psi_epoch_keys,
     accept_allowlist,
     directory_audit,
+    admin_tokens,
+    pending_takedowns,
+    pending_takedown_approvals,
+    pending_takedown_webhooks,
 );
