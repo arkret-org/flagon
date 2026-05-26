@@ -43,8 +43,7 @@ async fn main() -> anyhow::Result<()> {
     // P2E.5 follow-up — freshness sweep marks `stale=true` for rows
     // whose heartbeat-driven `expires_at` lapsed. Always-on with a
     // 10-minute tick; cheap (single UPDATE, partial index).
-    let _freshness_worker =
-        FreshnessWorker::new(state.clone(), DEFAULT_FRESHNESS_TICK).spawn();
+    let _freshness_worker = FreshnessWorker::new(state.clone(), DEFAULT_FRESHNESS_TICK).spawn();
 
     let metrics_acceptor = TcpListener::new(config.metrics_bind.to_string())
         .bind()

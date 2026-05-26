@@ -153,6 +153,12 @@ enum ResolveOutcome {
     NotFound,
 }
 
+// SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
+// Spec sync 37ce729 (B-E) — identity-handles §4.1/§6.0: a Directory MUST NOT
+// treat `alsoKnownAs` as a mention index, primary key, or delivery routing
+// field. `HandleRow.resource_id` is the canonical handle DID; lookups go
+// through `resource_id` only, never through any `alsoKnownAs` claim cached
+// in `public_projection`.
 #[derive(Debug, Queryable, Clone)]
 struct HandleRow {
     resource_id: String,

@@ -82,3 +82,19 @@ whole directory.
 Anti-enumeration adds latency and can hide useful diagnostics from clients. The
 operator-facing admin and audit surfaces are the intended place to investigate
 why a row was filtered, stale, withdrawn, or marked divergent.
+
+## `alsoKnownAs` Scope (spec 37ce729, B-E)
+
+Directory MUST NOT use `alsoKnownAs` as a mention index, Directory primary key,
+or delivery routing field. `alsoKnownAs` is a holder-side reverse endorsement
+claim defined in `identity/identity-handles.md` §4.1; it is advisory display
+data only. Resolve and search handlers in this directory (`resolve_handle`,
+`resolve_realm`, `resolve_organization`, `search_actors`, `search_users`,
+`search_organizations`) consult exclusively the canonical identifiers stored
+on each row — `resource_id` (handle DID / realm id / organization DID),
+`alias`, `invite_token`, `signed_link` — and never reach into any
+`alsoKnownAs` value that may be cached inside `public_projection`. The
+verifier-authority vs cache split (identity-handles §6 / §6.0) keeps the
+Directory firmly on the cache side: it never asserts authoritative DID
+bindings and never lets a holder-side endorsement decide who receives a
+delivery.

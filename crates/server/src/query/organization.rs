@@ -84,6 +84,12 @@ pub struct ResolveOrgRequest {
     pub proofs: Vec<String>,
 }
 
+// SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
+// Spec sync 37ce729 (B-E) — identity-handles §6: `resolve_organization`
+// looks up rows by `organization_did` (canonical key) or by a Directory
+// `handle`. It MUST NOT consult any `alsoKnownAs` claim cached in
+// `public_projection` as an alternate key; that field is a holder-side
+// reverse endorsement and is not a Directory routing input.
 #[handler]
 pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {

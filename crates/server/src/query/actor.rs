@@ -164,6 +164,11 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     }
 }
 
+// SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
+// Spec sync 37ce729 (B-E) — identity-handles §6: actor search MUST resolve
+// through the canonical `actor_id` only. Any `alsoKnownAs` claim that may
+// appear inside a cached `public_projection` is treated as opaque display
+// data and never indexed for mention autocomplete or audience binding.
 #[derive(Debug, Queryable)]
 struct ActorRow {
     resource_id: String,

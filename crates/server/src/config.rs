@@ -408,9 +408,7 @@ impl AppConfig {
             anyhow::bail!("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS must be > 0");
         }
         let pool_idle_timeout_secs = match std::env::var("TEABAY_DB_POOL_IDLE_TIMEOUT_SECS") {
-            Ok(v) if v.trim().is_empty() => {
-                defaults.idle_timeout.map(|d| d.as_secs()).unwrap_or(0)
-            }
+            Ok(v) if v.trim().is_empty() => defaults.idle_timeout.map(|d| d.as_secs()).unwrap_or(0),
             Ok(v) => v.trim().parse::<u64>().map_err(|e| {
                 anyhow::anyhow!("invalid TEABAY_DB_POOL_IDLE_TIMEOUT_SECS={v}: {e}")
             })?,

@@ -138,10 +138,8 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
         Some(ttl) if ttl > 0 && ttl <= max_ttl => ttl,
         Some(ttl) => {
             ingest_metric.set_outcome("ttl_out_of_range");
-            ApiErrorCode::TtlOutOfRange.render(
-                res,
-                format!("ttl_seconds {ttl} not in (0, {max_ttl}]"),
-            );
+            ApiErrorCode::TtlOutOfRange
+                .render(res, format!("ttl_seconds {ttl} not in (0, {max_ttl}]"));
             return;
         }
         None => lookup.effective_ttl_seconds as i64,

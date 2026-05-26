@@ -226,9 +226,7 @@ async fn metrics(depot: &mut Depot, res: &mut Response) {
         "teabay_db_pool_connections {}\n",
         pool.connections
     ));
-    body.push_str(
-        "# HELP teabay_db_pool_idle Idle connections waiting for a checkout.\n",
-    );
+    body.push_str("# HELP teabay_db_pool_idle Idle connections waiting for a checkout.\n");
     body.push_str("# TYPE teabay_db_pool_idle gauge\n");
     body.push_str(&format!("teabay_db_pool_idle {}\n", pool.idle));
     body.push_str(

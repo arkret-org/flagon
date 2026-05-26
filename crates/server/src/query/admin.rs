@@ -1293,9 +1293,7 @@ pub async fn takedown_audit_export(req: &mut Request, depot: &mut Depot, res: &m
                 "until": until,
             })));
         }
-        Err(error) => {
-            ApiErrorCode::InternalError.render(res, format!("takedown export: {error}"))
-        }
+        Err(error) => ApiErrorCode::InternalError.render(res, format!("takedown export: {error}")),
     }
 }
 

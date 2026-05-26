@@ -157,6 +157,12 @@ pub struct ResolveRealmRequest {
     pub proofs: Vec<String>,
 }
 
+// SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
+// Spec sync 37ce729 (B-E) — identity-handles §6: `resolve_realm` accepts
+// `realm_id`, `alias`, `invite_token`, `signed_link` — all explicit
+// Directory-authoritative keys. `alsoKnownAs` claims that may be present
+// inside a cached `public_projection` are NEVER consulted for resolve key
+// matching. They are advisory display data only.
 #[handler]
 pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {

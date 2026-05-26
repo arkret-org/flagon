@@ -108,10 +108,7 @@ fn extract_bearer(req: &Request) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-fn verify_rotating_hmac(
-    state: &AppState,
-    raw: &str,
-) -> Result<AdminCredential, ApiErrorCode> {
+fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, ApiErrorCode> {
     // Wire format: `<key_id>:<unix_ts>:<base64(mac)>`. Splits are
     // bounded so an oversized payload cannot allocate unbounded.
     let mut parts = raw.splitn(3, ':');
@@ -145,8 +142,8 @@ fn verify_rotating_hmac(
         .map_err(|_| ApiErrorCode::Unauthenticated)?;
 
     let secret = lookup_admin_secret(state, key_id)?;
-    let mut mac = Hmac::<Sha256>::new_from_slice(&secret)
-        .map_err(|_| ApiErrorCode::InternalError)?;
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(&secret).map_err(|_| ApiErrorCode::InternalError)?;
     mac.update(format!("{key_id}:{ts}").as_bytes());
     mac.verify_slice(&mac_bytes)
         .map_err(|_| ApiErrorCode::Unauthenticated)?;

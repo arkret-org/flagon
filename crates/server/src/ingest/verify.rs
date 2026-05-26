@@ -77,7 +77,43 @@ impl<'a> VerifyContext<'a> {
         // `crate::routing` for the `.hoop(...)` wire and `TB-1` for the
         // landing audit. ------------------------------------------------
 
-        // --- Step 0 (housekeeping): freshness window. ----------------------
+        // --- Step 0a: DID format normalization. ----------------------------
+        // Spec sync (commit 37ce729, B-D): every DID-bearing identifier in
+        // the announce envelope MUST conform to `^did:[a-z0-9]+:[^\s]+$`
+        // (lowercase ASCII method, non-empty whitespace-free method-specific
+        // id). We push this check through the SDK `Did::new` parser so the
+        // teabay directory and the rest of the Contrix stack share one
+        // normative parser. Non-conforming inputs short-circuit with a
+        // structured rejection BEFORE any signature / accept-policy work,
+        // which keeps audit logs clean and rules out legacy actor_id /
+        // controller DID shapes at the ingest boundary.
+        if matches!(
+            req.resource_kind,
+            ResourceKindWire::Organization | ResourceKindWire::Actor | ResourceKindWire::Applet
+        ) {
+            Did::new(req.resource_id.clone()).map_err(|e| {
+                (
+                    ApiErrorCode::SchemaViolation,
+                    format!(
+                        "resource_id `{}` does not conform to did syntax \
+                         ^did:[a-z0-9]+:[^\\s]+$: {e}",
+                        req.resource_id
+                    ),
+                )
+            })?;
+        }
+        Did::new(req.principal_server_did.clone()).map_err(|e| {
+            (
+                ApiErrorCode::SchemaViolation,
+                format!(
+                    "principal_server_did `{}` does not conform to did syntax \
+                     ^did:[a-z0-9]+:[^\\s]+$: {e}",
+                    req.principal_server_did
+                ),
+            )
+        })?;
+
+        // --- Step 0b (housekeeping): freshness window. ---------------------
         let skew = chrono::Duration::from_std(self.config.as_of_skew).map_err(|_| {
             (
                 ApiErrorCode::InternalError,

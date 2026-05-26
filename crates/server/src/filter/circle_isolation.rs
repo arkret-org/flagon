@@ -373,10 +373,10 @@ mod tests {
             for (key, value) in injections {
                 let mut victim = base.clone();
                 // Inject at either top-level or one level of nesting.
-                victim.as_object_mut().unwrap().insert(
-                    (*key).to_owned(),
-                    value.clone(),
-                );
+                victim
+                    .as_object_mut()
+                    .unwrap()
+                    .insert((*key).to_owned(), value.clone());
                 assert!(
                     reject_circle_payload(&victim).is_err(),
                     "injection of {key} into {victim} must be rejected"
