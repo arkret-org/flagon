@@ -1,4 +1,5 @@
 /target
+/target-*/
 artifacts/
 
 # Local development overrides. Real secrets must never be committed.
