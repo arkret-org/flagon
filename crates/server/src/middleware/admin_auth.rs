@@ -156,9 +156,12 @@ fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, 
 
 fn lookup_admin_secret(state: &AppState, key_id: &str) -> Result<Vec<u8>, ApiErrorCode> {
     use crate::schema::admin_tokens::dsl as t;
+
+    type AdminTokenRow = (Vec<u8>, Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
     let mut conn = state.db().get().map_err(|_| ApiErrorCode::InternalError)?;
     let now = Utc::now();
-    let row: Option<(Vec<u8>, Option<DateTime<Utc>>, Option<DateTime<Utc>>)> = t::admin_tokens
+    let row: Option<AdminTokenRow> = t::admin_tokens
         .filter(t::key_id.eq(key_id))
         .select((t::secret, t::expires_at, t::revoked_at))
         .first(&mut conn)

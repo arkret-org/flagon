@@ -286,12 +286,12 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     // identical to a genuine miss (same status, same body, same
     // jitter), but BEFORE the latency-budget padding so we don't waste
     // a query timer slot on a request that has no DB-bound work.
-    if let Some(selector) = body.selector.as_ref() {
-        if crate::filter::selector::is_circle_selector(selector) {
-            apply_resolve_response_jitter().await;
-            ApiErrorCode::NotFound.render(res, "not found");
-            return;
-        }
+    if let Some(selector) = body.selector.as_ref()
+        && crate::filter::selector::is_circle_selector(selector)
+    {
+        apply_resolve_response_jitter().await;
+        ApiErrorCode::NotFound.render(res, "not found");
+        return;
     }
     // Defence in depth: a bare `cx:circle:` typed id smuggled into the
     // `handle` field is also collapsed to `not_found` rather than
@@ -527,10 +527,10 @@ impl RealmDeliveryBindingPolicy {
             // discoverability gate the row itself carries.
             return true;
         }
-        if let Some(requester) = requester {
-            if self.trusted_audiences.iter().any(|aud| aud == requester) {
-                return true;
-            }
+        if let Some(requester) = requester
+            && self.trusted_audiences.iter().any(|aud| aud == requester)
+        {
+            return true;
         }
         // Reuse the `allowed_discoverers` shape when the Realm does not
         // declare explicit trusted audiences.

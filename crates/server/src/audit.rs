@@ -178,6 +178,7 @@ pub fn record_with_identity(
 /// Canonical digest input. Includes every operator-meaningful field so
 /// any tamper (e.g. swapping `detail.reason`, blanking `actor`) breaks
 /// the chain.
+#[allow(clippy::too_many_arguments)]
 fn compute_row_digest(
     occurred_at: DateTime<Utc>,
     kind: AuditEventKind,

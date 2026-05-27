@@ -524,7 +524,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     destroyed_state["proof"]["jws"] =
         JsonValue::String(sign_detached_jws(&destroyed_state, &signing_key)?);
     let destroy_mock = MockPrincipalServer::spawn("evt-destroy-realm")?;
-    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+    let res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "cx:realm:takedown-state",
@@ -552,7 +552,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let withdraw_mock = MockPrincipalServer::spawn("evt-withdraw-realm")?;
     let withdraw_state =
         signed_realm_discovery_state_named(&verification_method, &signing_key, "Withdrawable Tea")?;
-    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+    let res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "cx:realm:takedown-withdraw",
@@ -621,7 +621,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     // Path 3: operator takedown signs a service receipt over the full
     // takedown statement and removes the indexed row.
     let operator_resource_id = "did:web:takedown-operator.example";
-    let mut res = TestClient::post("http://local/api/admin/v1/resources")
+    let res = TestClient::post("http://local/api/admin/v1/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -1102,10 +1102,6 @@ fn sign_detached_jws_with_proof_key(
         "{protected}..{}",
         URL_SAFE_NO_PAD.encode(signature.to_bytes())
     ))
-}
-
-fn canonical_payload_without_jws(payload: &JsonValue) -> anyhow::Result<Vec<u8>> {
-    canonical_payload_without_jws_at(payload, "proof")
 }
 
 fn canonical_payload_without_jws_at(

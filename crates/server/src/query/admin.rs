@@ -1169,7 +1169,7 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
             count,
         });
     }
-    per_kind.sort_by(|a, b| b.count.cmp(&a.count));
+    per_kind.sort_by_key(|k| std::cmp::Reverse(k.count));
 
     Ok(DashboardStats {
         directory_resources,

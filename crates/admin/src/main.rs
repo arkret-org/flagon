@@ -1796,7 +1796,6 @@ fn DatabaseIcon() -> Element {
     }
 }
 
-#[allow(dead_code)]
 #[component]
 fn FileIcon() -> Element {
     rsx! {
@@ -1809,7 +1808,6 @@ fn FileIcon() -> Element {
     }
 }
 
-#[allow(dead_code)]
 #[component]
 fn PlusIcon() -> Element {
     rsx! {

@@ -66,7 +66,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
         return;
     }
     let body: SearchActorsRequest = req.parse_json().await.unwrap_or_default();
-    let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
+    let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
@@ -136,7 +136,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
             return;
         }
     };
-    let limit = query.limit.unwrap_or(20).min(100).max(1) as i64;
+    let limit = query.limit.unwrap_or(20).clamp(1, 100) as i64;
     let needle = query.query.unwrap_or_default();
 
     let budget = LatencyBudget::new(

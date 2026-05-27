@@ -42,7 +42,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     }
     let body: SearchOrgsRequest = req.parse_json().await.unwrap_or_default();
 
-    let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
+    let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
         state.config().query_latency_jitter,

@@ -159,10 +159,12 @@ pub(crate) fn withdraw_payload_without_jws(
     let proof = payload
         .get_mut("governance_proof")
         .and_then(JsonValue::as_object_mut)
-        .ok_or((
-            ApiErrorCode::SignatureInvalid,
-            "governance_proof object missing".to_owned(),
-        ))?;
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SignatureInvalid,
+                "governance_proof object missing".to_owned(),
+            )
+        })?;
     if proof.remove("jws").is_none() {
         return Err((
             ApiErrorCode::SignatureInvalid,

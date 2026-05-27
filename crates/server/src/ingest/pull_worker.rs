@@ -551,6 +551,13 @@ fn response_header_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+// Allow `Arc<AppState>` style usage in test fixtures without changing public API.
+impl From<Arc<AppState>> for PullWorker {
+    fn from(state: Arc<AppState>) -> Self {
+        Self::new((*state).clone(), Duration::from_secs(300))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::TimeZone;
@@ -591,12 +598,5 @@ mod tests {
         assert!(cache.service_binding_ref.contains("\"frontier\""));
         assert_eq!(cache.origin_key_state_digest, b"sha256:abc123");
         assert!(!cache.historical_only);
-    }
-}
-
-// Allow `Arc<AppState>` style usage in test fixtures without changing public API.
-impl From<Arc<AppState>> for PullWorker {
-    fn from(state: Arc<AppState>) -> Self {
-        Self::new((*state).clone(), Duration::from_secs(300))
     }
 }

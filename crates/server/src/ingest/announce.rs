@@ -348,26 +348,25 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // `supersedes_announce_id`) and could carry a smuggled
     // `cx:circle:` id if a caller is misbehaving. Re-run the typed-id
     // sentinel over the whole request envelope.
-    if let Ok(envelope) = serde_json::to_value(&body) {
-        if let Err(rejection) = circle_isolation::reject_circle_payload(&envelope) {
-            if !matches!(rejection, CircleRejection::ForbiddenLegacyWireField(_)) {
-                ingest_metric.set_outcome("circle_isolation_violation");
-                let _ = audit::record(
-                    state.db(),
-                    AuditEventKind::IngestRejected,
-                    Some(body.resource_kind),
-                    Some(&body.resource_id),
-                    Some(&body.principal_server_did),
-                    json!({
-                        "code": ApiErrorCode::SchemaViolation.wire_code(),
-                        "reason": "circle_isolation_violation",
-                        "violation": rejection.audit_label(),
-                    }),
-                );
-                ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
-                return;
-            }
-        }
+    if let Ok(envelope) = serde_json::to_value(&body)
+        && let Err(rejection) = circle_isolation::reject_circle_payload(&envelope)
+        && !matches!(rejection, CircleRejection::ForbiddenLegacyWireField(_))
+    {
+        ingest_metric.set_outcome("circle_isolation_violation");
+        let _ = audit::record(
+            state.db(),
+            AuditEventKind::IngestRejected,
+            Some(body.resource_kind),
+            Some(&body.resource_id),
+            Some(&body.principal_server_did),
+            json!({
+                "code": ApiErrorCode::SchemaViolation.wire_code(),
+                "reason": "circle_isolation_violation",
+                "violation": rejection.audit_label(),
+            }),
+        );
+        ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
+        return;
     }
 
     // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
@@ -555,18 +554,17 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     if let Some(latest) = latest_as_of_for(state.db(), body.resource_kind, &body.resource_id)
         .ok()
         .flatten()
+        && body.as_of < latest
     {
-        if body.as_of < latest {
-            ingest_metric.set_outcome("rollback_rejected");
-            ApiErrorCode::PolicyRevisionRollback.render(
-                res,
-                format!(
-                    "incoming as_of {} is older than indexed {latest}",
-                    body.as_of
-                ),
-            );
-            return;
-        }
+        ingest_metric.set_outcome("rollback_rejected");
+        ApiErrorCode::PolicyRevisionRollback.render(
+            res,
+            format!(
+                "incoming as_of {} is older than indexed {latest}",
+                body.as_of
+            ),
+        );
+        return;
     }
 
     let effective_ttl = effective_ttl_seconds(body.ttl_seconds, state.config());
@@ -746,13 +744,13 @@ fn validate_request_shape(
             "discovery_state must be an object".into(),
         ));
     }
-    if let Some(ttl) = req.ttl_seconds {
-        if ttl <= 0 || ttl > max_ttl.as_secs() as i64 {
-            return Err((
-                ApiErrorCode::TtlOutOfRange,
-                format!("ttl_seconds {ttl} not in (0, {}]", max_ttl.as_secs()),
-            ));
-        }
+    if let Some(ttl) = req.ttl_seconds
+        && (ttl <= 0 || ttl > max_ttl.as_secs() as i64)
+    {
+        return Err((
+            ApiErrorCode::TtlOutOfRange,
+            format!("ttl_seconds {ttl} not in (0, {}]", max_ttl.as_secs()),
+        ));
     }
     Ok(())
 }
@@ -788,20 +786,22 @@ pub(crate) fn derive_public_projection(
 fn normalize_member_count_projection(
     obj: &mut serde_json::Map<String, JsonValue>,
 ) -> Result<(), (ApiErrorCode, String)> {
-    if let Some(bucket) = obj.get("member_count_bucket").and_then(JsonValue::as_str) {
-        if !is_valid_member_count_bucket(bucket) {
-            return Err((
-                ApiErrorCode::InvalidResponse,
-                format!("member_count_bucket {bucket} is outside the normative bucket grid"),
-            ));
-        }
+    if let Some(bucket) = obj.get("member_count_bucket").and_then(JsonValue::as_str)
+        && !is_valid_member_count_bucket(bucket)
+    {
+        return Err((
+            ApiErrorCode::InvalidResponse,
+            format!("member_count_bucket {bucket} is outside the normative bucket grid"),
+        ));
     }
 
     if let Some(exact) = obj.remove("member_count") {
-        let count = exact.as_i64().ok_or((
-            ApiErrorCode::InvalidResponse,
-            "member_count must be an integer when present".into(),
-        ))?;
+        let count = exact.as_i64().ok_or_else(|| {
+            (
+                ApiErrorCode::InvalidResponse,
+                "member_count must be an integer when present".into(),
+            )
+        })?;
         obj.insert(
             "member_count_bucket".into(),
             JsonValue::String(bucket_member_count(count).to_string()),

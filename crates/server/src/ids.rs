@@ -48,10 +48,10 @@ pub fn parse(id: &str) -> Option<(IdClass, Ulid)> {
         IdClass::Subscription,
         IdClass::AuditAck,
     ] {
-        if let Some(rest) = id.strip_prefix(class.prefix()) {
-            if let Ok(ulid) = Ulid::from_string(rest) {
-                return Some((class, ulid));
-            }
+        if let Some(rest) = id.strip_prefix(class.prefix())
+            && let Ok(ulid) = Ulid::from_string(rest)
+        {
+            return Some((class, ulid));
         }
     }
     None

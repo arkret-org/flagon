@@ -66,7 +66,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     }
     let body: SearchRealmsRequest = req.parse_json().await.unwrap_or_default();
 
-    let limit = body.limit.unwrap_or(20).min(200).max(1) as i64;
+    let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
     let scope = body.scope.unwrap_or_default();
     let requester = body.requester;
@@ -583,44 +583,6 @@ fn decode_cursor(cursor: &str) -> Result<RealmCursor, String> {
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid cursor body: {e}"))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn restricted_projection_requires_matching_requester_or_proof() {
-        let projection = json!({
-            "payload": {
-                "allowed_discoverers": [
-                    {
-                        "type": "claim",
-                        "claim_type": "org_membership",
-                        "organization": "did:web:acme.example",
-                        "issuer": "did:web:acme.example"
-                    },
-                    { "requester": "did:web:alice.example" }
-                ]
-            }
-        });
-
-        assert!(has_restricted_query_authorization(
-            &projection,
-            Some("did:web:alice.example"),
-            &[]
-        ));
-        assert!(has_restricted_query_authorization(
-            &projection,
-            Some("did:web:bob.example"),
-            &["org_membership".to_string()]
-        ));
-        assert!(!has_restricted_query_authorization(
-            &projection,
-            Some("did:web:bob.example"),
-            &["other_claim".to_string()]
-        ));
-    }
-}
-
 const REALM_SEARCH_SQL: &str = r#"
 WITH ranked AS (
     SELECT
@@ -702,3 +664,41 @@ WHERE (
 ORDER BY score DESC, member_count_rank DESC, indexed_at DESC, resource_id ASC
 LIMIT $7
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restricted_projection_requires_matching_requester_or_proof() {
+        let projection = json!({
+            "payload": {
+                "allowed_discoverers": [
+                    {
+                        "type": "claim",
+                        "claim_type": "org_membership",
+                        "organization": "did:web:acme.example",
+                        "issuer": "did:web:acme.example"
+                    },
+                    { "requester": "did:web:alice.example" }
+                ]
+            }
+        });
+
+        assert!(has_restricted_query_authorization(
+            &projection,
+            Some("did:web:alice.example"),
+            &[]
+        ));
+        assert!(has_restricted_query_authorization(
+            &projection,
+            Some("did:web:bob.example"),
+            &["org_membership".to_string()]
+        ));
+        assert!(!has_restricted_query_authorization(
+            &projection,
+            Some("did:web:bob.example"),
+            &["other_claim".to_string()]
+        ));
+    }
+}

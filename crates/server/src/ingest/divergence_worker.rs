@@ -106,8 +106,10 @@ impl DivergenceWorker {
     fn fetch_candidates(&self, limit: i64) -> anyhow::Result<Vec<DivergenceCandidate>> {
         use crate::schema::directory_resources::dsl as r;
 
+        type CandidateRow = (ResourceKindWire, String, Option<String>, bool, Vec<String>);
+
         let mut conn = self.state.db().get()?;
-        let rows: Vec<(ResourceKindWire, String, Option<String>, bool, Vec<String>)> =
+        let rows: Vec<CandidateRow> =
             r::directory_resources
                 .order(r::indexed_at.asc())
                 .limit(limit)

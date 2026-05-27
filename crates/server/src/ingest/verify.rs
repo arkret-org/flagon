@@ -175,17 +175,16 @@ impl<'a> VerifyContext<'a> {
                     format!("withdrawal check: {e}"),
                 )
             })?
+            && req.as_of <= effective_at
         {
-            if req.as_of <= effective_at {
-                return Err((
-                    ApiErrorCode::TakedownInForce,
-                    format!(
-                        "a withdrawal is in force as of {effective_at}; \
-                         announce as_of {} is not strictly later",
-                        req.as_of
-                    ),
-                ));
-            }
+            return Err((
+                ApiErrorCode::TakedownInForce,
+                format!(
+                    "a withdrawal is in force as of {effective_at}; \
+                     announce as_of {} is not strictly later",
+                    req.as_of
+                ),
+            ));
         }
 
         // --- Derive outcome from verified state. ---------------------------
@@ -260,18 +259,22 @@ fn verify_trust_root_attestation(
     req: &AnnounceRequest,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
-    let attestation = req.trust_root_attestation.as_ref().ok_or((
-        ApiErrorCode::AcceptPolicyDenied,
-        "trust_root_signed requires trust_root_attestation".to_owned(),
-    ))?;
+    let attestation = req.trust_root_attestation.as_ref().ok_or_else(|| {
+        (
+            ApiErrorCode::AcceptPolicyDenied,
+            "trust_root_signed requires trust_root_attestation".to_owned(),
+        )
+    })?;
     let issuer = attestation
         .get("issuer")
         .and_then(JsonValue::as_str)
         .filter(|issuer| !issuer.is_empty())
-        .ok_or((
-            ApiErrorCode::AcceptPolicyDenied,
-            "trust_root_attestation.issuer missing".to_owned(),
-        ))?;
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::AcceptPolicyDenied,
+                "trust_root_attestation.issuer missing".to_owned(),
+            )
+        })?;
     if !trust_root_allowed(config, issuer) {
         return Err((
             ApiErrorCode::AcceptPolicyDenied,
@@ -316,10 +319,12 @@ fn verify_trust_root_attestation(
         }
     }
 
-    let proof = attestation.get("proof").ok_or((
-        ApiErrorCode::AcceptPolicyDenied,
-        "trust_root_attestation.proof missing".to_owned(),
-    ))?;
+    let proof = attestation.get("proof").ok_or_else(|| {
+        (
+            ApiErrorCode::AcceptPolicyDenied,
+            "trust_root_attestation.proof missing".to_owned(),
+        )
+    })?;
     let canonical = canonical_payload_without_jws(attestation, "proof")?;
     let DetachedProof {
         verification_method,
@@ -358,10 +363,12 @@ pub(crate) fn verify_discovery_proof(
     resource_id: &str,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
-    let proof = discovery_state.get("proof").ok_or((
-        ApiErrorCode::SignatureInvalid,
-        "discovery_state.proof is missing".into(),
-    ))?;
+    let proof = discovery_state.get("proof").ok_or_else(|| {
+        (
+            ApiErrorCode::SignatureInvalid,
+            "discovery_state.proof is missing".into(),
+        )
+    })?;
     let canonical = canonical_payload_without_jws(discovery_state, "proof")?;
     verify_detached_jws_payload(&canonical, proof, resource_kind, resource_id, config)
 }
@@ -403,7 +410,7 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, Str
     let kind = proof
         .get("kind")
         .and_then(JsonValue::as_str)
-        .ok_or((ApiErrorCode::SignatureInvalid, "proof.kind missing".into()))?;
+        .ok_or_else(|| (ApiErrorCode::SignatureInvalid, "proof.kind missing".into()))?;
     if kind != "detached_jws" {
         return Err((
             ApiErrorCode::SignatureInvalid,
@@ -414,16 +421,18 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, Str
         .get("verification_method")
         .and_then(JsonValue::as_str)
         .filter(|value| !value.trim().is_empty())
-        .ok_or((
-            ApiErrorCode::SignatureInvalid,
-            "proof.verification_method missing".into(),
-        ))?
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SignatureInvalid,
+                "proof.verification_method missing".into(),
+            )
+        })?
         .to_owned();
     let jws = proof
         .get("jws")
         .and_then(JsonValue::as_str)
         .filter(|value| !value.trim().is_empty())
-        .ok_or((ApiErrorCode::SignatureInvalid, "proof.jws missing".into()))?
+        .ok_or_else(|| (ApiErrorCode::SignatureInvalid, "proof.jws missing".into()))?
         .to_owned();
     Ok(DetachedProof {
         verification_method,
@@ -439,10 +448,12 @@ fn canonical_payload_without_jws(
     let proof = unsigned
         .get_mut(proof_key)
         .and_then(JsonValue::as_object_mut)
-        .ok_or((
-            ApiErrorCode::SignatureInvalid,
-            format!("{proof_key} proof object missing"),
-        ))?;
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SignatureInvalid,
+                format!("{proof_key} proof object missing"),
+            )
+        })?;
     if proof.remove("jws").is_none() {
         return Err((ApiErrorCode::SignatureInvalid, "proof.jws missing".into()));
     }
@@ -550,10 +561,12 @@ async fn verify_first_source_ref_resolves(
     let source_ref = req
         .source_refs
         .first()
-        .ok_or((
-            ApiErrorCode::SourceRefsUnverifiable,
-            "source_refs MUST contain at least one anchor event id".to_owned(),
-        ))?
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                "source_refs MUST contain at least one anchor event id".to_owned(),
+            )
+        })?
         .clone();
     let http = strict_http_client().map_err(|e| {
         (
@@ -597,10 +610,12 @@ async fn verify_first_source_ref_resolves(
         .pointer("/event/event_id")
         .or_else(|| body.get("event_id"))
         .and_then(JsonValue::as_str)
-        .ok_or((
-            ApiErrorCode::SourceRefsUnverifiable,
-            "source-ref response did not contain event_id".to_owned(),
-        ))?;
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                "source-ref response did not contain event_id".to_owned(),
+            )
+        })?;
     if returned_id != source_ref {
         return Err((
             ApiErrorCode::SourceRefsUnverifiable,
@@ -766,10 +781,12 @@ fn read_discoverability(
     let s = discovery_state
         .get("discoverability")
         .and_then(JsonValue::as_str)
-        .ok_or((
-            ApiErrorCode::SchemaViolation,
-            "discovery_state.discoverability missing".into(),
-        ))?;
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SchemaViolation,
+                "discovery_state.discoverability missing".into(),
+            )
+        })?;
     match s {
         "public" => Ok(super::DiscoverabilityWire::Public),
         "listed" => Ok(super::DiscoverabilityWire::Listed),
