@@ -16,6 +16,26 @@ use diesel_derive_enum::DbEnum;
 use serde::{Deserialize, Serialize};
 
 // ---- Resource kind (wire enum + diesel impls) ---------------------------
+//
+// CXP R3 spec-sync 2026-05-27 (commit b47ff6e), REC-1 — recovery
+// resource pointers (`recovery-policy.schema.json` /
+// `recovery-receipt.schema.json`) are NOT indexed by teabay. The
+// directory's role is realm/organization/actor/handle/applet discovery
+// only; recovery state lives at the principal server (soland) and
+// recovery policy bindings travel through coauth, never through the
+// directory's public projection. `ResourceKindWire` therefore
+// intentionally does NOT carry a `Recovery` variant — adding one would
+// expand the anti-enumeration surface for no protocol benefit.
+//
+// TODO(R3.1): If a future profile mandates the directory carry an
+// optional recovery-witness service-binding hint, validate every
+// announce body whose discovery_state contains a `recovery_policy_ref`
+// or `recovery_receipt_ref` against the SDK's `RecoveryPolicy` /
+// `RecoveryReceipt` types (once those land — see
+// `contrix-rust-sdk/_contrix_rust_sdk_todos.md` REC-1). Until then a
+// caller attempting to announce a recovery-keyed resource is rejected
+// by the `resource_kind` enum at deserialization time, which is the
+// intentional stub for REC-1.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
 #[db_enum(existing_type_path = "crate::schema::sql_types::ResourceKind")]

@@ -370,6 +370,38 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     }
 
+    // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+    // §17 — wire-level handle homograph guard. When a handle resource
+    // is announced, the localpart of `resource_id` MUST pass the SDK's
+    // `normalize_handle_localpart` rule (NFC + UTS#39 confusable
+    // skeleton + script-mixed reject) before the row is indexed.
+    // Otherwise an attacker could push a Cyrillic / mixed-script
+    // homograph row that later collides with the canonical-form
+    // localpart at resolve time.
+    if matches!(body.resource_kind, ResourceKindWire::Handle) {
+        let localpart =
+            crate::query::handle::extract_localpart_public(&body.resource_id).to_owned();
+        if contrix_sdk::normalize_handle_localpart(&localpart).is_err() {
+            ingest_metric.set_outcome("handle_homograph_forbidden");
+            let _ = audit::record(
+                state.db(),
+                AuditEventKind::IngestRejected,
+                Some(body.resource_kind),
+                Some(&body.resource_id),
+                Some(&body.principal_server_did),
+                json!({
+                    "code": ApiErrorCode::HandleHomographForbidden.wire_code(),
+                    "reason": "handle_homograph_forbidden",
+                }),
+            );
+            ApiErrorCode::HandleHomographForbidden.render(
+                res,
+                "handle localpart violates homograph / script-mixed policy",
+            );
+            return;
+        }
+    }
+
     if let Err((code, msg)) = validate_request_shape(&body, state.config().max_ttl) {
         ingest_metric.set_outcome("schema_rejected");
         code.render(res, msg);

@@ -159,6 +159,18 @@ impl ApiErrorCode {
         StatusCode::CONFLICT,
     );
 
+    // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
+    // CXP R3 handle homograph wire-level enforce. Emitted by
+    // `cx.directory.resolve_handle` (query face) and announce ingest
+    // when the handle localpart fails the NFC + UTS#39 confusable +
+    // script-mixed normalization check provided by
+    // `contrix_sdk::normalize_handle_localpart`.
+    #[allow(non_upper_case_globals)]
+    pub const HandleHomographForbidden: Self = Self::new(
+        contrix_sdk::error::ERROR_CODE_HANDLE_HOMOGRAPH_FORBIDDEN,
+        StatusCode::FORBIDDEN,
+    );
+
     pub fn wire_code(self) -> &'static str {
         self.code
     }

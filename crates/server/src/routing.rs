@@ -40,6 +40,19 @@ pub fn router(state: AppState) -> Router {
                 .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
+        // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+        // §17 — canonical well-known handle endpoint. The query takes
+        // `?localpart=<localpart>` and returns the same Directory result
+        // envelope shape that `POST /api/v1/directory/resolve-handle`
+        // emits. Wire-level NFC + UTS#39 + script-mixed checks run on
+        // the localpart before any DB lookup. We intentionally implement
+        // this as a *proxy* into `query::handle::resolve_handle` so the
+        // anti-enumeration latency-floor + jitter and the `not_found`
+        // collapse behaviour stay identical across the two surfaces.
+        .push(
+            Router::with_path(".well-known/contrix/handle")
+                .get(query::handle::well_known_resolve_handle),
+        )
         .push(
             Router::with_path("{**rest}")
                 .options(cors_preflight)
@@ -596,6 +609,18 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "query",
             "Resolve Handle",
             "Resolve handle discovery resources with the Directory result envelope.",
+        ),
+        (
+            // CXP R3 spec-sync 2026-05-27 (commit b47ff6e) — well-known
+            // handle endpoint. Query-string keyed (`?localpart=<localpart>`).
+            "/.well-known/contrix/handle",
+            PathItemType::Get,
+            "cx.directory.well_known_handle",
+            "query",
+            "Well-Known Handle Resolve",
+            "Resolve a handle by `?localpart=<localpart>` (identity-handles §17). \
+             Returns the standard Directory result envelope; rejects homograph / \
+             script-mixed localparts with `handle_homograph_forbidden`.",
         ),
         (
             "/api/v1/directory/private-contact-discovery",

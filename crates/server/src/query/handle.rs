@@ -55,6 +55,184 @@ pub struct ResolveHandleRequest {
     /// a Realm audience. Mirrors `resolve_realm` semantics.
     #[serde(default)]
     pub proofs: Vec<String>,
+    /// CXP R3 spec-sync 2026-05-27 (commit b47ff6e) — directory query
+    /// filters now accept the unified `resource-selector` shape. We
+    /// recognise the `circle` kind (CXP-0007) and immediately collapse
+    /// the response to `not_found`: the directory MUST NEVER index a
+    /// Circle resource, so any circle-keyed lookup is by definition a
+    /// miss. The selector is accepted (not rejected) on the query face
+    /// so SDK callers running a unified selector evaluator do not have
+    /// to special-case the directory transport. See
+    /// `filter::selector::is_circle_selector` for the parser.
+    #[serde(default)]
+    pub selector: Option<serde_json::Value>,
+}
+
+/// CXP R3 — extract the localpart from a handle value and run it through
+/// `contrix_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
+/// confusable skeleton + script-mixed reject).
+///
+/// Accepts both wire shapes the directory may see:
+///   1. Canonical `contrix://<domain>/users/<localpart>` URI.
+///   2. Bare `<localpart>.<domain>` handle (legacy directory shape).
+///
+/// Returns the rejection reason string for the wire response when the
+/// localpart fails any rule; the message intentionally does NOT echo
+/// back which rule was violated (length / zero-width / script-mixed /
+/// confusable) to avoid leaking the registrar's lookup table.
+pub(crate) fn check_handle_homograph(handle: &str) -> Result<(), String> {
+    let localpart = extract_localpart(handle);
+    // TODO(R3.1): when the SDK gains a domain-side homograph check (full
+    // UTS#46 IDNA normalization), also run that against the domain
+    // suffix. For R3 the wire-level guard is localpart-only because the
+    // domain reaches us already lowercased and ASCII-restricted by the
+    // ingest path.
+    match contrix_sdk::normalize_handle_localpart(localpart) {
+        Ok(_) => Ok(()),
+        Err(_) => Err("handle violates homograph / script-mixed policy".to_owned()),
+    }
+}
+
+fn extract_localpart(handle: &str) -> &str {
+    extract_localpart_public(handle)
+}
+
+/// Exposed for the ingest path so `announce.rs` can run the same
+/// localpart-extraction rule before the SDK homograph normalizer. Kept
+/// in this module so the two faces stay in lock-step.
+pub fn extract_localpart_public(handle: &str) -> &str {
+    if let Some(rest) = handle.strip_prefix("contrix://") {
+        if let Some((_, path)) = rest.split_once("/users/") {
+            return path.split('/').next().unwrap_or(path);
+        }
+    }
+    // Bare `localpart.domain` — take the slice up to the first `.`.
+    // Empty localpart falls through to the SDK helper which fails on
+    // length-out-of-range.
+    handle.split('.').next().unwrap_or(handle)
+}
+
+/// CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles §17 —
+/// well-known handle endpoint. The spec migrated the well-known shape
+/// from a path-style identifier to a query-string-keyed form:
+///
+/// ```text
+/// GET https://<domain>/.well-known/contrix/handle?localpart=<localpart>
+/// ```
+///
+/// We resolve against the directory's indexed Handle rows and return
+/// the same `ResultEnvelope` shape that the POST `resolve-handle` face
+/// emits. Wire-level homograph normalization runs on the localpart
+/// before any DB lookup so a malformed query is `403
+/// handle_homograph_forbidden` rather than the privacy-preserving
+/// `404 not_found` returned for genuine misses.
+///
+/// The Host header (or the `?domain=<domain>` override) is concatenated
+/// with the localpart to form the directory's stored `resource_id` —
+/// teabay indexes handles as `<localpart>.<domain>` (see
+/// `query::handle::load_handle_row`). When the Host header is missing
+/// or no `?domain=` is supplied we still service the request against
+/// the bare localpart so an operator-issued curl probe works.
+#[handler]
+pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(s) => s.clone(),
+        Err(_) => {
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
+            return;
+        }
+    };
+    let _query_timer = state.metrics().query_timer("well-known-handle");
+
+    let localpart = req
+        .queries()
+        .get("localpart")
+        .cloned()
+        .unwrap_or_default();
+    if localpart.is_empty() {
+        ApiErrorCode::MissingParam.render(res, "localpart query parameter is required");
+        return;
+    }
+    // Apply the same wire-level homograph + script-mixed guard as the
+    // POST face. Reject BEFORE rate-limit / DB lookup so timing cannot
+    // disambiguate a homograph from a miss.
+    if let Err(reason) = check_handle_homograph(&localpart) {
+        ApiErrorCode::HandleHomographForbidden.render(res, reason);
+        return;
+    }
+
+    // Reconstruct the indexed `resource_id`. Order of preference:
+    //   1. explicit `?domain=` query parameter (operator probe shape)
+    //   2. Host header (cross-domain well-known fetch)
+    //   3. bare localpart (single-tenant deployment / local conformance)
+    let domain = req
+        .queries()
+        .get("domain")
+        .cloned()
+        .or_else(|| {
+            req.headers()
+                .get(salvo::http::header::HOST)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.split(':').next().unwrap_or(v).to_owned())
+        })
+        .unwrap_or_default();
+    let handle = if domain.is_empty() {
+        localpart.clone()
+    } else {
+        format!("{localpart}.{domain}")
+    };
+
+    if !enforce_resolve_rate_limit(req, res, &state, &handle) {
+        return;
+    }
+
+    let body = ResolveHandleRequest {
+        handle: handle.clone(),
+        expected_did: None,
+        proof_challenge: None,
+        intent: None,
+        requester: None,
+        audience: None,
+        realm_id: None,
+        proofs: Vec::new(),
+        selector: None,
+    };
+
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    let requester_ip = req.remote_addr().to_string();
+    let mut ip_hasher = Sha256::new();
+    ip_hasher.update(requester_ip.as_bytes());
+    let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
+    let privacy_key = format!("well_known_handle={handle};iph={requester_ip_hash}");
+
+    let outcome = pad_to_budget_observed(
+        budget,
+        "cx.directory.resolve_handle",
+        &privacy_key,
+        |target| {
+            state
+                .metrics()
+                .record_anti_enum_pad("well-known-handle", target)
+        },
+        async {
+            let row = match load_handle_row(&state, &handle).await {
+                Ok(Some(row)) => row,
+                _ => return ResolveOutcome::NotFound,
+            };
+            evaluate_handle_disclosure(row, &body, None)
+        },
+    )
+    .await;
+
+    apply_resolve_response_jitter().await;
+
+    match outcome {
+        ResolveOutcome::Found(envelope) => res.render(Json(envelope)),
+        ResolveOutcome::NotFound => ApiErrorCode::NotFound.render(res, "not found"),
+    }
 }
 
 #[handler]
@@ -78,7 +256,44 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
     }
+    // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+    // §17 — wire-level canonical compare MUST apply Unicode NFC +
+    // UTS#39 confusable skeleton + script-mixed reject before any
+    // database lookup. The SDK helper centralises the rule set so the
+    // ingest face (announce) and the query face (resolve_handle) stay
+    // byte-identical. We reject with `handle_homograph_forbidden`
+    // before timing-budget padding starts so the attacker's wall-clock
+    // signal cannot disambiguate a homograph reject from a normal
+    // not_found — a homograph submit deserves a 403, not the
+    // privacy-preserving 404 that legitimate misses receive.
+    if let Err(reason) = check_handle_homograph(&body.handle) {
+        ApiErrorCode::HandleHomographForbidden.render(res, reason);
+        return;
+    }
     if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {
+        return;
+    }
+    // CXP R3 spec-sync 2026-05-27 — accept `circle` selector kind on
+    // the query filter. Circle is an intra-Realm sub-boundary; the
+    // directory never indexes Circle resources, so a circle-keyed
+    // lookup collapses to the standard privacy-preserving `not_found`.
+    // We do this AFTER rate-limit gating so the wire response shape is
+    // identical to a genuine miss (same status, same body, same
+    // jitter), but BEFORE the latency-budget padding so we don't waste
+    // a query timer slot on a request that has no DB-bound work.
+    if let Some(selector) = body.selector.as_ref() {
+        if crate::filter::selector::is_circle_selector(selector) {
+            apply_resolve_response_jitter().await;
+            ApiErrorCode::NotFound.render(res, "not found");
+            return;
+        }
+    }
+    // Defence in depth: a bare `cx:circle:` typed id smuggled into the
+    // `handle` field is also collapsed to `not_found` rather than
+    // routed into the DB lookup.
+    if crate::filter::selector::looks_like_circle_id(&body.handle) {
+        apply_resolve_response_jitter().await;
+        ApiErrorCode::NotFound.render(res, "not found");
         return;
     }
 
@@ -594,6 +809,7 @@ mod tests {
             audience: None,
             realm_id: Some(realm_id.to_string()),
             proofs: vec![],
+            selector: None,
         }
     }
 
@@ -606,6 +822,37 @@ mod tests {
             "trusted_audiences": trusted_audiences,
         });
         RealmDeliveryBindingPolicy::from_projection(projection)
+    }
+
+    /// CXP R3 — the homograph guard MUST reject Cyrillic look-alikes
+    /// before any DB lookup. We test the helper directly so the
+    /// assertion does not depend on a live AppState.
+    #[test]
+    fn handle_homograph_check_rejects_cyrillic_lookalike() {
+        // "alicе.example" with Cyrillic 'е' (U+0435).
+        let err = check_handle_homograph("alic\u{0435}.example");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn handle_homograph_check_accepts_pure_ascii() {
+        assert!(check_handle_homograph("alice.example").is_ok());
+    }
+
+    #[test]
+    fn handle_homograph_check_rejects_script_mixed() {
+        // Latin + Greek alpha.
+        let err = check_handle_homograph("aliceα.example");
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn extract_localpart_strips_canonical_uri() {
+        assert_eq!(
+            extract_localpart_public("contrix://example.com/users/alice"),
+            "alice"
+        );
+        assert_eq!(extract_localpart_public("alice.example"), "alice");
     }
 
     #[test]
