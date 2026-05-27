@@ -5,6 +5,15 @@ All notable changes to teabay (Contrix v1 Directory Service) live here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## R3 — Spec sync 2026-05-27 (contrix-spec @ b47ff6ec)
+
+- HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
+- WK-1: `POST /api/v1/directory/resolve-handle` and the well-known proxy aligned to the new spec form `/.well-known/contrix/handle?localpart=<localpart>`.
+- REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
+- SEL-1: directory query filter now accepts the `circle` selector kind (`cx:circle:<uuid>`).
+
+> No version tag, no crates.io / Docker Hub / npm publish — git commit only.
+
 ## [Unreleased]
 
 ### circle-rollout · CXP-0007 enforcement (P2E, contrix-spec `2b0d70d`)

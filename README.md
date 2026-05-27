@@ -1,5 +1,7 @@
 # teabay
 
+> **Spec target**: [contrix-spec @ b47ff6ec](../contrix-spec) (R3 sync 2026-05-27)
+
 Reference Contrix v1 **Directory Service** implementation.
 
 teabay is the *discovery entry layer* of the Contrix protocol stack: it accepts
