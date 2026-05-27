@@ -36,6 +36,23 @@ Required series:
 - `teabay_query_anti_enum_pad_seconds`
 - `teabay_pull_worker_revalidations_total{outcome}`
 - `teabay_divergence_detected_total`
+- `teabay_expired_rows_purged_total{table}` (P5 — expiry worker)
+- `teabay_takedown_notification_failures_total{stage}` (P5 — takedown notifier)
+
+## Log Redaction Defaults
+
+In production mode (`TEABAY_DEVELOPMENT_MODE=false`) the following fields are
+masked by default in structured logs:
+
+- `resource_id` — emitted as the first 16 characters followed by `...` when the
+  value exceeds 16 chars.
+- `service_did` — emitted as the DID method (`did:web`, `did:webvh`, etc.) plus
+  a SHA-256 prefix; the bare identifier is never logged.
+
+Set `TEABAY_DEVELOPMENT_MODE=true` to disable masking for local debugging. The
+hardening block on `/health` reports `log_redaction=production` when masking is
+active and `log_redaction=disabled` in development mode so dashboards can alert
+on accidental dev-mode deploys.
 
 For OpenTelemetry backends, run an OTel Collector sidecar or agent that scrapes
 the Prometheus endpoint and collects stdout/stderr tracing logs. The in-process

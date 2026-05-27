@@ -884,11 +884,14 @@ dependencies = [
 name = "contrix-http-client"
 version = "1.0.0"
 dependencies = [
+ "chrono",
  "contrix-core",
+ "futures-util",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-util",
  "url",
 ]
 

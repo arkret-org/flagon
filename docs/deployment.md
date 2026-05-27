@@ -100,6 +100,8 @@ Recommended production settings:
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
 | `TEABAY_ADMIN_TOKEN` | Non-empty bearer token for `/api/admin/v1/*`. |
+| `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. Override the fail-closed check temporarily with `TEABAY_ALLOW_MISSING_CSRF=1` while rotating config; the deployment hardening checklist requires this be set for production. |
+| `TEABAY_TRUSTED_PROXY` | Comma-separated list of IPs whose `X-Forwarded-For` the rate-limiter trusts. Unset = trust only the direct `remote_addr`. Set to your TLS-terminating reverse proxy's IPs to avoid spoofed buckets. |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
 | `TEABAY_RECEIPT_KEY_ID` | Verification method recorded in signed operator receipts. |
 | `TEABAY_CORS_ALLOW_ORIGIN` | Exact browser origin, never `*` in production. |
@@ -196,3 +198,43 @@ Run teabay behind a TLS-terminating proxy in production. Configure:
 - A strict CSP for browser clients that load the admin console.
 - Request size limits suitable for discovery state envelopes.
 - Access logs with token and signature header redaction.
+
+## Admin SPA Security Headers
+
+The bundled `Dockerfile.admin` nginx config (P5) emits the following headers
+on every response:
+
+- `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self';`
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: no-referrer`
+
+If you are fronting the admin SPA with a separate ingress, replicate these
+headers there. The `wasm-unsafe-eval` source is required for the Dioxus WASM
+runtime; do not remove it.
+
+## P5 Release-Readiness Checklist (Local Evidence)
+
+Before a release, capture the following local-only evidence under `artifacts/`
+using `scripts/local-artifacts.sh`:
+
+- SPDX SBOM JSON for the server and admin images.
+- Trivy vulnerability scan report (`scripts/trivy-scan.sh`).
+- Optional cosign signature bundle (when `COSIGN_KEY` is set).
+- A snapshot of `/metrics` exercised against a populated database, including
+  the new `teabay_expired_rows_purged_total` and
+  `teabay_takedown_notification_failures_total` series.
+- A snapshot of `/health` showing the expected hardening block.
+
+No images, tags, or release artifacts are pushed from local automation; the
+release owner triggers the push manually after reviewing these files.
+
+## P5 Background Workers
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `TEABAY_EXPIRY_INTERVAL_SECONDS` | `1800` | Period for the row-purge worker. 0 disables. |
+| `TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS` | `60` | Period for the pending-takedown HMAC fanout. 0 disables. |
+
+See [`docs/webhook-retry.md`](webhook-retry.md) and
+[`docs/heartbeat.md`](heartbeat.md) for the operator handbook.

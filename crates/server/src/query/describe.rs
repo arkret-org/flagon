@@ -395,6 +395,9 @@ mod tests {
             http_sig_pubkeys: HashMap::new(),
             receipt_signing_key: None,
             db_pool: crate::config::DbPoolConfig::default(),
+            expiry_interval: Some(Duration::from_secs(1800)),
+            takedown_notifier_interval: Some(Duration::from_secs(60)),
+            trusted_proxy: None,
         }
     }
 

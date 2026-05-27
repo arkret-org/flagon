@@ -10,7 +10,9 @@ use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
-use crate::query::rate_limit::{enforce_query_rate_limit, enforce_resolve_rate_limit};
+use crate::query::rate_limit::{
+    apply_resolve_response_jitter, enforce_query_rate_limit, enforce_resolve_rate_limit,
+};
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
@@ -135,6 +137,9 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         async { load_org_row(&state, &key).await },
     )
     .await;
+
+    // P5 — stochastic anti-enumeration jitter on resolve responses.
+    apply_resolve_response_jitter().await;
 
     match row {
         Ok(Some(r)) if r.discoverability.is_directory_visible() => {

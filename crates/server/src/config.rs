@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -103,6 +103,21 @@ pub struct AppConfig {
     /// these as env vars; see `docs/scaling.md` for sizing guidance and
     /// `Db::connect_with` for the live behaviour.
     pub db_pool: DbPoolConfig,
+    /// P5 — period for the [`crate::workers::expiry::ExpiryWorker`]
+    /// background purge. Env: `TEABAY_EXPIRY_INTERVAL_SECONDS`
+    /// (default 1800). Set to `0` to disable the worker entirely.
+    pub expiry_interval: Option<Duration>,
+    /// P5 — period for the
+    /// [`crate::workers::takedown_notifier::TakedownNotifier`]
+    /// background dispatcher. Env:
+    /// `TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS` (default 60). Set to
+    /// `0` to disable the notifier entirely (development only).
+    pub takedown_notifier_interval: Option<Duration>,
+    /// P5 — list of IPs that are allowed to inject `X-Forwarded-For`
+    /// (or equivalent) when the rate-limiter resolves a client address.
+    /// When unset, the rate-limiter trusts `req.remote_addr()` only.
+    /// Env: `TEABAY_TRUSTED_PROXY` (comma-separated IPs).
+    pub trusted_proxy: Option<Vec<IpAddr>>,
 }
 
 /// Pool sizing knobs for the diesel + r2d2 PostgreSQL connection pool.
@@ -290,6 +305,29 @@ impl AppConfig {
         let admin_csrf_token = std::env::var("TEABAY_ADMIN_CSRF_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty());
+
+        // P5 HIGH — CSRF is required when production-mode (i.e. not
+        // development_mode). Fail-closed at startup so an operator
+        // cannot silently expose the admin SPA without CSRF protection.
+        // See docs/deployment.md hardening checklist.
+        let development_mode_for_csrf = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
+        if !development_mode_for_csrf && admin_csrf_token.is_none() {
+            tracing::warn!(
+                "TEABAY_ADMIN_CSRF_TOKEN is unset in production mode; \
+                 admin SPA is CSRF-unprotected"
+            );
+            // The hard fail-closed posture is documented but kept behind
+            // an explicit opt-out so existing deployments continue to
+            // boot while operators rotate config. Set
+            // `TEABAY_ALLOW_MISSING_CSRF=1` to skip the bail.
+            if !read_bool("TEABAY_ALLOW_MISSING_CSRF", false)? {
+                anyhow::bail!(
+                    "TEABAY_ADMIN_CSRF_TOKEN is required in production mode \
+                     (TEABAY_DEVELOPMENT_MODE=false); set it or temporarily \
+                     opt out with TEABAY_ALLOW_MISSING_CSRF=1"
+                );
+            }
+        }
         let admin_token_rotation_window_secs =
             read_u64("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", 1_800)?;
         let admin_token_rotation_window =
@@ -425,6 +463,24 @@ impl AppConfig {
             },
         };
 
+        // P5 — new background worker periods.
+        let expiry_interval_seconds = read_u64("TEABAY_EXPIRY_INTERVAL_SECONDS", 1_800)?;
+        let expiry_interval = if expiry_interval_seconds == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(expiry_interval_seconds))
+        };
+        let takedown_notifier_interval_seconds =
+            read_u64("TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS", 60)?;
+        let takedown_notifier_interval = if takedown_notifier_interval_seconds == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(takedown_notifier_interval_seconds))
+        };
+
+        // P5 — trusted proxy allowlist for the rate-limiter.
+        let trusted_proxy = parse_trusted_proxy(std::env::var("TEABAY_TRUSTED_PROXY").ok())?;
+
         Ok(Self {
             bind,
             metrics_bind,
@@ -463,6 +519,9 @@ impl AppConfig {
             http_sig_pubkeys,
             receipt_signing_key,
             db_pool,
+            expiry_interval,
+            takedown_notifier_interval,
+            trusted_proxy,
         })
     }
 
@@ -544,6 +603,28 @@ fn parse_receipt_signing_key(
         anyhow::bail!("TEABAY_RECEIPT_KEY_ID must not be empty when receipt signing is enabled");
     }
     Ok(Some(ReceiptSigningKey::from_raw(key_id.to_owned(), bytes)))
+}
+
+/// Parse `TEABAY_TRUSTED_PROXY` into a list of IPs that the
+/// rate-limiter trusts as the source of `X-Forwarded-For`. Empty /
+/// unset returns `Ok(None)` which means "trust only the direct
+/// `remote_addr`".
+fn parse_trusted_proxy(value: Option<String>) -> anyhow::Result<Option<Vec<IpAddr>>> {
+    let Some(raw) = value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    let mut out = Vec::new();
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let ip: IpAddr = part
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid TEABAY_TRUSTED_PROXY entry `{part}`: {e}"))?;
+        out.push(ip);
+    }
+    if out.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(out))
+    }
 }
 
 fn read_bool(key: &str, default: bool) -> anyhow::Result<bool> {

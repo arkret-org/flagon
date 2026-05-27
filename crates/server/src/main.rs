@@ -2,9 +2,11 @@ use salvo::prelude::*;
 use server::ingest::divergence_worker::DivergenceWorker;
 use server::ingest::freshness_worker::{DEFAULT_FRESHNESS_TICK, FreshnessWorker};
 use server::ingest::pull_worker::PullWorker;
+use server::workers::expiry::ExpiryWorker;
+use server::workers::takedown_notifier::TakedownNotifier;
 use server::{AppConfig, AppState, Db, metrics_service, profile, service};
 use tokio::signal;
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -44,6 +46,28 @@ async fn main() -> anyhow::Result<()> {
     // whose heartbeat-driven `expires_at` lapsed. Always-on with a
     // 10-minute tick; cheap (single UPDATE, partial index).
     let _freshness_worker = FreshnessWorker::new(state.clone(), DEFAULT_FRESHNESS_TICK).spawn();
+
+    // P5 HIGH — background expiry purge (24h+grace beyond stale).
+    if let Some(period) = config.expiry_interval {
+        let _expiry_worker = ExpiryWorker::new(state.clone(), period).spawn();
+        info!(
+            period_seconds = period.as_secs(),
+            "teabay expiry worker scheduled"
+        );
+    }
+    // P5 HIGH — pending-takedown HMAC-signed webhook fanout.
+    if let Some(period) = config.takedown_notifier_interval {
+        match TakedownNotifier::new(state.clone(), period) {
+            Ok(notifier) => {
+                let _takedown_worker = notifier.spawn();
+                info!(
+                    period_seconds = period.as_secs(),
+                    "teabay takedown notifier scheduled"
+                );
+            }
+            Err(e) => warn!(%e, "failed to build takedown notifier; webhook fanout disabled"),
+        }
+    }
 
     let metrics_acceptor = TcpListener::new(config.metrics_bind.to_string())
         .bind()

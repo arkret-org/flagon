@@ -9,12 +9,29 @@
 //! and `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`. A value of `0`
 //! disables that particular check, which is useful for the in-process
 //! conformance harness.
+//!
+//! P5 — IP resolution honours `TEABAY_TRUSTED_PROXY`: when the direct
+//! `remote_addr()` is in the trusted-proxy allowlist we use the leading
+//! `X-Forwarded-For` value; otherwise we ignore the header so a
+//! spoofed value cannot poison the per-IP bucket.
+//!
+//! P5 — resolve endpoints additionally pay a 50ms response-time
+//! jitter (see [`apply_resolve_response_jitter`]) so existence-probe
+//! timing leaks cannot be amplified by bursts.
 
+use std::net::IpAddr;
+use std::time::Duration;
+
+use rand::Rng;
 use salvo::http::header;
 use salvo::prelude::*;
 
 use crate::error::ApiErrorCode;
 use crate::state::{AppState, RateLimitOutcome};
+
+/// Maximum jitter (response-time) applied to resolve endpoints. The
+/// concrete delay is uniformly sampled in `[0, RESOLVE_JITTER_MAX)`.
+pub const RESOLVE_JITTER_MAX: Duration = Duration::from_millis(50);
 
 /// Enforce the per-IP query rate limit. Returns `true` when the
 /// request is allowed to continue. On limit-exceeded, renders a
@@ -24,7 +41,7 @@ pub fn enforce_query_rate_limit(req: &Request, res: &mut Response, state: &AppSt
     if max == 0 {
         return true;
     }
-    let ip = req.remote_addr().to_string();
+    let ip = resolve_client_ip(req, state);
     let key = format!("query-ip:{ip}");
     check(state, res, key, max)
 }
@@ -48,6 +65,67 @@ pub fn enforce_resolve_rate_limit(
     }
     let key = format!("query-resolve:{}", resource_id.trim());
     check(state, res, key, max)
+}
+
+/// P5 — anti-enumeration response jitter for resolve endpoints. The
+/// per-route deterministic jitter (`LatencyBudget`) handles route-level
+/// timing isolation; this adds a stochastic component so an attacker
+/// cannot subtract the deterministic component out by averaging.
+///
+/// Sleeps for a uniformly-random duration in `[0,
+/// RESOLVE_JITTER_MAX)`. Caller should `.await` immediately before
+/// returning the response body.
+pub async fn apply_resolve_response_jitter() {
+    let max = RESOLVE_JITTER_MAX.as_micros() as u64;
+    if max == 0 {
+        return;
+    }
+    let pick = rand::rng().random_range(0..max);
+    tokio::time::sleep(Duration::from_micros(pick)).await;
+}
+
+/// Resolve the client IP for rate-limit bucketing. Trusts the leading
+/// `X-Forwarded-For` value only when the direct `remote_addr` is in the
+/// `TEABAY_TRUSTED_PROXY` allowlist.
+fn resolve_client_ip(req: &Request, state: &AppState) -> String {
+    let remote = req.remote_addr().to_string();
+    let trusted = state.config().trusted_proxy.as_deref().unwrap_or(&[]);
+    if trusted.is_empty() {
+        return remote;
+    }
+    let Some(direct_ip) = direct_remote_ip(&remote) else {
+        return remote;
+    };
+    if !trusted.contains(&direct_ip) {
+        return remote;
+    }
+    if let Some(forwarded) = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+    {
+        return forwarded.to_owned();
+    }
+    remote
+}
+
+fn direct_remote_ip(remote: &str) -> Option<IpAddr> {
+    // `req.remote_addr()` renders as `SocketAddr` / `Unix` / `Unknown`
+    // depending on the listener. Strip the trailing `:port` if present
+    // and try IP parsing.
+    if let Ok(ip) = remote.parse::<IpAddr>() {
+        return Some(ip);
+    }
+    if let Some((host, _port)) = remote.rsplit_once(':') {
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Some(ip);
+        }
+    }
+    None
 }
 
 fn check(state: &AppState, res: &mut Response, key: String, max: u32) -> bool {

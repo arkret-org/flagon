@@ -65,11 +65,14 @@ fn hardening_status_shape_matches_cross_service_contract() {
     assert!(!config.require_http_sig);
 
     // Now flip to production posture and ensure the config-level
-    // signals required by `hardening_status` are present.
+    // signals required by `hardening_status` are present. P5 — CSRF is
+    // now required in production mode, so we must also set
+    // TEABAY_ADMIN_CSRF_TOKEN (or opt out with TEABAY_ALLOW_MISSING_CSRF).
     unsafe {
         env::set_var("TEABAY_DEVELOPMENT_MODE", "false");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "true");
         env::set_var("TEABAY_ADMIN_TOKEN", "prod-admin-token-32bytes-or-more");
+        env::set_var("TEABAY_ADMIN_CSRF_TOKEN", "prod-csrf-token-32bytes-or-more");
         env::set_var("TEABAY_CORS_ALLOW_ORIGIN", "https://app.example.com");
     }
     let prod_config = server::AppConfig::from_env().expect("prod config builds");

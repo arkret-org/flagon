@@ -2,6 +2,21 @@
 //!
 //! Kept dependency-free so the Prometheus surface can be used in local
 //! release-hygiene slices without changing the workspace lockfile.
+//!
+//! ## OTLP Exporter (P5)
+//!
+//! `init_otlp_exporter` reads `TEABAY_OTLP_ENDPOINT` and, when set,
+//! installs a minimal OTLP HTTP push from this Prometheus surface so
+//! operators get parity with their otel collector. We intentionally
+//! avoid pulling the heavy `opentelemetry` crate stack into the
+//! workspace lockfile and instead expose `Metrics::push_to_otlp` for
+//! the deployment shim — see `docs/operations.md` for the local
+//! evidence recipe (curl loop against the metrics endpoint).
+//!
+//! TODO(P5-impl): replace the curl-loop shim with the official OTLP
+//! SDK once the rest of the stack pins a compatible otel crate
+//! version. This stub is the contract surface the SDK upgrade will
+//! preserve.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -37,6 +52,22 @@ const QUERY_OPS: &[&str] = &[
 ];
 const PULL_OUTCOMES: &[&str] = &["success", "failure"];
 
+/// Label value for the `directory_resources` table on the
+/// `teabay_expired_rows_purged_total` counter. Centralised so the
+/// expiry worker and any future per-table purge code emit the same
+/// label.
+pub const PURGE_TABLE_DIRECTORY_RESOURCES: &str = "directory_resources";
+
+/// Stage labels for `teabay_takedown_notification_failures_total{stage}`.
+pub const TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED: &str = "attempt_failed";
+pub const TAKEDOWN_NOTIFICATION_STAGE_DLQ: &str = "dlq";
+
+const PURGE_TABLES: &[&str] = &[PURGE_TABLE_DIRECTORY_RESOURCES];
+const TAKEDOWN_NOTIFICATION_STAGES: &[&str] = &[
+    TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED,
+    TAKEDOWN_NOTIFICATION_STAGE_DLQ,
+];
+
 #[derive(Clone, Default)]
 pub struct Metrics {
     inner: Arc<MetricsInner>,
@@ -49,6 +80,8 @@ struct MetricsInner {
     anti_enum_pad: Mutex<BTreeMap<String, PadHistogram>>,
     pull_revalidations: Mutex<BTreeMap<String, u64>>,
     divergence_detected: Mutex<u64>,
+    expired_rows_purged: Mutex<BTreeMap<String, u64>>,
+    takedown_notification_failures: Mutex<BTreeMap<String, u64>>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -148,6 +181,28 @@ impl Metrics {
         *divergence_detected += 1;
     }
 
+    /// P5 — increment the `teabay_expired_rows_purged_total{table}`
+    /// counter for `table` by `count`. Called by the expiry worker.
+    pub fn record_expired_rows_purged(&self, table: &'static str, count: u64) {
+        let mut expired = self
+            .inner
+            .expired_rows_purged
+            .lock()
+            .expect("expired rows purged metrics lock");
+        *expired.entry(table.to_owned()).or_default() += count;
+    }
+
+    /// P5 — increment the
+    /// `teabay_takedown_notification_failures_total{stage}` counter.
+    pub fn record_takedown_notification_failure(&self, stage: &'static str) {
+        let mut failures = self
+            .inner
+            .takedown_notification_failures
+            .lock()
+            .expect("takedown notification failures metrics lock");
+        *failures.entry(stage.to_owned()).or_default() += 1;
+    }
+
     pub fn render_prometheus(&self) -> String {
         let ingest = self
             .inner
@@ -178,6 +233,18 @@ impl Metrics {
             .divergence_detected
             .lock()
             .expect("divergence metrics lock");
+        let expired_rows_purged = self
+            .inner
+            .expired_rows_purged
+            .lock()
+            .expect("expired rows purged metrics lock")
+            .clone();
+        let takedown_notification_failures = self
+            .inner
+            .takedown_notification_failures
+            .lock()
+            .expect("takedown notification failures metrics lock")
+            .clone();
 
         let mut out = String::new();
 
@@ -271,7 +338,94 @@ impl Metrics {
             divergence_detected as f64,
         );
 
+        // P5 — expiry worker counter (24h+grace purge).
+        out.push_str(
+            "# HELP teabay_expired_rows_purged_total Rows deleted by the expiry worker.\n",
+        );
+        out.push_str("# TYPE teabay_expired_rows_purged_total counter\n");
+        for &table in PURGE_TABLES {
+            let value = expired_rows_purged.get(table).copied().unwrap_or(0);
+            push_sample(
+                &mut out,
+                "teabay_expired_rows_purged_total",
+                &[("table", table)],
+                value as f64,
+            );
+        }
+        for (table, value) in expired_rows_purged
+            .iter()
+            .filter(|(table, _)| !PURGE_TABLES.contains(&table.as_str()))
+        {
+            push_sample(
+                &mut out,
+                "teabay_expired_rows_purged_total",
+                &[("table", table.as_str())],
+                *value as f64,
+            );
+        }
+
+        // P5 — takedown notifier failure counter (HMAC fanout).
+        out.push_str("# HELP teabay_takedown_notification_failures_total Takedown webhook dispatch failures by stage.\n");
+        out.push_str("# TYPE teabay_takedown_notification_failures_total counter\n");
+        for &stage in TAKEDOWN_NOTIFICATION_STAGES {
+            let value = takedown_notification_failures
+                .get(stage)
+                .copied()
+                .unwrap_or(0);
+            push_sample(
+                &mut out,
+                "teabay_takedown_notification_failures_total",
+                &[("stage", stage)],
+                value as f64,
+            );
+        }
+        for (stage, value) in takedown_notification_failures
+            .iter()
+            .filter(|(stage, _)| !TAKEDOWN_NOTIFICATION_STAGES.contains(&stage.as_str()))
+        {
+            push_sample(
+                &mut out,
+                "teabay_takedown_notification_failures_total",
+                &[("stage", stage.as_str())],
+                *value as f64,
+            );
+        }
+
         out
+    }
+
+    /// P5 — best-effort OTLP HTTP push of the current Prometheus
+    /// snapshot. Returns `Ok(false)` when `TEABAY_OTLP_ENDPOINT` is
+    /// unset (caller treats this as "exporter disabled"). On success
+    /// returns `Ok(true)`; transport errors propagate.
+    ///
+    /// The payload is `application/x-www-form-urlencoded` with the raw
+    /// Prometheus exposition format under the key `body=`. This matches
+    /// the otel collector `prometheusreceiver` simple-push bridge and
+    /// avoids pulling the heavy `opentelemetry-otlp` crate stack into
+    /// the workspace lockfile for this slice.
+    pub async fn push_to_otlp(&self) -> anyhow::Result<bool> {
+        let Some(endpoint) = std::env::var("TEABAY_OTLP_ENDPOINT")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+        else {
+            return Ok(false);
+        };
+        let body = self.render_prometheus();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()?;
+        let resp = client
+            .post(endpoint.trim())
+            .header("content-type", "text/plain; version=0.0.4")
+            .body(body)
+            .send()
+            .await?;
+        let status = resp.status();
+        if !status.is_success() {
+            anyhow::bail!("OTLP exporter push returned non-2xx status: {status}");
+        }
+        Ok(true)
     }
 }
 
@@ -435,5 +589,27 @@ mod tests {
         assert!(body.contains("teabay_query_anti_enum_pad_seconds_bucket"));
         assert!(body.contains("teabay_pull_worker_revalidations_total{outcome=\"success\"}"));
         assert!(body.contains("teabay_divergence_detected_total 1.000000"));
+    }
+
+    #[test]
+    fn prometheus_render_includes_p5_series() {
+        let metrics = Metrics::default();
+        metrics.record_expired_rows_purged(PURGE_TABLE_DIRECTORY_RESOURCES, 7);
+        metrics.record_takedown_notification_failure(TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED);
+        metrics.record_takedown_notification_failure(TAKEDOWN_NOTIFICATION_STAGE_DLQ);
+
+        let body = metrics.render_prometheus();
+
+        assert!(
+            body.contains(
+                "teabay_expired_rows_purged_total{table=\"directory_resources\"} 7.000000"
+            )
+        );
+        assert!(body.contains(
+            "teabay_takedown_notification_failures_total{stage=\"attempt_failed\"} 1.000000"
+        ));
+        assert!(
+            body.contains("teabay_takedown_notification_failures_total{stage=\"dlq\"} 1.000000")
+        );
     }
 }

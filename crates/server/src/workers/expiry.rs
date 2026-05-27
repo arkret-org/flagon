@@ -1,0 +1,98 @@
+//! P5 HIGH — background expiry purge worker.
+//!
+//! The freshness worker (see [`crate::ingest::freshness_worker`]) only
+//! *flips* expired rows to `stale=true` so query handlers stop returning
+//! them, preserving the row for audit history. This worker is the second
+//! half: every `period` (default 30 minutes) it **deletes** any
+//! `directory_resources` row whose `expires_at < now() - grace`, where
+//! `grace` defaults to 24h. The grace window protects against operator
+//! clock skew and gives a one-business-day rollback window before the
+//! row is gone for good.
+//!
+//! Per-tick the worker counts deletions and emits
+//! `teabay_expired_rows_purged_total{table}` so dashboards can alert if
+//! the purge volume spikes (signals upstream announce drift).
+//!
+//! TODO(P5-impl): once the chained `directory_audit` digest landing
+//! lands in the next slice, link each purge to an `audit_event_kind`
+//! row so operator-visible deletes leave a trail.
+
+use std::time::Duration;
+
+use chrono::Utc;
+use diesel::prelude::*;
+use tokio::time::interval;
+use tracing::{info, warn};
+
+use crate::observability::PURGE_TABLE_DIRECTORY_RESOURCES;
+use crate::state::AppState;
+
+/// Default tick interval if `TEABAY_EXPIRY_INTERVAL_SECONDS` is unset.
+/// 30 minutes balances eager cleanup against pool/IO cost.
+pub const DEFAULT_EXPIRY_TICK: Duration = Duration::from_secs(1_800);
+
+/// Grace window beyond `expires_at` before a row is deleted. 24h
+/// protects against transient clock skew and gives the operator a
+/// one-day window to rescue a row that was wrongly expired.
+pub const DEFAULT_EXPIRY_GRACE: Duration = Duration::from_secs(86_400);
+
+pub struct ExpiryWorker {
+    state: AppState,
+    period: Duration,
+    grace: Duration,
+}
+
+impl ExpiryWorker {
+    pub fn new(state: AppState, period: Duration) -> Self {
+        Self {
+            state,
+            period,
+            grace: DEFAULT_EXPIRY_GRACE,
+        }
+    }
+
+    /// Override the grace window — primarily for tests.
+    pub fn with_grace(mut self, grace: Duration) -> Self {
+        self.grace = grace;
+        self
+    }
+
+    pub fn spawn(self) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            info!(
+                period_seconds = self.period.as_secs(),
+                grace_seconds = self.grace.as_secs(),
+                "teabay expiry worker started"
+            );
+            let mut tick = interval(self.period);
+            loop {
+                tick.tick().await;
+                if let Err(e) = self.run_once() {
+                    warn!(%e, "expiry worker pass failed");
+                }
+            }
+        })
+    }
+
+    /// Single sweep. Public so tests can drive it without a scheduler.
+    /// Returns the number of rows deleted.
+    pub fn run_once(&self) -> anyhow::Result<usize> {
+        use crate::schema::directory_resources::dsl as r;
+        let mut conn = self.state.db().get()?;
+        let cutoff = Utc::now() - chrono::Duration::from_std(self.grace)?;
+        let deleted = diesel::delete(r::directory_resources)
+            .filter(r::expires_at.lt(cutoff))
+            .execute(&mut conn)?;
+        if deleted > 0 {
+            info!(
+                deleted,
+                grace_seconds = self.grace.as_secs(),
+                "expiry worker: directory_resources rows purged"
+            );
+            self.state
+                .metrics()
+                .record_expired_rows_purged(PURGE_TABLE_DIRECTORY_RESOURCES, deleted as u64);
+        }
+        Ok(deleted)
+    }
+}

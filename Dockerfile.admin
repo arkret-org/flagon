@@ -57,6 +57,14 @@ RUN printf '%s\n' \
     '    root /usr/share/nginx/html;' \
     '    index index.html;' \
     '    server_tokens off;' \
+    '    # P5 HIGH — admin SPA security headers. CSP locks script/style' \
+    '    # to self; wasm-unsafe-eval is required for the Dioxus WASM' \
+    '    # runtime. Frame ancestors are denied so the admin cannot be' \
+    '    # embedded in a third-party iframe.' \
+    '    add_header Content-Security-Policy "default-src '"'"'self'"'"'; script-src '"'"'self'"'"' '"'"'wasm-unsafe-eval'"'"'; style-src '"'"'self'"'"' '"'"'unsafe-inline'"'"'; img-src '"'"'self'"'"' data: blob:; connect-src '"'"'self'"'"';" always;' \
+    '    add_header X-Content-Type-Options "nosniff" always;' \
+    '    add_header X-Frame-Options "DENY" always;' \
+    '    add_header Referrer-Policy "no-referrer" always;' \
     '    location / {' \
     '        try_files $uri $uri/ /index.html;' \
     '    }' \

@@ -1,0 +1,202 @@
+//! P5 — integration tests for the background workers (expiry +
+//! takedown notifier). All Postgres tests are gated on the
+//! `TEABAY_RUN_DOCKER_TESTS=1` env so the test suite remains green on
+//! hosts without Docker.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+use diesel::RunQueryDsl;
+use testcontainers_modules::postgres;
+use testcontainers_modules::testcontainers::ImageExt;
+use testcontainers_modules::testcontainers::runners::SyncRunner;
+
+fn docker_tests_enabled() -> bool {
+    std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() == Some("1")
+}
+
+fn boot_postgres() -> anyhow::Result<(
+    testcontainers_modules::testcontainers::Container<postgres::Postgres>,
+    String,
+)> {
+    let postgres_tag =
+        std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
+    let container = postgres::Postgres::default()
+        .with_tag(postgres_tag)
+        .start()?;
+    let database_url = format!(
+        "postgres://postgres:postgres@{}:{}/postgres",
+        container.get_host()?,
+        container.get_host_port_ipv4(5432)?
+    );
+    Ok((container, database_url))
+}
+
+fn test_app_state(database_url: &str) -> anyhow::Result<(server::AppConfig, server::AppState)> {
+    unsafe {
+        std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
+        std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
+        std::env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
+        std::env::set_var("DATABASE_URL", database_url);
+        std::env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
+        std::env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
+    }
+    let config = server::AppConfig::from_env()?;
+    let db = server::Db::connect(database_url)?;
+    db.run_migrations()?;
+    let state = server::AppState::new(config.clone(), db);
+    Ok((config, state))
+}
+
+#[test]
+fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
+    if !docker_tests_enabled() {
+        eprintln!("skipping expiry_worker_purges_rows_past_grace; set TEABAY_RUN_DOCKER_TESTS=1");
+        return Ok(());
+    }
+    let (_pg, database_url) = boot_postgres()?;
+    let (_config, state) = test_app_state(&database_url)?;
+
+    {
+        let mut conn = state.db().get()?;
+        // Insert a row whose expires_at is 48h in the past, far past
+        // the 1-second grace we configure below.
+        diesel::sql_query(
+            "INSERT INTO directory_resources (\
+                 resource_kind, resource_id, principal_server_did, discovery_state, \
+                 public_projection, discoverability, as_of, source_refs, indexed_at, \
+                 effective_ttl_seconds, next_revalidation_after, stale, divergent, \
+                 via_services, last_refreshed_at, expires_at) \
+             VALUES (\
+                 'realm'::resource_kind, 'cx:realm:expired', 'did:web:expired.test', \
+                 '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '50 hours', \
+                 ARRAY['evt-expired'], now() - interval '50 hours', 60, now() + interval '1 minute', \
+                 true, false, ARRAY[]::text[], now() - interval '50 hours', now() - interval '48 hours')",
+        )
+        .execute(&mut conn)?;
+    }
+
+    let worker = server::workers::expiry::ExpiryWorker::new(state.clone(), Duration::from_secs(60))
+        .with_grace(Duration::from_secs(1));
+    let purged = worker.run_once()?;
+    assert!(
+        purged >= 1,
+        "expected to purge at least one row, got {purged}"
+    );
+
+    let mut conn = state.db().get()?;
+    let count: i64 = diesel::sql_query(
+        "SELECT count(*)::BIGINT AS count FROM directory_resources \
+         WHERE resource_id = 'cx:realm:expired'",
+    )
+    .get_result::<CountRow>(&mut conn)?
+    .count;
+    assert_eq!(count, 0, "expired row was not purged");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
+    if !docker_tests_enabled() {
+        eprintln!(
+            "skipping takedown_notifier_dlqs_after_three_retries; set TEABAY_RUN_DOCKER_TESTS=1"
+        );
+        return Ok(());
+    }
+    let (_pg, database_url) = boot_postgres()?;
+    let (_config, state) = test_app_state(&database_url)?;
+
+    // Start a tiny TCP server that returns HTTP 500 to every request.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(true)?;
+    let port = listener.local_addr()?.port();
+    let endpoint = format!("http://127.0.0.1:{port}/sink");
+    let hit_count = Arc::new(AtomicUsize::new(0));
+    let hit_count_thread = hit_count.clone();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop_thread = stop.clone();
+    let server_handle = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        while !stop_thread.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut sock, _peer)) => {
+                    sock.set_read_timeout(Some(Duration::from_millis(250))).ok();
+                    let mut buf = [0u8; 1024];
+                    let _ = sock.read(&mut buf);
+                    let _ = sock.write_all(
+                        b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\n\r\n",
+                    );
+                    hit_count_thread.fetch_add(1, Ordering::SeqCst);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    {
+        let mut conn = state.db().get()?;
+        diesel::sql_query(
+            "INSERT INTO pending_takedown_webhooks (webhook_id, endpoint, secret) \
+             VALUES ('wh-test', $1, decode('00112233445566778899aabbccddeeff', 'hex'))",
+        )
+        .bind::<diesel::sql_types::Text, _>(&endpoint)
+        .execute(&mut conn)?;
+
+        diesel::sql_query(
+            "INSERT INTO pending_takedowns (\
+                 pending_id, resource_kind, resource_id, reason, proposed_by, \
+                 quorum, status, expires_at) \
+             VALUES (\
+                 'pt-test', 'realm'::resource_kind, 'cx:realm:dlq', 'spam', \
+                 'did:web:operator.test', 1, 'pending', now() + interval '1 day')",
+        )
+        .execute(&mut conn)?;
+    }
+
+    let notifier = server::workers::takedown_notifier::TakedownNotifier::new(
+        state.clone(),
+        Duration::from_secs(60),
+    )?;
+
+    // Three passes -> DLQ.
+    for _ in 0..3 {
+        notifier.run_once().await?;
+    }
+
+    let mut conn = state.db().get()?;
+    let status_row: StatusRow = diesel::sql_query(
+        "SELECT notification_status \
+         FROM pending_takedowns WHERE pending_id = 'pt-test'",
+    )
+    .get_result::<StatusRow>(&mut conn)?;
+    let status = status_row.notification_status.unwrap_or_default();
+    assert!(
+        status.starts_with("dlq:"),
+        "expected DLQ status, got `{status}`"
+    );
+    assert!(
+        hit_count.load(Ordering::SeqCst) >= 3,
+        "expected at least 3 outbound hits, got {}",
+        hit_count.load(Ordering::SeqCst)
+    );
+
+    stop.store(true, Ordering::SeqCst);
+    let _ = server_handle.join();
+    Ok(())
+}
+
+#[derive(diesel::QueryableByName)]
+struct CountRow {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    count: i64,
+}
+
+#[derive(diesel::QueryableByName)]
+struct StatusRow {
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    notification_status: Option<String>,
+}
