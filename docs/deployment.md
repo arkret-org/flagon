@@ -238,3 +238,70 @@ release owner triggers the push manually after reviewing these files.
 
 See [`docs/webhook-retry.md`](webhook-retry.md) and
 [`docs/heartbeat.md`](heartbeat.md) for the operator handbook.
+
+## Multi-DC federation + backup procedure (R3)
+
+teabay is the contrix Directory Service. In production it is deployed
+across two or more data centers ("DCs") with one primary write region
+and one or more standby read regions. The R3 (b47ff6ec) sync did not
+change federation semantics, but several operational details should be
+captured now that handle-homograph wire-level checks are mandatory.
+
+### Topology
+
+- **Primary DC** — owns the write path: `ingest::announce`,
+  `ingest::withdraw`, takedown executor, pending-takedown HMAC notifier.
+  Hosts the authoritative Postgres database.
+- **Secondary DC** — read-only mirror. Serves `query::resolve_handle`
+  and `query::private_contact_discovery` from a streaming-replicated
+  Postgres replica. The mirror MUST NOT accept write traffic; the
+  ingest routes return `503 read_only` on a secondary node.
+- **Federation peers** — other Contrix Directory deployments. Bilateral
+  `directory_peer_links` rows configure pull-subscribe / push-announce
+  destinations; each peer's `service_did` MUST be on the local
+  `directory_peer_trust` allowlist before subscription is honored.
+
+### DR / backup
+
+1. **Primary Postgres** — continuous WAL archiving to object storage
+   (S3 / GCS / Azure Blob). Use a retention window ≥ `30d` to cover
+   the longest takedown-notify retry tail.
+2. **Logical dump cadence** — nightly `pg_dump -Fc` for off-DC restore
+   drills. Restore SHOULD be verified at least quarterly using a
+   throwaway secondary DC.
+3. **Crypto material** — `TEABAY_ADMIN_TOKEN` and the takedown HMAC
+   secret (`TEABAY_TAKEDOWN_HMAC_KEY`) MUST be stored in a secrets
+   manager (Vault / Doppler / cloud KMS). Rotate every 90 days.
+
+### Failover
+
+1. Promote the standby Postgres to primary (PITR or sync replication
+   catch-up). All teabay app pods restart with the promoted DSN.
+2. Update the federation peer registry (`directory_peer_links`) to
+   advertise the new primary's endpoint. Peers will fall back to the
+   secondary endpoint until they refresh.
+3. `directory.search_users` cursors are stateless — clients reconnect
+   with no extra work. Pull-subscribe cursors are stateful per peer;
+   the new primary refuses unknown cursors with `cursor_integrity_invalid`
+   and peers re-subscribe from anchor.
+
+### Backup integrity
+
+Run an integrity sweep before each restore drill:
+
+```sh
+psql -c "SELECT count(*) FROM directory_entries WHERE proof_payload IS NULL;"
+# MUST be 0
+
+psql -c "SELECT count(*) FROM takedown_entries WHERE notified_at IS NULL AND created_at < now() - interval '24h';"
+# alerts at >0
+```
+
+### R3-specific notes (b47ff6ec)
+
+- Handle homograph wire-level enforcement landed in commit `6d69c63`.
+  Pre-R3 announcements that contained script-mixed handles MUST be
+  re-validated post-restore — failed re-validation routes to the
+  takedown executor automatically (`reason=handle_homograph_forbidden`).
+- The `circle` selector kind on `directory.search_users` returns a
+  uniform 404 (intra-Realm isolation). No federation change.
