@@ -72,9 +72,12 @@ pub struct ResolveHandleRequest {
 /// `contrix_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
 /// confusable skeleton + script-mixed reject).
 ///
-/// Accepts both wire shapes the directory may see:
-///   1. Canonical `contrix://<domain>/users/<localpart>` URI.
-///   2. Bare `<localpart>.<domain>` handle (legacy directory shape).
+/// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
+/// (contrix-spec @ 7157ee8 — 2026-05-27). The legacy
+/// `contrix://<domain>/users/<localpart>` URI form was retired in R3.1
+/// and is no longer parsed here. The directory's own dot-separated index
+/// key `<localpart>.<domain>` is still accepted because it remains the
+/// row's `resource_id` shape in storage.
 ///
 /// Returns the rejection reason string for the wire response when the
 /// localpart fails any rule; the message intentionally does NOT echo
@@ -100,15 +103,21 @@ fn extract_localpart(handle: &str) -> &str {
 /// Exposed for the ingest path so `announce.rs` can run the same
 /// localpart-extraction rule before the SDK homograph normalizer. Kept
 /// in this module so the two faces stay in lock-step.
+///
+/// R3.1 wire form (contrix-spec @ 7157ee8): `<localpart>:<domain>(:<port>)?`
+/// — the colon separator is taken first because it is the canonical
+/// shape the SDK `Handle::parse` emits. The directory's internal index
+/// shape `<localpart>.<domain>` is still accepted for back-compat with
+/// stored rows. Empty localpart falls through to the SDK helper which
+/// fails on length-out-of-range.
 pub fn extract_localpart_public(handle: &str) -> &str {
-    if let Some(rest) = handle.strip_prefix("contrix://") {
-        if let Some((_, path)) = rest.split_once("/users/") {
-            return path.split('/').next().unwrap_or(path);
-        }
+    // Prefer the canonical R3.1 colon-separated form. The localpart is
+    // ASCII (lowercased) so a `:` in the input unambiguously means the
+    // R3.1 separator and not part of the localpart.
+    if let Some((local, _)) = handle.split_once(':') {
+        return local;
     }
-    // Bare `localpart.domain` — take the slice up to the first `.`.
-    // Empty localpart falls through to the SDK helper which fails on
-    // length-out-of-range.
+    // Back-compat: teabay's stored `resource_id` uses `<localpart>.<domain>`.
     handle.split('.').next().unwrap_or(handle)
 }
 
@@ -843,11 +852,15 @@ mod tests {
     }
 
     #[test]
-    fn extract_localpart_strips_canonical_uri() {
-        assert_eq!(
-            extract_localpart_public("contrix://example.com/users/alice"),
-            "alice"
-        );
+    fn extract_localpart_accepts_canonical_and_index_forms() {
+        // R3.1 canonical wire form `<localpart>:<domain>` (contrix-spec
+        // @ 7157ee8). The retired `contrix://` URI form is no longer
+        // parsed — feeding it now treats the whole string as a bare
+        // localpart (which the SDK normalizer will then reject).
+        assert_eq!(extract_localpart_public("alice:example.com"), "alice");
+        assert_eq!(extract_localpart_public("alice:example.com:8443"), "alice");
+        // Directory storage index form remains accepted for back-compat
+        // with existing rows.
         assert_eq!(extract_localpart_public("alice.example"), "alice");
     }
 
