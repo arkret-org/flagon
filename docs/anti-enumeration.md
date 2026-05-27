@@ -98,3 +98,88 @@ verifier-authority vs cache split (identity-handles §6 / §6.0) keeps the
 Directory firmly on the cache side: it never asserts authoritative DID
 bindings and never lets a holder-side endorsement decide who receives a
 delivery.
+
+## Handle homograph reject path (R3 wire-level enforcement)
+
+R3 closes a long-standing side channel by moving NFC and UTS#39
+confusable-skeleton enforcement **before** the rate-limit gate at the
+wire layer. teabay inherits this enforcement: any handle write or
+handle-bearing query against teabay surfaces the
+`handle_homograph_forbidden` error from the wire layer before
+rate-limit token accounting runs.
+
+Companion documentation:
+
+- [`starid/docs/operations.md` → Handle homograph workflow](../../starid/docs/operations.md#handle-homograph-workflow) for triage and audit.
+- [`contrix-rust-sdk/docs/architecture.md`](../../contrix-rust-sdk/docs/architecture.md) for the SDK normalize helper.
+- [`yougen/docs/user-manual/r3-error-codes.md` → handle_homograph_forbidden](../../yougen/docs/user-manual/r3-error-codes.md#handle_homograph_forbidden) for the user-facing message.
+
+### Wire-level order vs application-level order
+
+```text
+inbound request
+      │
+      ▼
+[1. transport / signature verify]
+      │
+      ▼
+[2. handle canonicalization]  ← was application-level, post-rate-limit
+      │     - NFC normalize
+      │     - UTS#39 confusable skeleton check
+      │     - script-mixing reject
+      │     - blocklist / collision check
+      ▼
+[3. rate-limit token-bucket]
+      │
+      ▼
+[4. application handler]
+```
+
+Pre-R3 step (2) ran inside step (4), which produced a side channel: an
+attacker could probe whether a candidate handle was confusable with a
+high-value existing handle by submitting it and observing whether the
+rate-limiter responded (no collision) or the application-layer reject
+fired (collision). The attacker's token budget was the only enumeration
+budget; even modest rate-limit allowances let an attacker enumerate the
+confusable skeleton space.
+
+By moving step (2) ahead of step (3), R3 collapses the side channel:
+
+1. **Constant-time-from-the-attacker reject ordering.** Any
+   canonicalization reject fires from the same wire-layer code path
+   regardless of token-bucket state.
+2. **Rate-limit budget is unaffected by confusable probes.** A
+   confusable submission is rejected at the wire layer; the rate
+   limiter is never consulted, so the attacker cannot use the
+   rate-limit-vs-handler decision boundary to leak collision
+   membership.
+3. **Metric exposure surfaces enumeration without the rate limiter
+   alerting on it.** The metric
+   `teabay_handle_homograph_forbidden_total{reason}` rises on every
+   wire-layer reject; alerting on a per-realm baseline catches
+   enumeration that would otherwise be invisible inside the noise of
+   the rate-limit log.
+
+### Rejection categories visible at teabay
+
+When teabay forwards a handle-bearing request and the wire layer
+returns `handle_homograph_forbidden`, the response carries one of:
+
+| `reason` | What it means |
+|---|---|
+| `non_nfc` | Input bytes were not in Unicode NFC form. The canonical form is computable; clients SHOULD pre-normalize. |
+| `mixed_script` | The handle mixes incompatible Unicode scripts (e.g. Latin + Cyrillic). |
+| `disallowed_codepoint` | A codepoint outside the allowed identifier set was present. |
+| `skeleton_collision` | The UTS#39 confusable skeleton collides with an existing handle. |
+
+`mixed_script` and `skeleton_collision` are the two reasons most
+relevant to enumeration defense; `non_nfc` and `disallowed_codepoint`
+are well-formedness rejects that fire for honest mistakes too.
+
+### Operational note
+
+Operators who watch teabay dashboards for enumeration patterns SHOULD
+now alert on `teabay_handle_homograph_forbidden_total{reason="skeleton_collision"}`
+crossing a per-realm baseline, NOT on rate-limit metrics alone. Rate-
+limit metrics still matter for general abuse signaling, but R3's wire-
+level enforcement means rate limits no longer hide the homograph signal.
