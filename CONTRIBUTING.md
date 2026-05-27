@@ -1,5 +1,19 @@
 # Contributing
 
+## Pre-commit hook setup
+
+After cloning, enable the project's pre-commit hooks:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook runs `cargo fmt --all -- --check` and `cargo clippy --no-deps -- -D
+warnings` on staged Rust changes. If `.githooks/pre-commit` is missing, copy
+it from
+[`contrix-rust-sdk`](https://github.com/contrix-dev/contrix-rust-sdk) and
+adapt to your local toolchain.
+
 ## Scope
 
 teabay is the reference Contrix Directory Service. Keep changes focused on this

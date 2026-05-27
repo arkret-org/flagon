@@ -35,14 +35,15 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          rustup component add clippy
+          rustup component add clippy rustfmt
           rustup target add wasm32-unknown-unknown
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Check teabay
         run: cargo check --locked --all-targets
 
-      # rustfmt enforcement was dropped intentionally in commit ab583ba;
-      # restore via `cargo fmt --all -- --check` before tagging a release.
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 

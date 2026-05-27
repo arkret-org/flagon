@@ -144,11 +144,7 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
     };
     let _query_timer = state.metrics().query_timer("well-known-handle");
 
-    let localpart = req
-        .queries()
-        .get("localpart")
-        .cloned()
-        .unwrap_or_default();
+    let localpart = req.queries().get("localpart").cloned().unwrap_or_default();
     if localpart.is_empty() {
         ApiErrorCode::MissingParam.render(res, "localpart query parameter is required");
         return;
