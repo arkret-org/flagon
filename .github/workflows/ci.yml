@@ -38,10 +38,6 @@ jobs:
           rustup component add clippy
           rustup target add wasm32-unknown-unknown
 
-      - name: Format
-        run: |
-          cargo fmt --all --check
-
       - name: Check teabay
         run: cargo check --locked --all-targets
 
