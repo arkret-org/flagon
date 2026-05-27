@@ -31,6 +31,8 @@ pub fn router(state: AppState) -> Router {
         root = root.hoop(cors_handler_for_origin(origin));
     }
     root.push(Router::with_path("health").get(health))
+        // TODO(R3.1): wire to actual prometheus registry
+        .push(Router::with_path("healthz").get(health))
         .push(Router::with_path("readyz").get(readyz))
         .push(directory)
         .push(admin)
