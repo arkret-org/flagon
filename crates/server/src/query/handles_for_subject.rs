@@ -360,12 +360,6 @@ pub fn assemble_response(
 /// One indexed handle row that may belong to the subject.
 #[derive(Debug, Queryable, Clone)]
 pub struct SubjectHandleRow {
-    /// The row's `resource_id` (the handle index key, `<localpart>.<domain>`).
-    /// Selected from the DB and retained for diagnostics / test fixtures; the
-    /// authoritative handle surfaced in a claim comes from the projection's
-    /// canonical `handle` field, never from this dot-form index key.
-    #[allow(dead_code)]
-    resource_id: String,
     public_projection: JsonValue,
     discoverability: DiscoverabilityWire,
     as_of: DateTime<Utc>,
@@ -376,13 +370,11 @@ impl SubjectHandleRow {
     /// conformance suite (DIR-TBY-5) so tests can assemble fixture rows
     /// without a Postgres round trip.
     pub fn for_test(
-        resource_id: impl Into<String>,
         public_projection: JsonValue,
         discoverability: DiscoverabilityWire,
         as_of: DateTime<Utc>,
     ) -> Self {
         Self {
-            resource_id: resource_id.into(),
             public_projection,
             discoverability,
             as_of,
@@ -412,12 +404,7 @@ async fn load_subject_handle_rows(
         .filter(r::stale.eq(false))
         .order(r::indexed_at.desc())
         .limit(MAX_CANDIDATE_SCAN)
-        .select((
-            r::resource_id,
-            r::public_projection,
-            r::discoverability,
-            r::as_of,
-        ))
+        .select((r::public_projection, r::discoverability, r::as_of))
         .load(&mut *conn)
         .await?;
     let scan_capped = rows.len() as i64 >= MAX_CANDIDATE_SCAN;
@@ -447,12 +434,9 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         return None;
     }
     let subject_did = contrix_sdk::Did::new(subject.to_owned()).ok()?;
-    // The handle string is stored either as the projection `handle` field or
-    // as the row's `resource_id` (`<localpart>.<domain>` index form). The
-    // canonical wire form is `<localpart>:<domain>`; teabay's stored
-    // dot-form is for the index key only, so prefer a projection `handle`
-    // that already parses as canonical and otherwise leave `handle` empty
-    // rather than emit a non-canonical value.
+    // The handle string must come from the projection's canonical
+    // `handle` field. The directory index key may use a dot-form
+    // resource_id, so it is intentionally not a fallback.
     let handle = row
         .public_projection
         .get("handle")

@@ -126,13 +126,6 @@ pub struct CachedAnnounceResponse {
     pub indexed_at: DateTime<Utc>,
     pub effective_ttl_seconds: i64,
     pub next_revalidation_after: DateTime<Utc>,
-    /// Round R2/R3 T14 — the cached response was produced by a replay
-    /// path. On a subsequent cache hit *after* the underlying service
-    /// key was revoked, the announce handler MUST re-do the capability
-    /// check and, if it fails, serve this row with `historical_only=true`
-    /// and skip side effects.
-    #[allow(dead_code)] // populated on the federation replay path; read by handlers.
-    pub historical_only: bool,
 }
 
 #[derive(Default)]

@@ -552,7 +552,6 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 indexed_at: response.indexed_at,
                 effective_ttl_seconds: response.effective_ttl_seconds,
                 next_revalidation_after: response.next_revalidation_after,
-                historical_only: false,
             },
         );
         ingest_metric.set_outcome("replay");
@@ -704,7 +703,6 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             indexed_at,
             effective_ttl_seconds: effective_ttl,
             next_revalidation_after: next_revalidation,
-            historical_only: false,
         },
     );
 

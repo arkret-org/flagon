@@ -43,7 +43,6 @@ fn req(realm_id: Option<&str>, requester: Option<&str>) -> DirectoryListHandlesF
 
 fn row(projection: serde_json::Value, disc: DiscoverabilityWire) -> SubjectHandleRow {
     SubjectHandleRow::for_test(
-        "alice.example",
         projection,
         disc,
         Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
