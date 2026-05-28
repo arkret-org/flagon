@@ -11,6 +11,9 @@ use contrix_sdk::{
     federation_trust_domain_transcript_fragment,
 };
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncConnection;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -339,7 +342,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 "reason": "circle_isolation_violation",
                 "violation": rejection.audit_label(),
             }),
-        );
+        )
+        .await;
         ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
         return;
     }
@@ -364,7 +368,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 "reason": "circle_isolation_violation",
                 "violation": rejection.audit_label(),
             }),
-        );
+        )
+        .await;
         ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
         return;
     }
@@ -392,7 +397,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                     "code": ApiErrorCode::HandleHomographForbidden.wire_code(),
                     "reason": "handle_homograph_forbidden",
                 }),
-            );
+            )
+            .await;
             ApiErrorCode::HandleHomographForbidden.render(
                 res,
                 "handle localpart violates homograph / script-mixed policy",
@@ -448,7 +454,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                     "source_trust_domain": cache_inputs.source_trust_domain,
                     "destination_trust_domain": cache_inputs.destination_trust_domain,
                 }),
-            );
+            )
+            .await;
             code.render(res, msg);
             return;
         }
@@ -477,7 +484,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                     "verification_method": cache_inputs.verification_method,
                     "service_binding_ref": cache_inputs.service_binding_ref,
                 }),
-            );
+            )
+            .await;
         }
         let warning = if historical_only {
             ingest_metric.set_outcome("historical_only");
@@ -510,7 +518,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 Some(&body.resource_id),
                 Some(&body.principal_server_did),
                 json!({ "code": code.wire_code(), "message": msg }),
-            );
+            )
+            .await;
             code.render(res, msg);
             return;
         }
@@ -523,6 +532,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         &body.resource_id,
         body.as_of,
     )
+    .await
     .ok()
     .flatten()
     {
@@ -552,6 +562,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     // Reject as_of older than the most recent indexed entry (§8.10 rollback).
     if let Some(latest) = latest_as_of_for(state.db(), body.resource_kind, &body.resource_id)
+        .await
         .ok()
         .flatten()
         && body.as_of < latest
@@ -586,7 +597,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 Some(&body.resource_id),
                 Some(&body.principal_server_did),
                 json!({ "code": code.wire_code(), "message": msg, "reason": "projection_rejected" }),
-            );
+            )
+            .await;
             code.render(res, msg);
             return;
         }
@@ -617,7 +629,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             historical_only: false,
         },
         realm_terminal,
-    );
+    )
+    .await;
 
     if let Err(e) = insert_outcome {
         ingest_metric.set_outcome("persist_error");
@@ -638,7 +651,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             "policy_revision": verified.policy_revision,
             "realm_destroyed": realm_terminal.is_some(),
         }),
-    );
+    )
+    .await;
 
     if let Some(destroyed_at) = realm_terminal {
         let _ = audit::record(
@@ -651,7 +665,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 "announce_id": announce_id,
                 "as_of": body.as_of,
             }),
-        );
+        )
+        .await;
         // Round R2/R3 T07 — tombstone fanout to in-flight subscribers.
         let tombstone = crate::query::admin::ReachabilityTombstone {
             resource_kind: body.resource_kind,
@@ -969,14 +984,14 @@ struct AnnounceLookup {
     effective_ttl_seconds: i32,
 }
 
-fn find_announce_by_natural_key(
+async fn find_announce_by_natural_key(
     db: &Db,
     kind: ResourceKindWire,
     resource_id: &str,
     as_of: DateTime<Utc>,
 ) -> anyhow::Result<Option<AnnounceLookup>> {
     use crate::schema::ingest_announces::dsl;
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     let row: Option<AnnounceLookup> = dsl::ingest_announces
         .filter(dsl::resource_kind.eq(kind))
         .filter(dsl::resource_id.eq(resource_id))
@@ -986,23 +1001,25 @@ fn find_announce_by_natural_key(
             dsl::indexed_at,
             dsl::effective_ttl_seconds,
         ))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     Ok(row)
 }
 
-pub(crate) fn latest_as_of_for(
+pub(crate) async fn latest_as_of_for(
     db: &Db,
     kind: ResourceKindWire,
     resource_id: &str,
 ) -> anyhow::Result<Option<DateTime<Utc>>> {
     use crate::schema::directory_resources::dsl;
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     let row: Option<DateTime<Utc>> = dsl::directory_resources
         .filter(dsl::resource_kind.eq(kind))
         .filter(dsl::resource_id.eq(resource_id))
         .select(dsl::as_of)
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     Ok(row)
 }
@@ -1021,7 +1038,7 @@ pub struct FederationCachePersist {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn upsert_resource_and_audit(
+pub(crate) async fn upsert_resource_and_audit(
     db: &Db,
     body: &AnnounceRequest,
     verified: &super::verify::VerifyOutcome,
@@ -1038,8 +1055,9 @@ pub(crate) fn upsert_resource_and_audit(
     use crate::schema::directory_resources::dsl as r;
     use crate::schema::ingest_announces::dsl as a;
 
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     conn.transaction::<_, anyhow::Error, _>(|conn| {
+        async move {
         let inserted = diesel::insert_into(a::ingest_announces)
             .values((
                 a::announce_id.eq(announce_id),
@@ -1062,7 +1080,8 @@ pub(crate) fn upsert_resource_and_audit(
             ))
             .on_conflict((a::resource_kind, a::resource_id, a::as_of))
             .do_nothing()
-            .execute(conn)?;
+            .execute(&mut *conn)
+            .await?;
 
         let stored_announce_id = if inserted == 0 {
             let (stored_announce_id, stored_state, stored_source_refs) = a::ingest_announces
@@ -1070,7 +1089,8 @@ pub(crate) fn upsert_resource_and_audit(
                 .filter(a::resource_id.eq(&body.resource_id))
                 .filter(a::as_of.eq(body.as_of))
                 .select((a::announce_id, a::discovery_state, a::source_refs))
-                .first::<(String, JsonValue, Vec<String>)>(conn)?;
+                .first::<(String, JsonValue, Vec<String>)>(&mut *conn)
+                .await?;
             if stored_state != body.discovery_state || stored_source_refs != body.source_refs {
                 anyhow::bail!(
                     "natural-key conflict for ({}, {}, {}) carries different signed state",
@@ -1137,10 +1157,14 @@ pub(crate) fn upsert_resource_and_audit(
                 r::last_refreshed_at.eq(indexed_at),
                 r::expires_at.eq(next_revalidation),
             ))
-            .execute(conn)?;
+            .execute(&mut *conn)
+            .await?;
 
         Ok(())
-    })?;
+        }
+        .scope_boxed()
+    })
+    .await?;
     Ok(())
 }
 

@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let db = Db::connect_with(&config.database_url, &config.db_pool)?;
-    db.run_migrations()?;
+    db.run_migrations(&config.database_url).await?;
     let state = AppState::new(config.clone(), db);
 
     if let Some(period) = config.pull_interval {

@@ -28,6 +28,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -92,7 +93,7 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
         return;
     }
 
-    let lookup = match load_row_for_heartbeat(&state, &body.announce_id) {
+    let lookup = match load_row_for_heartbeat(&state, &body.announce_id).await {
         Ok(Some(row)) => row,
         Ok(None) => {
             ingest_metric.set_outcome("not_found");
@@ -122,7 +123,8 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
                 "endpoint": "directory.announce.heartbeat",
                 "reason": "principal_mismatch",
             }),
-        );
+        )
+        .await;
         ApiErrorCode::DirectoryNotAuthorized.render(res, "announcer does not own this row");
         return;
     }
@@ -147,7 +149,7 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
 
     let now = Utc::now();
     let new_expires = now + chrono::Duration::seconds(new_ttl);
-    match write_heartbeat(&state, &lookup, now, new_expires, new_ttl) {
+    match write_heartbeat(&state, &lookup, now, new_expires, new_ttl).await {
         Ok(()) => {
             let _ = audit::record(
                 state.db(),
@@ -160,7 +162,8 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
                     "announce_id": body.announce_id,
                     "effective_ttl_seconds": new_ttl,
                 }),
-            );
+            )
+            .await;
             ingest_metric.set_outcome("verify_ok");
             res.render(Json(HeartbeatResponse {
                 announce_id: body.announce_id,
@@ -193,12 +196,12 @@ struct HeartbeatRow {
     realm_destroyed_at: Option<DateTime<Utc>>,
 }
 
-fn load_row_for_heartbeat(
+async fn load_row_for_heartbeat(
     state: &AppState,
     announce_id: &str,
 ) -> anyhow::Result<Option<HeartbeatRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let row: Option<HeartbeatRow> = r::directory_resources
         .filter(r::last_announce_id.eq(announce_id))
         .filter(r::stale.eq(false))
@@ -209,12 +212,13 @@ fn load_row_for_heartbeat(
             r::effective_ttl_seconds,
             r::realm_destroyed_at,
         ))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     Ok(row)
 }
 
-fn write_heartbeat(
+async fn write_heartbeat(
     state: &AppState,
     row: &HeartbeatRow,
     now: DateTime<Utc>,
@@ -222,7 +226,7 @@ fn write_heartbeat(
     new_ttl_secs: i64,
 ) -> anyhow::Result<()> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     diesel::update(
         r::directory_resources
             .filter(r::resource_kind.eq(row.resource_kind))
@@ -234,7 +238,8 @@ fn write_heartbeat(
         r::effective_ttl_seconds.eq(new_ttl_secs as i32),
         r::next_revalidation_after.eq(expires),
     ))
-    .execute(&mut conn)?;
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }
 

@@ -1,13 +1,15 @@
-//! Diesel + r2d2 connection pool, and the boot-time migration runner.
+//! diesel-async + deadpool connection pool, and the boot-time migration runner.
 
-use diesel::pg::PgConnection;
-use diesel::r2d2::{self, ConnectionManager};
+use diesel_async::AsyncPgConnection;
+use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
+use diesel_async::pooled_connection::AsyncDieselConnectionManager;
+use diesel_async::pooled_connection::deadpool::{Object, Pool};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use crate::config::DbPoolConfig;
 
-pub type PgPool = r2d2::Pool<ConnectionManager<PgConnection>>;
-pub type PgPooledConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
+pub type PgPool = Pool<AsyncPgConnection>;
+pub type PgPooledConnection = Object<AsyncPgConnection>;
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
@@ -25,37 +27,50 @@ impl Db {
     }
 
     /// Build a connection pool against `database_url` with explicit
-    /// pool tunables (P2E.6). Honours `max_size`, `min_idle`,
-    /// `connection_timeout`, and `idle_timeout` from the config; see
-    /// `docs/scaling.md` for sizing guidance.
+    /// pool tunables (P2E.6). Honours `max_size` and `connection_timeout`
+    /// from the config; see `docs/scaling.md` for sizing guidance.
+    ///
+    /// deadpool does not expose r2d2's `min_idle`/`idle_timeout` knobs in
+    /// the same shape, so those config fields are accepted but no longer
+    /// map onto pool settings.
     pub fn connect_with(database_url: &str, pool: &DbPoolConfig) -> anyhow::Result<Self> {
-        let manager = ConnectionManager::<PgConnection>::new(database_url);
-        let mut builder = r2d2::Pool::builder()
-            .max_size(pool.max_size)
-            .connection_timeout(pool.connection_timeout);
-        if let Some(min_idle) = pool.min_idle {
-            builder = builder.min_idle(Some(min_idle));
-        }
-        if let Some(idle_timeout) = pool.idle_timeout {
-            builder = builder.idle_timeout(Some(idle_timeout));
-        }
-        let pool = builder
-            .build(manager)
+        let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url);
+        let pool = Pool::builder(manager)
+            .max_size(pool.max_size as usize)
+            .timeouts(deadpool::managed::Timeouts {
+                wait: Some(pool.connection_timeout),
+                ..Default::default()
+            })
+            .runtime(deadpool::Runtime::Tokio1)
+            .build()
             .map_err(|e| anyhow::anyhow!("connect to {database_url}: {e}"))?;
         Ok(Self { pool })
     }
 
     /// Apply all pending embedded migrations. Called once at boot in main.
-    pub fn run_migrations(&self) -> anyhow::Result<()> {
-        let mut conn = self.pool.get()?;
-        conn.run_pending_migrations(MIGRATIONS)
-            .map_err(|e| anyhow::anyhow!("run pending migrations: {e}"))?;
-        Ok(())
+    ///
+    /// `diesel_migrations` requires a synchronous `MigrationHarness`, so we
+    /// drive it through [`AsyncConnectionWrapper`] on a blocking thread
+    /// rather than the async pool connection.
+    pub async fn run_migrations(&self, database_url: &str) -> anyhow::Result<()> {
+        let url = database_url.to_owned();
+        tokio::task::spawn_blocking(move || {
+            use diesel::Connection;
+            let mut wrapper = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&url)
+                .map_err(|e| anyhow::anyhow!("establish migration connection: {e}"))?;
+            wrapper
+                .run_pending_migrations(MIGRATIONS)
+                .map_err(|e| anyhow::anyhow!("run pending migrations: {e}"))?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("migration task panicked: {e}"))?
     }
 
-    pub fn get(&self) -> anyhow::Result<PgPooledConnection> {
+    pub async fn get(&self) -> anyhow::Result<PgPooledConnection> {
         self.pool
             .get()
+            .await
             .map_err(|e| anyhow::anyhow!("acquire pg conn: {e}"))
     }
 
@@ -63,22 +78,22 @@ impl Db {
         &self.pool
     }
 
-    /// P2E.6 — snapshot live r2d2 pool stats for the Prometheus
-    /// scrape. r2d2's `state()` is cheap (Mutex-guarded reads) so it
-    /// is safe to call from the metrics scrape hot path.
+    /// P2E.6 — snapshot live deadpool pool stats for the Prometheus
+    /// scrape. deadpool's `status()` is cheap so it is safe to call from
+    /// the metrics scrape hot path.
     pub fn pool_stats(&self) -> DbPoolStats {
-        let state = self.pool.state();
+        let status = self.pool.status();
         DbPoolStats {
-            connections: state.connections,
-            idle: state.idle_connections,
-            in_use: state.connections.saturating_sub(state.idle_connections),
-            max_size: self.pool.max_size(),
+            connections: status.size as u32,
+            idle: status.available.max(0) as u32,
+            in_use: (status.size as i64 - status.available.max(0) as i64).max(0) as u32,
+            max_size: status.max_size as u32,
         }
     }
 }
 
-/// Snapshot of r2d2 pool occupancy at the moment of capture. All
-/// counts are u32 to match r2d2's public API.
+/// Snapshot of deadpool pool occupancy at the moment of capture. All
+/// counts are u32 to match the Prometheus gauge surface.
 #[derive(Clone, Copy, Debug)]
 pub struct DbPoolStats {
     pub connections: u32,

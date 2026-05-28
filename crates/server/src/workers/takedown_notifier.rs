@@ -21,8 +21,8 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use diesel::prelude::*;
 use diesel::sql_types::{Int4, Nullable, Text, Timestamptz};
+use diesel_async::RunQueryDsl;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde_json::json;
@@ -112,16 +112,17 @@ impl TakedownNotifier {
     /// dispatch attempt this pass. Public so tests can drive it without
     /// a scheduler.
     pub async fn run_once(&self) -> anyhow::Result<usize> {
-        let pending = self.fetch_pending(50)?;
+        let pending = self.fetch_pending(50).await?;
         if pending.is_empty() {
             return Ok(0);
         }
-        let webhooks = self.fetch_webhooks()?;
+        let webhooks = self.fetch_webhooks().await?;
         if webhooks.is_empty() {
             // Nothing to send to — mark the rows complete so we don't
             // loop forever.
             for row in &pending {
-                self.mark_status(&row.pending_id, "no_subscribers", row.attempts.unwrap_or(0))?;
+                self.mark_status(&row.pending_id, "no_subscribers", row.attempts.unwrap_or(0))
+                    .await?;
             }
             return Ok(pending.len());
         }
@@ -146,9 +147,11 @@ impl TakedownNotifier {
             }
             let next_attempts = attempts.saturating_add(1);
             if all_ok {
-                self.mark_status(&row.pending_id, "delivered", next_attempts)?;
+                self.mark_status(&row.pending_id, "delivered", next_attempts)
+                    .await?;
             } else if next_attempts >= TAKEDOWN_MIN_ATTEMPTS {
-                self.mark_status(&row.pending_id, "dlq", next_attempts)?;
+                self.mark_status(&row.pending_id, "dlq", next_attempts)
+                    .await?;
                 self.state
                     .metrics()
                     .record_takedown_notification_failure(TAKEDOWN_NOTIFICATION_STAGE_DLQ);
@@ -162,15 +165,16 @@ impl TakedownNotifier {
                     .get(next_attempts.saturating_sub(1) as usize)
                     .copied()
                     .unwrap_or(900);
-                self.schedule_retry(&row.pending_id, next_attempts, backoff)?;
+                self.schedule_retry(&row.pending_id, next_attempts, backoff)
+                    .await?;
             }
             dispatched += 1;
         }
         Ok(dispatched)
     }
 
-    fn fetch_pending(&self, limit: i64) -> anyhow::Result<Vec<PendingRow>> {
-        let mut conn = self.state.db().get()?;
+    async fn fetch_pending(&self, limit: i64) -> anyhow::Result<Vec<PendingRow>> {
+        let mut conn = self.state.db().get().await?;
         let rows = diesel::sql_query(
             "SELECT pending_id, resource_kind::TEXT AS resource_kind, resource_id, reason, \
                     proposed_by, proposed_at, \
@@ -183,12 +187,13 @@ impl TakedownNotifier {
              LIMIT $1",
         )
         .bind::<diesel::sql_types::BigInt, _>(limit)
-        .load::<PendingRow>(&mut conn)?;
+        .load::<PendingRow>(&mut *conn)
+        .await?;
         Ok(rows)
     }
 
-    fn fetch_webhooks(&self) -> anyhow::Result<Vec<WebhookRow>> {
-        let mut conn = self.state.db().get()?;
+    async fn fetch_webhooks(&self) -> anyhow::Result<Vec<WebhookRow>> {
+        let mut conn = self.state.db().get().await?;
         let now = Utc::now();
         let rows = diesel::sql_query(
             "SELECT webhook_id, endpoint, secret \
@@ -196,7 +201,8 @@ impl TakedownNotifier {
              WHERE expires_at IS NULL OR expires_at > $1",
         )
         .bind::<diesel::sql_types::Timestamptz, _>(now)
-        .load::<WebhookRow>(&mut conn)?;
+        .load::<WebhookRow>(&mut *conn)
+        .await?;
         Ok(rows)
     }
 
@@ -238,8 +244,13 @@ impl TakedownNotifier {
         Ok(())
     }
 
-    fn mark_status(&self, pending_id: &str, status: &str, attempts: i32) -> anyhow::Result<()> {
-        let mut conn = self.state.db().get()?;
+    async fn mark_status(
+        &self,
+        pending_id: &str,
+        status: &str,
+        attempts: i32,
+    ) -> anyhow::Result<()> {
+        let mut conn = self.state.db().get().await?;
         let label = format!("{status}:attempt:{attempts}");
         diesel::sql_query(
             "UPDATE pending_takedowns \
@@ -248,17 +259,18 @@ impl TakedownNotifier {
         )
         .bind::<Text, _>(label)
         .bind::<Text, _>(pending_id)
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
         Ok(())
     }
 
-    fn schedule_retry(
+    async fn schedule_retry(
         &self,
         pending_id: &str,
         attempts: i32,
         backoff_secs: i64,
     ) -> anyhow::Result<()> {
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let label = format!("retry:attempt:{attempts}:after:{backoff_secs}s");
         diesel::sql_query(
             "UPDATE pending_takedowns \
@@ -267,7 +279,8 @@ impl TakedownNotifier {
         )
         .bind::<Text, _>(label)
         .bind::<Text, _>(pending_id)
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
         Ok(())
     }
 }

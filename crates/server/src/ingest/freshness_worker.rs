@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use tokio::time::interval;
 use tracing::{info, warn};
 
@@ -50,7 +51,7 @@ impl FreshnessWorker {
             let mut tick = interval(self.period);
             loop {
                 tick.tick().await;
-                if let Err(e) = self.run_once() {
+                if let Err(e) = self.run_once().await {
                     warn!(%e, "freshness worker pass failed");
                 }
             }
@@ -59,15 +60,16 @@ impl FreshnessWorker {
 
     /// Single sweep. Public so the integration tests can drive it
     /// without a running scheduler.
-    pub fn run_once(&self) -> anyhow::Result<usize> {
+    pub async fn run_once(&self) -> anyhow::Result<usize> {
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let now = Utc::now();
         let flipped = diesel::update(r::directory_resources)
             .filter(r::stale.eq(false))
             .filter(r::expires_at.lt(now))
             .set(r::stale.eq(true))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)
+            .await?;
         if flipped > 0 {
             info!(
                 flipped,

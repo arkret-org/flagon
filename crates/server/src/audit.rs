@@ -14,6 +14,9 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncConnection;
 use diesel_derive_enum::DbEnum;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
@@ -98,7 +101,7 @@ pub struct ActorIdentity<'a> {
 /// Legacy `record` — kept for callers that don't yet thread the
 /// authentication metadata. The new chained-digest write goes through
 /// `record_with_identity`.
-pub fn record(
+pub async fn record(
     db: &Db,
     kind: AuditEventKind,
     resource_kind: Option<crate::ingest::ResourceKindWire>,
@@ -119,6 +122,7 @@ pub fn record(
             asserted_operator: actor,
         },
     )
+    .await
 }
 
 /// Chained-digest audit write. Reads the previous `audit_digest` from
@@ -126,7 +130,7 @@ pub fn record(
 /// `sha256(canonical(row) || prev_digest)`, and inserts. The
 /// transaction wrapper ensures the prev-digest read and the new-row
 /// insert see a consistent ordering even under concurrent writers.
-pub fn record_with_identity(
+pub async fn record_with_identity(
     db: &Db,
     kind: AuditEventKind,
     resource_kind: Option<crate::ingest::ResourceKindWire>,
@@ -135,44 +139,50 @@ pub fn record_with_identity(
     detail: JsonValue,
     identity: ActorIdentity<'_>,
 ) -> anyhow::Result<()> {
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     conn.transaction::<_, anyhow::Error, _>(|conn| {
-        let prev_digest: Option<Vec<u8>> = directory_audit::table
-            .order(directory_audit::audit_id.desc())
-            .select(directory_audit::audit_digest)
-            .first::<Option<Vec<u8>>>(conn)
-            .optional()?
-            .flatten();
+        async move {
+            let prev_digest: Option<Vec<u8>> = directory_audit::table
+                .order(directory_audit::audit_id.desc())
+                .select(directory_audit::audit_digest)
+                .first::<Option<Vec<u8>>>(&mut *conn)
+                .await
+                .optional()?
+                .flatten();
 
-        let occurred_at = Utc::now();
-        let row_digest = compute_row_digest(
-            occurred_at,
-            kind,
-            resource_kind,
-            resource_id,
-            actor,
-            &detail,
-            &identity,
-            prev_digest.as_deref(),
-        );
-
-        diesel::insert_into(directory_audit::table)
-            .values(NewAuditRow {
+            let occurred_at = Utc::now();
+            let row_digest = compute_row_digest(
                 occurred_at,
                 kind,
                 resource_kind,
                 resource_id,
                 actor,
-                detail,
-                authentication_method: identity.authentication_method,
-                authenticated_actor: identity.authenticated_actor.or(actor),
-                asserted_operator: identity.asserted_operator.or(actor),
-                prev_digest,
-                audit_digest: Some(row_digest),
-            })
-            .execute(conn)?;
-        Ok(())
+                &detail,
+                &identity,
+                prev_digest.as_deref(),
+            );
+
+            diesel::insert_into(directory_audit::table)
+                .values(NewAuditRow {
+                    occurred_at,
+                    kind,
+                    resource_kind,
+                    resource_id,
+                    actor,
+                    detail,
+                    authentication_method: identity.authentication_method,
+                    authenticated_actor: identity.authenticated_actor.or(actor),
+                    asserted_operator: identity.asserted_operator.or(actor),
+                    prev_digest,
+                    audit_digest: Some(row_digest),
+                })
+                .execute(&mut *conn)
+                .await?;
+            Ok(())
+        }
+        .scope_boxed()
     })
+    .await
 }
 
 /// Canonical digest input. Includes every operator-meaningful field so

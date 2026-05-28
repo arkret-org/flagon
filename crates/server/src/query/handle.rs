@@ -12,6 +12,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
@@ -408,7 +409,7 @@ struct HandleRow {
 
 async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Option<HandleRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let row: Option<HandleRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Handle))
         .filter(r::resource_id.eq(handle))
@@ -426,7 +427,8 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
             r::divergent,
             r::via_services,
         ))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     match row {
         Some(row) if row.discoverability.is_directory_visible() => Ok(Some(row)),
@@ -480,12 +482,13 @@ async fn load_realm_policy(
     realm_id: &str,
 ) -> anyhow::Result<RealmDeliveryBindingPolicy> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let projection: Option<(JsonValue, DiscoverabilityWire)> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Realm))
         .filter(r::resource_id.eq(realm_id))
         .select((r::public_projection, r::discoverability))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     let Some((projection, discoverability)) = projection else {
         return Ok(RealmDeliveryBindingPolicy::default());

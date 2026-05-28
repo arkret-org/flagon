@@ -9,6 +9,9 @@
 
 use chrono::Utc;
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncConnection;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -120,7 +123,9 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    if let Err(e) = persist_withdraw(&state, &body, &withdraw_id, &proof, acked_at, effective_at) {
+    if let Err(e) =
+        persist_withdraw(&state, &body, &withdraw_id, &proof, acked_at, effective_at).await
+    {
         ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
         return;
@@ -138,7 +143,8 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             "reason": body.reason,
             "effective_at": effective_at,
         }),
-    );
+    )
+    .await;
 
     ingest_metric.set_outcome("verify_ok");
     res.render(Json(WithdrawResponse {
@@ -174,7 +180,7 @@ pub(crate) fn withdraw_payload_without_jws(
     Ok(payload)
 }
 
-fn persist_withdraw(
+async fn persist_withdraw(
     state: &AppState,
     body: &WithdrawRequest,
     withdraw_id: &str,
@@ -185,29 +191,35 @@ fn persist_withdraw(
     use crate::schema::directory_resources::dsl as r;
     use crate::schema::withdrawals::dsl as w;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        diesel::insert_into(w::withdrawals)
-            .values((
-                w::withdraw_id.eq(withdraw_id),
-                w::resource_kind.eq(body.resource_kind),
-                w::resource_id.eq(&body.resource_id),
-                w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
-                w::reason.eq(&body.reason),
-                w::proof.eq(proof),
-                w::effective_at.eq(effective_at),
-                w::acked_at.eq(acked_at),
-                w::operator.eq::<Option<&str>>(None),
-                w::notified_at.eq::<Option<chrono::DateTime<Utc>>>(None),
-            ))
-            .execute(conn)?;
+        async move {
+            diesel::insert_into(w::withdrawals)
+                .values((
+                    w::withdraw_id.eq(withdraw_id),
+                    w::resource_kind.eq(body.resource_kind),
+                    w::resource_id.eq(&body.resource_id),
+                    w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
+                    w::reason.eq(&body.reason),
+                    w::proof.eq(proof),
+                    w::effective_at.eq(effective_at),
+                    w::acked_at.eq(acked_at),
+                    w::operator.eq::<Option<&str>>(None),
+                    w::notified_at.eq::<Option<chrono::DateTime<Utc>>>(None),
+                ))
+                .execute(&mut *conn)
+                .await?;
 
-        diesel::delete(r::directory_resources)
-            .filter(r::resource_kind.eq(body.resource_kind))
-            .filter(r::resource_id.eq(&body.resource_id))
-            .execute(conn)?;
+            diesel::delete(r::directory_resources)
+                .filter(r::resource_kind.eq(body.resource_kind))
+                .filter(r::resource_id.eq(&body.resource_id))
+                .execute(&mut *conn)
+                .await?;
 
-        Ok(())
-    })?;
+            Ok(())
+        }
+        .scope_boxed()
+    })
+    .await?;
     Ok(())
 }

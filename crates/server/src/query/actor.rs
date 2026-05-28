@@ -9,6 +9,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
@@ -188,7 +189,7 @@ async fn run_actor_search(
     limit: i64,
 ) -> anyhow::Result<Vec<ActorRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows: Vec<ActorRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Actor))
         .filter(r::discoverability.eq(DiscoverabilityWire::Public))
@@ -205,7 +206,8 @@ async fn run_actor_search(
             r::divergent,
             r::via_services,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     let needle = needle.trim().to_ascii_lowercase();
     Ok(rows
         .into_iter()
@@ -224,7 +226,7 @@ async fn run_user_search(
     limit: i64,
 ) -> anyhow::Result<Vec<ActorRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows: Vec<ActorRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Actor))
         .filter(r::discoverability.eq(DiscoverabilityWire::Public))
@@ -241,7 +243,8 @@ async fn run_user_search(
             r::divergent,
             r::via_services,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
 
     let needle = needle.trim().to_ascii_lowercase();
     Ok(rows

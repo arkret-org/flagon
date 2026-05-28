@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use diesel::RunQueryDsl;
+use diesel_async::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
@@ -215,7 +215,7 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
         }
     };
 
-    let database = database_ready(state);
+    let database = database_ready(state).await;
     let pull = state.worker_readiness(BackgroundWorker::Pull);
     let divergence = state.worker_readiness(BackgroundWorker::Divergence);
     let ok = database.is_ok() && pull.ready && divergence.ready;
@@ -286,10 +286,11 @@ async fn metrics_not_found(res: &mut Response) {
     res.render(Text::Plain("not found\n"));
 }
 
-fn database_ready(state: &AppState) -> Result<(), String> {
-    let mut conn = state.db().get().map_err(|error| error.to_string())?;
+async fn database_ready(state: &AppState) -> Result<(), String> {
+    let mut conn = state.db().get().await.map_err(|error| error.to_string())?;
     diesel::sql_query("SELECT 1")
-        .execute(&mut conn)
+        .execute(&mut *conn)
+        .await
         .map(|_| ())
         .map_err(|error| error.to_string())
 }

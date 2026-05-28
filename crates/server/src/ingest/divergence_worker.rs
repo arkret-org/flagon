@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use reqwest::{Client, Url};
 use serde_json::{Value as JsonValue, json};
 use tokio::time::interval;
@@ -70,7 +71,7 @@ impl DivergenceWorker {
 
     async fn run_once(&self) -> anyhow::Result<()> {
         self.state.worker_heartbeat(BackgroundWorker::Divergence);
-        let candidates = self.fetch_candidates(100)?;
+        let candidates = self.fetch_candidates(100).await?;
         if candidates.is_empty() {
             return Ok(());
         }
@@ -80,11 +81,11 @@ impl DivergenceWorker {
             match self.check_candidate(candidate.clone()).await {
                 Ok(Some(mismatches)) if !mismatches.is_empty() => {
                     checked += 1;
-                    self.set_divergent(&candidate, true, mismatches)?;
+                    self.set_divergent(&candidate, true, mismatches).await?;
                 }
                 Ok(Some(_)) => {
                     checked += 1;
-                    self.clear_divergent(&candidate)?;
+                    self.clear_divergent(&candidate).await?;
                 }
                 Ok(None) => {}
                 Err(error) => {
@@ -103,12 +104,12 @@ impl DivergenceWorker {
         Ok(())
     }
 
-    fn fetch_candidates(&self, limit: i64) -> anyhow::Result<Vec<DivergenceCandidate>> {
+    async fn fetch_candidates(&self, limit: i64) -> anyhow::Result<Vec<DivergenceCandidate>> {
         use crate::schema::directory_resources::dsl as r;
 
         type CandidateRow = (ResourceKindWire, String, Option<String>, bool, Vec<String>);
 
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let rows: Vec<CandidateRow> =
             r::directory_resources
                 .order(r::indexed_at.asc())
@@ -120,7 +121,8 @@ impl DivergenceWorker {
                     r::divergent,
                     r::via_services,
                 ))
-                .load(&mut conn)?;
+                .load(&mut *conn)
+                .await?;
 
         Ok(rows
             .into_iter()
@@ -199,7 +201,7 @@ impl DivergenceWorker {
         Ok(extract_policy_revision(&body))
     }
 
-    fn set_divergent(
+    async fn set_divergent(
         &self,
         candidate: &DivergenceCandidate,
         divergent: bool,
@@ -212,14 +214,15 @@ impl DivergenceWorker {
             self.state.metrics().record_divergence_detected();
         }
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         diesel::update(
             r::directory_resources
                 .filter(r::resource_kind.eq(candidate.resource_kind))
                 .filter(r::resource_id.eq(&candidate.resource_id)),
         )
         .set(r::divergent.eq(divergent))
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
 
         audit::record(
             self.state.db(),
@@ -238,21 +241,23 @@ impl DivergenceWorker {
                 }).collect::<Vec<_>>(),
             }),
         )
+        .await
     }
 
-    fn clear_divergent(&self, candidate: &DivergenceCandidate) -> anyhow::Result<()> {
+    async fn clear_divergent(&self, candidate: &DivergenceCandidate) -> anyhow::Result<()> {
         if !candidate.divergent {
             return Ok(());
         }
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         diesel::update(
             r::directory_resources
                 .filter(r::resource_kind.eq(candidate.resource_kind))
                 .filter(r::resource_id.eq(&candidate.resource_id)),
         )
         .set(r::divergent.eq(false))
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
 
         audit::record(
             self.state.db(),
@@ -262,6 +267,7 @@ impl DivergenceWorker {
             Some(&self.state.config().service_did),
             json!({ "reason": "cross_directory_divergence_cleared" }),
         )
+        .await
     }
 }
 

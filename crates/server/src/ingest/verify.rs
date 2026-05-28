@@ -25,6 +25,7 @@ use contrix_sdk::identity::{DidResolver, DidWebvhResolver};
 use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use contrix_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use reqwest::Client;
 use serde_json::Value as JsonValue;
 use url::Url;
@@ -159,22 +160,25 @@ impl<'a> VerifyContext<'a> {
             ));
         }
         if !resource_already_indexed(self.db, req.resource_kind, &req.resource_id)
+            .await
             .map_err(|e| (ApiErrorCode::InternalError, format!("source-ref gate: {e}")))?
         {
             verify_first_source_ref_resolves(req, self.config).await?;
         }
 
         // --- Step 5: accept policy enforcement. ----------------------------
-        self.enforce_accept_policy(req)?;
+        self.enforce_accept_policy(req).await?;
 
         // --- Cross-checks: takedown-in-force --------------------------------
         if let Some(effective_at) =
-            previously_withdrawn(self.db, req.resource_kind, &req.resource_id).map_err(|e| {
-                (
-                    ApiErrorCode::InternalError,
-                    format!("withdrawal check: {e}"),
-                )
-            })?
+            previously_withdrawn(self.db, req.resource_kind, &req.resource_id)
+                .await
+                .map_err(|e| {
+                    (
+                        ApiErrorCode::InternalError,
+                        format!("withdrawal check: {e}"),
+                    )
+                })?
             && req.as_of <= effective_at
         {
             return Err((
@@ -203,7 +207,10 @@ impl<'a> VerifyContext<'a> {
         })
     }
 
-    fn enforce_accept_policy(&self, req: &AnnounceRequest) -> Result<(), (ApiErrorCode, String)> {
+    async fn enforce_accept_policy(
+        &self,
+        req: &AnnounceRequest,
+    ) -> Result<(), (ApiErrorCode, String)> {
         // DID method allowlist (applies regardless of accept policy kind).
         if matches!(
             req.resource_kind,
@@ -227,6 +234,7 @@ impl<'a> VerifyContext<'a> {
             AcceptPolicyKind::Open => Ok(()),
             AcceptPolicyKind::Allowlist => {
                 if is_in_allowlist(self.db, &req.resource_id)
+                    .await
                     .map_err(|e| (ApiErrorCode::InternalError, format!("allowlist read: {e}")))?
                 {
                     Ok(())
@@ -539,18 +547,19 @@ fn enforce_governance_method_binding(
     Ok(())
 }
 
-fn resource_already_indexed(
+async fn resource_already_indexed(
     db: &Db,
     resource_kind: ResourceKindWire,
     resource_id: &str,
 ) -> anyhow::Result<bool> {
     use crate::schema::directory_resources::dsl;
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     let count: i64 = dsl::directory_resources
         .filter(dsl::resource_kind.eq(resource_kind))
         .filter(dsl::resource_id.eq(resource_id))
         .count()
-        .get_result(&mut conn)?;
+        .get_result(&mut *conn)
+        .await?;
     Ok(count > 0)
 }
 
@@ -560,7 +569,8 @@ async fn verify_first_source_ref_resolves(
 ) -> Result<(), (ApiErrorCode, String)> {
     let source_ref = req
         .source_refs
-        .first()
+        .iter()
+        .next()
         .ok_or_else(|| {
             (
                 ApiErrorCode::SourceRefsUnverifiable,
@@ -824,29 +834,31 @@ fn did_method(did: &str) -> Option<String> {
     Some(format!("did:{}", &trimmed[..end]))
 }
 
-fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {
+async fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {
     use crate::schema::accept_allowlist::dsl;
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     let n: i64 = dsl::accept_allowlist
         .filter(dsl::resource_did.eq(resource_did))
         .count()
-        .get_result(&mut conn)?;
+        .get_result(&mut *conn)
+        .await?;
     Ok(n > 0)
 }
 
-fn previously_withdrawn(
+async fn previously_withdrawn(
     db: &Db,
     resource_kind: ResourceKindWire,
     resource_id: &str,
 ) -> anyhow::Result<Option<DateTime<Utc>>> {
     use crate::schema::withdrawals::dsl;
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     let row: Option<DateTime<Utc>> = dsl::withdrawals
         .filter(dsl::resource_kind.eq(resource_kind))
         .filter(dsl::resource_id.eq(resource_id))
         .order(dsl::effective_at.desc())
         .select(dsl::effective_at)
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     Ok(row)
 }

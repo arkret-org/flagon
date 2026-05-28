@@ -2,6 +2,9 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncConnection;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -198,7 +201,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
         }
     };
 
-    if let Err(error) = require_admin(req, &state) {
+    if let Err(error) = require_admin(req, &state).await {
         error.render(res, "admin bearer token required");
         return;
     }
@@ -238,7 +241,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
 
 #[handler]
 pub async fn allowlist_list(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -262,7 +265,7 @@ pub async fn allowlist_list(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
 #[handler]
 pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -292,7 +295,8 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
                 Some(&body.resource_did),
                 Some(actor),
                 json!({ "note": body.note }),
-            );
+            )
+            .await;
             res.render(Json(json!({ "item": item })));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist upsert: {error}")),
@@ -301,7 +305,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
 
 #[handler]
 pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -335,7 +339,8 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
                     Some(resource_did),
                     Some(&state.config().service_did),
                     json!({ "deleted": deleted }),
-                );
+                )
+                .await;
             }
             res.render(Json(json!({ "deleted": deleted })));
         }
@@ -345,7 +350,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
 
 #[handler]
 pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -371,7 +376,7 @@ pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut R
 
 #[handler]
 pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -454,7 +459,8 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
                     "source_refs": item.source_refs,
                     "via_services": item.via_services,
                 }),
-            );
+            )
+            .await;
             res.render(Json(json!({ "item": item })));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("resource upsert: {error}")),
@@ -463,7 +469,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
 
 #[handler]
 pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -508,7 +514,8 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
                     "via_services": detail.via_services,
                     "last_announce_id": detail.last_announce_id,
                 }),
-            );
+            )
+            .await;
             res.render(Json(json!({ "deleted": 1 })));
         }
         Ok(None) => res.render(Json(json!({ "deleted": 0 }))),
@@ -560,7 +567,7 @@ struct ConsentRevokeResponse {
 
 #[handler]
 pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -590,7 +597,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         .clone()
         .unwrap_or_else(|| "consent_revoke{scope=any}".to_owned());
     let (invalidated_rows, affected) =
-        match invalidate_reachability(&state, &body, revoked_at, &reason) {
+        match invalidate_reachability(&state, &body, revoked_at, &reason).await {
             Ok(rows) => rows,
             Err(error) => {
                 ApiErrorCode::InternalError.render(res, format!("consent revoke: {error}"));
@@ -612,7 +619,8 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
             "source_event_id": body.source_event_id,
             "resource_ids": body.resource_ids,
         }),
-    );
+    )
+    .await;
 
     // Best-effort tombstone fanout for in-flight `cx.directory.push.register`
     // webhook listeners. T07 reuses the same channel for realm destroys.
@@ -639,7 +647,7 @@ pub struct ReachabilityTombstone {
     pub revoked_at: DateTime<Utc>,
 }
 
-fn invalidate_reachability(
+async fn invalidate_reachability(
     state: &AppState,
     body: &ConsentRevokeRequest,
     revoked_at: DateTime<Utc>,
@@ -647,7 +655,7 @@ fn invalidate_reachability(
 ) -> anyhow::Result<(i64, Vec<ReachabilityTombstone>)> {
     use crate::schema::directory_resources::dsl as r;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     // The actor's reachability projection can live on:
     //   * actor rows keyed by the actor's DID
     //   * handle rows where principal_server_did == actor DID
@@ -672,7 +680,8 @@ fn invalidate_reachability(
             r::reachability_revoked_reason.eq(Some(reason)),
         ))
         .returning((r::resource_kind, r::resource_id, r::principal_server_did))
-        .get_results(&mut conn)?;
+        .get_results(&mut *conn)
+        .await?;
     let invalidated_rows = affected_rows.len() as i64;
     let tombstones = affected_rows
         .into_iter()
@@ -689,7 +698,7 @@ fn invalidate_reachability(
     Ok((invalidated_rows, tombstones))
 }
 
-fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<AppState> {
+async fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<AppState> {
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
@@ -697,7 +706,7 @@ fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<A
             return None;
         }
     };
-    if let Err(error) = require_admin(req, &state) {
+    if let Err(error) = require_admin(req, &state).await {
         error.render(res, "admin bearer token required");
         return None;
     }
@@ -708,8 +717,8 @@ fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<A
     Some(state)
 }
 
-fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
-    verify_admin_credential(req, state).map(|_| ())
+async fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
+    verify_admin_credential(req, state).await.map(|_| ())
 }
 
 fn parse_since(raw: &str) -> Result<DateTime<Utc>, String> {
@@ -725,7 +734,7 @@ async fn load_audit_rows(
 ) -> anyhow::Result<Vec<AuditDbRow>> {
     use crate::schema::directory_audit::dsl as a;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let mut query = a::directory_audit.into_boxed();
     if let Some(since) = since {
         query = query.filter(a::occurred_at.gt(since));
@@ -743,19 +752,21 @@ async fn load_audit_rows(
             a::actor,
             a::detail,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     Ok(rows)
 }
 
 async fn load_allowlist(state: &AppState, limit: i64) -> anyhow::Result<Vec<AllowlistItem>> {
     use crate::schema::accept_allowlist::dsl as a;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows = a::accept_allowlist
         .order(a::added_at.desc())
         .limit(limit)
         .select((a::resource_did, a::added_by, a::added_at, a::note))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     Ok(rows)
 }
 
@@ -766,7 +777,7 @@ async fn upsert_allowlist(
 ) -> anyhow::Result<AllowlistItem> {
     use crate::schema::accept_allowlist::dsl as a;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let now = Utc::now();
     diesel::insert_into(a::accept_allowlist)
         .values(NewAllowlistRow {
@@ -782,21 +793,24 @@ async fn upsert_allowlist(
             a::added_at.eq(now),
             a::note.eq(&body.note),
         ))
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
 
     let item = a::accept_allowlist
         .filter(a::resource_did.eq(&body.resource_did))
         .select((a::resource_did, a::added_by, a::added_at, a::note))
-        .first(&mut conn)?;
+        .first(&mut *conn)
+        .await?;
     Ok(item)
 }
 
 async fn delete_allowlist(state: &AppState, resource_did: &str) -> anyhow::Result<usize> {
     use crate::schema::accept_allowlist::dsl as a;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let deleted = diesel::delete(a::accept_allowlist.filter(a::resource_did.eq(resource_did)))
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
     Ok(deleted)
 }
 
@@ -807,7 +821,7 @@ async fn load_resources(
 ) -> anyhow::Result<Vec<ResourceAdminItem>> {
     use crate::schema::directory_resources::dsl as r;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let mut rows_query = r::directory_resources.into_boxed();
     if let Some(kind) = query.resource_kind {
         rows_query = rows_query.filter(r::resource_kind.eq(kind));
@@ -834,31 +848,39 @@ async fn load_resources(
     // requires a transaction so a runaway ILIKE can't tie up a pool
     // connection beyond 1 second. The transaction commits cleanly even
     // when the underlying SELECT returned a TimedOut error.
-    let rows: Vec<ResourceAdminRow> = conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        diesel::sql_query("SET LOCAL statement_timeout = '1s'").execute(conn)?;
-        rows_query
-            .order(r::indexed_at.desc())
-            .limit(limit)
-            .select((
-                r::resource_kind,
-                r::resource_id,
-                r::principal_server_did,
-                r::discovery_state,
-                r::public_projection,
-                r::discoverability,
-                r::as_of,
-                r::source_refs,
-                r::policy_revision,
-                r::indexed_at,
-                r::effective_ttl_seconds,
-                r::next_revalidation_after,
-                r::stale,
-                r::divergent,
-                r::via_services,
-                r::last_announce_id,
-            ))
-            .load(conn)
-    })?;
+    let rows: Vec<ResourceAdminRow> = conn
+        .transaction::<_, diesel::result::Error, _>(|conn| {
+            async move {
+                diesel::sql_query("SET LOCAL statement_timeout = '1s'")
+                    .execute(&mut *conn)
+                    .await?;
+                rows_query
+                    .order(r::indexed_at.desc())
+                    .limit(limit)
+                    .select((
+                        r::resource_kind,
+                        r::resource_id,
+                        r::principal_server_did,
+                        r::discovery_state,
+                        r::public_projection,
+                        r::discoverability,
+                        r::as_of,
+                        r::source_refs,
+                        r::policy_revision,
+                        r::indexed_at,
+                        r::effective_ttl_seconds,
+                        r::next_revalidation_after,
+                        r::stale,
+                        r::divergent,
+                        r::via_services,
+                        r::last_announce_id,
+                    ))
+                    .load(&mut *conn)
+                    .await
+            }
+            .scope_boxed()
+        })
+        .await?;
     Ok(rows.into_iter().map(ResourceAdminItem::from).collect())
 }
 
@@ -876,7 +898,7 @@ async fn upsert_managed_resource(
 ) -> anyhow::Result<ResourceAdminItem> {
     use crate::schema::directory_resources::dsl as r;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     diesel::insert_into(r::directory_resources)
         .values((
             r::resource_kind.eq(body.resource_kind),
@@ -914,7 +936,8 @@ async fn upsert_managed_resource(
             r::via_services.eq(&via_services),
             r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
         ))
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
 
     load_resource(state, body.resource_kind, body.resource_id.trim()).await
 }
@@ -926,7 +949,7 @@ async fn load_resource(
 ) -> anyhow::Result<ResourceAdminItem> {
     use crate::schema::directory_resources::dsl as r;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let row: ResourceAdminRow = r::directory_resources
         .filter(r::resource_kind.eq(resource_kind))
         .filter(r::resource_id.eq(resource_id))
@@ -948,7 +971,8 @@ async fn load_resource(
             r::via_services,
             r::last_announce_id,
         ))
-        .first(&mut conn)?;
+        .first(&mut *conn)
+        .await?;
     Ok(row.into())
 }
 
@@ -959,40 +983,46 @@ async fn delete_managed_resource(
 ) -> anyhow::Result<Option<ResourceDeleteAudit>> {
     use crate::schema::directory_resources::dsl as r;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     conn.transaction::<_, anyhow::Error, _>(|conn| {
-        let existing = r::directory_resources
-            .filter(r::resource_kind.eq(resource_kind))
-            .filter(r::resource_id.eq(resource_id))
-            .select((
-                r::principal_server_did,
-                r::policy_revision,
-                r::via_services,
-                r::last_announce_id,
-            ))
-            .first::<(String, Option<String>, Vec<String>, Option<String>)>(conn)
-            .optional()?;
-
-        let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
-            existing
-        else {
-            return Ok(None);
-        };
-
-        diesel::delete(
-            r::directory_resources
+        async move {
+            let existing = r::directory_resources
                 .filter(r::resource_kind.eq(resource_kind))
-                .filter(r::resource_id.eq(resource_id)),
-        )
-        .execute(conn)?;
+                .filter(r::resource_id.eq(resource_id))
+                .select((
+                    r::principal_server_did,
+                    r::policy_revision,
+                    r::via_services,
+                    r::last_announce_id,
+                ))
+                .first::<(String, Option<String>, Vec<String>, Option<String>)>(&mut *conn)
+                .await
+                .optional()?;
 
-        Ok(Some(ResourceDeleteAudit {
-            principal_server_did,
-            policy_revision,
-            via_services,
-            last_announce_id,
-        }))
+            let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
+                existing
+            else {
+                return Ok(None);
+            };
+
+            diesel::delete(
+                r::directory_resources
+                    .filter(r::resource_kind.eq(resource_kind))
+                    .filter(r::resource_id.eq(resource_id)),
+            )
+            .execute(&mut *conn)
+            .await?;
+
+            Ok(Some(ResourceDeleteAudit {
+                principal_server_did,
+                policy_revision,
+                via_services,
+                last_announce_id,
+            }))
+        }
+        .scope_boxed()
     })
+    .await
 }
 
 fn normalized_public_projection(
@@ -1107,7 +1137,7 @@ pub async fn dashboard_stats(req: &mut Request, depot: &mut Depot, res: &mut Res
             return;
         }
     };
-    if let Err(error) = require_admin(req, &state) {
+    if let Err(error) = require_admin(req, &state).await {
         error.render(res, "admin bearer token required");
         return;
     }
@@ -1128,28 +1158,35 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
     use crate::schema::ingest_announces::dsl as a;
     use crate::schema::webhook_subscriptions::dsl as s;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
 
-    let directory_resources: i64 = r::directory_resources.count().get_result(&mut conn)?;
+    let directory_resources: i64 = r::directory_resources
+        .count()
+        .get_result(&mut *conn)
+        .await?;
     let stale_resources: i64 = r::directory_resources
         .filter(r::stale.eq(true))
         .count()
-        .get_result(&mut conn)?;
+        .get_result(&mut *conn)
+        .await?;
     let divergent_resources: i64 = r::directory_resources
         .filter(r::divergent.eq(true))
         .count()
-        .get_result(&mut conn)?;
+        .get_result(&mut *conn)
+        .await?;
     let realm_destroyed: i64 = r::directory_resources
         .filter(r::realm_destroyed_at.is_not_null())
         .count()
-        .get_result(&mut conn)?;
-    let ingest_announces: i64 = a::ingest_announces.count().get_result(&mut conn)?;
+        .get_result(&mut *conn)
+        .await?;
+    let ingest_announces: i64 = a::ingest_announces.count().get_result(&mut *conn).await?;
     let webhook_subscriptions: i64 = s::webhook_subscriptions
         .filter(s::expires_at.is_null().or(s::expires_at.gt(Utc::now())))
         .count()
-        .get_result(&mut conn)?;
-    let audit_events: i64 = au::directory_audit.count().get_result(&mut conn)?;
-    let allowlist_entries: i64 = al::accept_allowlist.count().get_result(&mut conn)?;
+        .get_result(&mut *conn)
+        .await?;
+    let audit_events: i64 = au::directory_audit.count().get_result(&mut *conn).await?;
+    let allowlist_entries: i64 = al::accept_allowlist.count().get_result(&mut *conn).await?;
 
     let mut per_kind = Vec::with_capacity(6);
     for kind in [
@@ -1163,7 +1200,8 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
         let count: i64 = r::directory_resources
             .filter(r::resource_kind.eq(kind))
             .count()
-            .get_result(&mut conn)?;
+            .get_result(&mut *conn)
+            .await?;
         per_kind.push(DashboardKindCount {
             resource_kind: kind.as_pg(),
             count,
@@ -1251,7 +1289,7 @@ struct TakedownAuditExportItem {
 
 #[handler]
 pub async fn takedown_audit_export(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match admin_state(req, depot, res) {
+    let state = match admin_state(req, depot, res).await {
         Some(state) => state,
         None => return,
     };
@@ -1305,7 +1343,7 @@ async fn load_takedown_export(
 ) -> anyhow::Result<Vec<TakedownAuditExportRow>> {
     use crate::schema::directory_audit::dsl as a;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let mut query = a::directory_audit
         .filter(a::kind.eq(AuditEventKind::OperatorTakedown))
         .into_boxed();
@@ -1329,7 +1367,8 @@ async fn load_takedown_export(
             a::authenticated_actor,
             a::asserted_operator,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     Ok(rows)
 }
 

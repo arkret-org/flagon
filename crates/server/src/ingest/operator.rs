@@ -2,6 +2,9 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::AsyncConnection;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -46,7 +49,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         }
     };
 
-    let credential = match verify_admin_credential(req, &state) {
+    let credential = match verify_admin_credential(req, &state).await {
         Ok(credential) => credential,
         Err(error) => {
             error.render(res, "admin bearer token required");
@@ -96,7 +99,9 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         acked_at,
         effective_at,
         notification_status,
-    ) {
+    )
+    .await
+    {
         ApiErrorCode::InternalError.render(res, format!("persist operator takedown: {error}"));
         return;
     }
@@ -123,7 +128,8 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
             "credential_key_id": credential.key_id,
         }),
         identity,
-    );
+    )
+    .await;
 
     res.render(Json(OperatorTakedownResponse {
         withdraw_id,
@@ -134,7 +140,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
 }
 
 #[allow(clippy::too_many_arguments)]
-fn persist_operator_takedown(
+async fn persist_operator_takedown(
     state: &AppState,
     body: &OperatorTakedownRequest,
     withdraw_id: &str,
@@ -156,29 +162,35 @@ fn persist_operator_takedown(
         notification_status,
     )?;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        diesel::insert_into(w::withdrawals)
-            .values((
-                w::withdraw_id.eq(withdraw_id),
-                w::resource_kind.eq(body.resource_kind),
-                w::resource_id.eq(&body.resource_id),
-                w::kind.eq(WithdrawalKindWire::OperatorTakedown),
-                w::reason.eq(&body.reason),
-                w::proof.eq(&proof),
-                w::effective_at.eq(effective_at),
-                w::acked_at.eq(acked_at),
-                w::operator.eq(Some(operator)),
-                w::notified_at.eq::<Option<DateTime<Utc>>>(None),
-            ))
-            .execute(conn)?;
+        async move {
+            diesel::insert_into(w::withdrawals)
+                .values((
+                    w::withdraw_id.eq(withdraw_id),
+                    w::resource_kind.eq(body.resource_kind),
+                    w::resource_id.eq(&body.resource_id),
+                    w::kind.eq(WithdrawalKindWire::OperatorTakedown),
+                    w::reason.eq(&body.reason),
+                    w::proof.eq(&proof),
+                    w::effective_at.eq(effective_at),
+                    w::acked_at.eq(acked_at),
+                    w::operator.eq(Some(operator)),
+                    w::notified_at.eq::<Option<DateTime<Utc>>>(None),
+                ))
+                .execute(&mut *conn)
+                .await?;
 
-        diesel::delete(r::directory_resources)
-            .filter(r::resource_kind.eq(body.resource_kind))
-            .filter(r::resource_id.eq(&body.resource_id))
-            .execute(conn)?;
+            diesel::delete(r::directory_resources)
+                .filter(r::resource_kind.eq(body.resource_kind))
+                .filter(r::resource_id.eq(&body.resource_id))
+                .execute(&mut *conn)
+                .await?;
 
-        Ok(())
-    })?;
+            Ok(())
+        }
+        .scope_boxed()
+    })
+    .await?;
     Ok(())
 }

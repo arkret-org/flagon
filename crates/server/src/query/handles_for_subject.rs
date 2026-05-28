@@ -52,6 +52,7 @@ use contrix_sdk::{
     validate_handle_claim_subject,
 };
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -394,7 +395,7 @@ async fn load_subject_handle_rows(
     subject: &str,
 ) -> anyhow::Result<(Vec<SubjectHandleRow>, bool)> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows: Vec<SubjectHandleRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Handle))
         // Stale rows (TTL+grace expired) MUST NOT surface, same as
@@ -408,7 +409,8 @@ async fn load_subject_handle_rows(
             r::discoverability,
             r::as_of,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     let scan_capped = rows.len() as i64 >= MAX_CANDIDATE_SCAN;
     let matching = rows
         .into_iter()
@@ -505,14 +507,15 @@ fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
 /// Empty (or absent Realm) means "no issuer-trust constraint".
 async fn load_accepted_issuers(state: &AppState, realm_id: &str) -> Vec<String> {
     use crate::schema::directory_resources::dsl as r;
-    let Ok(mut conn) = state.db().get() else {
+    let Ok(mut conn) = state.db().get().await else {
         return Vec::new();
     };
     let projection: Option<(JsonValue, DiscoverabilityWire)> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Realm))
         .filter(r::resource_id.eq(realm_id))
         .select((r::public_projection, r::discoverability))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()
         .ok()
         .flatten();

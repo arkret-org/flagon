@@ -14,6 +14,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -365,7 +366,7 @@ async fn run_realm_search(
     cursor: Option<&RealmCursor>,
     limit: i64,
 ) -> anyhow::Result<Vec<RealmRow>> {
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
 
     let needle = needle.trim();
     let organization_did = scope.organization_did.as_deref();
@@ -382,7 +383,8 @@ async fn run_realm_search(
         .bind::<Nullable<Timestamptz>, _>(cursor_indexed_at)
         .bind::<Nullable<Text>, _>(cursor_resource_id)
         .bind::<BigInt, _>(limit)
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
 
     rows.into_iter().map(RealmRow::try_from).collect()
 }
@@ -434,7 +436,7 @@ async fn run_visible_realm_search(
 
 async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<RealmRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let row: Option<RealmStoredRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Realm))
         .filter(r::resource_id.eq(key))
@@ -452,7 +454,8 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
             r::realm_destroyed_at,
             r::reachability_revoked_at,
         ))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     Ok(row.map(RealmRow::from))
 }

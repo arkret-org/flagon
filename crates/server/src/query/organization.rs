@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
@@ -164,7 +165,7 @@ struct OrgRow {
 
 async fn run_org_search(state: &AppState, needle: &str, limit: i64) -> anyhow::Result<Vec<OrgRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows: Vec<OrgRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Organization))
         .filter(
@@ -185,7 +186,8 @@ async fn run_org_search(state: &AppState, needle: &str, limit: i64) -> anyhow::R
             r::divergent,
             r::via_services,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     let needle = needle.trim().to_ascii_lowercase();
     Ok(rows
         .into_iter()
@@ -198,7 +200,7 @@ async fn run_org_search(state: &AppState, needle: &str, limit: i64) -> anyhow::R
 
 async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgRow>> {
     use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let row: Option<OrgRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Organization))
         .filter(r::resource_id.eq(key))
@@ -213,7 +215,8 @@ async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgR
             r::divergent,
             r::via_services,
         ))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()?;
     Ok(row)
 }

@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
@@ -88,7 +89,7 @@ impl PullWorker {
 
     async fn run_once(&self) -> anyhow::Result<()> {
         self.state.worker_heartbeat(BackgroundWorker::Pull);
-        let due = self.fetch_due_entries(50)?;
+        let due = self.fetch_due_entries(50).await?;
         if due.is_empty() {
             return Ok(());
         }
@@ -113,19 +114,19 @@ impl PullWorker {
                         %error,
                         "pull worker: revalidation failed"
                     );
-                    self.record_failure(&entry, &error.to_string())?;
+                    self.record_failure(&entry, &error.to_string()).await?;
                 }
             }
         }
         // Mark expired-without-refresh as stale.
-        self.mark_stale_past_grace()?;
-        self.purge_stale_past_delete_window()?;
+        self.mark_stale_past_grace().await?;
+        self.purge_stale_past_delete_window().await?;
         Ok(())
     }
 
-    fn fetch_due_entries(&self, limit: i64) -> anyhow::Result<Vec<DueEntry>> {
+    async fn fetch_due_entries(&self, limit: i64) -> anyhow::Result<Vec<DueEntry>> {
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let now = Utc::now();
         let rows: Vec<(ResourceKindWire, String, String, i32)> = r::directory_resources
             .filter(r::stale.eq(false))
@@ -137,11 +138,13 @@ impl PullWorker {
                 r::effective_ttl_seconds,
             ))
             .limit(limit)
-            .load(&mut conn)?;
+            .load(&mut *conn)
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for (resource_kind, resource_id, principal_server_did, effective_ttl_seconds) in rows {
-            if let Some(last_revision) =
-                self.last_revision_if_pull_due(&mut conn, resource_kind, &resource_id, now)?
+            if let Some(last_revision) = self
+                .last_revision_if_pull_due(&mut *conn, resource_kind, &resource_id, now)
+                .await?
             {
                 out.push(DueEntry {
                     resource_kind,
@@ -155,9 +158,9 @@ impl PullWorker {
         Ok(out)
     }
 
-    fn last_revision_if_pull_due(
+    async fn last_revision_if_pull_due(
         &self,
-        conn: &mut diesel::pg::PgConnection,
+        conn: &mut diesel_async::AsyncPgConnection,
         resource_kind: ResourceKindWire,
         resource_id: &str,
         now: DateTime<Utc>,
@@ -168,6 +171,7 @@ impl PullWorker {
             .filter(p::resource_id.eq(resource_id))
             .select((p::last_revision, p::next_pull_after))
             .first(conn)
+            .await
             .optional()?;
         Ok(match row {
             Some((_last_revision, next_pull_after)) if next_pull_after > now => None,
@@ -209,7 +213,9 @@ impl PullWorker {
             self.state.db(),
             announce.resource_kind,
             &announce.resource_id,
-        )? && announce.as_of < latest
+        )
+        .await?
+            && announce.as_of < latest
         {
             anyhow::bail!(
                 "pulled as_of {} is older than indexed {latest}",
@@ -245,9 +251,11 @@ impl PullWorker {
             public_projection,
             federation_cache,
             realm_terminal,
-        )?;
+        )
+        .await?;
 
-        self.record_success(&entry, &pulled.event_id, next_revalidation)?;
+        self.record_success(&entry, &pulled.event_id, next_revalidation)
+            .await?;
         let _ = audit::record(
             self.state.db(),
             AuditEventKind::RevalidationSucceeded,
@@ -260,7 +268,8 @@ impl PullWorker {
                 "as_of": announce.as_of,
                 "realm_destroyed": realm_terminal.is_some(),
             }),
-        );
+        )
+        .await;
         if realm_terminal.is_some() {
             let _ = audit::record(
                 self.state.db(),
@@ -272,7 +281,8 @@ impl PullWorker {
                     "announce_id": announce_id,
                     "as_of": announce.as_of,
                 }),
-            );
+            )
+            .await;
         }
 
         fanout_accepted_ingest(
@@ -340,14 +350,14 @@ impl PullWorker {
         Ok(event)
     }
 
-    fn record_success(
+    async fn record_success(
         &self,
         entry: &DueEntry,
         last_revision: &str,
         next_pull_after: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         use crate::schema::pull_subscriptions::dsl as p;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         diesel::insert_into(p::pull_subscriptions)
             .values((
                 p::resource_kind.eq(entry.resource_kind),
@@ -369,18 +379,20 @@ impl PullWorker {
                 p::consecutive_failures.eq(0),
                 p::last_error.eq::<Option<&str>>(None),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)
+            .await?;
         Ok(())
     }
 
-    fn record_failure(&self, entry: &DueEntry, error: &str) -> anyhow::Result<()> {
+    async fn record_failure(&self, entry: &DueEntry, error: &str) -> anyhow::Result<()> {
         use crate::schema::pull_subscriptions::dsl as p;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let existing_failures: Option<i32> = p::pull_subscriptions
             .filter(p::resource_kind.eq(entry.resource_kind))
             .filter(p::resource_id.eq(&entry.resource_id))
             .select(p::consecutive_failures)
-            .first(&mut conn)
+            .first(&mut *conn)
+            .await
             .optional()?;
         let failures = existing_failures.unwrap_or(0).saturating_add(1);
         let backoff = self.backoff_after_failures(failures);
@@ -404,7 +416,8 @@ impl PullWorker {
                 p::consecutive_failures.eq(failures),
                 p::last_error.eq(Some(error)),
             ))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)
+            .await?;
         Ok(())
     }
 
@@ -417,22 +430,23 @@ impl PullWorker {
         Duration::from_secs(seconds.min(86_400))
     }
 
-    fn mark_stale_past_grace(&self) -> anyhow::Result<()> {
+    async fn mark_stale_past_grace(&self) -> anyhow::Result<()> {
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let grace_seconds = self.state.config().revalidation_grace.as_secs() as i64;
         let cutoff = Utc::now() - chrono::Duration::seconds(grace_seconds);
         diesel::update(r::directory_resources)
             .filter(r::stale.eq(false))
             .filter(r::next_revalidation_after.le(cutoff))
             .set(r::stale.eq(true))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)
+            .await?;
         Ok(())
     }
 
-    fn purge_stale_past_delete_window(&self) -> anyhow::Result<()> {
+    async fn purge_stale_past_delete_window(&self) -> anyhow::Result<()> {
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let grace_seconds = self.state.config().revalidation_grace.as_secs() as i64;
         let cutoff =
             Utc::now() - chrono::Duration::seconds(grace_seconds) - chrono::Duration::hours(24);
@@ -440,12 +454,14 @@ impl PullWorker {
             .filter(r::stale.eq(true))
             .filter(r::next_revalidation_after.le(cutoff))
             .select((r::resource_kind, r::resource_id, r::principal_server_did))
-            .load(&mut conn)?;
+            .load(&mut *conn)
+            .await?;
         for (resource_kind, resource_id, principal_server_did) in doomed {
             diesel::delete(r::directory_resources)
                 .filter(r::resource_kind.eq(resource_kind))
                 .filter(r::resource_id.eq(&resource_id))
-                .execute(&mut conn)?;
+                .execute(&mut *conn)
+                .await?;
             let _ = audit::record(
                 self.state.db(),
                 AuditEventKind::RevalidationFailed,
@@ -456,7 +472,8 @@ impl PullWorker {
                     "action": "deleted_after_stale_grace",
                     "next_revalidation_after_cutoff": cutoff,
                 }),
-            );
+            )
+            .await;
         }
         Ok(())
     }

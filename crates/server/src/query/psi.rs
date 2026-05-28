@@ -11,6 +11,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use rand::rngs::OsRng;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -264,14 +265,17 @@ async fn load_or_create_epoch_key(
 ) -> anyhow::Result<PsiEpochKey> {
     use crate::schema::psi_epoch_keys::dsl as k;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let now = Utc::now();
-    diesel::delete(k::psi_epoch_keys.filter(k::expires_at.lt(now))).execute(&mut conn)?;
+    diesel::delete(k::psi_epoch_keys.filter(k::expires_at.lt(now)))
+        .execute(&mut *conn)
+        .await?;
 
     if let Some(row) = k::psi_epoch_keys
         .filter(k::epoch.eq(epoch_value))
         .select((k::epoch, k::server_key, k::public_key))
-        .first::<PsiEpochKey>(&mut conn)
+        .first::<PsiEpochKey>(&mut *conn)
+        .await
         .optional()?
     {
         return Ok(row);
@@ -296,12 +300,14 @@ async fn load_or_create_epoch_key(
         })
         .on_conflict(k::epoch)
         .do_nothing()
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
 
     let row = k::psi_epoch_keys
         .filter(k::epoch.eq(epoch_value))
         .select((k::epoch, k::server_key, k::public_key))
-        .first::<PsiEpochKey>(&mut conn)?;
+        .first::<PsiEpochKey>(&mut *conn)
+        .await?;
     Ok(row)
 }
 
@@ -311,7 +317,7 @@ async fn load_indexed_match_tokens(
 ) -> anyhow::Result<HashSet<Vec<u8>>> {
     use crate::schema::directory_resources::dsl as r;
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows: Vec<(ResourceKindWire, String, JsonValue)> = r::directory_resources
         .filter(
             r::resource_kind
@@ -325,7 +331,8 @@ async fn load_indexed_match_tokens(
         )
         .limit(MAX_PSI_INDEX_CANDIDATES)
         .select((r::resource_kind, r::resource_id, r::public_projection))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
 
     let mut tokens = HashSet::new();
     for (kind, resource_id, projection) in rows {

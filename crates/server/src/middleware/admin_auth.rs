@@ -20,6 +20,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use hmac::{Hmac, Mac};
 use salvo::http::header;
 use salvo::prelude::*;
@@ -74,14 +75,14 @@ impl AdminCredential {
 /// resolved credential metadata on success, or an `ApiErrorCode` the
 /// caller renders directly (so the existing handler shape is
 /// preserved).
-pub fn verify_admin_credential(
+pub async fn verify_admin_credential(
     req: &Request,
     state: &AppState,
 ) -> Result<AdminCredential, ApiErrorCode> {
     let raw = extract_bearer(req).ok_or(ApiErrorCode::Unauthenticated)?;
 
     if let Some(rest) = raw.strip_prefix("hmac:") {
-        return verify_rotating_hmac(state, rest);
+        return verify_rotating_hmac(state, rest).await;
     }
 
     let expected = state
@@ -108,7 +109,7 @@ fn extract_bearer(req: &Request) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, ApiErrorCode> {
+async fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, ApiErrorCode> {
     // Wire format: `<key_id>:<unix_ts>:<base64(mac)>`. Splits are
     // bounded so an oversized payload cannot allocate unbounded.
     let mut parts = raw.splitn(3, ':');
@@ -141,7 +142,7 @@ fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, 
         .or_else(|_| base64::engine::general_purpose::STANDARD.decode(mac_b64))
         .map_err(|_| ApiErrorCode::Unauthenticated)?;
 
-    let secret = lookup_admin_secret(state, key_id)?;
+    let secret = lookup_admin_secret(state, key_id).await?;
     let mut mac =
         Hmac::<Sha256>::new_from_slice(&secret).map_err(|_| ApiErrorCode::InternalError)?;
     mac.update(format!("{key_id}:{ts}").as_bytes());
@@ -154,17 +155,22 @@ fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, 
     })
 }
 
-fn lookup_admin_secret(state: &AppState, key_id: &str) -> Result<Vec<u8>, ApiErrorCode> {
+async fn lookup_admin_secret(state: &AppState, key_id: &str) -> Result<Vec<u8>, ApiErrorCode> {
     use crate::schema::admin_tokens::dsl as t;
 
     type AdminTokenRow = (Vec<u8>, Option<DateTime<Utc>>, Option<DateTime<Utc>>);
 
-    let mut conn = state.db().get().map_err(|_| ApiErrorCode::InternalError)?;
+    let mut conn = state
+        .db()
+        .get()
+        .await
+        .map_err(|_| ApiErrorCode::InternalError)?;
     let now = Utc::now();
     let row: Option<AdminTokenRow> = t::admin_tokens
         .filter(t::key_id.eq(key_id))
         .select((t::secret, t::expires_at, t::revoked_at))
-        .first(&mut conn)
+        .first(&mut *conn)
+        .await
         .optional()
         .map_err(|_| ApiErrorCode::InternalError)?;
     let (secret, expires_at, revoked_at) = row.ok_or(ApiErrorCode::Unauthenticated)?;

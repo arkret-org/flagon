@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use tokio::time::interval;
 use tracing::{info, warn};
 
@@ -67,7 +68,7 @@ impl ExpiryWorker {
             let mut tick = interval(self.period);
             loop {
                 tick.tick().await;
-                if let Err(e) = self.run_once() {
+                if let Err(e) = self.run_once().await {
                     warn!(%e, "expiry worker pass failed");
                 }
             }
@@ -76,13 +77,14 @@ impl ExpiryWorker {
 
     /// Single sweep. Public so tests can drive it without a scheduler.
     /// Returns the number of rows deleted.
-    pub fn run_once(&self) -> anyhow::Result<usize> {
+    pub async fn run_once(&self) -> anyhow::Result<usize> {
         use crate::schema::directory_resources::dsl as r;
-        let mut conn = self.state.db().get()?;
+        let mut conn = self.state.db().get().await?;
         let cutoff = Utc::now() - chrono::Duration::from_std(self.grace)?;
         let deleted = diesel::delete(r::directory_resources)
             .filter(r::expires_at.lt(cutoff))
-            .execute(&mut conn)?;
+            .execute(&mut *conn)
+            .await?;
         if deleted > 0 {
             info!(
                 deleted,

@@ -4,6 +4,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use hmac::{Hmac, Mac};
 use reqwest::Client;
 use salvo::prelude::*;
@@ -115,7 +116,8 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
                 "violation": rejection.audit_label(),
                 "endpoint": "directory.subscribe",
             }),
-        );
+        )
+        .await;
         ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
         return;
     }
@@ -146,7 +148,9 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     };
     let response_secret = URL_SAFE_NO_PAD.encode(&secret);
 
-    if let Err(error) = persist_subscription(&state, &body, &subscription_id, &secret, created_at) {
+    if let Err(error) =
+        persist_subscription(&state, &body, &subscription_id, &secret, created_at).await
+    {
         ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist subscription: {error}"));
         return;
@@ -191,7 +195,9 @@ pub async fn fanout_reachability_tombstone(
                 policy_revision: None,
                 public_projection: JsonValue::Null,
             },
-        ) {
+        )
+        .await
+        {
             Ok(rows) => rows,
             Err(error) => {
                 tracing::warn!(%error, "tombstone fanout subscription load failed");
@@ -250,7 +256,7 @@ async fn deliver_tombstone(
 }
 
 pub async fn fanout_accepted_ingest(state: AppState, event: AcceptedIngestEvent) {
-    let subscriptions = match matching_subscriptions(&state, &event) {
+    let subscriptions = match matching_subscriptions(&state, &event).await {
         Ok(rows) => rows,
         Err(error) => {
             tracing::warn!(%error, "webhook fanout subscription load failed");
@@ -309,7 +315,7 @@ fn generate_secret(subscription_id: &str, subscriber_did: &str, endpoint: &str) 
     h.finalize().to_vec()
 }
 
-fn persist_subscription(
+async fn persist_subscription(
     state: &AppState,
     body: &SubscribeRequest,
     subscription_id: &str,
@@ -317,7 +323,7 @@ fn persist_subscription(
     created_at: DateTime<Utc>,
 ) -> anyhow::Result<()> {
     use crate::schema::webhook_subscriptions::dsl as s;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     diesel::insert_into(s::webhook_subscriptions)
         .values((
             s::subscription_id.eq(subscription_id),
@@ -328,7 +334,8 @@ fn persist_subscription(
             s::expires_at.eq(body.expires_at),
             s::created_at.eq(created_at),
         ))
-        .execute(&mut conn)?;
+        .execute(&mut *conn)
+        .await?;
     Ok(())
 }
 
@@ -340,12 +347,12 @@ struct WebhookSubscriptionRow {
     secret: Option<Vec<u8>>,
 }
 
-fn matching_subscriptions(
+async fn matching_subscriptions(
     state: &AppState,
     event: &AcceptedIngestEvent,
 ) -> anyhow::Result<Vec<WebhookSubscriptionRow>> {
     use crate::schema::webhook_subscriptions::dsl as s;
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let rows: Vec<WebhookSubscriptionRow> = s::webhook_subscriptions
         .filter(s::expires_at.is_null().or(s::expires_at.gt(Utc::now())))
         .select((
@@ -354,7 +361,8 @@ fn matching_subscriptions(
             s::webhook_endpoint,
             s::secret,
         ))
-        .load(&mut conn)?;
+        .load(&mut *conn)
+        .await?;
     Ok(rows
         .into_iter()
         .filter(|row| filter_matches(&row.resource_filter, event))
