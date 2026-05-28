@@ -15,8 +15,8 @@ use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
 use contrix_sdk::{
-    ClaimedProfileEntry, CompatSurfaceEntry, Did, ServerDescription, TypedTrustDomainId,
-    VerifiedProfileEntry,
+    ClaimedProfileEntry, CompatSurfaceEntry, Did, EgressNetworkPolicy, ServerDescription,
+    TypedTrustDomainId, VerifiedProfileEntry,
 };
 
 use crate::config::AppConfig;
@@ -198,6 +198,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         verified_profiles,
         experimental_features,
         compat_surfaces,
+        egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
         rate_limit: json!({
             "kind": "windowed",
