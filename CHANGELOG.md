@@ -5,6 +5,14 @@ All notable changes to teabay (Contrix v1 Directory Service) live here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## R3.2 — Spec sync 2026-05-28 (contrix-spec @ b56cab1)
+
+- New operation `cx.directory.list_handles_for_subject` (`POST /api/v1/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.
+- Ingest validators reject `claim_type=service_handle` (`claim_type_unsupported`) and non-principal-DID subjects (`handle_claim_subject_not_principal_did`).
+- `/metrics` now exposes directory query/filter-drop/cardinality-guard counters. Anti-enumeration jitter + latency floor applied to the new endpoint. 8-case conformance suite.
+- `as_of` historical replay + full per-claim disclosure engine deferred `TODO(R3.2.1)`.
+
+> No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 ## R3 — Spec sync 2026-05-27 (contrix-spec @ b47ff6ec)
 
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
