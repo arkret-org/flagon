@@ -639,7 +639,10 @@ mod tests {
         let preview = response.realm_preview.expect("realm preview present");
         assert_eq!(preview.realm_id.as_str(), format!("cx:realm:{R}"));
         assert_eq!(preview.title.as_deref(), Some("Tea Time"));
-        assert_eq!(response.via_services, vec!["did:web:hps.example".to_owned()]);
+        assert_eq!(
+            response.via_services,
+            vec!["did:web:hps.example".to_owned()]
+        );
         assert!(response.object_preview.is_none());
     }
 

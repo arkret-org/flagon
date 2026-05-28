@@ -242,7 +242,10 @@ fn cursor_pagination_boundary() {
     let page1 = assemble_response(&req(None, None), rows.clone(), &[], 0, 2, None).expect("ok");
     assert_eq!(page1.claims.len(), 2);
     assert!(page1.has_more);
-    let cursor = page1.next_cursor.clone().expect("next_cursor on partial page");
+    let cursor = page1
+        .next_cursor
+        .clone()
+        .expect("next_cursor on partial page");
     assert_eq!(
         page1.claims[0].handle.as_ref().unwrap().canonical(),
         "a:example.com"

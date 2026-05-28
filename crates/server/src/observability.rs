@@ -845,9 +845,11 @@ mod tests {
             body.contains("teabay_directory_filter_drop_total{reason=\"issuer_trust\"} 1.000000")
         );
         assert!(body.contains("teabay_directory_filter_drop_total{reason=\"audience\"} 1.000000"));
-        assert!(body.contains(
-            "teabay_directory_filter_drop_total{reason=\"subject_mismatch\"} 1.000000"
-        ));
+        assert!(
+            body.contains(
+                "teabay_directory_filter_drop_total{reason=\"subject_mismatch\"} 1.000000"
+            )
+        );
         assert!(body.contains(
             "teabay_directory_cardinality_guard_total{counter=\"resolved_subjects\"} 3.000000"
         ));

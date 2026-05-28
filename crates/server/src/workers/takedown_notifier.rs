@@ -207,6 +207,12 @@ impl TakedownNotifier {
     }
 
     async fn dispatch(&self, row: &PendingRow, webhook: &WebhookRow) -> anyhow::Result<()> {
+        crate::egress::validate_http_url_for_egress(
+            &webhook.endpoint,
+            "takedown webhook",
+            self.state.config().development_mode,
+        )
+        .map_err(|error| anyhow::anyhow!(error))?;
         let body = json!({
             "pending_id": row.pending_id,
             "resource_kind": row.resource_kind,

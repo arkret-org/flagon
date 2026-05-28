@@ -108,9 +108,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         state
             .metrics()
             .record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
-        state
-            .metrics()
-            .record_filter_drop("invalid_subject_kind");
+        state.metrics().record_filter_drop("invalid_subject_kind");
         ApiErrorCode::FailedPrecondition.render(
             res,
             format!("invalid_subject_kind: subject must be a holder/principal DID ({err})"),
@@ -154,8 +152,14 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         "subject={};intent={};realm={};req={};cursor={};limit={limit};iph={requester_ip_hash}",
         body.subject.as_str(),
         body.intent.as_deref().unwrap_or_default(),
-        body.realm_id.as_ref().map(|r| r.as_str()).unwrap_or_default(),
-        body.requester.as_ref().map(|r| r.as_str()).unwrap_or_default(),
+        body.realm_id
+            .as_ref()
+            .map(|r| r.as_str())
+            .unwrap_or_default(),
+        body.requester
+            .as_ref()
+            .map(|r| r.as_str())
+            .unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );
 
@@ -169,9 +173,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
                 .metrics()
                 .record_anti_enum_pad("list-handles-for-subject", target)
         },
-        async {
-            build_response(&state, &body, cursor_offset, limit, &metrics).await
-        },
+        async { build_response(&state, &body, cursor_offset, limit, &metrics).await },
     )
     .await;
 
@@ -237,7 +239,14 @@ async fn build_response(
         None => Vec::new(),
     };
 
-    match assemble_response(body, rows, &accepted_issuers, cursor_offset, limit, Some(metrics)) {
+    match assemble_response(
+        body,
+        rows,
+        &accepted_issuers,
+        cursor_offset,
+        limit,
+        Some(metrics),
+    ) {
         Some(response) => ListOutcome::Ok(response),
         None => ListOutcome::FailClosed,
     }
@@ -496,8 +505,10 @@ fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
     claims
         .iter()
         .find(|c| {
-            matches!(c.binding_state, Some(contrix_sdk::HandleBindingState::Verified))
-                && c.handle.is_some()
+            matches!(
+                c.binding_state,
+                Some(contrix_sdk::HandleBindingState::Verified)
+            ) && c.handle.is_some()
         })
         .or_else(|| claims.iter().find(|c| c.handle.is_some()))
         .and_then(|c| c.handle.clone())
@@ -546,8 +557,11 @@ fn issuer_in_accepted(projection: &JsonValue, accepted: &[String]) -> bool {
     match projection
         .get("issuer")
         .and_then(JsonValue::as_str)
-        .or_else(|| projection.get("issuer_service_did").and_then(JsonValue::as_str))
-    {
+        .or_else(|| {
+            projection
+                .get("issuer_service_did")
+                .and_then(JsonValue::as_str)
+        }) {
         Some(issuer) => accepted.iter().any(|a| a == issuer),
         None => false,
     }
@@ -632,8 +646,14 @@ mod tests {
             DiscoverabilityWire::Public,
         );
         let claim = claim_from_projection(&row, "did:web:alice.example").expect("claim built");
-        assert_eq!(claim.subject.as_ref().unwrap().as_str(), "did:web:alice.example");
-        assert_eq!(claim.handle.as_ref().unwrap().canonical(), "alice:example.com");
+        assert_eq!(
+            claim.subject.as_ref().unwrap().as_str(),
+            "did:web:alice.example"
+        );
+        assert_eq!(
+            claim.handle.as_ref().unwrap().canonical(),
+            "alice:example.com"
+        );
         assert!(matches!(
             claim.binding_state,
             Some(contrix_sdk::HandleBindingState::Verified)
@@ -678,7 +698,10 @@ mod tests {
             &accepted
         ));
         // No issuer declared ⇒ fails closed against a non-empty accepted set.
-        assert!(!issuer_in_accepted(&json!({"handle":"alice:example.com"}), &accepted));
+        assert!(!issuer_in_accepted(
+            &json!({"handle":"alice:example.com"}),
+            &accepted
+        ));
     }
 
     #[test]

@@ -14,9 +14,9 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
+use diesel_async::AsyncConnection;
 use diesel_async::RunQueryDsl;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncConnection;
 use diesel_derive_enum::DbEnum;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};

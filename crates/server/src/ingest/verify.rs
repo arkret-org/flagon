@@ -690,6 +690,7 @@ pub(crate) fn endpoint_child(base: &Url, child: &str) -> anyhow::Result<Url> {
 pub(crate) fn strict_http_client() -> anyhow::Result<Client> {
     Client::builder()
         .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| anyhow::anyhow!("build reqwest client: {e}"))
 }
@@ -721,6 +722,12 @@ async fn fetch_did_document_json(
     {
         anyhow::bail!("DID document URL must be HTTPS");
     }
+    crate::egress::validate_url_for_egress(
+        &url,
+        "principal DID document fetch",
+        crate::egress::private_networks_allowed(development_mode),
+    )
+    .map_err(|error| anyhow::anyhow!(error))?;
     let response = http.get(url.clone()).send().await?;
     if !response.status().is_success() {
         anyhow::bail!("DID document fetch returned {}", response.status());
@@ -762,6 +769,12 @@ fn service_endpoint_url(
     {
         anyhow::bail!("serviceEndpoint must be HTTPS");
     }
+    crate::egress::validate_url_for_egress(
+        &parsed,
+        "principal serviceEndpoint",
+        crate::egress::private_networks_allowed(development_mode),
+    )
+    .map_err(|error| anyhow::anyhow!(error))?;
     Ok(parsed)
 }
 

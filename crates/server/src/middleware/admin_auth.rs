@@ -109,7 +109,10 @@ fn extract_bearer(req: &Request) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-async fn verify_rotating_hmac(state: &AppState, raw: &str) -> Result<AdminCredential, ApiErrorCode> {
+async fn verify_rotating_hmac(
+    state: &AppState,
+    raw: &str,
+) -> Result<AdminCredential, ApiErrorCode> {
     // Wire format: `<key_id>:<unix_ts>:<base64(mac)>`. Splits are
     // bounded so an oversized payload cannot allocate unbounded.
     let mut parts = raw.splitn(3, ':');

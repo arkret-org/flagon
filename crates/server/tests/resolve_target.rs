@@ -58,8 +58,8 @@ fn realm_address_classifies_as_realm_target() {
     assert!(!parsed.is_message());
 
     // The HTTPS-landing fragment form parses to the identical address.
-    let landing =
-        parse_address(&format!("https://share.contrix.example/#realm/{R}")).expect("landing parses");
+    let landing = parse_address(&format!("https://share.contrix.example/#realm/{R}"))
+        .expect("landing parses");
     assert_eq!(parsed, landing);
 }
 
@@ -69,8 +69,10 @@ fn realm_address_classifies_as_realm_target() {
 /// nonexistent resource.
 #[test]
 fn invite_token_replayed_onto_other_object_is_rejected() {
-    let addr_a =
-        parse_address(&format!("web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite")).unwrap();
+    let addr_a = parse_address(&format!(
+        "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+    ))
+    .unwrap();
     let canonical = format!("cx:realm:{R}");
     let token = mint_token(&addr_a, &canonical);
 
@@ -81,8 +83,10 @@ fn invite_token_replayed_onto_other_object_is_rejected() {
     );
 
     // Replayed onto object B → reject (digest differs; identity tuple changed).
-    let addr_b =
-        parse_address(&format!("web+contrix:realm/{R}/flow/{F2}?via={VIA}&lt=invite")).unwrap();
+    let addr_b = parse_address(&format!(
+        "web+contrix:realm/{R}/flow/{F2}?via={VIA}&lt=invite"
+    ))
+    .unwrap();
     assert_eq!(
         verify_address_token(&addr_b, Some(&token), &canonical, LinkType::Invite),
         TokenCheck::Reject
@@ -113,8 +117,10 @@ fn flow_address_missing_via_fails_closed() {
 /// carry a token), mapping to the same blinded not_found.
 #[test]
 fn invite_link_without_token_is_rejected() {
-    let addr =
-        parse_address(&format!("web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite")).unwrap();
+    let addr = parse_address(&format!(
+        "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+    ))
+    .unwrap();
     let canonical = format!("cx:realm:{R}");
     assert_eq!(
         verify_address_token(&addr, None, &canonical, LinkType::Invite),

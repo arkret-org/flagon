@@ -363,9 +363,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     match outcome {
         ResolveOutcome::Found(envelope) => {
             // METRICS-TBY-1 — directory query outcome counter.
-            state
-                .metrics()
-                .record_query_outcome("resolve-handle", "ok");
+            state.metrics().record_query_outcome("resolve-handle", "ok");
             res.render(Json(envelope))
         }
         // `not_found` covers genuine miss, unauthorized requester, and "all

@@ -322,6 +322,12 @@ impl PullWorker {
                 query.append_pair("after_revision", last_revision);
             }
         }
+        crate::egress::validate_url_for_egress(
+            &url,
+            "pull worker events query",
+            crate::egress::private_networks_allowed(self.state.config().development_mode),
+        )
+        .map_err(|error| anyhow::anyhow!(error))?;
         let response = self.http.get(url).send().await?;
         if !response.status().is_success() {
             anyhow::bail!("events query returned {}", response.status());

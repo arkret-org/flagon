@@ -110,19 +110,18 @@ impl DivergenceWorker {
         type CandidateRow = (ResourceKindWire, String, Option<String>, bool, Vec<String>);
 
         let mut conn = self.state.db().get().await?;
-        let rows: Vec<CandidateRow> =
-            r::directory_resources
-                .order(r::indexed_at.asc())
-                .limit(limit)
-                .select((
-                    r::resource_kind,
-                    r::resource_id,
-                    r::policy_revision,
-                    r::divergent,
-                    r::via_services,
-                ))
-                .load(&mut *conn)
-                .await?;
+        let rows: Vec<CandidateRow> = r::directory_resources
+            .order(r::indexed_at.asc())
+            .limit(limit)
+            .select((
+                r::resource_kind,
+                r::resource_id,
+                r::policy_revision,
+                r::divergent,
+                r::via_services,
+            ))
+            .load(&mut *conn)
+            .await?;
 
         Ok(rows
             .into_iter()
@@ -193,6 +192,12 @@ impl DivergenceWorker {
         url: Url,
         payload: &JsonValue,
     ) -> anyhow::Result<Option<Option<String>>> {
+        crate::egress::validate_url_for_egress(
+            &url,
+            "divergence worker directory resolve",
+            crate::egress::private_networks_allowed(self.state.config().development_mode),
+        )
+        .map_err(|error| anyhow::anyhow!(error))?;
         let response = self.http.post(url.clone()).json(payload).send().await?;
         if !response.status().is_success() {
             return Ok(None);

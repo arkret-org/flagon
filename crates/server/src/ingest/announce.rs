@@ -11,9 +11,9 @@ use contrix_sdk::{
     federation_trust_domain_transcript_fragment,
 };
 use diesel::prelude::*;
+use diesel_async::AsyncConnection;
 use diesel_async::RunQueryDsl;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncConnection;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -1058,53 +1058,53 @@ pub(crate) async fn upsert_resource_and_audit(
     let mut conn = db.get().await?;
     conn.transaction::<_, anyhow::Error, _>(|conn| {
         async move {
-        let inserted = diesel::insert_into(a::ingest_announces)
-            .values((
-                a::announce_id.eq(announce_id),
-                a::resource_kind.eq(body.resource_kind),
-                a::resource_id.eq(&body.resource_id),
-                a::principal_server_did.eq(&body.principal_server_did),
-                a::ingest_mode.eq(ingest_mode),
-                a::discovery_state.eq(&body.discovery_state),
-                a::source_refs.eq(&body.source_refs),
-                a::as_of.eq(body.as_of),
-                a::indexed_at.eq(indexed_at),
-                a::effective_ttl_seconds.eq(effective_ttl as i32),
-                a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
-                a::request_digest.eq(&request_digest),
-                a::source_service_did.eq(&federation_cache.source_service_did),
-                a::verification_method.eq(&federation_cache.verification_method),
-                a::service_binding_ref.eq(&federation_cache.service_binding_ref),
-                a::origin_key_state_digest.eq(&federation_cache.origin_key_state_digest),
-                a::historical_only.eq(federation_cache.historical_only),
-            ))
-            .on_conflict((a::resource_kind, a::resource_id, a::as_of))
-            .do_nothing()
-            .execute(&mut *conn)
-            .await?;
-
-        let stored_announce_id = if inserted == 0 {
-            let (stored_announce_id, stored_state, stored_source_refs) = a::ingest_announces
-                .filter(a::resource_kind.eq(body.resource_kind))
-                .filter(a::resource_id.eq(&body.resource_id))
-                .filter(a::as_of.eq(body.as_of))
-                .select((a::announce_id, a::discovery_state, a::source_refs))
-                .first::<(String, JsonValue, Vec<String>)>(&mut *conn)
+            let inserted = diesel::insert_into(a::ingest_announces)
+                .values((
+                    a::announce_id.eq(announce_id),
+                    a::resource_kind.eq(body.resource_kind),
+                    a::resource_id.eq(&body.resource_id),
+                    a::principal_server_did.eq(&body.principal_server_did),
+                    a::ingest_mode.eq(ingest_mode),
+                    a::discovery_state.eq(&body.discovery_state),
+                    a::source_refs.eq(&body.source_refs),
+                    a::as_of.eq(body.as_of),
+                    a::indexed_at.eq(indexed_at),
+                    a::effective_ttl_seconds.eq(effective_ttl as i32),
+                    a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
+                    a::request_digest.eq(&request_digest),
+                    a::source_service_did.eq(&federation_cache.source_service_did),
+                    a::verification_method.eq(&federation_cache.verification_method),
+                    a::service_binding_ref.eq(&federation_cache.service_binding_ref),
+                    a::origin_key_state_digest.eq(&federation_cache.origin_key_state_digest),
+                    a::historical_only.eq(federation_cache.historical_only),
+                ))
+                .on_conflict((a::resource_kind, a::resource_id, a::as_of))
+                .do_nothing()
+                .execute(&mut *conn)
                 .await?;
-            if stored_state != body.discovery_state || stored_source_refs != body.source_refs {
-                anyhow::bail!(
-                    "natural-key conflict for ({}, {}, {}) carries different signed state",
-                    body.resource_kind.as_pg(),
-                    body.resource_id,
-                    body.as_of
-                );
-            }
-            stored_announce_id
-        } else {
-            announce_id.to_owned()
-        };
 
-        diesel::insert_into(r::directory_resources)
+            let stored_announce_id = if inserted == 0 {
+                let (stored_announce_id, stored_state, stored_source_refs) = a::ingest_announces
+                    .filter(a::resource_kind.eq(body.resource_kind))
+                    .filter(a::resource_id.eq(&body.resource_id))
+                    .filter(a::as_of.eq(body.as_of))
+                    .select((a::announce_id, a::discovery_state, a::source_refs))
+                    .first::<(String, JsonValue, Vec<String>)>(&mut *conn)
+                    .await?;
+                if stored_state != body.discovery_state || stored_source_refs != body.source_refs {
+                    anyhow::bail!(
+                        "natural-key conflict for ({}, {}, {}) carries different signed state",
+                        body.resource_kind.as_pg(),
+                        body.resource_id,
+                        body.as_of
+                    );
+                }
+                stored_announce_id
+            } else {
+                announce_id.to_owned()
+            };
+
+            diesel::insert_into(r::directory_resources)
             .values((
                 r::resource_kind.eq(body.resource_kind),
                 r::resource_id.eq(&body.resource_id),
@@ -1160,7 +1160,7 @@ pub(crate) async fn upsert_resource_and_audit(
             .execute(&mut *conn)
             .await?;
 
-        Ok(())
+            Ok(())
         }
         .scope_boxed()
     })
