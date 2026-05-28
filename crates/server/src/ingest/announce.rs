@@ -575,6 +575,18 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         Ok(projection) => projection,
         Err((code, msg)) => {
             ingest_metric.set_outcome("projection_rejected");
+            // HC-TBY-1/2 — projection rejections include the R3.2 handle-claim
+            // scope rejections (`claim_type_unsupported`,
+            // `handle_claim_subject_not_principal_did`). Write the audit row so
+            // the operator console surfaces the reason.
+            let _ = audit::record(
+                state.db(),
+                AuditEventKind::IngestRejected,
+                Some(body.resource_kind),
+                Some(&body.resource_id),
+                Some(&body.principal_server_did),
+                json!({ "code": code.wire_code(), "message": msg, "reason": "projection_rejected" }),
+            );
             code.render(res, msg);
             return;
         }
@@ -774,6 +786,15 @@ pub(crate) fn derive_public_projection(
     //
     // Real projection logic (per resource kind) belongs in `crate::query::*`
     // and is deferred to M3.
+
+    // HC-TBY-1/2 (R3.2, contrix-spec @ b56cab1) — handle-claim wire-level
+    // scope validation. This runs in `derive_public_projection` so it
+    // applies uniformly to BOTH the push-mode announce path and the
+    // federation pull-worker / well-known resolver path (both funnel through
+    // this function), satisfying HC-TBY-2's "all reject paths also act on
+    // pulled-back claims" requirement.
+    validate_handle_claim_ingest(discovery_state)?;
+
     let mut clone = discovery_state.clone();
     if let Some(obj) = clone.as_object_mut() {
         obj.remove("proof");
@@ -781,6 +802,74 @@ pub(crate) fn derive_public_projection(
         normalize_member_count_projection(obj)?;
     }
     Ok(clone)
+}
+
+/// HC-TBY-1/2 — reject handle-claim ingest that violates the R3.2 wire scope:
+///
+/// 1. `claim_type` / `class` == `service_handle` is rejected (the draft-era
+///    value was removed in R3.2). Audit reason `claim_type_unsupported`.
+/// 2. A handle-claim `subject` that is a `cx:actor:` Realm actor id, a
+///    `cx:account:` server-local account id, a service DID, or any non-DID
+///    resource id is rejected. Audit reason
+///    `handle_claim_subject_not_principal_did`. The structural DID check is
+///    delegated to the SDK's `validate_handle_claim_subject` so the directory
+///    and the rest of the stack share one rule.
+///
+/// Only discovery_state bodies that actually look like a handle claim (carry
+/// a `subject` and/or `claim_type` / `class`) are inspected; non-handle
+/// announces pass through untouched.
+fn validate_handle_claim_ingest(discovery_state: &JsonValue) -> Result<(), (ApiErrorCode, String)> {
+    let Some(obj) = discovery_state.as_object() else {
+        return Ok(());
+    };
+
+    // (1) `service_handle` claim_type / class is no longer a valid value.
+    for key in ["claim_type", "class"] {
+        if let Some(value) = obj.get(key).and_then(JsonValue::as_str)
+            && value == "service_handle"
+        {
+            return Err((
+                ApiErrorCode::SchemaViolation,
+                "claim_type_unsupported: service_handle is not a valid R3.2 handle claim_type"
+                    .to_owned(),
+            ));
+        }
+    }
+
+    // (2) handle-claim subject MUST be a holder/principal DID.
+    if let Some(subject) = obj.get("subject").and_then(JsonValue::as_str) {
+        match contrix_sdk::Did::new(subject.to_owned()) {
+            Ok(did) => {
+                if contrix_sdk::validate_handle_claim_subject(&did).is_err() {
+                    return Err((
+                        ApiErrorCode::SchemaViolation,
+                        format!(
+                            "handle_claim_subject_not_principal_did: subject {subject} is not a \
+                             holder/principal DID"
+                        ),
+                    ));
+                }
+            }
+            Err(_) => {
+                // `cx:actor:` / `cx:account:` / generic resource ids are not
+                // valid DIDs at all — same rejection family.
+                if subject.starts_with("cx:actor:")
+                    || subject.starts_with("cx:account:")
+                    || !subject.starts_with("did:")
+                {
+                    return Err((
+                        ApiErrorCode::SchemaViolation,
+                        format!(
+                            "handle_claim_subject_not_principal_did: subject {subject} is not a \
+                             holder/principal DID"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn normalize_member_count_projection(
@@ -1176,6 +1265,60 @@ mod tests {
             "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         );
         assert_ne!(a.key(&digest), b.key(&digest));
+    }
+
+    /// HC-TBY-1 — a handle claim announcing the retired `service_handle`
+    /// class/claim_type is rejected with `claim_type_unsupported`.
+    #[test]
+    fn handle_claim_ingest_rejects_service_handle_claim_type() {
+        let state = json!({
+            "kind": "cx.handle.discovery",
+            "claim_type": "service_handle",
+            "subject": "did:web:alice.example",
+        });
+        let err = super::validate_handle_claim_ingest(&state).unwrap_err();
+        assert_eq!(err.0, ApiErrorCode::SchemaViolation);
+        assert!(err.1.contains("claim_type_unsupported"));
+
+        // Also reject when the value is on `class` rather than `claim_type`.
+        let state = json!({ "class": "service_handle", "subject": "did:web:alice.example" });
+        assert!(super::validate_handle_claim_ingest(&state).is_err());
+    }
+
+    /// HC-TBY-2 — a handle claim whose `subject` is a Realm actor id /
+    /// account id / non-DID resource id is rejected with
+    /// `handle_claim_subject_not_principal_did`.
+    #[test]
+    fn handle_claim_ingest_rejects_non_principal_subject() {
+        for bad in [
+            "cx:actor:tea/alice",
+            "cx:account:server-local-42",
+            "cx:resource:thing",
+            "not-a-did",
+        ] {
+            let state = json!({ "subject": bad, "handle": "alice:example.com" });
+            let err = super::validate_handle_claim_ingest(&state).unwrap_err();
+            assert_eq!(err.0, ApiErrorCode::SchemaViolation, "subject {bad}");
+            assert!(
+                err.1.contains("handle_claim_subject_not_principal_did"),
+                "subject {bad}"
+            );
+        }
+    }
+
+    /// HC-TBY-2 — a holder/principal DID subject is accepted, and a body
+    /// with no handle-claim fields passes through untouched.
+    #[test]
+    fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
+        let ok = json!({ "subject": "did:web:alice.example", "handle": "alice:example.com" });
+        assert!(super::validate_handle_claim_ingest(&ok).is_ok());
+
+        // A realm announce with no handle-claim fields is untouched.
+        let realm = json!({ "kind": "cx.realm.discovery", "discoverability": "public" });
+        assert!(super::validate_handle_claim_ingest(&realm).is_ok());
+
+        // And the whole projection path accepts the principal-DID claim.
+        assert!(derive_public_projection(&ok).is_ok());
     }
 
     #[test]
