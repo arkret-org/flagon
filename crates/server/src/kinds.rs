@@ -51,6 +51,11 @@ pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = contrix_sdk::OP_DIRECTORY_RE
 pub const OP_DIRECTORY_SEARCH_ACTORS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ACTORS;
 pub const OP_DIRECTORY_SEARCH_USERS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_USERS;
 pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
+/// R3.2 (contrix-spec @ b56cab1) — reverse handle lookup
+/// (`cx.directory.list_handles_for_subject`). Given a holder/principal
+/// DID + context, returns the subject's currently-visible handle claims.
+pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =
+    contrix_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
 
 /// Every operation this directory service publishes, in the same order as
 /// `cx.profile.directory_service.v1#/required_endpoints`.
@@ -93,5 +98,9 @@ mod tests {
         assert_eq!(OP_DIRECTORY_SEARCH_REALMS, "cx.directory.search_realms");
         assert_eq!(OP_DIRECTORY_RESOLVE_REALM, "cx.directory.resolve_realm");
         assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "cx.directory.resolve_handle");
+        assert_eq!(
+            OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT,
+            "cx.directory.list_handles_for_subject"
+        );
     }
 }

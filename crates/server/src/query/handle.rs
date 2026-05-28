@@ -360,12 +360,23 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     apply_resolve_response_jitter().await;
 
     match outcome {
-        ResolveOutcome::Found(envelope) => res.render(Json(envelope)),
+        ResolveOutcome::Found(envelope) => {
+            // METRICS-TBY-1 — directory query outcome counter.
+            state
+                .metrics()
+                .record_query_outcome("resolve-handle", "ok");
+            res.render(Json(envelope))
+        }
         // `not_found` covers genuine miss, unauthorized requester, and "all
         // candidates filtered out" — these MUST be indistinguishable on the
         // wire so the directory does not leak the existence of the handle
         // or the recipient service identity.
-        ResolveOutcome::NotFound => ApiErrorCode::NotFound.render(res, "not found"),
+        ResolveOutcome::NotFound => {
+            state
+                .metrics()
+                .record_query_outcome("resolve-handle", "not_found");
+            ApiErrorCode::NotFound.render(res, "not found")
+        }
     }
 }
 

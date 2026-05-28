@@ -49,8 +49,49 @@ const QUERY_OPS: &[&str] = &[
     "search-actors",
     "search-users",
     "resolve-handle",
+    // R3.2 (contrix-spec @ b56cab1) — reverse handle lookup.
+    "list-handles-for-subject",
 ];
 const PULL_OUTCOMES: &[&str] = &["success", "failure"];
+
+/// R3.2 (METRICS-TBY-1) — outcomes recorded on
+/// `teabay_directory_query_total{op,outcome}`. The series is pre-seeded with
+/// these so a scraper sees a `0` rather than a missing series before the
+/// first request of each outcome.
+const QUERY_OUTCOMES: &[&str] = &[
+    "ok",
+    "not_found",
+    "fail_closed",
+    "bad_json",
+    "rate_limited",
+    "invalid_subject_kind",
+    "internal_error",
+];
+
+/// R3.2 (METRICS-TBY-1) — reasons recorded on
+/// `teabay_directory_filter_drop_total{reason}`. Covers anti-enumeration,
+/// disclosure policy, issuer trust, audience scope, homograph, and the
+/// subject-mismatch / invalid-subject-kind drops that
+/// `list_handles_for_subject` adds.
+const FILTER_DROP_REASONS: &[&str] = &[
+    "anti_enumeration",
+    "disclosure",
+    "issuer_trust",
+    "audience",
+    "homograph",
+    "subject_mismatch",
+    "invalid_subject_kind",
+];
+
+/// R3.2 (METRICS-TBY-1) — counters recorded on
+/// `teabay_directory_cardinality_guard_total{counter}`: the bounded scans /
+/// page ceilings the directory enforces to keep a single request from
+/// materialising an unbounded result set.
+const CARDINALITY_GUARD_COUNTERS: &[&str] = &[
+    "resolved_subjects",
+    "candidate_scan_capped",
+    "page_limit_clamped",
+];
 
 /// Label value for the `directory_resources` table on the
 /// `teabay_expired_rows_purged_total` counter. Centralised so the
@@ -82,12 +123,23 @@ struct MetricsInner {
     divergence_detected: Mutex<u64>,
     expired_rows_purged: Mutex<BTreeMap<String, u64>>,
     takedown_notification_failures: Mutex<BTreeMap<String, u64>>,
+    // R3.2 (METRICS-TBY-1) — directory query / filter-drop / cardinality
+    // guard counters required by the §C observability slice.
+    query_outcomes: Mutex<BTreeMap<QueryOutcomeKey, u64>>,
+    filter_drops: Mutex<BTreeMap<String, u64>>,
+    cardinality_guard: Mutex<BTreeMap<String, u64>>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct IngestKey {
     kind: &'static str,
     outcome: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct QueryOutcomeKey {
+    op: String,
+    outcome: String,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -203,6 +255,47 @@ impl Metrics {
         *failures.entry(stage.to_owned()).or_default() += 1;
     }
 
+    /// R3.2 (METRICS-TBY-1) — increment
+    /// `teabay_directory_query_total{op,outcome}`. `op` is the dashed route
+    /// label (`resolve-handle`, `list-handles-for-subject`, ...); `outcome`
+    /// is one of [`QUERY_OUTCOMES`] (unknown values are still recorded).
+    pub fn record_query_outcome(&self, op: &str, outcome: &str) {
+        let mut outcomes = self
+            .inner
+            .query_outcomes
+            .lock()
+            .expect("query outcome metrics lock");
+        *outcomes
+            .entry(QueryOutcomeKey {
+                op: op.to_owned(),
+                outcome: outcome.to_owned(),
+            })
+            .or_default() += 1;
+    }
+
+    /// R3.2 (METRICS-TBY-1) — increment
+    /// `teabay_directory_filter_drop_total{reason}` for a filtered-out claim
+    /// / result. `reason` should be one of [`FILTER_DROP_REASONS`].
+    pub fn record_filter_drop(&self, reason: &str) {
+        let mut drops = self
+            .inner
+            .filter_drops
+            .lock()
+            .expect("filter drop metrics lock");
+        *drops.entry(reason.to_owned()).or_default() += 1;
+    }
+
+    /// R3.2 (METRICS-TBY-1) — increment
+    /// `teabay_directory_cardinality_guard_total{counter}` by `count`.
+    pub fn record_cardinality_guard(&self, counter: &str, count: u64) {
+        let mut guard = self
+            .inner
+            .cardinality_guard
+            .lock()
+            .expect("cardinality guard metrics lock");
+        *guard.entry(counter.to_owned()).or_default() += count;
+    }
+
     pub fn render_prometheus(&self) -> String {
         let ingest = self
             .inner
@@ -244,6 +337,24 @@ impl Metrics {
             .takedown_notification_failures
             .lock()
             .expect("takedown notification failures metrics lock")
+            .clone();
+        let query_outcomes = self
+            .inner
+            .query_outcomes
+            .lock()
+            .expect("query outcome metrics lock")
+            .clone();
+        let filter_drops = self
+            .inner
+            .filter_drops
+            .lock()
+            .expect("filter drop metrics lock")
+            .clone();
+        let cardinality_guard = self
+            .inner
+            .cardinality_guard
+            .lock()
+            .expect("cardinality guard metrics lock")
             .clone();
 
         let mut out = String::new();
@@ -387,6 +498,89 @@ impl Metrics {
                 &mut out,
                 "teabay_takedown_notification_failures_total",
                 &[("stage", stage.as_str())],
+                *value as f64,
+            );
+        }
+
+        // R3.2 (METRICS-TBY-1) — directory query outcome counter. Pre-seed
+        // the (op × outcome) grid so a scraper sees a zero series before the
+        // first request of each combination, then append any unknown
+        // (op, outcome) pairs that arrived at runtime.
+        out.push_str("# HELP teabay_directory_query_total Directory query / resolve / list_handles_for_subject requests by operation and outcome.\n");
+        out.push_str("# TYPE teabay_directory_query_total counter\n");
+        for &op in QUERY_OPS {
+            for &outcome in QUERY_OUTCOMES {
+                let value = query_outcomes
+                    .get(&QueryOutcomeKey {
+                        op: op.to_owned(),
+                        outcome: outcome.to_owned(),
+                    })
+                    .copied()
+                    .unwrap_or(0);
+                push_sample(
+                    &mut out,
+                    "teabay_directory_query_total",
+                    &[("op", op), ("outcome", outcome)],
+                    value as f64,
+                );
+            }
+        }
+        for (key, value) in query_outcomes.iter().filter(|(key, _)| {
+            !(QUERY_OPS.contains(&key.op.as_str())
+                && QUERY_OUTCOMES.contains(&key.outcome.as_str()))
+        }) {
+            push_sample(
+                &mut out,
+                "teabay_directory_query_total",
+                &[("op", key.op.as_str()), ("outcome", key.outcome.as_str())],
+                *value as f64,
+            );
+        }
+
+        // R3.2 (METRICS-TBY-1) — filter-drop counter.
+        out.push_str("# HELP teabay_directory_filter_drop_total Directory result rows dropped by a privacy / trust filter, by reason.\n");
+        out.push_str("# TYPE teabay_directory_filter_drop_total counter\n");
+        for &reason in FILTER_DROP_REASONS {
+            let value = filter_drops.get(reason).copied().unwrap_or(0);
+            push_sample(
+                &mut out,
+                "teabay_directory_filter_drop_total",
+                &[("reason", reason)],
+                value as f64,
+            );
+        }
+        for (reason, value) in filter_drops
+            .iter()
+            .filter(|(reason, _)| !FILTER_DROP_REASONS.contains(&reason.as_str()))
+        {
+            push_sample(
+                &mut out,
+                "teabay_directory_filter_drop_total",
+                &[("reason", reason.as_str())],
+                *value as f64,
+            );
+        }
+
+        // R3.2 (METRICS-TBY-1) — cardinality-guard counter.
+        out.push_str("# HELP teabay_directory_cardinality_guard_total Bounded-scan / page-ceiling guards tripped, by counter.\n");
+        out.push_str("# TYPE teabay_directory_cardinality_guard_total counter\n");
+        for &counter in CARDINALITY_GUARD_COUNTERS {
+            let value = cardinality_guard.get(counter).copied().unwrap_or(0);
+            push_sample(
+                &mut out,
+                "teabay_directory_cardinality_guard_total",
+                &[("counter", counter)],
+                value as f64,
+            );
+        }
+        for (counter, value) in cardinality_guard
+            .iter()
+            .filter(|(counter, _)| !CARDINALITY_GUARD_COUNTERS.contains(&counter.as_str()))
+        {
+            push_sample(
+                &mut out,
+                "teabay_directory_cardinality_guard_total",
+                &[("counter", counter.as_str())],
                 *value as f64,
             );
         }
@@ -611,5 +805,52 @@ mod tests {
         assert!(
             body.contains("teabay_takedown_notification_failures_total{stage=\"dlq\"} 1.000000")
         );
+    }
+
+    /// R3.2 (METRICS-TBY-1) — the directory query / filter-drop /
+    /// cardinality-guard counters render with the required label families,
+    /// including the `list-handles-for-subject` op and the new filter-drop
+    /// reasons.
+    #[test]
+    fn prometheus_render_includes_r3_2_directory_counters() {
+        let metrics = Metrics::default();
+        metrics.record_query_outcome("list-handles-for-subject", "ok");
+        metrics.record_query_outcome("resolve-handle", "not_found");
+        metrics.record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
+        metrics.record_filter_drop("issuer_trust");
+        metrics.record_filter_drop("audience");
+        metrics.record_filter_drop("subject_mismatch");
+        metrics.record_filter_drop("invalid_subject_kind");
+        metrics.record_cardinality_guard("resolved_subjects", 3);
+        metrics.record_cardinality_guard("candidate_scan_capped", 1);
+
+        let body = metrics.render_prometheus();
+
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"list-handles-for-subject\",outcome=\"ok\"} 1.000000"
+        ));
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"resolve-handle\",outcome=\"not_found\"} 1.000000"
+        ));
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"list-handles-for-subject\",outcome=\"invalid_subject_kind\"} 1.000000"
+        ));
+        assert!(
+            body.contains("teabay_directory_filter_drop_total{reason=\"issuer_trust\"} 1.000000")
+        );
+        assert!(body.contains("teabay_directory_filter_drop_total{reason=\"audience\"} 1.000000"));
+        assert!(body.contains(
+            "teabay_directory_filter_drop_total{reason=\"subject_mismatch\"} 1.000000"
+        ));
+        assert!(body.contains(
+            "teabay_directory_cardinality_guard_total{counter=\"resolved_subjects\"} 3.000000"
+        ));
+        assert!(body.contains(
+            "teabay_directory_cardinality_guard_total{counter=\"candidate_scan_capped\"} 1.000000"
+        ));
+        // Pre-seeded zero series for an outcome that never fired.
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"search-realms\",outcome=\"ok\"} 0.000000"
+        ));
     }
 }

@@ -137,6 +137,17 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(Router::with_path("search-actors").post(query::actor::search_actors))
         .push(Router::with_path("search-users").post(query::actor::search_users))
         .push(Router::with_path("resolve-handle").post(query::handle::resolve_handle))
+        // R3.2 (DIR-TBY-1, contrix-spec @ b56cab1) — reverse handle lookup.
+        // Inverse of `resolve-handle`: known holder/principal DID + context
+        // → currently-visible handle claims + primary handle. Read-only
+        // against the indexed view; visibility is decided per-claim by the
+        // disclosure-policy + issuer-trust + audience filters in the query
+        // handler (no transport signature required, same as the other query
+        // routes). The mention renderer's live-resolve path consumes this.
+        .push(
+            Router::with_path("list-handles-for-subject")
+                .post(query::handles_for_subject::list_handles_for_subject),
+        )
         .push(
             Router::with_path("private-contact-discovery")
                 .post(query::psi::private_contact_discovery),
@@ -623,6 +634,18 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve a handle by `?localpart=<localpart>` (identity-handles §17). \
              Returns the standard Directory result envelope; rejects homograph / \
              script-mixed localparts with `handle_homograph_forbidden`.",
+        ),
+        (
+            // R3.2 (DIR-TBY-1, contrix-spec @ b56cab1) — reverse handle
+            // lookup. Response shape `cx.schema.list_handles_for_subject_response.v1`.
+            "/api/v1/directory/list-handles-for-subject",
+            PathItemType::Post,
+            "cx.directory.list_handles_for_subject",
+            "query",
+            "List Handles For Subject",
+            "Resolve a known holder/principal DID to its currently-visible handle claims \
+             and primary handle (inverse of resolve-handle). Rejects non-principal \
+             subjects (cx:actor:/cx:account:/service DID) with failed_precondition.",
         ),
         (
             "/api/v1/directory/private-contact-discovery",

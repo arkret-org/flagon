@@ -171,6 +171,20 @@ impl ApiErrorCode {
         StatusCode::FORBIDDEN,
     );
 
+    // -------- R3.2 spec-sync 2026-05-28 (contrix-spec @ b56cab1) --------
+    // `cx.directory.list_handles_for_subject` input validation. A
+    // `subject` that is not a holder/principal DID (a `cx:actor:` Realm
+    // actor_id, a `cx:account:` server-local account id, a service DID,
+    // or a non-DID resource id) is rejected with `failed_precondition`
+    // carrying the `invalid_subject_kind` reason in the message — the
+    // request is structurally well-formed JSON but cannot be satisfied
+    // because the subject is the wrong kind of identifier.
+    #[allow(non_upper_case_globals)]
+    pub const FailedPrecondition: Self = Self::new(
+        contrix_sdk::error::ERROR_CODE_FAILED_PRECONDITION,
+        StatusCode::CONFLICT,
+    );
+
     pub fn wire_code(self) -> &'static str {
         self.code
     }
