@@ -51,6 +51,8 @@ const QUERY_OPS: &[&str] = &[
     "resolve-handle",
     // R3.2 (contrix-spec @ b56cab1) — reverse handle lookup.
     "list-handles-for-subject",
+    // R3.3 (CXP-0011, contrix-spec @ cced4b8) — object-level resolve.
+    "resolve-target",
 ];
 const PULL_OUTCOMES: &[&str] = &["success", "failure"];
 
@@ -65,6 +67,10 @@ const QUERY_OUTCOMES: &[&str] = &[
     "bad_json",
     "rate_limited",
     "invalid_subject_kind",
+    // R3.3 (CXP-0011) — resolve_target invite-token binding rejection
+    // (scope-confusion / expired / malformed / alias-mismatch). Surfaced to
+    // the SAME blinded not_found wire response; the split is metrics-only.
+    "token_reject",
     "internal_error",
 ];
 
@@ -851,6 +857,35 @@ mod tests {
         // Pre-seeded zero series for an outcome that never fired.
         assert!(body.contains(
             "teabay_directory_query_total{op=\"search-realms\",outcome=\"ok\"} 0.000000"
+        ));
+    }
+
+    /// R3.3 (CXP-0011) — the `resolve-target` op and the `token_reject`
+    /// outcome render with the required label families (including the
+    /// pre-seeded zero series before any request fires).
+    #[test]
+    fn prometheus_render_includes_r3_3_resolve_target_counters() {
+        let metrics = Metrics::default();
+        metrics.record_query_outcome("resolve-target", "ok");
+        metrics.record_query_outcome("resolve-target", "token_reject");
+        metrics.record_query_outcome("resolve-target", "not_found");
+
+        let body = metrics.render_prometheus();
+
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"resolve-target\",outcome=\"ok\"} 1.000000"
+        ));
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"resolve-target\",outcome=\"token_reject\"} 1.000000"
+        ));
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"resolve-target\",outcome=\"not_found\"} 1.000000"
+        ));
+        // The `token_reject` outcome is pre-seeded for every op (zero before
+        // first fire) — e.g. resolve-realm never token-rejects but the series
+        // still exists.
+        assert!(body.contains(
+            "teabay_directory_query_total{op=\"resolve-realm\",outcome=\"token_reject\"} 0.000000"
         ));
     }
 }

@@ -126,6 +126,14 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
         .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
+        // R3.3 (CXP-0011, contrix-spec @ cced4b8) — object-level resolve.
+        // Generalization of resolve-realm to a client-agnostic shareable
+        // address (Realm / Flow / Message). Realm resolution DELEGATES to the
+        // resolve_realm logic; invite tokens are bound to the resolved object
+        // via the SDK `target_digest` so a token cannot be replayed across
+        // objects. Same anti-enumeration latency floor + jitter + blinded
+        // not_found as resolve-realm.
+        .push(Router::with_path("resolve-target").post(query::target::resolve_target))
         .push(
             Router::with_path("search-organizations")
                 .post(query::organization::search_organizations),
@@ -582,6 +590,22 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "query",
             "Resolve Realm",
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
+        ),
+        (
+            // R3.3 (CXP-0011, contrix-spec @ cced4b8) — object-level resolve.
+            // The object-level generalization of resolve-realm: resolves a
+            // client-agnostic shareable object address (Realm / Flow / Message)
+            // to a target_kind + preview, binding an invite token to the
+            // resolved object. Realm resolution delegates to resolve_realm.
+            "/api/v1/directory/resolve-target",
+            PathItemType::Post,
+            "cx.directory.resolve_target",
+            "query",
+            "Resolve Target",
+            "Resolve a client-agnostic shareable object address (Realm / Flow / Message) to a \
+             target_kind + (realm_preview | object_preview) + join_rule with blinded misses. \
+             Invite tokens are bound to the resolved object via the target digest so a token \
+             cannot be replayed across objects.",
         ),
         (
             "/api/v1/directory/search-organizations",

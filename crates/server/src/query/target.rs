@@ -1,0 +1,682 @@
+//! Object-address resolve — R3.3 (CXP-0011, contrix-spec @ cced4b8),
+//! `cx.directory.resolve_target`.
+//!
+//! This is the object-level generalization of
+//! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
+//! address (`web+contrix:` URI form OR HTTPS-landing fragment form) points at a
+//! Realm, a Flow inside a Realm, or a Message inside a Flow; this endpoint
+//! parses the address, resolves the target, and returns a `target_kind` +
+//! (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields.
+//!
+//! ## Delegation invariant (normative)
+//!
+//! Realm resolution MUST NOT be reinvented here. The realm branch DELEGATES to
+//! [`crate::query::realm::resolve_realm_visible`] so the canonical `realm_id`,
+//! the `realm_preview` payload, `via_services`, and the hidden/withdrawn/unknown
+//! → blinded `not_found` collapse stay byte-for-byte identical to
+//! `resolve_realm`.
+//!
+//! ## Token target binding (security-critical)
+//!
+//! When the address carries `lt=invite&tok=<token>` (or the request body
+//! supplies `token`), the token's own signed payload carries an authoritative
+//! [`TargetDescriptor`](contrix_sdk::model::TargetDescriptor). We:
+//!   1. parse the address → [`ParsedAddress`](contrix_sdk::model::ParsedAddress),
+//!   2. build a `TargetDescriptor` from the address; for an ALIAS realm we
+//!      normalize via the realm resolution to obtain the canonical `realm_id`
+//!      and `set_realm_id`,
+//!   3. extract the token's embedded `target_descriptor` (this round parses the
+//!      token as opaque JSON — see the `TODO(R3.3.1)` below),
+//!   4. call [`verify_token_target`](contrix_sdk::model::verify_token_target),
+//!      which recomputes & compares the `sha256:` digest. `via` / `action` /
+//!      `tok` / `lt` are NOT in the digest, so a token minted for object A can
+//!      never be replayed onto a different object B (scope-confusion defence).
+//!
+//! On ANY mismatch — bad token JSON, expired token, audience mismatch, digest
+//! mismatch, alias-vs-token `realm_id` mismatch, or an alias that cannot be
+//! resolved to a canonical id — we collapse to the SAME blinded `not_found` as
+//! an invite/restricted/secret resource for an unauthorized requester. The
+//! unauthorized and the nonexistent cases are byte- AND timing-indistinguishable
+//! (shared latency floor + jitter + stochastic resolve jitter).
+//!
+//! TODO(R3.3.1): join-policy revocation + token signature verify. The opaque
+//! token is parsed as JSON for its embedded `target_descriptor` and its
+//! `exp` / `aud` presence is checked, but the Ed25519 signature over the token
+//! payload and the join-policy revocation lookup are not yet wired. The digest
+//! comparison (`verify_token_target`) and the expiry/audience PRESENCE checks
+//! ARE real.
+
+use chrono::Utc;
+use contrix_sdk::model::{
+    LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, verify_token_target,
+};
+use contrix_sdk::{
+    DirectoryResolveTargetReqBody, DirectoryResolveTargetResBody, RealmId, RealmPreview, TargetKind,
+};
+use salvo::prelude::*;
+use serde_json::{Value as JsonValue, json};
+
+use crate::error::ApiErrorCode;
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
+use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
+use crate::query::realm::resolve_realm_visible;
+use crate::state::AppState;
+
+/// Dashed metric op label for this surface.
+const OP: &str = "resolve-target";
+
+#[handler]
+pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.obtain::<AppState>() {
+        Ok(s) => s.clone(),
+        Err(_) => {
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
+            return;
+        }
+    };
+    let _query_timer = state.metrics().query_timer(OP);
+
+    let body: DirectoryResolveTargetReqBody = match req.parse_json().await {
+        Ok(b) => b,
+        Err(e) => {
+            state.metrics().record_query_outcome(OP, "bad_json");
+            ApiErrorCode::BadJson.render(res, format!("malformed resolve-target body: {e}"));
+            return;
+        }
+    };
+
+    if body.address.trim().is_empty() {
+        state.metrics().record_query_outcome(OP, "bad_json");
+        ApiErrorCode::MissingParam.render(res, "address required");
+        return;
+    }
+
+    // Rate-limit keyed on the raw address (mirrors resolve_realm keying on the
+    // resolve key) so a single address cannot be probed at unbounded speed.
+    if !enforce_resolve_rate_limit(req, res, &state, body.address.as_str()) {
+        state.metrics().record_query_outcome(OP, "rate_limited");
+        return;
+    }
+
+    let requester = body.requester.as_ref().map(|d| d.as_str().to_owned());
+    let proofs: Vec<String> = body.proofs.iter().map(proof_to_key).collect();
+    // The address carries the token via `tok=`; the request body MAY also carry
+    // it explicitly. The body wins when both are present.
+    let token = body.token.clone();
+
+    let budget = LatencyBudget::new(
+        state.config().query_latency_floor,
+        state.config().query_latency_jitter,
+    );
+    // The privacy key steers the deterministic per-request latency tier; bundle
+    // every input that changes the visible outcome so repeated probes from one
+    // origin land on a stable tier without leaking hit/miss.
+    let privacy_key = format!(
+        "addr={};req={};tok={}",
+        body.address,
+        requester.as_deref().unwrap_or_default(),
+        token.as_deref().map(|_| "1").unwrap_or("0"),
+    );
+
+    let outcome = pad_to_budget_observed(
+        budget,
+        "cx.directory.resolve_target",
+        &privacy_key,
+        |target| state.metrics().record_anti_enum_pad(OP, target),
+        resolve(
+            &state,
+            &body.address,
+            requester.as_deref(),
+            &proofs,
+            token.as_deref(),
+        ),
+    )
+    .await;
+
+    // P5 — stochastic anti-enumeration jitter, identical to resolve_realm /
+    // resolve_handle, so the unauthorized vs nonexistent timing channel is shut.
+    apply_resolve_response_jitter().await;
+
+    match outcome {
+        ResolveOutcome::Ok(response) => {
+            state.metrics().record_query_outcome(OP, "ok");
+            res.render(Json(response));
+        }
+        // Token bound to a different object / expired / malformed / alias
+        // mismatch → token-reject, surfaced to the SAME blinded not_found.
+        ResolveOutcome::TokenReject => {
+            state.metrics().record_query_outcome(OP, "token_reject");
+            ApiErrorCode::NotFound.render(res, "not found");
+        }
+        // Hidden / withdrawn / unknown / unparseable address — blinded miss.
+        ResolveOutcome::NotFound => {
+            state.metrics().record_query_outcome(OP, "not_found");
+            ApiErrorCode::NotFound.render(res, "not found");
+        }
+        ResolveOutcome::Error(message) => {
+            state.metrics().record_query_outcome(OP, "internal_error");
+            ApiErrorCode::InternalError.render(res, message);
+        }
+    }
+}
+
+/// The internal resolve outcome. `TokenReject` and `NotFound` BOTH render the
+/// same blinded `not_found` wire response — the split exists ONLY so the
+/// `/metrics` surface can distinguish a scope-confusion / token failure from a
+/// genuine miss for operator dashboards. The wire bytes are identical.
+enum ResolveOutcome {
+    Ok(DirectoryResolveTargetResBody),
+    TokenReject,
+    NotFound,
+    Error(String),
+}
+
+async fn resolve(
+    state: &AppState,
+    address: &str,
+    requester: Option<&str>,
+    proofs: &[String],
+    token: Option<&str>,
+) -> ResolveOutcome {
+    // 1. Parse the address. A fail-closed parse (unknown keyword, wrong order,
+    //    missing intermediate level, non-uuid segment, flow/message missing
+    //    `via`) collapses to a blinded not_found — indistinguishable from a
+    //    nonexistent resource.
+    let parsed = match parse_address(address) {
+        Ok(p) => p,
+        Err(_) => return ResolveOutcome::NotFound,
+    };
+
+    // 2. Resolve the realm (canonical id + preview + via_services). This is the
+    //    delegation point: the realm branch and the alias→canonical
+    //    normalization both go through resolve_realm's logic.
+    let realm_key = match &parsed.realm {
+        RealmRef::RealmId(uuid) => format!("cx:realm:{uuid}"),
+        RealmRef::Alias(alias) => alias.clone(),
+    };
+    let resolved = match resolve_realm_visible(state, &realm_key, requester, proofs).await {
+        Ok(Some(r)) => r,
+        // Hidden / withdrawn / unknown realm, OR an alias that resolves to
+        // nothing → blinded not_found (same as resolve_realm).
+        Ok(None) => return ResolveOutcome::NotFound,
+        Err(e) => return ResolveOutcome::Error(format!("resolve_target realm load: {e}")),
+    };
+    let canonical_realm_id = resolved.realm_id.clone();
+
+    // 3. Token target binding (security-critical). Applies whenever a token is
+    //    present OR the address declares an invite link — an invite link MUST
+    //    carry a token; a token that fails to bind → blinded not_found.
+    let effective_link_type = parsed.link_type;
+    let token = token.or(parsed.token.as_deref());
+    if effective_link_type == LinkType::Invite || token.is_some() {
+        match verify_address_token(&parsed, token, &canonical_realm_id, effective_link_type) {
+            TokenCheck::Pass => {}
+            TokenCheck::Reject => return ResolveOutcome::TokenReject,
+        }
+    }
+
+    // 4. Classify the target and build the response.
+    if parsed.is_realm() {
+        let response = build_realm_response(resolved);
+        return match response {
+            Ok(r) => ResolveOutcome::Ok(r),
+            Err(e) => ResolveOutcome::Error(e),
+        };
+    }
+
+    // Flow / Message branch. The access-gate (membership / flow ACL) lives
+    // inside the Realm and is not yet wired into the directory projection —
+    // TODO(R3.3.1). We surface a deterministic `object_preview` placeholder
+    // anchored to the verified target identity. The realm-resolution gate above
+    // already enforced that the enclosing Realm is visible to the requester.
+    let target_kind = if parsed.is_message() {
+        TargetKind::Message
+    } else {
+        TargetKind::Flow
+    };
+    let response = build_object_response(target_kind, &canonical_realm_id, &parsed, resolved);
+    ResolveOutcome::Ok(response)
+}
+
+/// Result of the token-binding check. Split out so the conformance suite can
+/// assert the scope-confusion / alias-mismatch behaviour with a pure function.
+#[derive(Debug, PartialEq, Eq)]
+pub enum TokenCheck {
+    Pass,
+    Reject,
+}
+
+/// Verify an invite token against the parsed address under the canonical
+/// (server-resolved) realm id.
+///
+/// Steps:
+///   1. an invite link MUST carry a token (no token → reject);
+///   2. parse the token's embedded `target_descriptor` (opaque-JSON for this
+///      round; TODO(R3.3.1) signature verify) and its `exp`/`aud` PRESENCE;
+///   3. inject the canonical realm id into the address-derived descriptor (so
+///      an alias address can be compared) and call `verify_token_target`,
+///      which recomputes & compares the digest. Any mismatch → reject.
+///
+/// `canonical_realm_id` is the `cx:realm:<uuid>` the realm resolution produced
+/// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
+/// mismatch hole.
+pub fn verify_address_token(
+    parsed: &ParsedAddress,
+    token: Option<&str>,
+    canonical_realm_id: &str,
+    effective_link_type: LinkType,
+) -> TokenCheck {
+    // An invite link with no token cannot be honoured.
+    let Some(token) = token else {
+        return TokenCheck::Reject;
+    };
+
+    let Some(token_descriptor) = parse_token_descriptor(token) else {
+        return TokenCheck::Reject;
+    };
+
+    // Build the address-derived descriptor and inject the canonical realm id so
+    // an alias address can be compared honestly (the digest is meaningless over
+    // an alias string). For a uuid realm this is idempotent.
+    let mut address_descriptor = TargetDescriptor::from_parsed(parsed);
+    address_descriptor.set_realm_id(canonical_realm_id);
+
+    // The token binds its own authoritative realm id. If the token was minted
+    // for a DIFFERENT realm than the address resolved to, that is a scope
+    // confusion / alias-mismatch — reject. (verify_token_target would also
+    // catch this via the digest, but checking explicitly keeps the
+    // realm-mismatch path obvious and metrics-attributable.)
+    if normalize_realm(&token_descriptor.realm_id) != normalize_realm(canonical_realm_id) {
+        return TokenCheck::Reject;
+    }
+
+    // Digest comparison over the canonicalized address descriptor. We feed the
+    // descriptor back through a ParsedAddress whose realm is the canonical uuid
+    // so verify_token_target's own from_parsed + set effective_link_type path
+    // reproduces the exact bytes.
+    let canonical_parsed = with_canonical_realm(parsed, canonical_realm_id);
+    if verify_token_target(&token_descriptor, &canonical_parsed, effective_link_type) {
+        TokenCheck::Pass
+    } else {
+        TokenCheck::Reject
+    }
+}
+
+/// Rebuild a [`ParsedAddress`] whose realm segment is the canonical
+/// `cx:realm:<uuid>` (sigil-stripped to the bare uuid the grammar expects) so
+/// the SDK's `verify_token_target` recomputes the digest over a uuid realm
+/// rather than the original alias.
+fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> ParsedAddress {
+    let bare_uuid = canonical_realm_id
+        .strip_prefix("cx:realm:")
+        .unwrap_or(canonical_realm_id)
+        .to_owned();
+    ParsedAddress {
+        realm: RealmRef::RealmId(bare_uuid),
+        flow: parsed.flow.clone(),
+        message: parsed.message.clone(),
+        via: parsed.via.clone(),
+        action: parsed.action,
+        link_type: parsed.link_type,
+        token: parsed.token.clone(),
+    }
+}
+
+/// Normalize a realm id to its bare-uuid form for equality comparison so a
+/// `cx:realm:<uuid>` and the same bare `<uuid>` compare equal.
+fn normalize_realm(realm_id: &str) -> &str {
+    realm_id.strip_prefix("cx:realm:").unwrap_or(realm_id)
+}
+
+/// Parse the opaque invite token into its embedded [`TargetDescriptor`].
+///
+/// TODO(R3.3.1): the token is currently parsed as opaque JSON carrying a
+/// `target_descriptor` object; real deployments mint a signed JWT-style token.
+/// The Ed25519 signature verification and join-policy revocation lookup are NOT
+/// yet wired (`TODO(R3.3.1)`), BUT the `exp` (expiry) and `aud` (audience)
+/// PRESENCE checks below are real: a token missing both is rejected, and an
+/// `exp` in the past is rejected.
+fn parse_token_descriptor(token: &str) -> Option<TargetDescriptor> {
+    let value: JsonValue = serde_json::from_str(token).ok()?;
+
+    // Expiry / audience presence checks (real, not deferred). A bound invite
+    // token MUST carry at least one of `exp` / `aud`; an `exp` in the past is a
+    // hard reject.
+    let has_exp = value.get("exp").is_some();
+    let has_aud = value.get("aud").is_some();
+    if !has_exp && !has_aud {
+        return None;
+    }
+    if let Some(exp) = value.get("exp").and_then(JsonValue::as_i64) {
+        let now = Utc::now().timestamp();
+        if exp <= now {
+            return None;
+        }
+    }
+
+    // The embedded signed target descriptor.
+    let descriptor = value.get("target_descriptor")?;
+    serde_json::from_value(descriptor.clone()).ok()
+}
+
+/// Build the Realm-target response, delegating the entire preview / via_services
+/// / §9.1 envelope to the realm resolution.
+fn build_realm_response(
+    resolved: crate::query::realm::ResolvedRealm,
+) -> Result<DirectoryResolveTargetResBody, String> {
+    let realm_id = RealmId::new(resolved.realm_id.clone())
+        .map_err(|e| format!("resolved realm_id not canonical: {e}"))?;
+    let title = resolved
+        .envelope
+        .payload
+        .get("name")
+        .or_else(|| resolved.envelope.payload.get("title"))
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned);
+    let realm_preview = RealmPreview {
+        realm_id,
+        title,
+        preview: resolved.envelope.payload.clone(),
+    };
+
+    Ok(DirectoryResolveTargetResBody {
+        target_kind: TargetKind::Realm,
+        realm_preview: Some(realm_preview),
+        object_preview: None,
+        join_rule: None,
+        as_of: resolved.envelope.as_of,
+        source_refs: resolved.envelope.source_refs.clone(),
+        via_services: resolved.via_services.clone(),
+        policy_revision: resolved.envelope.policy_revision.clone(),
+        stale: opt_bool(resolved.envelope.stale),
+        divergent: opt_bool(resolved.envelope.divergent),
+    })
+}
+
+/// Build the Flow / Message target response. The access-gate / real Flow /
+/// Message projection is `TODO(R3.3.1)`; we surface a deterministic placeholder
+/// preview anchored to the verified target identity, while the §9.1 common
+/// fields + via_services are taken from the (already-resolved, already-visible)
+/// enclosing Realm.
+fn build_object_response(
+    target_kind: TargetKind,
+    canonical_realm_id: &str,
+    parsed: &ParsedAddress,
+    resolved: crate::query::realm::ResolvedRealm,
+) -> DirectoryResolveTargetResBody {
+    let flow_id = parsed.flow.as_deref().map(|f| format!("cx:flow:{f}"));
+    let message_id = parsed.message.as_deref().map(|m| format!("cx:message:{m}"));
+    // TODO(R3.3.1): replace this placeholder with the real per-object access
+    // gate + stripped Flow / Message projection. For now the preview only
+    // echoes the verified target identity so a client can route + render a
+    // skeleton; it carries NO Realm-internal state.
+    let object_preview = json!({
+        "realm_id": canonical_realm_id,
+        "flow_id": flow_id,
+        "message_id": message_id,
+        "kind": match target_kind {
+            TargetKind::Message => "message",
+            TargetKind::Flow => "flow",
+            TargetKind::Realm => "realm",
+        },
+        "placeholder": true,
+        "note": "object access-gate deferred (R3.3.1); enclosing realm is visible",
+    });
+
+    DirectoryResolveTargetResBody {
+        target_kind,
+        realm_preview: None,
+        object_preview: Some(object_preview),
+        join_rule: None,
+        as_of: resolved.envelope.as_of,
+        source_refs: resolved.envelope.source_refs.clone(),
+        via_services: merged_via(&resolved.via_services, parsed),
+        policy_revision: resolved.envelope.policy_revision.clone(),
+        stale: opt_bool(resolved.envelope.stale),
+        divergent: opt_bool(resolved.envelope.divergent),
+    }
+}
+
+/// `via_services` for a Flow / Message target: the Realm's announced
+/// `via_services` plus the address's `via=` routing hints (deduped, Realm
+/// services first). `via_services` is v1-normative on this response.
+fn merged_via(realm_via: &[String], parsed: &ParsedAddress) -> Vec<String> {
+    let mut out: Vec<String> = realm_via.to_vec();
+    for v in &parsed.via {
+        if !out.contains(v) {
+            out.push(v.clone());
+        }
+    }
+    out
+}
+
+/// Render the boolean §9.1 freshness flags only when they are `true` (so the
+/// response omits `stale: false` / `divergent: false` rather than emitting a
+/// noisy default).
+fn opt_bool(value: bool) -> Option<bool> {
+    value.then_some(true)
+}
+
+/// Reduce a [`Proof`](contrix_sdk::Proof) to the opaque string key the
+/// realm-visibility filter matches against. Mirrors how `resolve_realm` treats
+/// the proofs vector as a set of opaque match tokens.
+fn proof_to_key(proof: &contrix_sdk::Proof) -> String {
+    serde_json::to_value(proof)
+        .ok()
+        .and_then(|v| {
+            v.get("id")
+                .or_else(|| v.get("claim_id"))
+                .or_else(|| v.get("claim_type"))
+                .or_else(|| v.get("type"))
+                .and_then(JsonValue::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::DateTime;
+    use contrix_sdk::model::{AddressAction, build_address};
+
+    const R: &str = "01904100-0000-7000-8000-0000000000aa";
+    const F: &str = "01904100-0000-7000-8000-0000000000bb";
+    const F2: &str = "01904100-0000-7000-8000-0000000000cc";
+    const VIA: &str = "did:web:relay.example";
+
+    /// Mint a token JSON string whose embedded `target_descriptor` is bound to
+    /// `address`, with the canonical realm id injected (so the digest is over a
+    /// uuid realm, not an alias).
+    fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
+        let mut descriptor = TargetDescriptor::from_parsed(address);
+        descriptor.set_realm_id(canonical_realm_id);
+        descriptor.link_type = LinkType::Invite;
+        json!({
+            "exp": Utc::now().timestamp() + 3600,
+            "aud": "did:web:alice.example",
+            "target_descriptor": descriptor,
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn token_binds_to_matching_object() {
+        let addr = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        let token = mint_token(&addr, &canonical);
+        assert_eq!(
+            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Pass
+        );
+    }
+
+    #[test]
+    fn token_replayed_onto_other_object_is_rejected() {
+        // Token minted for flow A.
+        let addr_a = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        let token = mint_token(&addr_a, &canonical);
+
+        // Replayed onto flow B (same realm, different flow).
+        let addr_b = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F2}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        assert_eq!(
+            verify_address_token(&addr_b, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Reject
+        );
+    }
+
+    #[test]
+    fn invite_link_without_token_is_rejected() {
+        let addr = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        assert_eq!(
+            verify_address_token(&addr, None, &canonical, LinkType::Invite),
+            TokenCheck::Reject
+        );
+    }
+
+    #[test]
+    fn expired_token_is_rejected() {
+        let addr = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        let mut descriptor = TargetDescriptor::from_parsed(&addr);
+        descriptor.set_realm_id(&canonical);
+        descriptor.link_type = LinkType::Invite;
+        let token = json!({
+            "exp": Utc::now().timestamp() - 1,
+            "target_descriptor": descriptor,
+        })
+        .to_string();
+        assert_eq!(
+            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Reject
+        );
+    }
+
+    #[test]
+    fn token_without_exp_or_aud_is_rejected() {
+        let addr = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        let mut descriptor = TargetDescriptor::from_parsed(&addr);
+        descriptor.set_realm_id(&canonical);
+        descriptor.link_type = LinkType::Invite;
+        let token = json!({ "target_descriptor": descriptor }).to_string();
+        assert_eq!(
+            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Reject
+        );
+    }
+
+    #[test]
+    fn token_bound_to_alias_resolves_via_canonical_id() {
+        // The address used an alias realm; the token was minted with the
+        // canonical id injected. Verification must succeed because the server
+        // resolved the alias to the same canonical id.
+        let alias_addr = parse_address(&format!(
+            "web+contrix:realm/team.example.com/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        let token = mint_token(&alias_addr, &canonical);
+        assert_eq!(
+            verify_address_token(&alias_addr, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Pass
+        );
+    }
+
+    #[test]
+    fn token_for_different_realm_is_rejected() {
+        let addr = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let other_realm = "01904100-0000-7000-8000-0000000000ff";
+        let token = mint_token(&addr, &format!("cx:realm:{other_realm}"));
+        // Address resolved to realm R, token bound to a different realm.
+        let canonical = format!("cx:realm:{R}");
+        assert_eq!(
+            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Reject
+        );
+    }
+
+    #[test]
+    fn realm_response_carries_realm_preview() {
+        let resolved = crate::query::realm::ResolvedRealm {
+            realm_id: format!("cx:realm:{R}"),
+            envelope: crate::filter::result::ResultEnvelope::from_row(
+                json!({ "realm_id": format!("cx:realm:{R}"), "name": "Tea Time" }),
+                sample_time(),
+                vec!["cx:event:1".to_owned()],
+                Some("rev-7".to_owned()),
+                false,
+                false,
+                vec!["did:web:hps.example".to_owned()],
+            ),
+            via_services: vec!["did:web:hps.example".to_owned()],
+        };
+        let response = build_realm_response(resolved).expect("realm response builds");
+        assert_eq!(response.target_kind, TargetKind::Realm);
+        let preview = response.realm_preview.expect("realm preview present");
+        assert_eq!(preview.realm_id.as_str(), format!("cx:realm:{R}"));
+        assert_eq!(preview.title.as_deref(), Some("Tea Time"));
+        assert_eq!(response.via_services, vec!["did:web:hps.example".to_owned()]);
+        assert!(response.object_preview.is_none());
+    }
+
+    #[test]
+    fn merged_via_dedups_realm_and_address_hints() {
+        let parsed = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&via=did:web:extra.example"
+        ))
+        .unwrap();
+        let realm_via = vec![VIA.to_owned(), "did:web:hps.example".to_owned()];
+        let merged = merged_via(&realm_via, &parsed);
+        assert_eq!(
+            merged,
+            vec![
+                VIA.to_owned(),
+                "did:web:hps.example".to_owned(),
+                "did:web:extra.example".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_address_action_smoke() {
+        // Sanity: the SDK address builder is reachable from this module.
+        let parsed = ParsedAddress {
+            realm: RealmRef::RealmId(R.to_owned()),
+            flow: None,
+            message: None,
+            via: vec![],
+            action: AddressAction::View,
+            link_type: LinkType::Reference,
+            token: None,
+        };
+        assert!(build_address(&parsed).starts_with("web+contrix:realm/"));
+    }
+
+    fn sample_time() -> DateTime<Utc> {
+        chrono::TimeZone::timestamp_opt(&Utc, 1_700_000_000, 0).unwrap()
+    }
+}

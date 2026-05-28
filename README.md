@@ -1,6 +1,6 @@
 # teabay
 
-> **Spec target**: [contrix-spec @ b56cab1](../contrix-spec) (R3.2 sync 2026-05-28)
+> **Spec target**: [contrix-spec @ cced4b8](../contrix-spec) (R3.3 sync 2026-05-28)
 
 Reference Contrix v1 **Directory Service** implementation.
 

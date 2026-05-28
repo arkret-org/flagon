@@ -5,6 +5,17 @@ All notable changes to teabay (Contrix v1 Directory Service) live here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## R3.3 — CXP-0011 (contrix-spec @ cced4b8)
+
+- New operation `cx.directory.resolve_target` (`POST /api/v1/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+contrix:` URI form or HTTPS-landing fragment form) pointing at a Realm / Flow / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`, `via_services`).
+- **Realm resolution DELEGATES** to the existing `resolve_realm` path (`crates/server/src/query/realm.rs::resolve_realm_visible`) so the canonical `realm_id`, `realm_preview`, `via_services`, and the hidden/withdrawn/unknown → blinded `not_found` collapse stay byte-for-byte identical.
+- **Token target binding** (scope-confusion defence): an `lt=invite` address carries an opaque `tok`; the token's embedded `target_descriptor` is compared against the address-derived descriptor via the SDK `verify_token_target` (`sha256:` digest over `realm_id` + `flow_id` + `message_id` + `link_type` only — `via`/`action`/`tok`/`lt` are NOT in the digest). A token minted for object A cannot be replayed onto object B; alias realms are normalized to the canonical `cx:realm:<uuid>` before comparison. Any mismatch → the SAME blinded `not_found`.
+- Anti-enumeration: routed through the SAME latency floor + deterministic jitter + 50ms stochastic resolve jitter as `resolve-realm` / `resolve-handle`; unauthorized and nonexistent are byte- and timing-indistinguishable.
+- `/metrics`: `teabay_directory_query_total{op="resolve-target",outcome=...}` with a new `token_reject` outcome (metrics-only split from `not_found`); anti-enum pad histogram for the op. 6-case conformance suite (`tests/resolve_target.rs`): realm classification, invite-token scope-confusion replay reject, unknown keyword fail-closed, flow-missing-`via` fail-closed, invite-without-token reject.
+- **Deferred `TODO(R3.3.1)`**: the per-object Flow / Message access-gate returns a deterministic `object_preview` placeholder (the enclosing Realm is fully resolved + visibility-gated); the opaque invite token is parsed as JSON for its `target_descriptor` + real `exp`/`aud` presence + expiry checks, but the Ed25519 token-signature verify and join-policy revocation lookup are not yet wired (the digest comparison IS real). Admin SPA "resolve target" diagnostic tab + docs section deferred.
+
+> No version tag, no crates.io / Docker Hub / npm publish — git commit only.
+
 ## R3.2 — Spec sync 2026-05-28 (contrix-spec @ b56cab1)
 
 - New operation `cx.directory.list_handles_for_subject` (`POST /api/v1/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.

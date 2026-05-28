@@ -234,6 +234,56 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     }
 }
 
+// ---- shared resolution helper (CXP-0011 reuse) --------------------------
+
+/// The canonical realm-resolution outcome, extracted so the object-level
+/// `cx.directory.resolve_target` handler (CXP-0011,
+/// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
+/// semantics — same key load, same visibility / blinding rules, same
+/// `via_services` and §9.1 common fields — instead of reinventing them.
+///
+/// `realm.rs` stays the single source of truth for what "resolving a Realm"
+/// means; `target.rs` builds its `realm_preview` branch entirely from this.
+pub(crate) struct ResolvedRealm {
+    /// Canonical `cx:realm:<uuid>` resource id (resolved from an alias when
+    /// the caller supplied an alias key).
+    pub realm_id: String,
+    /// The §9.1 result envelope (public-projection payload + as_of /
+    /// source_refs / policy_revision / stale / divergent / via_services).
+    pub envelope: ResultEnvelope,
+    pub via_services: Vec<String>,
+}
+
+/// Resolve a Realm by `key` (realm_id OR alias) applying the identical load
+/// and visibility-blinding logic as [`resolve_realm`], WITHOUT the salvo
+/// request/response plumbing or the latency-floor padding. The caller is
+/// responsible for wrapping this in the shared anti-enumeration budget so a
+/// hit and a blinded miss stay byte-/timing-indistinguishable.
+///
+/// Returns `None` for a hidden / withdrawn / unknown Realm — exactly the set
+/// of cases [`resolve_realm`] collapses to a blinded `not_found`.
+pub(crate) async fn resolve_realm_visible(
+    state: &AppState,
+    key: &str,
+    requester: Option<&str>,
+    proofs: &[String],
+) -> anyhow::Result<Option<ResolvedRealm>> {
+    let Some(row) = load_realm_row(state, key).await? else {
+        return Ok(None);
+    };
+    if !is_result_visible(&row, requester, proofs) {
+        return Ok(None);
+    }
+    let realm_id = row.resource_id.clone();
+    let via_services = row.via_services.clone();
+    let envelope = envelope_from_row(row);
+    Ok(Some(ResolvedRealm {
+        realm_id,
+        envelope,
+        via_services,
+    }))
+}
+
 // ---- internal load primitives -------------------------------------------
 
 #[derive(Debug, Queryable)]
