@@ -27,8 +27,9 @@ jobs:
       - name: Checkout Contrix Rust SDK
         uses: actions/checkout@v4
         with:
-          repository: contrix-dev/contrix-rust-sdk
+          repository: ${{ github.repository_owner }}/contrix-rust-sdk
           path: contrix-rust-sdk
+          token: ${{ secrets.CI_REPO_TOKEN || github.token }}
 
       - name: Install Rust
         run: |
