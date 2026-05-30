@@ -88,10 +88,11 @@ filters and membership hints where the Directory profile needs them.
 
 `cx.directory.describe.limitations` is populated at runtime for conformance
 honesty. Current limitations are: pull-mode ingest is declared disabled when
-`TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown is audit-backed but
-resource-side notification transport is not implemented; webhook fanout from
-`cx.directory.push.register` is HMAC-signed best-effort delivery without a durable
-retry queue.
+`TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown webhook fanout is
+HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
+from `cx.directory.push.register` is HMAC-signed best-effort delivery without a
+durable retry queue; PSI match indexing is capped at 10,000 eligible public or
+listed contact rows and returns `limited=true` when capped.
 
 ## Tech stack
 

@@ -25,28 +25,30 @@
 //!   2. build a `TargetDescriptor` from the address; for an ALIAS realm we
 //!      normalize via the realm resolution to obtain the canonical `realm_id`
 //!      and `set_realm_id`,
-//!   3. extract the token's embedded `target_descriptor` (this round parses the
-//!      token as opaque JSON — see the `TODO(R3.3.1)` below),
+//!   3. verify the token's detached Ed25519 JWS over the canonical token
+//!      payload and extract its embedded `target_descriptor`,
 //!   4. call [`verify_token_target`](contrix_sdk::model::verify_token_target),
 //!      which recomputes & compares the `sha256:` digest. `via` / `action` /
 //!      `tok` / `lt` are NOT in the digest, so a token minted for object A can
 //!      never be replayed onto a different object B (scope-confusion defence).
 //!
-//! On ANY mismatch — bad token JSON, expired token, audience mismatch, digest
-//! mismatch, alias-vs-token `realm_id` mismatch, or an alias that cannot be
-//! resolved to a canonical id — we collapse to the SAME blinded `not_found` as
-//! an invite/restricted/secret resource for an unauthorized requester. The
-//! unauthorized and the nonexistent cases are byte- AND timing-indistinguishable
-//! (shared latency floor + jitter + stochastic resolve jitter).
+//! On ANY mismatch — bad token JSON, invalid signature, expired token,
+//! missing/empty audience, digest mismatch, alias-vs-token `realm_id` mismatch,
+//! or an alias that cannot be resolved to a canonical id — we collapse to the
+//! SAME blinded `not_found` as an invite/restricted/secret resource for an
+//! unauthorized requester. The unauthorized and the nonexistent cases are byte-
+//! AND timing-indistinguishable (shared latency floor + jitter + stochastic
+//! resolve jitter).
 //!
-//! TODO(R3.3.1): join-policy revocation + token signature verify. The opaque
-//! token is parsed as JSON for its embedded `target_descriptor` and its
-//! `exp` / `aud` presence is checked, but the Ed25519 signature over the token
-//! payload and the join-policy revocation lookup are not yet wired. The digest
-//! comparison (`verify_token_target`) and the expiry/audience PRESENCE checks
-//! ARE real.
+//! TODO(R3.3.1): join-policy revocation lookup. The Ed25519 signature over the
+//! token payload, `exp`, `aud`, and target digest binding are enforced here;
+//! deployments still need a revocation source before invite revokes can take
+//! effect immediately.
 
 use chrono::Utc;
+use contrix_sdk::canonical;
+use contrix_sdk::identity::DidKeyResolver;
+use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use contrix_sdk::model::{
     LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, verify_token_target,
 };
@@ -56,6 +58,7 @@ use contrix_sdk::{
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
+use crate::did_resolver::did_resolver_chain;
 use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
@@ -209,7 +212,13 @@ async fn resolve(
     let effective_link_type = parsed.link_type;
     let token = token.or(parsed.token.as_deref());
     if effective_link_type == LinkType::Invite || token.is_some() {
-        match verify_address_token(&parsed, token, &canonical_realm_id, effective_link_type) {
+        match verify_address_token_with_methods(
+            &parsed,
+            token,
+            &canonical_realm_id,
+            effective_link_type,
+            &state.config().accepted_did_methods,
+        ) {
             TokenCheck::Pass => {}
             TokenCheck::Reject => return ResolveOutcome::TokenReject,
         }
@@ -251,8 +260,9 @@ pub enum TokenCheck {
 ///
 /// Steps:
 ///   1. an invite link MUST carry a token (no token → reject);
-///   2. parse the token's embedded `target_descriptor` (opaque-JSON for this
-///      round; TODO(R3.3.1) signature verify) and its `exp`/`aud` PRESENCE;
+///   2. verify the token's detached Ed25519 JWS over the canonical token
+///      payload, then parse its embedded `target_descriptor` and its
+///      `exp`/`aud` claims;
 ///   3. inject the canonical realm id into the address-derived descriptor (so
 ///      an alias address can be compared) and call `verify_token_target`,
 ///      which recomputes & compares the digest. Any mismatch → reject.
@@ -266,12 +276,29 @@ pub fn verify_address_token(
     canonical_realm_id: &str,
     effective_link_type: LinkType,
 ) -> TokenCheck {
+    let accepted_did_methods = vec!["did:key".to_owned()];
+    verify_address_token_with_methods(
+        parsed,
+        token,
+        canonical_realm_id,
+        effective_link_type,
+        &accepted_did_methods,
+    )
+}
+
+pub fn verify_address_token_with_methods(
+    parsed: &ParsedAddress,
+    token: Option<&str>,
+    canonical_realm_id: &str,
+    effective_link_type: LinkType,
+    accepted_did_methods: &[String],
+) -> TokenCheck {
     // An invite link with no token cannot be honoured.
     let Some(token) = token else {
         return TokenCheck::Reject;
     };
 
-    let Some(token_descriptor) = parse_token_descriptor(token) else {
+    let Some(token_descriptor) = parse_token_descriptor(token, accepted_did_methods) else {
         return TokenCheck::Reject;
     };
 
@@ -328,35 +355,163 @@ fn normalize_realm(realm_id: &str) -> &str {
     realm_id.strip_prefix("cx:realm:").unwrap_or(realm_id)
 }
 
-/// Parse the opaque invite token into its embedded [`TargetDescriptor`].
+/// Verify the signed invite token and return its embedded [`TargetDescriptor`].
 ///
-/// TODO(R3.3.1): the token is currently parsed as opaque JSON carrying a
-/// `target_descriptor` object; real deployments mint a signed JWT-style token.
-/// The Ed25519 signature verification and join-policy revocation lookup are NOT
-/// yet wired (`TODO(R3.3.1)`), BUT the `exp` (expiry) and `aud` (audience)
-/// PRESENCE checks below are real: a token missing both is rejected, and an
-/// `exp` in the past is rejected.
-fn parse_token_descriptor(token: &str) -> Option<TargetDescriptor> {
-    let value: JsonValue = serde_json::from_str(token).ok()?;
-
-    // Expiry / audience presence checks (real, not deferred). A bound invite
-    // token MUST carry at least one of `exp` / `aud`; an `exp` in the past is a
-    // hard reject.
-    let has_exp = value.get("exp").is_some();
-    let has_aud = value.get("aud").is_some();
-    if !has_exp && !has_aud {
+/// Wire format is a canonical JSON object with:
+///   - `kind: "invite_token"`;
+///   - `iss` and `verification_method` bound to the same DID;
+///   - future `exp` and non-empty `aud`;
+///   - `target_descriptor`;
+///   - detached JWS in top-level `jws` (or `proof.jws`).
+///
+/// The JWS signs the same object after removing only the detached `jws` value.
+/// Unsigned legacy JSON is rejected even when it carries a matching descriptor.
+fn parse_token_descriptor(
+    token: &str,
+    accepted_did_methods: &[String],
+) -> Option<TargetDescriptor> {
+    let mut value: JsonValue = serde_json::from_str(token).ok()?;
+    if !matches!(
+        value.get("kind").and_then(JsonValue::as_str),
+        Some("invite_token" | "cx.directory.invite_token")
+    ) {
         return None;
     }
-    if let Some(exp) = value.get("exp").and_then(JsonValue::as_i64) {
-        let now = Utc::now().timestamp();
-        if exp <= now {
-            return None;
-        }
+
+    let Some(verification_method) = token_verification_method(&value).map(str::to_owned) else {
+        return None;
+    };
+    let issuer = value
+        .get("iss")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|issuer| !issuer.is_empty())
+        .map(str::to_owned);
+    let Some(issuer) = issuer else {
+        return None;
+    };
+    if verification_method_issuer(&verification_method)? != issuer {
+        return None;
     }
 
-    // The embedded signed target descriptor.
+    // Expiry / audience checks are part of the signed payload. `exp` is
+    // required so a captured token has a bounded validity window; `aud` is
+    // required and must be non-empty so minting systems cannot accidentally
+    // issue an unscoped bearer.
+    let Some(exp) = value.get("exp").and_then(JsonValue::as_i64) else {
+        return None;
+    };
+    if exp <= Utc::now().timestamp() {
+        return None;
+    }
+    if !audience_present(value.get("aud")) {
+        return None;
+    }
+
+    let Some(jws) = detach_jws(&mut value) else {
+        return None;
+    };
+    let canonical_bytes = canonical::canonical_json_bytes(&value).ok()?;
+    verify_invite_token_jws(
+        &canonical_bytes,
+        &jws,
+        &verification_method,
+        &issuer,
+        accepted_did_methods,
+    )?;
+
     let descriptor = value.get("target_descriptor")?;
     serde_json::from_value(descriptor.clone()).ok()
+}
+
+fn verify_invite_token_jws(
+    canonical_bytes: &[u8],
+    jws: &str,
+    verification_method: &str,
+    issuer: &str,
+    accepted_did_methods: &[String],
+) -> Option<()> {
+    if accepted_did_methods.is_empty() {
+        return None;
+    }
+    if issuer.starts_with("did:key:") && did_method_allowed(accepted_did_methods, "did:key") {
+        let resolver = DidKeyResolver::new();
+        return sdk_verify_jws_ed25519(
+            canonical_bytes,
+            jws,
+            verification_method,
+            issuer,
+            &resolver,
+        )
+        .ok();
+    }
+
+    let resolver = did_resolver_chain(accepted_did_methods).ok()?;
+    sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver).ok()
+}
+
+fn did_method_allowed(accepted_did_methods: &[String], expected: &str) -> bool {
+    accepted_did_methods.iter().any(|method| {
+        method
+            .trim()
+            .trim_end_matches(':')
+            .eq_ignore_ascii_case(expected)
+    })
+}
+
+fn token_verification_method(value: &JsonValue) -> Option<&str> {
+    value
+        .get("verification_method")
+        .and_then(JsonValue::as_str)
+        .or_else(|| {
+            value
+                .get("proof")
+                .and_then(|proof| proof.get("verification_method"))
+                .and_then(JsonValue::as_str)
+        })
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+}
+
+fn verification_method_issuer(verification_method: &str) -> Option<&str> {
+    let issuer = verification_method
+        .split_once('#')
+        .map(|(did, _)| did)
+        .unwrap_or(verification_method)
+        .trim();
+    (!issuer.is_empty()).then_some(issuer)
+}
+
+fn audience_present(value: Option<&JsonValue>) -> bool {
+    match value {
+        Some(JsonValue::String(aud)) => !aud.trim().is_empty(),
+        Some(JsonValue::Array(audiences)) => audiences.iter().any(|aud| {
+            aud.as_str()
+                .map(str::trim)
+                .is_some_and(|aud| !aud.is_empty())
+        }),
+        _ => false,
+    }
+}
+
+fn detach_jws(value: &mut JsonValue) -> Option<String> {
+    let object = value.as_object_mut()?;
+    if let Some(jws) = object
+        .remove("jws")
+        .and_then(|jws| jws.as_str().map(str::to_owned))
+    {
+        return Some(jws);
+    }
+
+    let proof = object.get_mut("proof")?.as_object_mut()?;
+    if let Some(kind) = proof.get("kind").and_then(JsonValue::as_str)
+        && kind != "detached_jws"
+    {
+        return None;
+    }
+    proof
+        .remove("jws")
+        .and_then(|jws| jws.as_str().map(str::to_owned))
 }
 
 /// Build the Realm-target response, delegating the entire preview / via_services
@@ -478,26 +633,48 @@ fn proof_to_key(proof: &contrix_sdk::Proof) -> String {
 mod tests {
     use super::*;
     use chrono::DateTime;
+    use contrix_sdk::jws::sign_jws_ed25519;
     use contrix_sdk::model::{AddressAction, build_address};
+    use ed25519_dalek::SigningKey;
 
     const R: &str = "01904100-0000-7000-8000-0000000000aa";
     const F: &str = "01904100-0000-7000-8000-0000000000bb";
     const F2: &str = "01904100-0000-7000-8000-0000000000cc";
     const VIA: &str = "did:web:relay.example";
+    const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
 
-    /// Mint a token JSON string whose embedded `target_descriptor` is bound to
-    /// `address`, with the canonical realm id injected (so the digest is over a
-    /// uuid realm, not an alias).
+    /// Mint a signed token JSON string whose embedded `target_descriptor` is
+    /// bound to `address`, with the canonical realm id injected (so the digest
+    /// is over a uuid realm, not an alias).
     fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
         let mut descriptor = TargetDescriptor::from_parsed(address);
         descriptor.set_realm_id(canonical_realm_id);
         descriptor.link_type = LinkType::Invite;
-        json!({
+        let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
+        let multibase = did_key_multibase(&signing_key);
+        let issuer = format!("did:key:{multibase}");
+        let verification_method = format!("{issuer}#{multibase}");
+        let mut payload = json!({
+            "kind": "invite_token",
+            "iss": issuer,
+            "verification_method": verification_method,
             "exp": Utc::now().timestamp() + 3600,
             "aud": "did:web:alice.example",
             "target_descriptor": descriptor,
-        })
-        .to_string()
+        });
+        let canonical = canonical::canonical_json_bytes(&payload).unwrap();
+        let jws = sign_jws_ed25519(&canonical, &signing_key).unwrap();
+        payload
+            .as_object_mut()
+            .unwrap()
+            .insert("jws".to_owned(), json!(jws));
+        payload.to_string()
+    }
+
+    fn did_key_multibase(signing_key: &SigningKey) -> String {
+        let mut bytes = vec![0xed, 0x01];
+        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
+        format!("z{}", bs58::encode(bytes).into_string())
     }
 
     #[test]
@@ -558,8 +735,44 @@ mod tests {
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
         descriptor.link_type = LinkType::Invite;
-        let token = json!({
+        let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
+        let multibase = did_key_multibase(&signing_key);
+        let issuer = format!("did:key:{multibase}");
+        let verification_method = format!("{issuer}#{multibase}");
+        let mut payload = json!({
+            "kind": "invite_token",
+            "iss": issuer,
+            "verification_method": verification_method,
             "exp": Utc::now().timestamp() - 1,
+            "aud": "did:web:alice.example",
+            "target_descriptor": descriptor,
+        });
+        let canonical_payload = canonical::canonical_json_bytes(&payload).unwrap();
+        let jws = sign_jws_ed25519(&canonical_payload, &signing_key).unwrap();
+        payload
+            .as_object_mut()
+            .unwrap()
+            .insert("jws".to_owned(), json!(jws));
+        let token = payload.to_string();
+        assert_eq!(
+            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            TokenCheck::Reject
+        );
+    }
+
+    #[test]
+    fn unsigned_token_with_matching_descriptor_is_rejected() {
+        let addr = parse_address(&format!(
+            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let canonical = format!("cx:realm:{R}");
+        let mut descriptor = TargetDescriptor::from_parsed(&addr);
+        descriptor.set_realm_id(&canonical);
+        descriptor.link_type = LinkType::Invite;
+        let token = json!({
+            "exp": Utc::now().timestamp() + 3600,
+            "aud": "did:web:alice.example",
             "target_descriptor": descriptor,
         })
         .to_string();
@@ -570,18 +783,18 @@ mod tests {
     }
 
     #[test]
-    fn token_without_exp_or_aud_is_rejected() {
+    fn tampered_signed_token_payload_is_rejected() {
         let addr = parse_address(&format!(
             "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("cx:realm:{R}");
-        let mut descriptor = TargetDescriptor::from_parsed(&addr);
-        descriptor.set_realm_id(&canonical);
-        descriptor.link_type = LinkType::Invite;
-        let token = json!({ "target_descriptor": descriptor }).to_string();
+        let token = mint_token(&addr, &canonical);
+        let mut value: JsonValue = serde_json::from_str(&token).unwrap();
+        value["target_descriptor"]["flow_id"] = json!(format!("cx:flow:{F2}"));
+        let tampered = value.to_string();
         assert_eq!(
-            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(&addr, Some(&tampered), &canonical, LinkType::Invite),
             TokenCheck::Reject
         );
     }

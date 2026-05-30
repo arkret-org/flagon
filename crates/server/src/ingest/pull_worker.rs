@@ -43,6 +43,7 @@ use crate::ingest::announce::{
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::{
     VerifyContext, endpoint_child, resolve_principal_server_endpoint, strict_http_client,
+    strict_http_client_for_egress,
 };
 use crate::ingest::{IngestModeWire, ResourceKindWire};
 use crate::state::{AppState, BackgroundWorker};
@@ -322,13 +323,14 @@ impl PullWorker {
                 query.append_pair("after_revision", last_revision);
             }
         }
-        crate::egress::validate_url_for_egress(
+        let target = crate::egress::resolve_url_for_egress(
             &url,
             "pull worker events query",
             crate::egress::private_networks_allowed(self.state.config().development_mode),
         )
         .map_err(|error| anyhow::anyhow!(error))?;
-        let response = self.http.get(url).send().await?;
+        let http = strict_http_client_for_egress(&target)?;
+        let response = http.get(target.url().clone()).send().await?;
         if !response.status().is_success() {
             anyhow::bail!("events query returned {}", response.status());
         }

@@ -45,7 +45,7 @@
 use std::collections::{HashMap, hash_map::Entry};
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use contrix_sdk::http_signature::{
     ContentDigest, SignatureError, SignedRequestParts, canonical_message, parse_signature_header,
     parse_signature_input, verify_content_digest, verify_signature,
@@ -54,10 +54,14 @@ use contrix_sdk::http_signature::{SignaturePolicyError, SignatureVerificationPol
 use contrix_sdk::identity::DidResolver;
 use contrix_sdk::jws::resolve_ed25519_pubkey;
 use contrix_sdk::{CompositeDidResolver, Did};
+use diesel::sql_types::{Bytea, Text, Timestamptz};
+use diesel_async::RunQueryDsl;
 
 pub use contrix_sdk::http_signature::Ed25519PublicKey;
 use salvo::prelude::*;
+use sha2::{Digest, Sha256};
 
+use crate::db::Db;
 use crate::did_resolver::did_resolver_chain;
 use crate::error::ApiErrorCode;
 
@@ -186,9 +190,11 @@ impl HttpSigKeyDirectory for DidResolverKeyDirectory {
 /// via `Router::hoop`.
 pub struct HttpSigMiddleware {
     directory: Arc<dyn HttpSigKeyDirectory>,
-    /// Accepted signatures keyed by signer and signature bytes until
-    /// their effective `expires` window closes.
-    seen_signatures: Mutex<HashMap<ReplayKey, i64>>,
+    /// Accepted signatures keyed by signer and signature bytes until their
+    /// effective `expires` window closes. Production routing wires this to
+    /// Postgres so multiple teabay replicas share the replay window; unit tests
+    /// use the in-memory implementation.
+    replay_store: Arc<dyn HttpSigReplayStore>,
     /// When `false`, every request short-circuits the verifier and is
     /// allowed through. Operators set this via `TEABAY_REQUIRE_HTTP_SIG`
     /// (default `true`); the in-process conformance harness flips it to
@@ -201,9 +207,22 @@ impl HttpSigMiddleware {
     /// not produce a valid Ed25519 signature over the canonical RFC
     /// 9421 signing string.
     pub fn new(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
+        Self::new_with_replay_store(directory, Arc::new(InMemoryReplayStore::default()))
+    }
+
+    /// Build a middleware backed by the shared Postgres replay table. If the
+    /// table cannot be read/written at request time, verification fails closed.
+    pub fn new_with_postgres_replay_store(directory: Arc<dyn HttpSigKeyDirectory>, db: Db) -> Self {
+        Self::new_with_replay_store(directory, Arc::new(PostgresReplayStore::new(db)))
+    }
+
+    pub(crate) fn new_with_replay_store(
+        directory: Arc<dyn HttpSigKeyDirectory>,
+        replay_store: Arc<dyn HttpSigReplayStore>,
+    ) -> Self {
         Self {
             directory,
-            seen_signatures: Mutex::new(HashMap::new()),
+            replay_store,
             enforced: true,
         }
     }
@@ -216,7 +235,7 @@ impl HttpSigMiddleware {
     pub fn passthrough(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
         Self {
             directory,
-            seen_signatures: Mutex::new(HashMap::new()),
+            replay_store: Arc::new(InMemoryReplayStore::default()),
             enforced: false,
         }
     }
@@ -226,25 +245,110 @@ impl HttpSigMiddleware {
         self.enforced = enforced;
     }
 
-    fn remember_signature(&self, replay_key: ReplayKey, valid_until: i64, now: i64) -> bool {
+    async fn remember_signature(
+        &self,
+        replay_key: ReplayKey,
+        valid_until: i64,
+        now: i64,
+    ) -> Result<bool, String> {
+        self.replay_store
+            .remember_signature(replay_key, valid_until, now)
+            .await
+    }
+}
+
+#[async_trait]
+pub(crate) trait HttpSigReplayStore: Send + Sync + 'static {
+    async fn remember_signature(
+        &self,
+        replay_key: ReplayKey,
+        valid_until: i64,
+        now: i64,
+    ) -> Result<bool, String>;
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct InMemoryReplayStore {
+    seen_signatures: Mutex<HashMap<ReplayKey, i64>>,
+}
+
+#[async_trait]
+impl HttpSigReplayStore for InMemoryReplayStore {
+    async fn remember_signature(
+        &self,
+        replay_key: ReplayKey,
+        valid_until: i64,
+        now: i64,
+    ) -> Result<bool, String> {
         let mut seen_signatures = self
             .seen_signatures
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         seen_signatures.retain(|_, expires_at| *expires_at >= now);
 
-        match seen_signatures.entry(replay_key) {
+        Ok(match seen_signatures.entry(replay_key) {
             Entry::Occupied(_) => false,
             Entry::Vacant(entry) => {
                 entry.insert(valid_until);
                 true
             }
-        }
+        })
+    }
+}
+
+pub(crate) struct PostgresReplayStore {
+    db: Db,
+}
+
+impl PostgresReplayStore {
+    fn new(db: Db) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl HttpSigReplayStore for PostgresReplayStore {
+    async fn remember_signature(
+        &self,
+        replay_key: ReplayKey,
+        valid_until: i64,
+        now: i64,
+    ) -> Result<bool, String> {
+        let now = unix_secs_to_datetime(now)?;
+        let expires_at = unix_secs_to_datetime(valid_until)?;
+        let replay_digest = replay_key.stable_digest();
+        let mut conn = self
+            .db
+            .get()
+            .await
+            .map_err(|err| format!("acquire replay-cache connection: {err}"))?;
+
+        diesel::sql_query("DELETE FROM http_signature_replays WHERE expires_at < $1")
+            .bind::<Timestamptz, _>(now)
+            .execute(&mut *conn)
+            .await
+            .map_err(|err| format!("purge expired replay-cache rows: {err}"))?;
+
+        let inserted = diesel::sql_query(
+            "INSERT INTO http_signature_replays \
+             (replay_key, key_id, signature, expires_at) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (replay_key) DO NOTHING",
+        )
+        .bind::<Bytea, _>(replay_digest)
+        .bind::<Text, _>(replay_key.key_id)
+        .bind::<Bytea, _>(replay_key.signature)
+        .bind::<Timestamptz, _>(expires_at)
+        .execute(&mut *conn)
+        .await
+        .map_err(|err| format!("insert replay-cache row: {err}"))?;
+
+        Ok(inserted == 1)
     }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct ReplayKey {
+pub(crate) struct ReplayKey {
     key_id: String,
     signature: Vec<u8>,
 }
@@ -255,6 +359,15 @@ impl ReplayKey {
             key_id: key_id.to_owned(),
             signature: signature.to_vec(),
         }
+    }
+
+    fn stable_digest(&self) -> Vec<u8> {
+        let mut hasher = Sha256::new();
+        hasher.update((self.key_id.len() as u64).to_be_bytes());
+        hasher.update(self.key_id.as_bytes());
+        hasher.update((self.signature.len() as u64).to_be_bytes());
+        hasher.update(&self.signature);
+        hasher.finalize().to_vec()
     }
 }
 
@@ -430,13 +543,27 @@ impl Handler for HttpSigMiddleware {
         let replay_valid_until = signature_input
             .expires
             .saturating_add(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
-        if !self.remember_signature(replay_key, replay_valid_until, now) {
-            reject_invalid_signature(
-                res,
-                ctrl,
-                "HTTP Message Signature was already accepted within its validity window",
-            );
-            return;
+        match self
+            .remember_signature(replay_key, replay_valid_until, now)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                reject_invalid_signature(
+                    res,
+                    ctrl,
+                    "HTTP Message Signature was already accepted within its validity window",
+                );
+                return;
+            }
+            Err(err) => {
+                reject_invalid_signature(
+                    res,
+                    ctrl,
+                    format!("HTTP Message Signature replay cache unavailable: {err}"),
+                );
+                return;
+            }
         }
 
         // Authenticated. Drop to the next hop in the handler chain —
@@ -524,6 +651,11 @@ fn unix_now_secs() -> i64 {
     Utc::now().timestamp()
 }
 
+fn unix_secs_to_datetime(secs: i64) -> Result<DateTime<Utc>, String> {
+    DateTime::<Utc>::from_timestamp(secs, 0)
+        .ok_or_else(|| format!("timestamp out of range for replay cache: {secs}"))
+}
+
 // ---------------------------------------------------------------------
 // Rejection helpers
 // ---------------------------------------------------------------------
@@ -587,8 +719,12 @@ mod tests {
     }
 
     fn router(directory: Arc<dyn HttpSigKeyDirectory>) -> Router {
+        router_with_middleware(HttpSigMiddleware::new(directory))
+    }
+
+    fn router_with_middleware(middleware: HttpSigMiddleware) -> Router {
         Router::with_path("api/v1/directory/announce")
-            .hoop(HttpSigMiddleware::new(directory))
+            .hoop(middleware)
             .post(ok_handler)
     }
 
@@ -770,6 +906,44 @@ mod tests {
         );
 
         let mut second = post_signed(router, signed).await;
+        let second_status = second.status_code.unwrap_or(StatusCode::OK);
+        assert_eq!(second_status, StatusCode::UNAUTHORIZED);
+        let second_body_text = second.take_string().await.unwrap_or_default();
+        let body: JsonValue = serde_json::from_str(&second_body_text).unwrap();
+        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+    }
+
+    #[tokio::test]
+    async fn replay_cache_can_be_shared_across_middleware_instances() {
+        let directory: Arc<dyn HttpSigKeyDirectory> = directory_with_test_key();
+        let replay_store: Arc<dyn HttpSigReplayStore> = Arc::new(InMemoryReplayStore::default());
+        let router_a = Arc::new(router_with_middleware(
+            HttpSigMiddleware::new_with_replay_store(directory.clone(), replay_store.clone()),
+        ));
+        let router_b = Arc::new(router_with_middleware(
+            HttpSigMiddleware::new_with_replay_store(directory, replay_store),
+        ));
+        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let signed = build_signed_request(
+            "POST",
+            "http://teabay.test/api/v1/directory/announce",
+            "teabay.test",
+            "/api/v1/directory/announce",
+            body,
+            TEST_KEY_ID,
+            &signing_key(),
+        );
+
+        let mut first = post_signed(router_a, signed.clone()).await;
+        let first_status = first.status_code.unwrap_or(StatusCode::OK);
+        let first_body = first.take_string().await.unwrap_or_default();
+        assert_eq!(
+            first_status,
+            StatusCode::OK,
+            "first request should pass, body: {first_body}"
+        );
+
+        let mut second = post_signed(router_b, signed).await;
         let second_status = second.status_code.unwrap_or(StatusCode::OK);
         assert_eq!(second_status, StatusCode::UNAUTHORIZED);
         let second_body_text = second.take_string().await.unwrap_or_default();

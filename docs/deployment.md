@@ -100,7 +100,7 @@ Recommended production settings:
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
 | `TEABAY_ADMIN_TOKEN` | Non-empty bearer token for `/api/admin/v1/*`. |
-| `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. Override the fail-closed check temporarily with `TEABAY_ALLOW_MISSING_CSRF=1` while rotating config; the deployment hardening checklist requires this be set for production. |
+| `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. The temporary rotation-only override requires both `TEABAY_ALLOW_MISSING_CSRF=1` and `TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>`; while active the server emits an error-level warning and fails closed after expiry. |
 | `TEABAY_TRUSTED_PROXY` | Comma-separated list of IPs whose `X-Forwarded-For` the rate-limiter trusts. Unset = trust only the direct `remote_addr`. Set to your TLS-terminating reverse proxy's IPs to avoid spoofed buckets. |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
 | `TEABAY_RECEIPT_KEY_ID` | Verification method recorded in signed operator receipts. |

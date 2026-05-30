@@ -1,21 +1,53 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 
-use reqwest::Url;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+use reqwest::{ClientBuilder, Url};
 
 const TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS: &str = "TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS";
+
+type DnsError = Box<dyn std::error::Error + Send + Sync>;
 
 pub(crate) fn private_networks_allowed(development_mode: bool) -> bool {
     env_bool(TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS).unwrap_or(development_mode)
 }
 
-pub(crate) fn validate_http_url_for_egress(
+#[derive(Clone, Debug)]
+pub(crate) struct ValidatingDnsResolver {
+    allow_private_networks: bool,
+}
+
+impl ValidatingDnsResolver {
+    pub(crate) fn new(allow_private_networks: bool) -> Self {
+        Self {
+            allow_private_networks,
+        }
+    }
+}
+
+impl Resolve for ValidatingDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        let allow_private_networks = self.allow_private_networks;
+        Box::pin(async move {
+            let addrs = resolve_host_addrs(
+                &host,
+                0,
+                "reqwest egress DNS resolver",
+                allow_private_networks,
+            )
+            .map_err(dns_error)?;
+            Ok(Box::new(addrs.into_iter()) as Addrs)
+        })
+    }
+}
+
+pub(crate) fn resolve_http_url_for_egress(
     raw_url: &str,
     purpose: &str,
     development_mode: bool,
-) -> Result<Url, String> {
+) -> Result<LockedEgressUrl, String> {
     let url = Url::parse(raw_url).map_err(|error| format!("{purpose}: invalid URL: {error}"))?;
-    validate_url_for_egress(&url, purpose, private_networks_allowed(development_mode))?;
-    Ok(url)
+    resolve_url_for_egress(&url, purpose, private_networks_allowed(development_mode))
 }
 
 pub(crate) fn validate_url_for_egress(
@@ -23,6 +55,41 @@ pub(crate) fn validate_url_for_egress(
     purpose: &str,
     allow_private_networks: bool,
 ) -> Result<(), String> {
+    resolve_url_for_egress(url, purpose, allow_private_networks).map(|_| ())
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LockedEgressUrl {
+    url: Url,
+    resolve_host: Option<String>,
+    resolved_addrs: Vec<SocketAddr>,
+}
+
+impl LockedEgressUrl {
+    pub(crate) fn url(&self) -> &Url {
+        &self.url
+    }
+
+    pub(crate) fn apply_to_client_builder(&self, builder: ClientBuilder) -> ClientBuilder {
+        match self.resolve_host.as_deref() {
+            Some(host) if !self.resolved_addrs.is_empty() => {
+                builder.resolve_to_addrs(host, &self.resolved_addrs)
+            }
+            _ => builder,
+        }
+    }
+
+    #[cfg(test)]
+    fn resolved_addrs(&self) -> &[SocketAddr] {
+        &self.resolved_addrs
+    }
+}
+
+pub(crate) fn resolve_url_for_egress(
+    url: &Url,
+    purpose: &str,
+    allow_private_networks: bool,
+) -> Result<LockedEgressUrl, String> {
     match url.scheme() {
         "http" | "https" => {}
         scheme => return Err(format!("{purpose}: URL scheme {scheme:?} is not allowed")),
@@ -31,23 +98,66 @@ pub(crate) fn validate_url_for_egress(
         .host_str()
         .filter(|host| !host.trim().is_empty())
         .ok_or_else(|| format!("{purpose}: URL host is required"))?;
-    if allow_private_networks {
-        return Ok(());
-    }
-    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
+    if !allow_private_networks
+        && (host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost"))
+    {
         return Err(format!("{purpose}: localhost egress target is not allowed"));
     }
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return validate_resolved_ip(ip, purpose);
+        if !allow_private_networks {
+            validate_resolved_ip(ip, purpose)?;
+        }
+        return Ok(LockedEgressUrl {
+            url: url.clone(),
+            resolve_host: None,
+            resolved_addrs: Vec::new(),
+        });
     }
     let port = url.port_or_known_default().unwrap_or(443);
-    let resolved = (host, port)
-        .to_socket_addrs()
-        .map_err(|error| format!("{purpose}: DNS resolution for {host} failed: {error}"))?;
-    for addr in resolved {
-        validate_resolved_ip(addr.ip(), purpose)?;
+    let resolved = resolve_host_addrs(host, port, purpose, allow_private_networks)?;
+    Ok(LockedEgressUrl {
+        url: url.clone(),
+        resolve_host: Some(host.to_owned()),
+        resolved_addrs: resolved,
+    })
+}
+
+fn resolve_host_addrs(
+    host: &str,
+    port: u16,
+    purpose: &str,
+    allow_private_networks: bool,
+) -> Result<Vec<SocketAddr>, String> {
+    if !allow_private_networks
+        && (host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost"))
+    {
+        return Err(format!("{purpose}: localhost egress target is not allowed"));
     }
-    Ok(())
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if !allow_private_networks {
+            validate_resolved_ip(ip, purpose)?;
+        }
+        return Ok(vec![SocketAddr::new(ip, port)]);
+    }
+    let resolved: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .map_err(|error| format!("{purpose}: DNS resolution for {host} failed: {error}"))?
+        .collect();
+    if resolved.is_empty() {
+        return Err(format!(
+            "{purpose}: DNS resolution for {host} returned no addresses"
+        ));
+    }
+    if !allow_private_networks {
+        for addr in &resolved {
+            validate_resolved_ip(addr.ip(), purpose)?;
+        }
+    }
+    Ok(resolved)
+}
+
+fn dns_error(message: String) -> DnsError {
+    Box::new(std::io::Error::new(std::io::ErrorKind::Other, message))
 }
 
 fn validate_resolved_ip(ip: IpAddr, purpose: &str) -> Result<(), String> {
@@ -133,5 +243,28 @@ mod tests {
     fn development_can_allow_loopback() {
         let url = Url::parse("http://127.0.0.1:8080/sink").unwrap();
         assert!(validate_url_for_egress(&url, "test", true).is_ok());
+    }
+
+    #[test]
+    fn development_locks_resolved_host_to_current_addresses() {
+        let url = Url::parse("http://localhost:8080/sink").unwrap();
+        let target = resolve_url_for_egress(&url, "test", true).unwrap();
+
+        assert_eq!(target.url().as_str(), "http://localhost:8080/sink");
+        assert!(
+            target
+                .resolved_addrs()
+                .iter()
+                .any(|addr| addr.port() == 8080 && addr.ip().is_loopback())
+        );
+    }
+
+    #[test]
+    fn ip_literal_does_not_need_dns_override() {
+        let url = Url::parse("http://93.184.216.34/path").unwrap();
+        let target = resolve_url_for_egress(&url, "test", false).unwrap();
+
+        assert_eq!(target.url().as_str(), "http://93.184.216.34/path");
+        assert!(target.resolved_addrs().is_empty());
     }
 }

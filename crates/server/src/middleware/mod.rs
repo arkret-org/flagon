@@ -12,7 +12,7 @@ pub mod admin_auth;
 pub mod http_sig;
 
 pub use admin_auth::{
-    AdminAuthMethod, AdminCredential, require_admin_csrf, verify_admin_credential,
+    AdminAuthHoop, AdminAuthMethod, AdminCredential, require_admin_csrf, verify_admin_credential,
 };
 pub use http_sig::{
     DidResolverKeyDirectory, Ed25519PublicKey, HttpSigKeyDirectory, HttpSigMiddleware,

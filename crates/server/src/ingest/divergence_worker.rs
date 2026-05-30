@@ -10,20 +10,19 @@ use std::time::Duration;
 
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use reqwest::{Client, Url};
+use reqwest::Url;
 use serde_json::{Value as JsonValue, json};
 use tokio::time::interval;
 use tracing::{info, warn};
 
 use crate::audit::{self, AuditEventKind};
 use crate::ingest::ResourceKindWire;
-use crate::ingest::verify::strict_http_client;
+use crate::ingest::verify::strict_http_client_for_egress;
 use crate::state::{AppState, BackgroundWorker};
 
 pub struct DivergenceWorker {
     state: AppState,
     period: Duration,
-    http: Client,
 }
 
 #[derive(Debug, Clone)]
@@ -43,12 +42,7 @@ struct RemoteMismatch {
 
 impl DivergenceWorker {
     pub fn new(state: AppState, period: Duration) -> Self {
-        let http = strict_http_client().expect("divergence worker HTTP client");
-        Self {
-            state,
-            period,
-            http,
-        }
+        Self { state, period }
     }
 
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
@@ -192,13 +186,14 @@ impl DivergenceWorker {
         url: Url,
         payload: &JsonValue,
     ) -> anyhow::Result<Option<Option<String>>> {
-        crate::egress::validate_url_for_egress(
+        let target = crate::egress::resolve_url_for_egress(
             &url,
             "divergence worker directory resolve",
             crate::egress::private_networks_allowed(self.state.config().development_mode),
         )
         .map_err(|error| anyhow::anyhow!(error))?;
-        let response = self.http.post(url.clone()).json(payload).send().await?;
+        let http = strict_http_client_for_egress(&target)?;
+        let response = http.post(target.url().clone()).json(payload).send().await?;
         if !response.status().is_success() {
             return Ok(None);
         }

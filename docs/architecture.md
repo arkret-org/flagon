@@ -124,6 +124,6 @@ are isolated from public API traffic by binding `/metrics` to
 - In-process OTLP export via `tracing-opentelemetry` is deferred to a
   dependency-refresh slice; use an OTel Collector to scrape Prometheus and
   collect tracing logs.
-- The operator takedown path is audit-backed, but durable resource-side
-  notification transport is not implemented.
+- The operator takedown path is audit-backed and webhook fanout is HMAC-signed
+  with retry/DLQ status tracking; delivery remains best effort.
 - Webhook fanout is best effort and does not use a durable retry queue.

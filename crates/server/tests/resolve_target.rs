@@ -21,7 +21,10 @@
 //!   (d) a flow address missing `via` → fail-closed (parse error → not_found).
 
 use chrono::Utc;
+use contrix_sdk::canonical;
+use contrix_sdk::jws::sign_jws_ed25519;
 use contrix_sdk::model::{LinkType, ParsedAddress, TargetDescriptor, parse_address};
+use ed25519_dalek::SigningKey;
 use serde_json::json;
 
 use server::query::target::{TokenCheck, verify_address_token};
@@ -30,21 +33,40 @@ const R: &str = "01904100-0000-7000-8000-0000000000aa";
 const F: &str = "01904100-0000-7000-8000-0000000000bb";
 const F2: &str = "01904100-0000-7000-8000-0000000000cc";
 const VIA: &str = "did:web:relay.example";
+const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
 
-/// Mint an opaque invite-token JSON whose embedded `target_descriptor` is bound
+/// Mint a signed invite-token JSON whose embedded `target_descriptor` is bound
 /// to `address` under the canonical realm id (the digest is over the uuid realm,
-/// never an alias). Carries a future `exp` and an `aud` so the presence checks
-/// pass.
+/// never an alias). Carries a future `exp`, non-empty `aud`, and detached JWS.
 fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
     let mut descriptor = TargetDescriptor::from_parsed(address);
     descriptor.set_realm_id(canonical_realm_id);
     descriptor.link_type = LinkType::Invite;
-    json!({
+    let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
+    let multibase = did_key_multibase(&signing_key);
+    let issuer = format!("did:key:{multibase}");
+    let verification_method = format!("{issuer}#{multibase}");
+    let mut payload = json!({
+        "kind": "invite_token",
+        "iss": issuer,
+        "verification_method": verification_method,
         "exp": Utc::now().timestamp() + 3600,
         "aud": "did:web:alice.example",
         "target_descriptor": descriptor,
-    })
-    .to_string()
+    });
+    let canonical = canonical::canonical_json_bytes(&payload).unwrap();
+    let jws = sign_jws_ed25519(&canonical, &signing_key).unwrap();
+    payload
+        .as_object_mut()
+        .unwrap()
+        .insert("jws".to_owned(), json!(jws));
+    payload.to_string()
+}
+
+fn did_key_multibase(signing_key: &SigningKey) -> String {
+    let mut bytes = vec![0xed, 0x01];
+    bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
+    format!("z{}", bs58::encode(bytes).into_string())
 }
 
 /// Case (a) — a realm address parses and classifies as a Realm target, so the
@@ -124,6 +146,29 @@ fn invite_link_without_token_is_rejected() {
     let canonical = format!("cx:realm:{R}");
     assert_eq!(
         verify_address_token(&addr, None, &canonical, LinkType::Invite),
+        TokenCheck::Reject
+    );
+}
+
+#[test]
+fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
+    let addr = parse_address(&format!(
+        "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+    ))
+    .unwrap();
+    let canonical = format!("cx:realm:{R}");
+    let mut descriptor = TargetDescriptor::from_parsed(&addr);
+    descriptor.set_realm_id(&canonical);
+    descriptor.link_type = LinkType::Invite;
+    let token = json!({
+        "exp": Utc::now().timestamp() + 3600,
+        "aud": "did:web:alice.example",
+        "target_descriptor": descriptor,
+    })
+    .to_string();
+
+    assert_eq!(
+        verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
         TokenCheck::Reject
     );
 }

@@ -178,13 +178,6 @@ pub async fn fanout_reachability_tombstone(
     tombstones: &[crate::query::admin::ReachabilityTombstone],
 ) -> usize {
     let mut delivered = 0usize;
-    let http = match webhook_http_client() {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, "tombstone webhook client build failed");
-            return 0;
-        }
-    };
     let now = Utc::now();
     let development_mode = state.config().development_mode;
     for tombstone in tombstones {
@@ -213,11 +206,10 @@ pub async fn fanout_reachability_tombstone(
         };
         for subscription in subscriptions {
             delivered += 1;
-            let http = http.clone();
             let tombstone = tombstone.clone();
             tokio::spawn(async move {
                 if let Err(error) =
-                    deliver_tombstone(http, subscription, tombstone, development_mode).await
+                    deliver_tombstone(subscription, tombstone, development_mode).await
                 {
                     tracing::warn!(%error, "tombstone webhook delivery failed");
                 }
@@ -228,7 +220,6 @@ pub async fn fanout_reachability_tombstone(
 }
 
 async fn deliver_tombstone(
-    http: Client,
     subscription: WebhookSubscriptionRow,
     tombstone: crate::query::admin::ReachabilityTombstone,
     development_mode: bool,
@@ -250,14 +241,15 @@ async fn deliver_tombstone(
         .filter(|secret| !secret.is_empty())
         .unwrap_or_else(|| generate_secret(&subscription.subscription_id, "", ""));
     let signature = sign_body(&secret, &bytes)?;
-    let url = crate::egress::validate_http_url_for_egress(
+    let target = crate::egress::resolve_http_url_for_egress(
         &subscription.webhook_endpoint,
         "reachability tombstone webhook",
         development_mode,
     )
     .map_err(|error| anyhow::anyhow!(error))?;
+    let http = locked_webhook_http_client(&target)?;
     let response = http
-        .post(url)
+        .post(target.url().clone())
         .header("content-type", "application/json")
         .header("x-contrix-webhook-id", &subscription.subscription_id)
         .header("x-contrix-webhook-signature", signature)
@@ -283,28 +275,20 @@ pub async fn fanout_accepted_ingest(state: AppState, event: AcceptedIngestEvent)
         return;
     }
 
-    let http = match webhook_http_client() {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::warn!(%error, "webhook fanout client build failed");
-            return;
-        }
-    };
     let development_mode = state.config().development_mode;
     for subscription in subscriptions {
         let event = event.clone();
-        let http = http.clone();
         tokio::spawn(async move {
-            if let Err(error) = deliver_webhook(http, subscription, event, development_mode).await {
+            if let Err(error) = deliver_webhook(subscription, event, development_mode).await {
                 tracing::warn!(%error, "webhook delivery failed");
             }
         });
     }
 }
 
-fn webhook_http_client() -> anyhow::Result<Client> {
-    Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+fn locked_webhook_http_client(target: &crate::egress::LockedEgressUrl) -> anyhow::Result<Client> {
+    target
+        .apply_to_client_builder(Client::builder().redirect(reqwest::redirect::Policy::none()))
         .build()
         .map_err(|error| anyhow::anyhow!("build webhook HTTP client: {error}"))
 }
@@ -421,7 +405,6 @@ fn field_matches(obj: &serde_json::Map<String, JsonValue>, key: &str, actual: &s
 }
 
 async fn deliver_webhook(
-    http: Client,
     subscription: WebhookSubscriptionRow,
     event: AcceptedIngestEvent,
     development_mode: bool,
@@ -445,14 +428,15 @@ async fn deliver_webhook(
         .filter(|secret| !secret.is_empty())
         .unwrap_or_else(|| generate_secret(&subscription.subscription_id, "", ""));
     let signature = sign_body(&secret, &bytes)?;
-    let url = crate::egress::validate_http_url_for_egress(
+    let target = crate::egress::resolve_http_url_for_egress(
         &subscription.webhook_endpoint,
         "accepted ingest webhook",
         development_mode,
     )
     .map_err(|error| anyhow::anyhow!(error))?;
+    let http = locked_webhook_http_client(&target)?;
     let response = http
-        .post(url)
+        .post(target.url().clone())
         .header("content-type", "application/json")
         .header("x-contrix-webhook-id", &subscription.subscription_id)
         .header("x-contrix-webhook-signature", signature)

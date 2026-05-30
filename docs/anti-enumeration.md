@@ -77,6 +77,12 @@ Operators should keep PSI query budgets conservative because the endpoint is
 specifically meant to answer membership-style questions without exposing the
 whole directory.
 
+The match phase indexes at most 10,000 public/listed actor or handle rows per
+request. When the directory has more eligible rows than that cap, the response
+sets `limited=true` and includes `indexed_candidate_count` plus
+`indexed_candidate_limit` so clients and operators can distinguish a complete
+match pass from a capped one.
+
 ## Operational Tradeoffs
 
 Anti-enumeration adds latency and can hide useful diagnostics from clients. The

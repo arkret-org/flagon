@@ -216,6 +216,45 @@ pub fn require_admin_csrf(req: &Request, state: &AppState) -> Result<(), ApiErro
     }
 }
 
+/// Router-level admin guard. Individual handlers still verify credentials so
+/// audit attribution remains local to the write path, but this hoop prevents a
+/// newly added admin route from silently shipping without auth.
+pub struct AdminAuthHoop;
+
+#[async_trait]
+impl Handler for AdminAuthHoop {
+    async fn handle(
+        &self,
+        req: &mut Request,
+        depot: &mut Depot,
+        res: &mut Response,
+        ctrl: &mut FlowCtrl,
+    ) {
+        if req.method().as_str() == "OPTIONS" {
+            return;
+        }
+
+        let state = match depot.obtain::<AppState>() {
+            Ok(state) => state.clone(),
+            Err(_) => {
+                ApiErrorCode::InternalError.render(res, "AppState not injected");
+                ctrl.skip_rest();
+                return;
+            }
+        };
+
+        if let Err(error) = verify_admin_credential(req, &state).await {
+            error.render(res, "admin bearer token required");
+            ctrl.skip_rest();
+            return;
+        }
+        if let Err(error) = require_admin_csrf(req, &state) {
+            error.render(res, "admin CSRF token required");
+            ctrl.skip_rest();
+        }
+    }
+}
+
 /// Constant-time byte comparison so a static bearer cannot be probed
 /// byte-by-byte against the configured token.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {

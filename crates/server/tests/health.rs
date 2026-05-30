@@ -67,7 +67,7 @@ fn hardening_status_shape_matches_cross_service_contract() {
     // Now flip to production posture and ensure the config-level
     // signals required by `hardening_status` are present. P5 — CSRF is
     // now required in production mode, so we must also set
-    // TEABAY_ADMIN_CSRF_TOKEN (or opt out with TEABAY_ALLOW_MISSING_CSRF).
+    // TEABAY_ADMIN_CSRF_TOKEN (or a time-bounded TEABAY_ALLOW_MISSING_CSRF).
     unsafe {
         env::set_var("TEABAY_DEVELOPMENT_MODE", "false");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "true");

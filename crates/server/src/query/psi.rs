@@ -27,7 +27,7 @@ use crate::state::{AppState, RateLimitOutcome};
 
 const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
 const MATCH_CARDINALITY: usize = 256;
-const MAX_PSI_INDEX_CANDIDATES: i64 = 10_000;
+const MAX_PSI_INDEX_CANDIDATES: usize = 10_000;
 
 type PsiServer = VoprfServer<Ristretto255>;
 type PsiBlindedElement = BlindedElement<Ristretto255>;
@@ -76,6 +76,9 @@ pub struct MatchResponse {
     pub hit_bitmap: Vec<bool>,
     pub padding_count: usize,
     pub fixed_cardinality: usize,
+    pub limited: bool,
+    pub indexed_candidate_count: usize,
+    pub indexed_candidate_limit: usize,
     pub voprf_profile: &'static str,
 }
 
@@ -220,8 +223,8 @@ async fn handle_match_phase(
             return;
         }
     };
-    let indexed_tokens = match load_indexed_match_tokens(state, &server).await {
-        Ok(tokens) => tokens,
+    let index = match load_indexed_match_tokens(state, &server).await {
+        Ok(index) => index,
         Err(error) => {
             ApiErrorCode::InternalError.render(res, format!("PSI match index: {error}"));
             return;
@@ -243,7 +246,7 @@ async fn handle_match_phase(
     let mut hit_bitmap = decoded_tokens
         .iter()
         .take(MATCH_CARDINALITY)
-        .map(|token| indexed_tokens.contains(token))
+        .map(|token| index.tokens.contains(token))
         .collect::<Vec<_>>();
     let padding_count = MATCH_CARDINALITY.saturating_sub(hit_bitmap.len());
     hit_bitmap.resize(MATCH_CARDINALITY, false);
@@ -255,6 +258,9 @@ async fn handle_match_phase(
         hit_bitmap,
         padding_count,
         fixed_cardinality: MATCH_CARDINALITY,
+        limited: index.limited,
+        indexed_candidate_count: index.indexed_candidate_count,
+        indexed_candidate_limit: MAX_PSI_INDEX_CANDIDATES,
         voprf_profile: VOPRF_PROFILE,
     }));
 }
@@ -311,10 +317,17 @@ async fn load_or_create_epoch_key(
     Ok(row)
 }
 
+#[derive(Debug)]
+struct IndexedMatchTokens {
+    tokens: HashSet<Vec<u8>>,
+    indexed_candidate_count: usize,
+    limited: bool,
+}
+
 async fn load_indexed_match_tokens(
     state: &AppState,
     server: &PsiServer,
-) -> anyhow::Result<HashSet<Vec<u8>>> {
+) -> anyhow::Result<IndexedMatchTokens> {
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
@@ -329,11 +342,13 @@ async fn load_indexed_match_tokens(
                 .eq(DiscoverabilityWire::Public)
                 .or(r::discoverability.eq(DiscoverabilityWire::Listed)),
         )
-        .limit(MAX_PSI_INDEX_CANDIDATES)
+        .limit((MAX_PSI_INDEX_CANDIDATES + 1) as i64)
         .select((r::resource_kind, r::resource_id, r::public_projection))
         .load(&mut *conn)
         .await?;
 
+    let (rows, limited) = apply_candidate_limit(rows);
+    let indexed_candidate_count = rows.len();
     let mut tokens = HashSet::new();
     for (kind, resource_id, projection) in rows {
         for input in contact_candidate_inputs(kind, &resource_id, &projection) {
@@ -343,7 +358,17 @@ async fn load_indexed_match_tokens(
             tokens.insert(output.to_vec());
         }
     }
-    Ok(tokens)
+    Ok(IndexedMatchTokens {
+        tokens,
+        indexed_candidate_count,
+        limited,
+    })
+}
+
+fn apply_candidate_limit<T>(mut rows: Vec<T>) -> (Vec<T>, bool) {
+    let limited = rows.len() > MAX_PSI_INDEX_CANDIDATES;
+    rows.truncate(MAX_PSI_INDEX_CANDIDATES);
+    (rows, limited)
 }
 
 fn current_epoch(config: &AppConfig) -> String {
@@ -441,5 +466,14 @@ mod tests {
         assert!(inputs.contains("alice.example"));
         assert!(inputs.contains("did:web:alice.example"));
         assert!(inputs.contains("sha256:abc"));
+    }
+
+    #[test]
+    fn psi_candidate_limit_marks_truncated_index() {
+        let rows = (0..=MAX_PSI_INDEX_CANDIDATES).collect::<Vec<_>>();
+        let (limited_rows, limited) = apply_candidate_limit(rows);
+
+        assert!(limited);
+        assert_eq!(limited_rows.len(), MAX_PSI_INDEX_CANDIDATES);
     }
 }

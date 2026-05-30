@@ -24,7 +24,7 @@ use chrono::Utc;
 use diesel::sql_types::{Int4, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use hmac::{Hmac, Mac};
-use reqwest::Client;
+use reqwest::{Client, redirect::Policy};
 use serde_json::json;
 use sha2::Sha256;
 use tokio::time::interval;
@@ -79,17 +79,11 @@ struct WebhookRow {
 pub struct TakedownNotifier {
     state: AppState,
     period: Duration,
-    http: Client,
 }
 
 impl TakedownNotifier {
     pub fn new(state: AppState, period: Duration) -> anyhow::Result<Self> {
-        let http = Client::builder().timeout(Duration::from_secs(10)).build()?;
-        Ok(Self {
-            state,
-            period,
-            http,
-        })
+        Ok(Self { state, period })
     }
 
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
@@ -207,7 +201,7 @@ impl TakedownNotifier {
     }
 
     async fn dispatch(&self, row: &PendingRow, webhook: &WebhookRow) -> anyhow::Result<()> {
-        crate::egress::validate_http_url_for_egress(
+        let target = crate::egress::resolve_http_url_for_egress(
             &webhook.endpoint,
             "takedown webhook",
             self.state.config().development_mode,
@@ -232,9 +226,16 @@ impl TakedownNotifier {
             None
         };
 
-        let mut req = self
-            .http
-            .post(&webhook.endpoint)
+        let http = target
+            .apply_to_client_builder(
+                Client::builder()
+                    .timeout(Duration::from_secs(10))
+                    .redirect(Policy::none()),
+            )
+            .build()
+            .map_err(|error| anyhow::anyhow!("build locked takedown webhook client: {error}"))?;
+        let mut req = http
+            .post(target.url().clone())
             .header("content-type", "application/json")
             .header("x-teabay-event", "pending-takedown")
             .header("x-teabay-webhook-id", &webhook.webhook_id)

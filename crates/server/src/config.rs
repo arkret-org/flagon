@@ -11,12 +11,15 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 
 use crate::middleware::http_sig::{DidResolverKeyDirectory, Ed25519PublicKey};
 
 const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
+const TEABAY_ALLOW_MISSING_CSRF: &str = "TEABAY_ALLOW_MISSING_CSRF";
+const TEABAY_ALLOW_MISSING_CSRF_UNTIL: &str = "TEABAY_ALLOW_MISSING_CSRF_UNTIL";
 
 #[derive(Clone, Debug)]
 pub struct AppConfig {
@@ -312,19 +315,19 @@ impl AppConfig {
         // See docs/deployment.md hardening checklist.
         let development_mode_for_csrf = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
         if !development_mode_for_csrf && admin_csrf_token.is_none() {
-            tracing::warn!(
-                "TEABAY_ADMIN_CSRF_TOKEN is unset in production mode; \
-                 admin SPA is CSRF-unprotected"
-            );
-            // The hard fail-closed posture is documented but kept behind
-            // an explicit opt-out so existing deployments continue to
-            // boot while operators rotate config. Set
-            // `TEABAY_ALLOW_MISSING_CSRF=1` to skip the bail.
-            if !read_bool("TEABAY_ALLOW_MISSING_CSRF", false)? {
+            if read_bool(TEABAY_ALLOW_MISSING_CSRF, false)? {
+                let expires_at = missing_csrf_escape_hatch_until()?;
+                tracing::error!(
+                    expires_at = %expires_at.to_rfc3339(),
+                    "TEABAY_ADMIN_CSRF_TOKEN is unset in production mode; \
+                     TEABAY_ALLOW_MISSING_CSRF is active only until the configured expiry"
+                );
+            } else {
                 anyhow::bail!(
                     "TEABAY_ADMIN_CSRF_TOKEN is required in production mode \
                      (TEABAY_DEVELOPMENT_MODE=false); set it or temporarily \
-                     opt out with TEABAY_ALLOW_MISSING_CSRF=1"
+                     opt out with TEABAY_ALLOW_MISSING_CSRF=1 and \
+                     TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>"
                 );
             }
         }
@@ -648,6 +651,33 @@ fn read_u64(key: &str, default: u64) -> anyhow::Result<u64> {
     }
 }
 
+fn missing_csrf_escape_hatch_until() -> anyhow::Result<DateTime<Utc>> {
+    let raw = std::env::var(TEABAY_ALLOW_MISSING_CSRF_UNTIL).map_err(|_| {
+        anyhow::anyhow!(
+            "{TEABAY_ALLOW_MISSING_CSRF_UNTIL} is required when \
+             {TEABAY_ALLOW_MISSING_CSRF}=1 in production mode"
+        )
+    })?;
+    parse_missing_csrf_expiry(&raw, Utc::now())
+}
+
+fn parse_missing_csrf_expiry(raw: &str, now: DateTime<Utc>) -> anyhow::Result<DateTime<Utc>> {
+    let expires_at = DateTime::parse_from_rfc3339(raw.trim())
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "{TEABAY_ALLOW_MISSING_CSRF_UNTIL} must be an RFC3339 timestamp: {error}"
+            )
+        })?
+        .with_timezone(&Utc);
+    if expires_at <= now {
+        anyhow::bail!(
+            "{TEABAY_ALLOW_MISSING_CSRF_UNTIL}={raw} has expired; \
+             set TEABAY_ADMIN_CSRF_TOKEN or provide a new short-lived expiry"
+        );
+    }
+    Ok(expires_at)
+}
+
 fn csv_env(key: &str, fallback: &[&str]) -> Vec<String> {
     match std::env::var(key) {
         Ok(v) if !v.trim().is_empty() => v
@@ -656,5 +686,21 @@ fn csv_env(key: &str, fallback: &[&str]) -> Vec<String> {
             .filter(|s| !s.is_empty())
             .collect(),
         _ => fallback.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    use super::parse_missing_csrf_expiry;
+
+    #[test]
+    fn missing_csrf_escape_hatch_requires_future_expiry() {
+        let now = Utc.with_ymd_and_hms(2026, 5, 31, 12, 0, 0).unwrap();
+
+        assert!(parse_missing_csrf_expiry("2026-05-31T12:00:01Z", now).is_ok());
+        assert!(parse_missing_csrf_expiry("2026-05-31T12:00:00Z", now).is_err());
+        assert!(parse_missing_csrf_expiry("not-a-date", now).is_err());
     }
 }

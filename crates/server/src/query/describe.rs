@@ -335,11 +335,11 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     }
     limitations.push(json!({
         "feature": "operator_takedown_notification",
-        "status": "limited",
+        "status": if cfg.takedown_contact.is_some() { "best_effort" } else { "no_contact_configured" },
         "detail": if cfg.takedown_contact.is_some() {
-            "operator takedown is audit-backed and takedown_contact is advertised, but resource-side notification transport is not implemented."
+            "operator takedown is audit-backed; notification_status starts as pending and the notifier performs HMAC-signed webhook fanout with retry/DLQ tracking."
         } else {
-            "operator takedown is audit-backed, but no takedown_contact is configured and resource-side notification transport is not implemented."
+            "operator takedown is audit-backed, but no takedown_contact is configured; notification_status starts as no_takedown_contact_configured."
         },
     }));
     limitations.push(json!({
@@ -482,6 +482,7 @@ mod tests {
             supported_features: Vec::new(),
             auth_metadata: json!({}),
             limits: json!({}),
+            egress_network_policy: None,
             plaintext_visibility: json!({"kind": "none"}),
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),

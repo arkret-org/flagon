@@ -31,7 +31,6 @@ pub fn router(state: AppState) -> Router {
         root = root.hoop(cors_handler_for_origin(origin));
     }
     root.push(Router::with_path("health").get(health))
-        // TODO(R3.1): wire to actual prometheus registry
         .push(Router::with_path("healthz").get(health))
         .push(Router::with_path("readyz").get(readyz))
         .push(directory)
@@ -71,7 +70,7 @@ pub fn router(state: AppState) -> Router {
 fn build_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
     let directory: Arc<dyn HttpSigKeyDirectory> = Arc::new(state.config().http_sig_key_directory());
     if state.config().require_http_sig {
-        HttpSigMiddleware::new(directory)
+        HttpSigMiddleware::new_with_postgres_replay_store(directory, state.db().clone())
     } else {
         HttpSigMiddleware::passthrough(directory)
     }
@@ -94,6 +93,7 @@ pub fn metrics_service(state: AppState) -> Service {
 
 fn admin_router() -> Router {
     Router::with_path("api/admin/v1")
+        .hoop(crate::middleware::AdminAuthHoop)
         .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
         .push(
@@ -605,8 +605,8 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve Target",
             "Resolve a client-agnostic shareable object address (Realm / Flow / Message) to a \
              target_kind + (realm_preview | object_preview) + join_rule with blinded misses. \
-             Invite tokens are bound to the resolved object via the target digest so a token \
-             cannot be replayed across objects.",
+             Invite tokens must carry an Ed25519 detached JWS and are bound to the resolved \
+             object via the target digest so a token cannot be replayed across objects.",
         ),
         (
             "/api/v1/directory/search-organizations",

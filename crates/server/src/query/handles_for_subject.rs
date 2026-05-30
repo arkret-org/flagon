@@ -602,12 +602,11 @@ mod tests {
     use serde_json::json;
 
     fn handle_row(projection: JsonValue, discoverability: DiscoverabilityWire) -> SubjectHandleRow {
-        SubjectHandleRow {
-            resource_id: "alice.example".to_owned(),
-            public_projection: projection,
+        SubjectHandleRow::for_test(
+            projection,
             discoverability,
-            as_of: chrono::TimeZone::timestamp_opt(&Utc, 0, 0).unwrap(),
-        }
+            chrono::TimeZone::timestamp_opt(&Utc, 0, 0).unwrap(),
+        )
     }
 
     #[test]

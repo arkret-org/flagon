@@ -34,6 +34,7 @@ fn main() {
 enum Tab {
     Dashboard,
     Resources,
+    Diagnostics,
     Allowlist,
     Takedown,
     Audit,
@@ -41,9 +42,10 @@ enum Tab {
 }
 
 impl Tab {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Dashboard,
         Self::Resources,
+        Self::Diagnostics,
         Self::Allowlist,
         Self::Takedown,
         Self::Audit,
@@ -54,6 +56,7 @@ impl Tab {
         match self {
             Self::Dashboard => "Dashboard",
             Self::Resources => "Resources",
+            Self::Diagnostics => "Diagnostics",
             Self::Allowlist => "Allowlist",
             Self::Takedown => "Takedown",
             Self::Audit => "Audit",
@@ -394,6 +397,7 @@ fn App() -> Element {
                 match selected {
                     Tab::Dashboard => rsx! { DashboardPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Resources => rsx! { ResourcesPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                    Tab::Diagnostics => rsx! { DiagnosticsPanel { base_url: api_base.clone() } },
                     Tab::Allowlist => rsx! { AllowlistPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Takedown => rsx! { TakedownPanel { base_url: api_base.clone(), token: api_token.clone() } },
                     Tab::Audit => rsx! { AuditPanel { base_url: api_base.clone(), token: api_token.clone() } },
@@ -457,12 +461,6 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
                 }
             }
             StatusLine { status: status_text, error: error_text }
-            // TODO(circle-rollout-P2E.3): add live ingest QPS + webhook
-            // delivery success-rate sparklines (needs prometheus scrape
-            // wired through gloo_net first).
-            // TODO(circle-rollout-P2E.3): add explicit "Freshness" panel
-            // showing per-resource last_refreshed_at + expires_at + a
-            // heartbeat replay action button once P2E.5 endpoints land.
             match stats_view {
                 Some(payload) => rsx! {
                     div { class: "form-grid",
@@ -472,7 +470,7 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
                             tone: "ok".to_string(),
                         }
                         DashboardTile {
-                            label: "Stale",
+                            label: "Freshness stale rows",
                             value: payload.stale_resources.to_string(),
                             tone: if payload.stale_resources > 0 { "warn".to_string() } else { "ok".to_string() },
                         }
@@ -492,7 +490,7 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
                             tone: "neutral".to_string(),
                         }
                         DashboardTile {
-                            label: "Webhook subs (live)",
+                            label: "Webhook subscriptions",
                             value: payload.webhook_subscriptions.to_string(),
                             tone: "neutral".to_string(),
                         }
@@ -540,6 +538,245 @@ fn DashboardTile(label: String, value: String, tone: String) -> Element {
             label { "{label}" }
             div { class: "metric-row",
                 span { class: badge_class, "{value}" }
+            }
+        }
+    }
+}
+
+#[component]
+fn DiagnosticsPanel(base_url: String) -> Element {
+    let mut loading = use_signal(|| false);
+    let mut status = use_signal(|| "Idle".to_string());
+    let mut error = use_signal(String::new);
+    let mut subject = use_signal(String::new);
+    let mut subject_realm = use_signal(String::new);
+    let mut subject_requester = use_signal(String::new);
+    let mut subject_intent = use_signal(String::new);
+    let mut subject_limit = use_signal(|| "20".to_string());
+    let mut subject_cursor = use_signal(String::new);
+    let mut subject_result = use_signal(|| "{}".to_string());
+    let mut target_address = use_signal(String::new);
+    let mut target_requester = use_signal(String::new);
+    let mut target_token = use_signal(String::new);
+    let mut target_result = use_signal(|| "{}".to_string());
+
+    let loading_now = loading();
+    let status_text = status();
+    let error_text = error();
+    let subject_value = subject();
+    let subject_realm_value = subject_realm();
+    let subject_requester_value = subject_requester();
+    let subject_intent_value = subject_intent();
+    let subject_limit_value = subject_limit();
+    let subject_cursor_value = subject_cursor();
+    let subject_result_value = subject_result();
+    let target_address_value = target_address();
+    let target_requester_value = target_requester();
+    let target_token_value = target_token();
+    let target_result_value = target_result();
+
+    let handles_base_url = base_url.clone();
+    let run_subject_lookup = move |_| {
+        let subject_text = subject().trim().to_string();
+        if subject_text.is_empty() {
+            error.set("subject is required".to_string());
+            return;
+        }
+        let limit_text = subject_limit();
+        let limit = match optional_u32(&limit_text, "limit") {
+            Ok(value) => value,
+            Err(message) => {
+                error.set(message);
+                return;
+            }
+        };
+        let mut body = serde_json::Map::new();
+        body.insert("subject".to_string(), JsonValue::String(subject_text));
+        insert_optional_string(&mut body, "realm_id", &subject_realm());
+        insert_optional_string(&mut body, "requester", &subject_requester());
+        insert_optional_string(&mut body, "intent", &subject_intent());
+        insert_optional_string(&mut body, "cursor", &subject_cursor());
+        if let Some(limit) = limit {
+            body.insert("limit".to_string(), json!(limit));
+        }
+
+        let base_url = handles_base_url.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Querying subject handles".to_string());
+        spawn(async move {
+            let body = JsonValue::Object(body);
+            match post_directory::<JsonValue, JsonValue>(
+                base_url,
+                "list-handles-for-subject",
+                &body,
+            )
+            .await
+            {
+                Ok(payload) => {
+                    subject_result.set(pretty_json(&payload));
+                    status.set("Subject handles loaded".to_string());
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Subject handles query failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    let target_base_url = base_url.clone();
+    let run_target_resolve = move |_| {
+        let address = target_address().trim().to_string();
+        if address.is_empty() {
+            error.set("address is required".to_string());
+            return;
+        }
+        let mut body = serde_json::Map::new();
+        body.insert("address".to_string(), JsonValue::String(address));
+        insert_optional_string(&mut body, "requester", &target_requester());
+        insert_optional_string(&mut body, "token", &target_token());
+
+        let base_url = target_base_url.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Resolving target".to_string());
+        spawn(async move {
+            let body = JsonValue::Object(body);
+            match post_directory::<JsonValue, JsonValue>(base_url, "resolve-target", &body).await {
+                Ok(payload) => {
+                    target_result.set(pretty_json(&payload));
+                    status.set("Target resolved".to_string());
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Target resolve failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    rsx! {
+        div { class: "panel",
+            div { class: "panel-head",
+                div { class: "panel-title",
+                    h1 { "Directory diagnostics" }
+                    div { class: "metric-row",
+                        span { class: "badge neutral", "query face" }
+                    }
+                }
+            }
+            StatusLine { status: status_text, error: error_text }
+            div { class: "form-surface",
+                div { class: "panel-title",
+                    h1 { "Subject to handles" }
+                }
+                div { class: "form-grid",
+                    div { class: "field span-4",
+                        label { "Subject DID" }
+                        input {
+                            value: "{subject_value}",
+                            oninput: move |event| subject.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-4",
+                        label { "Realm ID" }
+                        input {
+                            value: "{subject_realm_value}",
+                            oninput: move |event| subject_realm.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-4",
+                        label { "Requester DID" }
+                        input {
+                            value: "{subject_requester_value}",
+                            oninput: move |event| subject_requester.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-4",
+                        label { "Intent" }
+                        input {
+                            value: "{subject_intent_value}",
+                            oninput: move |event| subject_intent.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-4",
+                        label { "Cursor" }
+                        input {
+                            value: "{subject_cursor_value}",
+                            oninput: move |event| subject_cursor.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-2",
+                        label { "Limit" }
+                        input {
+                            value: "{subject_limit_value}",
+                            oninput: move |event| subject_limit.set(event.value()),
+                        }
+                    }
+                    div { class: "actions span-2",
+                        button {
+                            class: "button primary",
+                            disabled: loading_now,
+                            onclick: run_subject_lookup,
+                            SearchIcon {}
+                            "Query"
+                        }
+                    }
+                    div { class: "field span-12",
+                        label { "Response JSON" }
+                        textarea {
+                            class: "mono",
+                            value: "{subject_result_value}",
+                        }
+                    }
+                }
+            }
+            div { class: "form-surface",
+                div { class: "panel-title",
+                    h1 { "Resolve target" }
+                }
+                div { class: "form-grid",
+                    div { class: "field span-6",
+                        label { "Address" }
+                        input {
+                            value: "{target_address_value}",
+                            oninput: move |event| target_address.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-3",
+                        label { "Requester DID" }
+                        input {
+                            value: "{target_requester_value}",
+                            oninput: move |event| target_requester.set(event.value()),
+                        }
+                    }
+                    div { class: "field span-3",
+                        label { "Invite token" }
+                        input {
+                            value: "{target_token_value}",
+                            oninput: move |event| target_token.set(event.value()),
+                        }
+                    }
+                    div { class: "actions span-12",
+                        button {
+                            class: "button primary",
+                            disabled: loading_now,
+                            onclick: run_target_resolve,
+                            SearchIcon {}
+                            "Resolve"
+                        }
+                    }
+                    div { class: "field span-12",
+                        label { "Response JSON" }
+                        textarea {
+                            class: "mono",
+                            value: "{target_result_value}",
+                        }
+                    }
+                }
             }
         }
     }
@@ -1890,6 +2127,16 @@ async fn delete_admin<T: DeserializeOwned>(
     decode_response(request.send().await.map_err(net_error)?).await
 }
 
+async fn post_directory<B: Serialize + ?Sized, T: DeserializeOwned>(
+    base_url: String,
+    path: &'static str,
+    body: &B,
+) -> Result<T, String> {
+    let url = directory_url(&base_url, path);
+    let request = Request::post(&url).json(body).map_err(net_error)?;
+    decode_response(request.send().await.map_err(net_error)?).await
+}
+
 fn with_auth(builder: RequestBuilder, token: &str) -> RequestBuilder {
     let trimmed = token.trim();
     if trimmed.is_empty() {
@@ -1920,6 +2167,14 @@ fn admin_url(base_url: &str, path: &str) -> String {
     )
 }
 
+fn directory_url(base_url: &str, path: &str) -> String {
+    format!(
+        "{}/api/v1/directory/{}",
+        base_url.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
+}
+
 fn push_param(params: &mut Vec<(&'static str, String)>, key: &'static str, value: String) {
     if !value.trim().is_empty() {
         params.push((key, value.trim().to_string()));
@@ -1930,6 +2185,25 @@ fn bool_filter(value: String) -> String {
     match value.as_str() {
         "true" | "false" => value,
         _ => String::new(),
+    }
+}
+
+fn insert_optional_string(body: &mut serde_json::Map<String, JsonValue>, key: &str, value: &str) {
+    let trimmed = value.trim();
+    if !trimmed.is_empty() {
+        body.insert(key.to_string(), JsonValue::String(trimmed.to_string()));
+    }
+}
+
+fn optional_u32(value: &str, field: &str) -> Result<Option<u32>, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed
+            .parse::<u32>()
+            .map(Some)
+            .map_err(|error| format!("{field}: {error}"))
     }
 }
 

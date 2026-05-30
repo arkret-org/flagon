@@ -598,12 +598,28 @@ async fn verify_first_source_ref_resolves(
             format!("source-ref URL: {e}"),
         )
     })?;
-    let response = http.get(url).send().await.map_err(|e| {
+    let target = crate::egress::resolve_url_for_egress(
+        &url,
+        "source-ref fetch",
+        crate::egress::private_networks_allowed(config.development_mode),
+    )
+    .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error))?;
+    let locked_http = strict_http_client_for_egress(&target).map_err(|e| {
         (
-            ApiErrorCode::SourceRefsUnverifiable,
-            format!("source-ref fetch failed: {e:?}"),
+            ApiErrorCode::InternalError,
+            format!("source-ref HTTP client: {e}"),
         )
     })?;
+    let response = locked_http
+        .get(target.url().clone())
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                format!("source-ref fetch failed: {e:?}"),
+            )
+        })?;
     if !response.status().is_success() {
         return Err((
             ApiErrorCode::SourceRefsUnverifiable,
@@ -688,11 +704,24 @@ pub(crate) fn endpoint_child(base: &Url, child: &str) -> anyhow::Result<Url> {
 }
 
 pub(crate) fn strict_http_client() -> anyhow::Result<Client> {
+    strict_http_client_builder()
+        .build()
+        .map_err(|e| anyhow::anyhow!("build reqwest client: {e}"))
+}
+
+pub(crate) fn strict_http_client_for_egress(
+    target: &crate::egress::LockedEgressUrl,
+) -> anyhow::Result<Client> {
+    target
+        .apply_to_client_builder(strict_http_client_builder())
+        .build()
+        .map_err(|e| anyhow::anyhow!("build locked reqwest client: {e}"))
+}
+
+fn strict_http_client_builder() -> reqwest::ClientBuilder {
     Client::builder()
         .timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| anyhow::anyhow!("build reqwest client: {e}"))
 }
 
 fn did_method_allowed(config: &AppConfig, did: &str) -> bool {
@@ -713,7 +742,7 @@ fn did_document_url(did: &Did) -> anyhow::Result<Url> {
 }
 
 async fn fetch_did_document_json(
-    http: &Client,
+    _http: &Client,
     url: Url,
     development_mode: bool,
 ) -> anyhow::Result<JsonValue> {
@@ -722,13 +751,14 @@ async fn fetch_did_document_json(
     {
         anyhow::bail!("DID document URL must be HTTPS");
     }
-    crate::egress::validate_url_for_egress(
+    let target = crate::egress::resolve_url_for_egress(
         &url,
         "principal DID document fetch",
         crate::egress::private_networks_allowed(development_mode),
     )
     .map_err(|error| anyhow::anyhow!(error))?;
-    let response = http.get(url.clone()).send().await?;
+    let http = strict_http_client_for_egress(&target)?;
+    let response = http.get(target.url().clone()).send().await?;
     if !response.status().is_success() {
         anyhow::bail!("DID document fetch returned {}", response.status());
     }
