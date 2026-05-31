@@ -836,17 +836,23 @@ fn validate_handle_claim_ingest(discovery_state: &JsonValue) -> Result<(), (ApiE
         return Ok(());
     };
 
-    // (1) `service_handle` claim_type / class is no longer a valid value.
-    for key in ["claim_type", "class"] {
-        if let Some(value) = obj.get(key).and_then(JsonValue::as_str)
-            && value == "service_handle"
-        {
-            return Err((
-                ApiErrorCode::SchemaViolation,
-                "claim_type_unsupported: service_handle is not a valid R3.2 handle claim_type"
-                    .to_owned(),
-            ));
-        }
+    // (1) `claim_type` / `class` are retired field names. `service_handle`
+    // is no longer a valid claim_kind value.
+    if obj.get("claim_type").is_some() || obj.get("class").is_some() {
+        return Err((
+            ApiErrorCode::SchemaViolation,
+            "claim_type_unsupported: claim_type/class are forbidden; use claim_kind".to_owned(),
+        ));
+    }
+    if obj
+        .get("claim_kind")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|value| value == "service_handle")
+    {
+        return Err((
+            ApiErrorCode::SchemaViolation,
+            "claim_type_unsupported: service_handle is not a valid handle claim_kind".to_owned(),
+        ));
     }
 
     // (2) handle-claim subject MUST be a holder/principal DID.
@@ -1295,15 +1301,17 @@ mod tests {
     fn handle_claim_ingest_rejects_service_handle_claim_type() {
         let state = json!({
             "kind": "cx.handle.discovery",
-            "claim_type": "service_handle",
+            "claim_kind": "service_handle",
             "subject": "did:web:alice.example",
         });
         let err = super::validate_handle_claim_ingest(&state).unwrap_err();
         assert_eq!(err.0, ApiErrorCode::SchemaViolation);
         assert!(err.1.contains("claim_type_unsupported"));
 
-        // Also reject when the value is on `class` rather than `claim_type`.
+        // Also reject retired discriminator fields outright.
         let state = json!({ "class": "service_handle", "subject": "did:web:alice.example" });
+        assert!(super::validate_handle_claim_ingest(&state).is_err());
+        let state = json!({ "claim_type": "handle_binding", "subject": "did:web:alice.example" });
         assert!(super::validate_handle_claim_ingest(&state).is_err());
     }
 

@@ -455,30 +455,29 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         .and_then(JsonValue::as_str)
         .map(str::to_owned);
 
-    let class = row
+    let claim_kind = row
         .public_projection
-        .get("class")
+        .get("claim_kind")
         .and_then(JsonValue::as_str)
-        .and_then(parse_handle_class);
+        .and_then(parse_handle_claim_kind);
 
     Some(HandleClaim {
         handle,
         subject: Some(subject_did),
         issuer,
-        class,
+        claim_kind,
         binding_state: verified.then_some(contrix_sdk::HandleBindingState::Verified),
         ..Default::default()
     })
 }
 
-/// Parse the wire `claim_type` / `class` string into the R3.2
-/// [`contrix_sdk::HandleClass`] enum. The draft-era `service_handle` value was
-/// removed in R3.2, so an unknown / `service_handle` value yields `None`
-/// (the claim still surfaces, just without a typed class).
-fn parse_handle_class(value: &str) -> Option<contrix_sdk::HandleClass> {
+/// Parse the wire `claim_kind` string into the SDK enum. The draft-era
+/// `service_handle` value was removed, so unknown / retired values yield
+/// `None` (the claim still surfaces, just without a typed claim kind).
+fn parse_handle_claim_kind(value: &str) -> Option<contrix_sdk::HandleClaimKind> {
     match value {
-        "user_handle" => Some(contrix_sdk::HandleClass::UserHandle),
-        "organization_handle" => Some(contrix_sdk::HandleClass::OrganizationHandle),
+        "handle_binding" => Some(contrix_sdk::HandleClaimKind::HandleBinding),
+        "organization_handle" => Some(contrix_sdk::HandleClaimKind::OrganizationHandle),
         _ => None,
     }
 }
@@ -655,17 +654,15 @@ mod tests {
     }
 
     #[test]
-    fn service_handle_class_is_dropped_to_none() {
-        // R3.2 removed `service_handle`; an unknown/retired class string maps
-        // to None rather than panicking.
-        assert!(parse_handle_class("service_handle").is_none());
+    fn service_handle_claim_kind_is_dropped_to_none() {
+        assert!(parse_handle_claim_kind("service_handle").is_none());
         assert_eq!(
-            parse_handle_class("user_handle"),
-            Some(contrix_sdk::HandleClass::UserHandle)
+            parse_handle_claim_kind("handle_binding"),
+            Some(contrix_sdk::HandleClaimKind::HandleBinding)
         );
         assert_eq!(
-            parse_handle_class("organization_handle"),
-            Some(contrix_sdk::HandleClass::OrganizationHandle)
+            parse_handle_claim_kind("organization_handle"),
+            Some(contrix_sdk::HandleClaimKind::OrganizationHandle)
         );
     }
 
