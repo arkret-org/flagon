@@ -12,7 +12,7 @@
 //!
 //! Realm resolution MUST NOT be reinvented here. The realm branch DELEGATES to
 //! [`crate::query::realm::resolve_realm_visible`] so the canonical `realm_id`,
-//! the `realm_preview` payload, `via_services`, and the hidden/withdrawn/unknown
+//! the `realm_preview` payload, `join_candidates`, and the hidden/withdrawn/unknown
 //! → blinded `not_found` collapse stay byte-for-byte identical to
 //! `resolve_realm`.
 //!
@@ -190,7 +190,7 @@ async fn resolve(
         Err(_) => return ResolveOutcome::NotFound,
     };
 
-    // 2. Resolve the realm (canonical id + preview + via_services). This is the
+    // 2. Resolve the realm (canonical id + preview + join_candidates). This is the
     //    delegation point: the realm branch and the alias→canonical
     //    normalization both go through resolve_realm's logic.
     let realm_key = match &parsed.realm {
@@ -211,6 +211,9 @@ async fn resolve(
     //    carry a token; a token that fails to bind → blinded not_found.
     let effective_link_type = parsed.link_type;
     let token = token.or(parsed.token.as_deref());
+    if effective_link_type == LinkType::Preview {
+        return ResolveOutcome::TokenReject;
+    }
     if effective_link_type == LinkType::Invite || token.is_some() {
         match verify_address_token_with_methods(
             &parsed,
@@ -342,7 +345,6 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
         realm: RealmRef::RealmId(bare_uuid),
         flow: parsed.flow.clone(),
         message: parsed.message.clone(),
-        via: parsed.via.clone(),
         action: parsed.action,
         link_type: parsed.link_type,
         token: parsed.token.clone(),
@@ -514,7 +516,7 @@ fn detach_jws(value: &mut JsonValue) -> Option<String> {
         .and_then(|jws| jws.as_str().map(str::to_owned))
 }
 
-/// Build the Realm-target response, delegating the entire preview / via_services
+/// Build the Realm-target response, delegating the entire preview / join_candidates
 /// / §9.1 envelope to the realm resolution.
 fn build_realm_response(
     resolved: crate::query::realm::ResolvedRealm,
@@ -541,7 +543,7 @@ fn build_realm_response(
         join_rule: None,
         as_of: resolved.envelope.as_of,
         source_refs: resolved.envelope.source_refs.clone(),
-        via_services: resolved.via_services.clone(),
+        join_candidates: resolved.join_candidates.clone(),
         policy_revision: resolved.envelope.policy_revision.clone(),
         stale: opt_bool(resolved.envelope.stale),
         divergent: opt_bool(resolved.envelope.divergent),
@@ -551,7 +553,7 @@ fn build_realm_response(
 /// Build the Flow / Message target response. The access-gate / real Flow /
 /// Message projection is `TODO(R3.3.1)`; we surface a deterministic placeholder
 /// preview anchored to the verified target identity, while the §9.1 common
-/// fields + via_services are taken from the (already-resolved, already-visible)
+/// fields + join_candidates are taken from the (already-resolved, already-visible)
 /// enclosing Realm.
 fn build_object_response(
     target_kind: TargetKind,
@@ -585,24 +587,11 @@ fn build_object_response(
         join_rule: None,
         as_of: resolved.envelope.as_of,
         source_refs: resolved.envelope.source_refs.clone(),
-        via_services: merged_via(&resolved.via_services, parsed),
+        join_candidates: resolved.join_candidates.clone(),
         policy_revision: resolved.envelope.policy_revision.clone(),
         stale: opt_bool(resolved.envelope.stale),
         divergent: opt_bool(resolved.envelope.divergent),
     }
-}
-
-/// `via_services` for a Flow / Message target: the Realm's announced
-/// `via_services` plus the address's `via=` routing hints (deduped, Realm
-/// services first). `via_services` is v1-normative on this response.
-fn merged_via(realm_via: &[String], parsed: &ParsedAddress) -> Vec<String> {
-    let mut out: Vec<String> = realm_via.to_vec();
-    for v in &parsed.via {
-        if !out.contains(v) {
-            out.push(v.clone());
-        }
-    }
-    out
 }
 
 /// Render the boolean §9.1 freshness flags only when they are `true` (so the
@@ -845,7 +834,7 @@ mod tests {
                 false,
                 vec!["did:web:hps.example".to_owned()],
             ),
-            via_services: vec!["did:web:hps.example".to_owned()],
+            join_candidates: Vec::new(),
         };
         let response = build_realm_response(resolved).expect("realm response builds");
         assert_eq!(response.target_kind, TargetKind::Realm);
@@ -853,28 +842,19 @@ mod tests {
         assert_eq!(preview.realm_id.as_str(), format!("cx:realm:{R}"));
         assert_eq!(preview.title.as_deref(), Some("Tea Time"));
         assert_eq!(
-            response.via_services,
-            vec!["did:web:hps.example".to_owned()]
+            response.join_candidates,
+            Vec::<contrix_sdk::RealmJoinCandidate>::new()
         );
         assert!(response.object_preview.is_none());
     }
 
     #[test]
-    fn merged_via_dedups_realm_and_address_hints() {
+    fn retired_via_hint_is_ignored_by_parser() {
         let parsed = parse_address(&format!(
             "web+contrix:realm/{R}/flow/{F}?via={VIA}&via=did:web:extra.example"
         ))
         .unwrap();
-        let realm_via = vec![VIA.to_owned(), "did:web:hps.example".to_owned()];
-        let merged = merged_via(&realm_via, &parsed);
-        assert_eq!(
-            merged,
-            vec![
-                VIA.to_owned(),
-                "did:web:hps.example".to_owned(),
-                "did:web:extra.example".to_owned(),
-            ]
-        );
+        assert!(parsed.is_flow());
     }
 
     #[test]
@@ -884,7 +864,6 @@ mod tests {
             realm: RealmRef::RealmId(R.to_owned()),
             flow: None,
             message: None,
-            via: vec![],
             action: AddressAction::View,
             link_type: LinkType::Reference,
             token: None,

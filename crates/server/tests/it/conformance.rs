@@ -185,7 +185,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
             .is_some_and(|refs| !refs.is_empty())
     );
     assert!(
-        first["via_services"]
+        first["join_candidates"]
             .as_array()
             .is_some_and(|refs| !refs.is_empty())
     );
@@ -383,7 +383,10 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     assert_eq!(body["realm_id"], "cx:realm:pushed");
     assert_eq!(body["member_count_bucket"], "11-50");
     assert_eq!(body["source_refs"][0], "evt-announce-realm");
-    assert_eq!(body["via_services"][0], mock.principal_server_did());
+    assert_eq!(
+        body["join_candidates"][0]["service_did"],
+        mock.principal_server_did()
+    );
     Ok(())
 }
 

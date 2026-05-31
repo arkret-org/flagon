@@ -11,7 +11,11 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
+use contrix_sdk::{
+    Did, EventId, RealmId, RealmJoinCandidate, RealmJoinCandidateRole,
+    RealmJoinCandidateServiceType, RealmJoinCandidateSource, RealmJoinMethod,
+};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
@@ -252,7 +256,7 @@ pub(crate) struct ResolvedRealm {
     /// The §9.1 result envelope (public-projection payload + as_of /
     /// source_refs / policy_revision / stale / divergent / via_services).
     pub envelope: ResultEnvelope,
-    pub via_services: Vec<String>,
+    pub join_candidates: Vec<RealmJoinCandidate>,
 }
 
 /// Resolve a Realm by `key` (realm_id OR alias) applying the identical load
@@ -276,12 +280,12 @@ pub(crate) async fn resolve_realm_visible(
         return Ok(None);
     }
     let realm_id = row.resource_id.clone();
-    let via_services = row.via_services.clone();
+    let join_candidates = join_candidates_for_row(&row);
     let envelope = envelope_from_row(row);
     Ok(Some(ResolvedRealm {
         realm_id,
         envelope,
-        via_services,
+        join_candidates,
     }))
 }
 
@@ -488,6 +492,7 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
         );
     }
     // Inject the canonical key so clients can act on the row immediately.
+    let join_candidates = join_candidates_for_row(&row);
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
         obj.insert(
@@ -508,6 +513,50 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
         row.divergent,
         row.via_services,
     )
+    .with_join_candidates(join_candidates)
+}
+
+fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
+    let Ok(realm_id) = RealmId::new(row.resource_id.clone()) else {
+        return Vec::new();
+    };
+    let source_refs: Vec<EventId> = row
+        .source_refs
+        .iter()
+        .filter_map(|source_ref| EventId::new(source_ref.clone()).ok())
+        .collect();
+    row.via_services
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, service_did)| {
+            let service_did = Did::new(service_did.clone()).ok()?;
+            Some(RealmJoinCandidate {
+                realm_id: realm_id.clone(),
+                service_did,
+                service_type: RealmJoinCandidateServiceType::PrincipalServer,
+                role: if idx == 0 {
+                    RealmJoinCandidateRole::Primary
+                } else {
+                    RealmJoinCandidateRole::Mirror
+                },
+                endpoint: None,
+                operations: vec!["cx.events.submit".to_owned()],
+                join_methods: vec![
+                    RealmJoinMethod::InviteAccept,
+                    RealmJoinMethod::MemberJoin,
+                    RealmJoinMethod::Knock,
+                    RealmJoinMethod::RestrictedJoin,
+                ],
+                priority: Some(idx.min(1000) as u16),
+                source: RealmJoinCandidateSource::DirectoryIngest,
+                source_refs: source_refs.clone(),
+                frontier_ref: None,
+                as_of: row.as_of,
+                expires_at: row.as_of + Duration::minutes(15),
+                proofs: Vec::new(),
+            })
+        })
+        .collect()
 }
 
 fn is_result_visible(row: &RealmRow, requester: Option<&str>, proofs: &[String]) -> bool {

@@ -5,6 +5,7 @@
 //! the per-query freshness check.
 
 use chrono::{DateTime, Utc};
+use contrix_sdk::RealmJoinCandidate;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -26,10 +27,9 @@ pub struct ResultEnvelope {
     /// Set by the optional cross-directory consistency probe (§9.1).
     #[serde(skip_serializing_if = "is_false")]
     pub divergent: bool,
-    /// Host Principal Server service DIDs the client should target for join.
-    /// Normative for Space and Organization results; optional otherwise.
+    /// Candidate ingress services for Realm join / invite-accept / knock.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub via_services: Vec<String>,
+    pub join_candidates: Vec<RealmJoinCandidate>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -49,7 +49,7 @@ impl ResultEnvelope {
         policy_revision: Option<String>,
         stale: bool,
         divergent: bool,
-        via_services: Vec<String>,
+        _via_services: Vec<String>,
     ) -> Self {
         Self {
             payload,
@@ -58,7 +58,12 @@ impl ResultEnvelope {
             policy_revision,
             stale,
             divergent,
-            via_services,
+            join_candidates: Vec::new(),
         }
+    }
+
+    pub fn with_join_candidates(mut self, join_candidates: Vec<RealmJoinCandidate>) -> Self {
+        self.join_candidates = join_candidates;
+        self
     }
 }

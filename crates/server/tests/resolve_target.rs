@@ -71,7 +71,7 @@ fn did_key_multibase(signing_key: &SigningKey) -> String {
 
 /// Case (a) — a realm address parses and classifies as a Realm target, so the
 /// handler takes the delegating realm branch (canonical realm_id + realm_preview
-/// + via_services come from resolve_realm, unchanged).
+/// + join_candidates come from resolve_realm, unchanged).
 #[test]
 fn realm_address_classifies_as_realm_target() {
     let parsed = parse_address(&format!("web+contrix:realm/{R}")).expect("realm address parses");
@@ -91,10 +91,7 @@ fn realm_address_classifies_as_realm_target() {
 /// nonexistent resource.
 #[test]
 fn invite_token_replayed_onto_other_object_is_rejected() {
-    let addr_a = parse_address(&format!(
-        "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
-    ))
-    .unwrap();
+    let addr_a = parse_address(&format!("web+contrix:realm/{R}/flow/{F}?lt=invite")).unwrap();
     let canonical = format!("cx:realm:{R}");
     let token = mint_token(&addr_a, &canonical);
 
@@ -105,10 +102,7 @@ fn invite_token_replayed_onto_other_object_is_rejected() {
     );
 
     // Replayed onto object B → reject (digest differs; identity tuple changed).
-    let addr_b = parse_address(&format!(
-        "web+contrix:realm/{R}/flow/{F2}?via={VIA}&lt=invite"
-    ))
-    .unwrap();
+    let addr_b = parse_address(&format!("web+contrix:realm/{R}/flow/{F2}?lt=invite")).unwrap();
     assert_eq!(
         verify_address_token(&addr_b, Some(&token), &canonical, LinkType::Invite),
         TokenCheck::Reject
@@ -128,21 +122,18 @@ fn unknown_path_keyword_fails_closed() {
 /// Case (d) — a Flow address missing `via` fails closed (a global flow_id is
 /// never guessed), so the handler returns the blinded not_found.
 #[test]
-fn flow_address_missing_via_fails_closed() {
-    assert!(parse_address(&format!("web+contrix:realm/{R}/flow/{F}")).is_err());
-    // A message address missing via likewise fails closed.
+fn flow_address_without_via_parses() {
+    assert!(parse_address(&format!("web+contrix:realm/{R}/flow/{F}")).is_ok());
+    // A message address without via is likewise routable through the Realm.
     let msg = "01904100-0000-7000-8000-0000000000dd";
-    assert!(parse_address(&format!("web+contrix:realm/{R}/flow/{F}/m/{msg}")).is_err());
+    assert!(parse_address(&format!("web+contrix:realm/{R}/flow/{F}/m/{msg}")).is_ok());
 }
 
 /// Extra — an invite link with no token at all is rejected (an invite link MUST
 /// carry a token), mapping to the same blinded not_found.
 #[test]
 fn invite_link_without_token_is_rejected() {
-    let addr = parse_address(&format!(
-        "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
-    ))
-    .unwrap();
+    let addr = parse_address(&format!("web+contrix:realm/{R}/flow/{F}?lt=invite")).unwrap();
     let canonical = format!("cx:realm:{R}");
     assert_eq!(
         verify_address_token(&addr, None, &canonical, LinkType::Invite),
@@ -152,10 +143,7 @@ fn invite_link_without_token_is_rejected() {
 
 #[test]
 fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
-    let addr = parse_address(&format!(
-        "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
-    ))
-    .unwrap();
+    let addr = parse_address(&format!("web+contrix:realm/{R}/flow/{F}?lt=invite")).unwrap();
     let canonical = format!("cx:realm:{R}");
     let mut descriptor = TargetDescriptor::from_parsed(&addr);
     descriptor.set_realm_id(&canonical);
