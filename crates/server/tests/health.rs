@@ -3,11 +3,15 @@
 //! testcontainers fixture in M0-T3.
 
 use server::routing;
+use std::sync::Mutex;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn router_builds_with_minimal_state() {
     use std::env;
 
+    let _guard = ENV_LOCK.lock().expect("env lock");
     // Set the smallest viable env footprint and exercise the router builder.
     // We don't connect to Postgres here; that needs a separate integration
     // test harness.
@@ -15,6 +19,8 @@ fn router_builds_with_minimal_state() {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
         env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
+        env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
+        env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
     }
 
     let config = server::AppConfig::from_env().expect("config builds");
@@ -48,6 +54,8 @@ fn router_builds_with_minimal_state() {
 #[test]
 fn hardening_status_shape_matches_cross_service_contract() {
     use std::env;
+    let _guard = ENV_LOCK.lock().expect("env lock");
+
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
         env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");

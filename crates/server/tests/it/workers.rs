@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use diesel::RunQueryDsl;
+use diesel_async::RunQueryDsl;
 use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
 use testcontainers_modules::testcontainers::runners::SyncRunner;
@@ -33,7 +33,9 @@ fn boot_postgres() -> anyhow::Result<(
     Ok((container, database_url))
 }
 
-fn test_app_state(database_url: &str) -> anyhow::Result<(server::AppConfig, server::AppState)> {
+async fn test_app_state(
+    database_url: &str,
+) -> anyhow::Result<(server::AppConfig, server::AppState)> {
     unsafe {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
         std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
@@ -44,22 +46,22 @@ fn test_app_state(database_url: &str) -> anyhow::Result<(server::AppConfig, serv
     }
     let config = server::AppConfig::from_env()?;
     let db = server::Db::connect(database_url)?;
-    db.run_migrations()?;
+    db.run_migrations(database_url).await?;
     let state = server::AppState::new(config.clone(), db);
     Ok((config, state))
 }
 
-#[test]
-fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
     if !docker_tests_enabled() {
         eprintln!("skipping expiry_worker_purges_rows_past_grace; set TEABAY_RUN_DOCKER_TESTS=1");
         return Ok(());
     }
     let (_pg, database_url) = boot_postgres()?;
-    let (_config, state) = test_app_state(&database_url)?;
+    let (_config, state) = test_app_state(&database_url).await?;
 
     {
-        let mut conn = state.db().get()?;
+        let mut conn = state.db().get().await?;
         // Insert a row whose expires_at is 48h in the past, far past
         // the 1-second grace we configure below.
         diesel::sql_query(
@@ -74,23 +76,25 @@ fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
                  ARRAY['evt-expired'], now() - interval '50 hours', 60, now() + interval '1 minute', \
                  true, false, ARRAY[]::text[], now() - interval '50 hours', now() - interval '48 hours')",
         )
-        .execute(&mut conn)?;
+        .execute(&mut conn)
+        .await?;
     }
 
     let worker = server::workers::expiry::ExpiryWorker::new(state.clone(), Duration::from_secs(60))
         .with_grace(Duration::from_secs(1));
-    let purged = worker.run_once()?;
+    let purged = worker.run_once().await?;
     assert!(
         purged >= 1,
         "expected to purge at least one row, got {purged}"
     );
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let count: i64 = diesel::sql_query(
         "SELECT count(*)::BIGINT AS count FROM directory_resources \
          WHERE resource_id = 'cx:realm:expired'",
     )
-    .get_result::<CountRow>(&mut conn)?
+    .get_result::<CountRow>(&mut conn)
+    .await?
     .count;
     assert_eq!(count, 0, "expired row was not purged");
     Ok(())
@@ -105,7 +109,7 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
         return Ok(());
     }
     let (_pg, database_url) = boot_postgres()?;
-    let (_config, state) = test_app_state(&database_url)?;
+    let (_config, state) = test_app_state(&database_url).await?;
 
     // Start a tiny TCP server that returns HTTP 500 to every request.
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -118,7 +122,7 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
     let stop_thread = stop.clone();
     let server_handle = std::thread::spawn(move || {
         use std::io::{Read, Write};
-        while !stop_thread.load(Ordering::SeqCst) {
+        while !stop_thread.as_ref().load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((mut sock, _peer)) => {
                     sock.set_read_timeout(Some(Duration::from_millis(250))).ok();
@@ -138,13 +142,14 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
     });
 
     {
-        let mut conn = state.db().get()?;
+        let mut conn = state.db().get().await?;
         diesel::sql_query(
             "INSERT INTO pending_takedown_webhooks (webhook_id, endpoint, secret) \
              VALUES ('wh-test', $1, decode('00112233445566778899aabbccddeeff', 'hex'))",
         )
         .bind::<diesel::sql_types::Text, _>(&endpoint)
-        .execute(&mut conn)?;
+        .execute(&mut conn)
+        .await?;
 
         diesel::sql_query(
             "INSERT INTO pending_takedowns (\
@@ -154,7 +159,8 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
                  'pt-test', 'realm'::resource_kind, 'cx:realm:dlq', 'spam', \
                  'did:web:operator.test', 1, 'pending', now() + interval '1 day')",
         )
-        .execute(&mut conn)?;
+        .execute(&mut conn)
+        .await?;
     }
 
     let notifier = server::workers::takedown_notifier::TakedownNotifier::new(
@@ -167,21 +173,22 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
         notifier.run_once().await?;
     }
 
-    let mut conn = state.db().get()?;
+    let mut conn = state.db().get().await?;
     let status_row: StatusRow = diesel::sql_query(
         "SELECT notification_status \
          FROM pending_takedowns WHERE pending_id = 'pt-test'",
     )
-    .get_result::<StatusRow>(&mut conn)?;
+    .get_result::<StatusRow>(&mut conn)
+    .await?;
     let status = status_row.notification_status.unwrap_or_default();
     assert!(
         status.starts_with("dlq:"),
         "expected DLQ status, got `{status}`"
     );
     assert!(
-        hit_count.load(Ordering::SeqCst) >= 3,
+        hit_count.as_ref().load(Ordering::SeqCst) >= 3,
         "expected at least 3 outbound hits, got {}",
-        hit_count.load(Ordering::SeqCst)
+        hit_count.as_ref().load(Ordering::SeqCst)
     );
 
     stop.store(true, Ordering::SeqCst);

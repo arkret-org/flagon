@@ -106,6 +106,21 @@ impl ApiErrorCode {
         contrix_sdk::ERROR_CODE_CROSS_DOMAIN_REPLAY_REJECTED,
         StatusCode::CONFLICT,
     );
+    #[allow(non_upper_case_globals)]
+    pub const HistorySharingPolicyMissing: Self = Self::new(
+        contrix_sdk::ERROR_CODE_HISTORY_SHARING_POLICY_MISSING,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const HistoryNotVisible: Self = Self::new(
+        contrix_sdk::ERROR_CODE_HISTORY_NOT_VISIBLE,
+        StatusCode::FORBIDDEN,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const PreviewPolicyDenied: Self = Self::new(
+        contrix_sdk::ERROR_CODE_PREVIEW_POLICY_DENIED,
+        StatusCode::FORBIDDEN,
+    );
 
     // -------- directory ingest codes --------
     #[allow(non_upper_case_globals)]

@@ -8,8 +8,8 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
-use diesel::RunQueryDsl;
 use diesel::sql_types::{BigInt, Jsonb, Text};
+use diesel_async::RunQueryDsl;
 use ed25519_dalek::{Signer, SigningKey};
 use salvo::http::StatusCode;
 use salvo::prelude::Service;
@@ -34,8 +34,8 @@ struct WithdrawalProofRow {
     proof: JsonValue,
 }
 
-#[test]
-fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     if std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() != Some("1") {
         eprintln!("skipping docker-backed conformance smoke; set TEABAY_RUN_DOCKER_TESTS=1");
         return Ok(());
@@ -82,31 +82,28 @@ fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
 
     let config = server::AppConfig::from_env()?;
     let db = server::Db::connect(&database_url)?;
-    db.run_migrations()?;
-    seed_directory_fixture(&db)?;
+    db.run_migrations(&database_url).await?;
+    seed_directory_fixture(&db).await?;
 
     let service = server::service(server::AppState::new(config.clone(), db.clone()));
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async {
-            assert_describe_advertises_core_and_psi(&service).await?;
-            assert_query_surface_matrix(&service).await?;
-            assert_search_realms_finds_seeded_realm(&service).await?;
-            assert_pull_subscribe_registers_webhook(&service).await?;
-            assert_push_announce_uses_mock_principal_server(&service).await?;
-            assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
-            assert_freshness_flags_are_exposed(&db, &service).await?;
-            assert_psi_blind_and_match_finds_seeded_handle(&service).await?;
-            assert_three_path_takedown_flow(&db, &service).await?;
-            assert_admin_operator_surface(&service).await
-        })?;
+    assert_describe_advertises_core_and_psi(&service).await?;
+    assert_query_surface_matrix(&service).await?;
+    assert_search_realms_finds_seeded_realm(&service).await?;
+    assert_pull_subscribe_registers_webhook(&service).await?;
+    assert_push_announce_uses_mock_principal_server(&service).await?;
+    assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
+    assert_freshness_flags_are_exposed(&db, &service).await?;
+    assert_psi_blind_and_match_finds_seeded_handle(&service).await?;
+    assert_three_path_takedown_flow(&db, &service).await?;
+    assert_admin_operator_surface(&service).await?;
     Ok(())
 }
 
-fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
-    let mut conn = db.get()?;
-    diesel::sql_query(teabay_testing::DIRECTORY_FIXTURE_SQL).execute(&mut conn)?;
+async fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
+    let mut conn = db.get().await?;
+    diesel::sql_query(teabay_testing::DIRECTORY_FIXTURE_SQL)
+        .execute(&mut conn)
+        .await?;
     Ok(())
 }
 
@@ -453,13 +450,14 @@ async fn assert_pull_worker_refreshes_due_entry(
     }
 
     {
-        let mut conn = db.get()?;
+        let mut conn = db.get().await?;
         diesel::sql_query(
             "UPDATE directory_resources \
              SET next_revalidation_after = now() - interval '1 second' \
              WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:realm:pull'",
         )
-        .execute(&mut conn)?;
+        .execute(&mut conn)
+        .await?;
     }
 
     let worker_state = server::AppState::new(config.clone(), db.clone());
@@ -475,14 +473,15 @@ async fn assert_pull_worker_refreshes_due_entry(
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["name"], "Pulled Tea");
 
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     let pull_count: i64 = diesel::sql_query(
         "SELECT count(*) FROM ingest_announces \
          WHERE resource_kind = 'realm'::resource_kind \
            AND resource_id = 'cx:realm:pull' \
            AND ingest_mode = 'pull'::ingest_mode",
     )
-    .get_result::<CountRow>(&mut conn)?
+    .get_result::<CountRow>(&mut conn)
+    .await?
     .count;
     assert_eq!(pull_count, 1);
     Ok(())
@@ -493,13 +492,14 @@ async fn assert_freshness_flags_are_exposed(
     service: &Service,
 ) -> anyhow::Result<()> {
     {
-        let mut conn = db.get()?;
+        let mut conn = db.get().await?;
         diesel::sql_query(
             "UPDATE directory_resources \
              SET stale = true \
              WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:realm:tea'",
         )
-        .execute(&mut conn)?;
+        .execute(&mut conn)
+        .await?;
     }
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
         .json(&json!({ "realm_id": "cx:realm:tea" }))
@@ -601,7 +601,8 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         "realm",
         "cx:realm:takedown-withdraw",
         "resource_withdraw",
-    )?;
+    )
+    .await?;
     assert_eq!(
         resource_receipt.proof["receipt_version"],
         "teabay.withdrawal_receipt.v1"
@@ -673,7 +674,8 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         "organization",
         operator_resource_id,
         "operator_takedown",
-    )?;
+    )
+    .await?;
     assert_eq!(operator_receipt.withdraw_id, operator_withdraw_id);
     assert_eq!(operator_receipt.proof["kind"], "operator_takedown");
     assert_eq!(
@@ -697,13 +699,13 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     Ok(())
 }
 
-fn withdrawal_proof(
+async fn withdrawal_proof(
     db: &server::Db,
     resource_kind: &str,
     resource_id: &str,
     withdrawal_kind: &str,
 ) -> anyhow::Result<WithdrawalProofRow> {
-    let mut conn = db.get()?;
+    let mut conn = db.get().await?;
     diesel::sql_query(
         "SELECT withdraw_id, proof FROM withdrawals \
          WHERE resource_kind = $1::resource_kind \
@@ -716,6 +718,7 @@ fn withdrawal_proof(
     .bind::<Text, _>(resource_id)
     .bind::<Text, _>(withdrawal_kind)
     .get_result(&mut conn)
+    .await
     .map_err(Into::into)
 }
 
@@ -946,7 +949,7 @@ impl MockPrincipalServer {
         let principal_server_did = principal_did_for_addr(addr);
 
         let handle = thread::spawn(move || {
-            while !thread_shutdown.load(Ordering::SeqCst) {
+            while !thread_shutdown.as_ref().load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => handle_mock_principal_connection(
                         stream,

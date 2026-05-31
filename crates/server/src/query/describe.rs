@@ -66,15 +66,17 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     }
 
     // Operations the directory publishes (mirrors `crate::kinds::DIRECTORY_OPERATIONS`).
-    let supported_operations: Vec<String> = vec![
+    let mut supported_operations: Vec<String> = vec![
         "cx.directory.describe",
         "cx.directory.search_realms",
         "cx.directory.resolve_realm",
+        "cx.directory.resolve_target",
         "cx.directory.search_organizations",
         "cx.directory.resolve_organization",
         "cx.directory.search_actors",
         "cx.directory.search_users",
         "cx.directory.resolve_handle",
+        "cx.directory.list_handles_for_subject",
         "cx.directory.announce",
         "cx.directory.withdraw",
         "cx.directory.push.register",
@@ -82,6 +84,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     .into_iter()
     .map(str::to_owned)
     .collect();
+    if cfg.private_contact_discovery_enabled {
+        supported_operations.push("cx.directory.private_contact_discovery".to_owned());
+    }
 
     // Transport / encoding bindings this service speaks.
     let supported_bindings = vec![json!({
