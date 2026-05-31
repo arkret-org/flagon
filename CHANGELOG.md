@@ -5,6 +5,12 @@ All notable changes to teabay (Contrix v1 Directory Service) live here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## R3.4 — Spec sync 2026-05-31 (contrix-spec @ c2848a4)
+
+- Synced protocol-facing names and fixtures to `c2848a4`: event envelope schema naming, `_ids` grant constraints, accountability principal vocabulary, `cx:rtc_participant:` media participants, agent session start fields, and key-backup signature algorithm naming where applicable.
+
+> No version tag, no crates.io / Docker Hub / npm publish — git commit only.
+
 ## R3.3 — CXP-0011 (contrix-spec @ cced4b8)
 
 - New operation `cx.directory.resolve_target` (`POST /api/v1/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+contrix:` URI form or HTTPS-landing fragment form) pointing at a Realm / Flow / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`, `via_services`).
