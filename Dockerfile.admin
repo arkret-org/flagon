@@ -29,15 +29,17 @@ RUN rustup target add wasm32-unknown-unknown
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo install dioxus-cli --version 0.7.9 --locked
+    cargo install dioxus-cli@0.7.5 --locked
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/workspace/teabay/target \
     cd crates/admin && \
-    dx build --release && \
+    for i in 1 2 3; do dx build --release --debug-symbols false && break || echo "Retry $i..." && sleep 10; done && \
+    dist_dir="$(find /workspace/teabay/target/dx -type d -path '*/release/web/public' | head -n 1)" && \
+    test -n "$dist_dir" && \
     mkdir -p /workspace/dist && \
-    cp -r dist/* /workspace/dist/
+    cp -r "$dist_dir"/* /workspace/dist/
 
 FROM nginx:1.27-alpine AS runtime
 
