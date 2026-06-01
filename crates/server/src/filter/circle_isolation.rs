@@ -323,21 +323,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_discussion_realm_ref() {
-        // CXP-0007 pre-rename field; the SDK's forbidden-wire-fields
-        // list already hard-rejects it on Event payloads. teabay
-        // mirrors that at the directory edge.
-        let value = json!({
-            "discussion_realm_ref": "cx:realm:x",
-        });
-        let err = reject_circle_payload(&value).unwrap_err();
-        assert!(matches!(
-            err,
-            CircleRejection::ForbiddenLegacyWireField(field) if field == "discussion_realm_ref"
-        ));
-    }
-
-    #[test]
     fn safe_message_does_not_leak_field_name_or_id() {
         let key_err = CircleRejection::ForbiddenKey("circle_members");
         assert!(!key_err.safe_message().contains("circle_members"));

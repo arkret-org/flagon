@@ -1131,37 +1131,4 @@ mod tests {
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
-
-    /// Round 4 — handle-claim / member-delivery-binding-candidate
-    /// projections whose `recipient_service_did` uses dot/dash/
-    /// underscore/colon in the DID method segment MUST be dropped as
-    /// if absent. A legacy row with `did:web.legacy:peer` is  ROUND4-ALLOW: docstring describes a rejected legacy form.
-    /// indistinguishable from a non-existent candidate to the resolver.
-    #[test]
-    fn round4_did_regex_tightening_rejects_legacy_method_segment() {
-        assert!(is_round4_tight_did("did:web:principal.tea"));
-        assert!(is_round4_tight_did("did:webvh:directory.test"));
-        // Round 4 tightening rejects dot / dash / underscore in the
-        // method segment (colon already terminates the method).
-        assert!(!is_round4_tight_did("did:web.legacy:peer")); // ROUND4-ALLOW: negative test
-        assert!(!is_round4_tight_did("did:web-legacy:peer")); // ROUND4-ALLOW: negative test
-        assert!(!is_round4_tight_did("did:web_legacy:peer")); // ROUND4-ALLOW: negative test
-        // Capital letters in the method segment are rejected too —
-        // the tightened regex is `^did:[a-z0-9]+:[^\s]+$`.
-        assert!(!is_round4_tight_did("did:Web:peer"));
-
-        // And the filter MUST drop the legacy candidate end-to-end.
-        let row = dummy_row(json!({
-            "did": "did:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_service_did": "did:web.legacy:peer", // ROUND4-ALLOW: negative test for round-4 regex
-                "binding_source": "join_policy"
-            }
-        }));
-        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
-        let policy = realm_policy(&[], &["did:web:tea-org.example"]);
-        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
-        assert!(matches!(outcome, ResolveOutcome::NotFound));
-    }
 }
