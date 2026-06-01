@@ -262,7 +262,7 @@ async fn run_user_search(
 fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
-        obj.insert("actor_did".into(), JsonValue::String(row.resource_id));
+        obj.insert("actor_id".into(), JsonValue::String(row.resource_id));
         obj.insert(
             "discoverability".into(),
             JsonValue::String(row.discoverability.as_pg().to_string()),

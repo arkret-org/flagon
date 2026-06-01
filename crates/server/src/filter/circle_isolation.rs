@@ -5,7 +5,7 @@
 //! routing metadata MUST NEVER appear in the public directory. teabay's
 //! anti-enumeration story is built on the directory only ever indexing
 //! Realm-level discovery state; Circle metadata leaking through
-//! `cx.directory.announce` or a `cx.directory.subscribe` filter would
+//! `cx.directory.announce` or a `cx.directory.push.register` filter would
 //! immediately defeat that.
 //!
 //! This module is the single hard-reject point. Both ingest paths
@@ -404,7 +404,7 @@ mod tests {
         let payloads = [
             json!({"kind": "cx.realm.discovery", "discoverability": "public"}),
             json!({"kind": "cx.realm.discovery", "directory_services": ["did:web:d.test"], "policy_revision": "r-42"}),
-            json!({"kind": "cx.space.discovery", "as_of": "2026-05-26T00:00:00Z"}),
+            json!({"kind": "cx.realm.discovery", "as_of": "2026-05-26T00:00:00Z"}),
             json!({"kind": "cx.actor.discovery", "handle": "did:web:alice"}),
             // member_count_bucket is allowed — the bucket grid is the
             // anti-enumeration sanctioned projection.

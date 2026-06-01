@@ -248,11 +248,11 @@ impl HttpSigMiddleware {
     async fn remember_signature(
         &self,
         replay_key: ReplayKey,
-        valid_until: i64,
+        expires_at: i64,
         now: i64,
     ) -> Result<bool, String> {
         self.replay_store
-            .remember_signature(replay_key, valid_until, now)
+            .remember_signature(replay_key, expires_at, now)
             .await
     }
 }
@@ -262,7 +262,7 @@ pub(crate) trait HttpSigReplayStore: Send + Sync + 'static {
     async fn remember_signature(
         &self,
         replay_key: ReplayKey,
-        valid_until: i64,
+        expires_at: i64,
         now: i64,
     ) -> Result<bool, String>;
 }
@@ -277,7 +277,7 @@ impl HttpSigReplayStore for InMemoryReplayStore {
     async fn remember_signature(
         &self,
         replay_key: ReplayKey,
-        valid_until: i64,
+        expires_at: i64,
         now: i64,
     ) -> Result<bool, String> {
         let mut seen_signatures = self
@@ -289,7 +289,7 @@ impl HttpSigReplayStore for InMemoryReplayStore {
         Ok(match seen_signatures.entry(replay_key) {
             Entry::Occupied(_) => false,
             Entry::Vacant(entry) => {
-                entry.insert(valid_until);
+                entry.insert(expires_at);
                 true
             }
         })
@@ -311,11 +311,11 @@ impl HttpSigReplayStore for PostgresReplayStore {
     async fn remember_signature(
         &self,
         replay_key: ReplayKey,
-        valid_until: i64,
+        expires_at: i64,
         now: i64,
     ) -> Result<bool, String> {
         let now = unix_secs_to_datetime(now)?;
-        let expires_at = unix_secs_to_datetime(valid_until)?;
+        let expires_at = unix_secs_to_datetime(expires_at)?;
         let replay_digest = replay_key.stable_digest();
         let mut conn = self
             .db
@@ -540,11 +540,11 @@ impl Handler for HttpSigMiddleware {
         }
 
         let replay_key = ReplayKey::new(&signature_input.key_id, &signature_bytes);
-        let replay_valid_until = signature_input
+        let replay_expires_at = signature_input
             .expires
             .saturating_add(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
         match self
-            .remember_signature(replay_key, replay_valid_until, now)
+            .remember_signature(replay_key, replay_expires_at, now)
             .await
         {
             Ok(true) => {}

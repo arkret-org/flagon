@@ -420,7 +420,7 @@ fn contact_candidate_inputs(
             for key in [
                 "handle",
                 "did",
-                "actor_did",
+                "actor_id",
                 "email_hash",
                 "phone_hash",
                 "contact_hash",

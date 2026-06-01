@@ -337,8 +337,7 @@ impl PullWorker {
         let source_service_did = response_header_value(response.headers(), "source-service-did");
         let service_binding_ref = response_header_value(response.headers(), "service-binding-ref");
         let origin_key_state_digest =
-            response_header_value(response.headers(), "origin-key-state-digest")
-                .or_else(|| response_header_value(response.headers(), "origin-key-state-hash"));
+            response_header_value(response.headers(), "origin-key-state-digest");
         let body = response.json::<EventsQueryResBody>().await?;
         let mut event = body
             .events
@@ -522,8 +521,6 @@ struct PulledEvent {
     service_binding_ref: Option<JsonValue>,
     #[serde(default)]
     origin_key_state_digest: String,
-    #[serde(default)]
-    origin_key_state_hash: String,
 }
 
 impl FederationCachePersist {
@@ -544,13 +541,7 @@ impl FederationCachePersist {
             .as_ref()
             .map(canonical_field_value)
             .unwrap_or_default();
-        let origin_key_state_digest = if pulled.origin_key_state_digest.trim().is_empty() {
-            pulled.origin_key_state_hash.trim()
-        } else {
-            pulled.origin_key_state_digest.trim()
-        }
-        .as_bytes()
-        .to_vec();
+        let origin_key_state_digest = pulled.origin_key_state_digest.trim().as_bytes().to_vec();
         Self {
             source_service_did,
             verification_method,
@@ -613,7 +604,6 @@ mod tests {
                 "frontier": ["evt-0"]
             })),
             origin_key_state_digest: "sha256:abc123".to_owned(),
-            origin_key_state_hash: String::new(),
         };
 
         let cache = FederationCachePersist::from_pull_event(&entry, &pulled);

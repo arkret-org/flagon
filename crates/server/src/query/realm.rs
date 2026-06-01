@@ -53,7 +53,7 @@ pub struct SearchScope {
     #[serde(default)]
     pub organization_did: Option<String>,
     #[serde(default)]
-    pub parent_realm_id: Option<String>,
+    pub source_realm_id: Option<String>,
 }
 
 #[handler]
@@ -89,9 +89,9 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_jitter,
     );
     let privacy_key = format!(
-        "q={needle};org={};parent={};cursor={};limit={limit}",
+        "q={needle};org={};source={};cursor={};limit={limit}",
         scope.organization_did.as_deref().unwrap_or_default(),
-        scope.parent_realm_id.as_deref().unwrap_or_default(),
+        scope.source_realm_id.as_deref().unwrap_or_default(),
         cursor
             .as_ref()
             .map(|cursor| cursor.resource_id.as_str())
@@ -374,7 +374,7 @@ async fn run_realm_search(
 
     let needle = needle.trim();
     let organization_did = scope.organization_did.as_deref();
-    let parent_realm_id = scope.parent_realm_id.as_deref();
+    let source_realm_id = scope.source_realm_id.as_deref();
     let cursor_score = cursor.map(|c| c.score);
     let cursor_indexed_at = cursor.map(|c| c.indexed_at);
     let cursor_resource_id = cursor.map(|c| c.resource_id.as_str());
@@ -382,7 +382,7 @@ async fn run_realm_search(
     let rows: Vec<RealmSqlRow> = diesel::sql_query(REALM_SEARCH_SQL)
         .bind::<Text, _>(needle)
         .bind::<Nullable<Text>, _>(organization_did)
-        .bind::<Nullable<Text>, _>(parent_realm_id)
+        .bind::<Nullable<Text>, _>(source_realm_id)
         .bind::<Nullable<Double>, _>(cursor_score)
         .bind::<Nullable<Timestamptz>, _>(cursor_indexed_at)
         .bind::<Nullable<Text>, _>(cursor_resource_id)
@@ -595,7 +595,7 @@ fn has_restricted_query_authorization(
                     .iter()
                     .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(requester))
             });
-            let proof_matches = ["proof", "presentation", "claim", "claim_id", "claim_type"]
+            let proof_matches = ["proof", "presentation", "claim", "claim_id", "claim_kind"]
                 .iter()
                 .filter_map(|key| obj.get(*key).and_then(JsonValue::as_str))
                 .any(|expected| proofs.iter().any(|proof| proof == expected));
@@ -738,8 +738,8 @@ WITH ranked AS (
       )
       AND (
           $3::text IS NULL
-          OR public_projection->>'parent_realm_id' = $3
-          OR public_projection->'parent_realm_ids' ? $3
+          OR public_projection->>'source_realm_id' = $3
+          OR public_projection->'source_realm_ids' ? $3
       )
 )
 SELECT
@@ -778,7 +778,7 @@ mod tests {
                 "allowed_discoverers": [
                     {
                         "type": "claim",
-                        "claim_type": "org_membership",
+                        "claim_kind": "org_membership",
                         "organization": "did:web:acme.example",
                         "issuer": "did:web:acme.example"
                     },

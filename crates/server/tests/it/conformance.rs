@@ -250,7 +250,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["results"][0]["actor_did"], "did:web:alice.example");
+    assert_eq!(body["results"][0]["actor_id"], "did:web:alice.example");
 
     let mut res = TestClient::post("http://local/api/v1/directory/search-users")
         .json(&json!({
@@ -263,7 +263,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["results"][0]["actor_did"], "did:web:alice.example");
+    assert_eq!(body["results"][0]["actor_id"], "did:web:alice.example");
 
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-handle")
         .json(&json!({ "handle": "alice.example" }))

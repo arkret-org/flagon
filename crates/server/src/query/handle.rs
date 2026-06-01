@@ -598,7 +598,7 @@ fn allowed_discoverers_match(
                     .iter()
                     .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(requester))
             });
-            let proof_matches = ["proof", "presentation", "claim", "claim_id", "claim_type"]
+            let proof_matches = ["proof", "presentation", "claim", "claim_id", "claim_kind"]
                 .iter()
                 .filter_map(|key| obj.get(*key).and_then(JsonValue::as_str))
                 .any(|expected| proofs.iter().any(|proof| proof == expected));

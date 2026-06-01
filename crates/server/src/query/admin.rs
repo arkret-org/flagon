@@ -540,7 +540,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
 #[derive(Debug, Deserialize)]
 struct ConsentRevokeRequest {
     /// Affected actor DID. Required.
-    actor_did: String,
+    actor_id: String,
     /// Subject scope — MUST be `"any"` per spec; other values are
     /// rejected so soland and the directory can't drift on enum.
     #[serde(default)]
@@ -578,8 +578,8 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
             return;
         }
     };
-    if body.actor_did.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "actor_did is required");
+    if body.actor_id.trim().is_empty() {
+        ApiErrorCode::MissingParam.render(res, "actor_id is required");
         return;
     }
     let scope = body.scope.as_deref().unwrap_or("any").trim().to_owned();
@@ -609,10 +609,10 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         state.db(),
         AuditEventKind::ConsentRevokeInvalidation,
         None,
-        Some(&body.actor_did),
+        Some(&body.actor_id),
         Some(&state.config().service_did),
         json!({
-            "actor_did": body.actor_did,
+            "actor_id": body.actor_id,
             "scope": scope,
             "reason": reason,
             "invalidated_rows": invalidated_rows,
@@ -660,14 +660,14 @@ async fn invalidate_reachability(
     //   * actor rows keyed by the actor's DID
     //   * handle rows where principal_server_did == actor DID
     //   * applet rows that name the actor as principal
-    // We match by either `resource_id = actor_did` or
-    // `principal_server_did = actor_did`. T17 explicitly says "mark with
+    // We match by either `resource_id = actor_id` or
+    // `principal_server_did = actor_id`. T17 explicitly says "mark with
     // revoked_at for audit" — so this is an UPDATE, not a DELETE.
     let mut query = diesel::update(r::directory_resources)
         .filter(
             r::resource_id
-                .eq(&body.actor_did)
-                .or(r::principal_server_did.eq(&body.actor_did)),
+                .eq(&body.actor_id)
+                .or(r::principal_server_did.eq(&body.actor_id)),
         )
         .filter(r::reachability_revoked_at.is_null())
         .into_boxed();

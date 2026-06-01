@@ -610,7 +610,7 @@ fn proof_to_key(proof: &contrix_sdk::Proof) -> String {
         .and_then(|v| {
             v.get("id")
                 .or_else(|| v.get("claim_id"))
-                .or_else(|| v.get("claim_type"))
+                .or_else(|| v.get("claim_kind"))
                 .or_else(|| v.get("type"))
                 .and_then(JsonValue::as_str)
                 .map(str::to_owned)

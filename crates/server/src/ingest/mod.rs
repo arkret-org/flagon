@@ -68,7 +68,7 @@ impl ResourceKindWire {
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
             Self::Realm => "cx.realm.discovery",
-            Self::Space => "cx.space.discovery",
+            Self::Space => "cx.realm.discovery",
             Self::Organization => "cx.organization.discovery",
             Self::Actor => "cx.actor.discovery",
             Self::Applet => "cx.applet.discovery",
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(ResourceKindWire::from(sdk_kind), ResourceKindWire::Realm);
         assert_eq!(
             ResourceKindWire::Space.discovery_event_kind(),
-            "cx.space.discovery"
+            "cx.realm.discovery"
         );
     }
 
