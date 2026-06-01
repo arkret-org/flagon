@@ -29,13 +29,20 @@ RUN rustup target add wasm32-unknown-unknown
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    cargo install dioxus-cli@0.7.5 --locked
+    cargo install dioxus-cli@0.7.9 --locked
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/workspace/teabay/target \
-    cd crates/admin && \
-    for i in 1 2 3; do dx build --release --debug-symbols false && break || echo "Retry $i..." && sleep 10; done && \
+    build_ok=false && \
+    for i in 1 2 3; do \
+        if dx build -p admin --release --debug-symbols false; then \
+            build_ok=true; \
+            break; \
+        fi; \
+        echo "Retry $i..." && sleep 10; \
+    done && \
+    test "$build_ok" = true && \
     dist_dir="$(find /workspace/teabay/target/dx -type d -path '*/release/web/public' | head -n 1)" && \
     test -n "$dist_dir" && \
     mkdir -p /workspace/dist && \
