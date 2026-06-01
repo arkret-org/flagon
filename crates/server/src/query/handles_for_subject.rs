@@ -30,14 +30,12 @@
 //!
 //! ## Deferred work
 //!
-//! - Historical replay for `as_of` in the past is `TODO(R3.2.1)`: we accept
-//!   the `as_of` field (happy path returns the current indexed view and
-//!   echoes `as_of` back) but do not yet reconstruct the handle index as of
-//!   an arbitrary past instant.
-//! - The full disclosure-policy engine (per-claim visibility, claim_scope
-//!   evaluation) is shared with `resolve_handle` and is `TODO(R3.2.1)`; for
-//!   R3.2 we apply the directory-visibility gate, issuer-trust ordering, and
-//!   audience scope filter the same way `resolve_handle` does.
+//! - Historical replay for `as_of` in the past is `TODO(R3.2.1)`: we accept the `as_of` field
+//!   (happy path returns the current indexed view and echoes `as_of` back) but do not yet
+//!   reconstruct the handle index as of an arbitrary past instant.
+//! - The full disclosure-policy engine (per-claim visibility, claim_scope evaluation) is shared
+//!   with `resolve_handle` and is `TODO(R3.2.1)`; for R3.2 we apply the directory-visibility gate,
+//!   issuer-trust ordering, and audience scope filter the same way `resolve_handle` does.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -597,8 +595,9 @@ fn decode_cursor(cursor: Option<&str>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     fn handle_row(projection: JsonValue, discoverability: DiscoverabilityWire) -> SubjectHandleRow {
         SubjectHandleRow::for_test(

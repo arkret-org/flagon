@@ -26,7 +26,6 @@ use contrix_sdk::jws::sign_jws_ed25519;
 use contrix_sdk::model::{LinkType, ParsedAddress, TargetDescriptor, parse_address};
 use ed25519_dalek::SigningKey;
 use serde_json::json;
-
 use server::query::target::{TokenCheck, verify_address_token};
 
 const R: &str = "01904100-0000-7000-8000-0000000000aa";

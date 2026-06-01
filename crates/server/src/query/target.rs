@@ -22,15 +22,14 @@
 //! supplies `token`), the token's own signed payload carries an authoritative
 //! [`TargetDescriptor`](contrix_sdk::model::TargetDescriptor). We:
 //!   1. parse the address → [`ParsedAddress`](contrix_sdk::model::ParsedAddress),
-//!   2. build a `TargetDescriptor` from the address; for an ALIAS realm we
-//!      normalize via the realm resolution to obtain the canonical `realm_id`
-//!      and `set_realm_id`,
-//!   3. verify the token's detached Ed25519 JWS over the canonical token
-//!      payload and extract its embedded `target_descriptor`,
-//!   4. call [`verify_token_target`](contrix_sdk::model::verify_token_target),
-//!      which recomputes & compares the `sha256:` digest. `via` / `action` /
-//!      `tok` / `lt` are NOT in the digest, so a token minted for object A can
-//!      never be replayed onto a different object B (scope-confusion defence).
+//!   2. build a `TargetDescriptor` from the address; for an ALIAS realm we normalize via the realm
+//!      resolution to obtain the canonical `realm_id` and `set_realm_id`,
+//!   3. verify the token's detached Ed25519 JWS over the canonical token payload and extract its
+//!      embedded `target_descriptor`,
+//!   4. call [`verify_token_target`](contrix_sdk::model::verify_token_target), which recomputes &
+//!      compares the `sha256:` digest. `via` / `action` / `tok` / `lt` are NOT in the digest, so a
+//!      token minted for object A can never be replayed onto a different object B (scope-confusion
+//!      defence).
 //!
 //! On ANY mismatch — bad token JSON, invalid signature, expired token,
 //! missing/empty audience, digest mismatch, alias-vs-token `realm_id` mismatch,
@@ -46,14 +45,14 @@
 //! effect immediately.
 
 use chrono::Utc;
-use contrix_sdk::canonical;
 use contrix_sdk::identity::DidKeyResolver;
 use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use contrix_sdk::model::{
     LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, verify_token_target,
 };
 use contrix_sdk::{
-    DirectoryResolveTargetReqBody, DirectoryResolveTargetResBody, RealmId, RealmPreview, TargetKind,
+    DirectoryResolveTargetReqBody, DirectoryResolveTargetResBody, RealmId, RealmPreview,
+    TargetKind, canonical,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -181,18 +180,17 @@ async fn resolve(
     proofs: &[String],
     token: Option<&str>,
 ) -> ResolveOutcome {
-    // 1. Parse the address. A fail-closed parse (unknown keyword, wrong order,
-    //    missing intermediate level, non-uuid segment, flow/message missing
-    //    `via`) collapses to a blinded not_found — indistinguishable from a
-    //    nonexistent resource.
+    // 1. Parse the address. A fail-closed parse (unknown keyword, wrong order, missing intermediate
+    //    level, non-uuid segment, flow/message missing `via`) collapses to a blinded not_found —
+    //    indistinguishable from a nonexistent resource.
     let parsed = match parse_address(address) {
         Ok(p) => p,
         Err(_) => return ResolveOutcome::NotFound,
     };
 
-    // 2. Resolve the realm (canonical id + preview + join_candidates). This is the
-    //    delegation point: the realm branch and the alias→canonical
-    //    normalization both go through resolve_realm's logic.
+    // 2. Resolve the realm (canonical id + preview + join_candidates). This is the delegation
+    //    point: the realm branch and the alias→canonical normalization both go through
+    //    resolve_realm's logic.
     let realm_key = match &parsed.realm {
         RealmRef::RealmId(uuid) => format!("cx:realm:{uuid}"),
         RealmRef::Alias(alias) => alias.clone(),
@@ -206,9 +204,9 @@ async fn resolve(
     };
     let canonical_realm_id = resolved.realm_id.clone();
 
-    // 3. Token target binding (security-critical). Applies whenever a token is
-    //    present OR the address declares an invite link — an invite link MUST
-    //    carry a token; a token that fails to bind → blinded not_found.
+    // 3. Token target binding (security-critical). Applies whenever a token is present OR the
+    //    address declares an invite link — an invite link MUST carry a token; a token that fails to
+    //    bind → blinded not_found.
     let effective_link_type = parsed.link_type;
     let token = token.or(parsed.token.as_deref());
     if effective_link_type == LinkType::Preview {
@@ -263,12 +261,11 @@ pub enum TokenCheck {
 ///
 /// Steps:
 ///   1. an invite link MUST carry a token (no token → reject);
-///   2. verify the token's detached Ed25519 JWS over the canonical token
-///      payload, then parse its embedded `target_descriptor` and its
-///      `exp`/`aud` claims;
-///   3. inject the canonical realm id into the address-derived descriptor (so
-///      an alias address can be compared) and call `verify_token_target`,
-///      which recomputes & compares the digest. Any mismatch → reject.
+///   2. verify the token's detached Ed25519 JWS over the canonical token payload, then parse its
+///      embedded `target_descriptor` and its `exp`/`aud` claims;
+///   3. inject the canonical realm id into the address-derived descriptor (so an alias address can
+///      be compared) and call `verify_token_target`, which recomputes & compares the digest. Any
+///      mismatch → reject.
 ///
 /// `canonical_realm_id` is the `cx:realm:<uuid>` the realm resolution produced
 /// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
@@ -380,18 +377,14 @@ fn parse_token_descriptor(
         return None;
     }
 
-    let Some(verification_method) = token_verification_method(&value).map(str::to_owned) else {
-        return None;
-    };
+    let verification_method = token_verification_method(&value).map(str::to_owned)?;
     let issuer = value
         .get("iss")
         .and_then(JsonValue::as_str)
         .map(str::trim)
         .filter(|issuer| !issuer.is_empty())
         .map(str::to_owned);
-    let Some(issuer) = issuer else {
-        return None;
-    };
+    let issuer = issuer?;
     if verification_method_issuer(&verification_method)? != issuer {
         return None;
     }
@@ -400,9 +393,7 @@ fn parse_token_descriptor(
     // required so a captured token has a bounded validity window; `aud` is
     // required and must be non-empty so minting systems cannot accidentally
     // issue an unscoped bearer.
-    let Some(exp) = value.get("exp").and_then(JsonValue::as_i64) else {
-        return None;
-    };
+    let exp = value.get("exp").and_then(JsonValue::as_i64)?;
     if exp <= Utc::now().timestamp() {
         return None;
     }
@@ -410,9 +401,7 @@ fn parse_token_descriptor(
         return None;
     }
 
-    let Some(jws) = detach_jws(&mut value) else {
-        return None;
-    };
+    let jws = detach_jws(&mut value)?;
     let canonical_bytes = canonical::canonical_json_bytes(&value).ok()?;
     verify_invite_token_jws(
         &canonical_bytes,
@@ -620,11 +609,12 @@ fn proof_to_key(proof: &contrix_sdk::Proof) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use chrono::DateTime;
     use contrix_sdk::jws::sign_jws_ed25519;
     use contrix_sdk::model::{AddressAction, build_address};
     use ed25519_dalek::SigningKey;
+
+    use super::*;
 
     const R: &str = "01904100-0000-7000-8000-0000000000aa";
     const F: &str = "01904100-0000-7000-8000-0000000000bb";

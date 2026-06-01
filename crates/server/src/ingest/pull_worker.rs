@@ -144,7 +144,7 @@ impl PullWorker {
         let mut out = Vec::with_capacity(rows.len());
         for (resource_kind, resource_id, principal_server_did, effective_ttl_seconds) in rows {
             if let Some(last_revision) = self
-                .last_revision_if_pull_due(&mut *conn, resource_kind, &resource_id, now)
+                .last_revision_if_pull_due(&mut conn, resource_kind, &resource_id, now)
                 .await?
             {
                 out.push(DueEntry {

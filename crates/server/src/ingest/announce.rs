@@ -11,9 +11,8 @@ use contrix_sdk::{
     federation_trust_domain_transcript_fragment,
 };
 use diesel::prelude::*;
-use diesel_async::AsyncConnection;
-use diesel_async::RunQueryDsl;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -181,12 +180,9 @@ impl FederationCacheKeyInputs {
 ///
 /// On a cross-trust-domain request, the directory MUST refuse to
 /// accept a body whose:
-/// - `Destination-Trust-Domain` is not this directory's configured
-///   `trust_domain`, OR
-/// - `Request-Canonical-Digest` does not match the canonical SHA-256
-///   digest of the request body, OR
-/// - `Source-Trust-Domain` is malformed (not a `cx:trust_domain:`
-///   identifier).
+/// - `Destination-Trust-Domain` is not this directory's configured `trust_domain`, OR
+/// - `Request-Canonical-Digest` does not match the canonical SHA-256 digest of the request body, OR
+/// - `Source-Trust-Domain` is malformed (not a `cx:trust_domain:` identifier).
 ///
 /// Non-federation announces (no headers present) short-circuit OK —
 /// the legacy `directory_not_authorized` / `signature_invalid` chain
@@ -819,14 +815,12 @@ pub(crate) fn derive_public_projection(
 
 /// HC-TBY-1/2 — reject handle-claim ingest that violates the R3.2 wire scope:
 ///
-/// 1. `claim_type` / `class` == `service_handle` is rejected (the draft-era
-///    value was removed in R3.2). Audit reason `claim_type_unsupported`.
-/// 2. A handle-claim `subject` that is a `cx:actor:` Realm actor id, a
-///    `cx:account:` server-local account id, a service DID, or any non-DID
-///    resource id is rejected. Audit reason
-///    `handle_claim_subject_not_principal_did`. The structural DID check is
-///    delegated to the SDK's `validate_handle_claim_subject` so the directory
-///    and the rest of the stack share one rule.
+/// 1. `claim_type` / `class` == `service_handle` is rejected (the draft-era value was removed in
+///    R3.2). Audit reason `claim_type_unsupported`.
+/// 2. A handle-claim `subject` that is a `cx:actor:` Realm actor id, a `cx:account:` server-local
+///    account id, a service DID, or any non-DID resource id is rejected. Audit reason
+///    `handle_claim_subject_not_principal_did`. The structural DID check is delegated to the SDK's
+///    `validate_handle_claim_subject` so the directory and the rest of the stack share one rule.
 ///
 /// Only discovery_state bodies that actually look like a handle claim (carry
 /// a `subject` and/or `claim_type` / `class`) are inspected; non-handle

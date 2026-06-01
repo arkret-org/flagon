@@ -10,8 +10,8 @@
 //!
 //! Cases (per the R3.2 task list):
 //!   1. happy path — subject with 1 active claim returns 1 item.
-//!   2. claim subject mismatch — response drops the foreign claim (and a
-//!      response that would still carry a mismatch fails closed).
+//!   2. claim subject mismatch — response drops the foreign claim (and a response that would still
+//!      carry a mismatch fails closed).
 //!   3. audience-out-of-scope claim is filtered.
 //!   4. issuer not in the Realm's `accepted_issuers` is filtered.
 //!   5. cursor pagination boundary.
@@ -19,7 +19,6 @@
 use chrono::{TimeZone, Utc};
 use contrix_sdk::DirectoryListHandlesForSubjectReqBody;
 use serde_json::json;
-
 use server::ingest::DiscoverabilityWire;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 

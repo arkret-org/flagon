@@ -2,14 +2,12 @@
 //!
 //! Two credential forms are accepted:
 //!
-//! * **Static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`.
-//!   Existing operator scripts and the in-process conformance harness
-//!   continue to work.
+//! * **Static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`. Existing operator scripts
+//!   and the in-process conformance harness continue to work.
 //!
-//! * **Rotating HMAC** — `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`.
-//!   The shared secret is provisioned by row in `admin_tokens`. Clients
-//!   compute `mac = HMAC_SHA256(secret, format!("{key_id}:{ts}"))` and
-//!   include the timestamp so teabay can drop replays after the
+//! * **Rotating HMAC** — `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`. The shared secret
+//!   is provisioned by row in `admin_tokens`. Clients compute `mac = HMAC_SHA256(secret,
+//!   format!("{key_id}:{ts}"))` and include the timestamp so teabay can drop replays after the
 //!   rotation window (default 30 minutes).
 //!
 //! The verification result carries the authentication method and the

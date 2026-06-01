@@ -11,13 +11,12 @@
 //! the canonical 17 as non-required extensions so the rest of the
 //! `discovery-directory.md` §9 surface stays intact.
 
-use salvo::prelude::*;
-use serde_json::{Value as JsonValue, json};
-
 use contrix_sdk::{
     ClaimedProfileEntry, CompatSurfaceEntry, Did, EgressNetworkPolicy, ServerDescription,
     TypedTrustDomainId, VerifiedProfileEntry,
 };
+use salvo::prelude::*;
+use serde_json::{Value as JsonValue, json};
 
 use crate::config::AppConfig;
 use crate::state::AppState;
@@ -357,10 +356,11 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::config::{AcceptPolicyKind, IngestModeAdvert, ResourceKindAccept};
     use std::collections::HashMap;
     use std::time::Duration;
+
+    use super::*;
+    use crate::config::{AcceptPolicyKind, IngestModeAdvert, ResourceKindAccept};
 
     fn cfg(development_mode: bool, pcd_enabled: bool) -> AppConfig {
         AppConfig {

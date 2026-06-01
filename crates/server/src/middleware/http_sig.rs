@@ -42,22 +42,22 @@
 //! `error-code-registry.json` (401, scope=both); `signature_invalid` is the
 //! ingest-specific §8 code (400) for header-shape problems.
 
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
+pub use contrix_sdk::http_signature::Ed25519PublicKey;
 use contrix_sdk::http_signature::{
-    ContentDigest, SignatureError, SignedRequestParts, canonical_message, parse_signature_header,
-    parse_signature_input, verify_content_digest, verify_signature,
+    ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
+    SignedRequestParts, canonical_message, parse_signature_header, parse_signature_input,
+    verify_content_digest, verify_signature,
 };
-use contrix_sdk::http_signature::{SignaturePolicyError, SignatureVerificationPolicy};
 use contrix_sdk::identity::DidResolver;
 use contrix_sdk::jws::resolve_ed25519_pubkey;
 use contrix_sdk::{CompositeDidResolver, Did};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
-
-pub use contrix_sdk::http_signature::Ed25519PublicKey;
 use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -687,8 +687,6 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use contrix_sdk::http_signature::{
@@ -698,6 +696,8 @@ mod tests {
     use salvo::http::StatusCode;
     use salvo::test::{ResponseExt, SendTarget, TestClient};
     use serde_json::{Value as JsonValue, json};
+
+    use super::*;
 
     const TEST_KEY_ID: &str = "did:web:alice.example#push";
     const TEST_SEED: [u8; 32] = [7u8; 32];

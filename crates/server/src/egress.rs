@@ -157,7 +157,7 @@ fn resolve_host_addrs(
 }
 
 fn dns_error(message: String) -> DnsError {
-    Box::new(std::io::Error::new(std::io::ErrorKind::Other, message))
+    Box::new(std::io::Error::other(message))
 }
 
 fn validate_resolved_ip(ip: IpAddr, purpose: &str) -> Result<(), String> {

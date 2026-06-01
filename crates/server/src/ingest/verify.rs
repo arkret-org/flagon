@@ -3,9 +3,9 @@
 //! 1. Transport layer — HTTP Message Signature for push, or service binding + TLS for pull. We
 //!    surface a hook here; the actual RFC 9421 HTTP signature check lives in
 //!    [`crate::middleware::http_sig`] (mounted on the ingest sub-router by
-//!    [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`)
-//!    so the handler always sees an already-authenticated transport. TB-1 (this comment block)
-//!    closed the prior gap where the middleware was advertised but not actually mounted.
+//!    [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`) so the handler
+//!    always sees an already-authenticated transport. TB-1 (this comment block) closed the prior
+//!    gap where the middleware was advertised but not actually mounted.
 //! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against the resource governance
 //!    key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_services` contains *this* directory's
@@ -569,8 +569,7 @@ async fn verify_first_source_ref_resolves(
 ) -> Result<(), (ApiErrorCode, String)> {
     let source_ref = req
         .source_refs
-        .iter()
-        .next()
+        .first()
         .ok_or_else(|| {
             (
                 ApiErrorCode::SourceRefsUnverifiable,

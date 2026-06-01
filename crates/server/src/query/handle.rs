@@ -731,7 +731,8 @@ fn binding_passes(
     };
     let source_ok = match obj.get("binding_source").and_then(JsonValue::as_str) {
         Some(src) => unrestricted_source || policy.allow_binding_sources.iter().any(|a| a == src),
-        None => unrestricted_source, // No binding_source declared — only allowed when policy is open.
+        None => unrestricted_source, /* No binding_source declared — only allowed when policy is
+                                      * open. */
     };
     recipient_ok && source_ok
 }
@@ -797,10 +798,11 @@ fn envelope_from_projection(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::time::{Duration, Instant};
 
     use chrono::TimeZone;
+
+    use super::*;
 
     fn dummy_row(public_projection: JsonValue) -> HandleRow {
         HandleRow {

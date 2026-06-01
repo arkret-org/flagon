@@ -2,8 +2,9 @@
 //! Database-backed integration tests live under `tests/it/` once we have a
 //! testcontainers fixture in M0-T3.
 
-use server::routing;
 use std::sync::Mutex;
+
+use server::routing;
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 

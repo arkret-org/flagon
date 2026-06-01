@@ -85,8 +85,8 @@ impl Db {
         let status = self.pool.status();
         DbPoolStats {
             connections: status.size as u32,
-            idle: status.available.max(0) as u32,
-            in_use: (status.size as i64 - status.available.max(0) as i64).max(0) as u32,
+            idle: status.available as u32,
+            in_use: status.size.saturating_sub(status.available) as u32,
             max_size: status.max_size as u32,
         }
     }

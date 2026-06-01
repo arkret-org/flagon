@@ -9,9 +9,8 @@
 //! `teabay-directory-service-baseline-2026-05-10.json`.
 //!
 //! Source of truth:
-//!   * §3 discovery event kinds → `contrix_sdk::events::{REALM_DISCOVERY,
-//!     ORGANIZATION_DISCOVERY, ACTOR_DISCOVERY, APPLET_DISCOVERY,
-//!     HANDLE_DISCOVERY}`
+//!   * §3 discovery event kinds → `contrix_sdk::events::{REALM_DISCOVERY, ORGANIZATION_DISCOVERY,
+//!     ACTOR_DISCOVERY, APPLET_DISCOVERY, HANDLE_DISCOVERY}`
 //!   * §8/§9 directory operations → `contrix_sdk::{OP_DIRECTORY_*}`
 
 // ---- §3 discovery event kinds (wire scope: directory_signed_event) ------

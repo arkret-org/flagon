@@ -10,19 +10,16 @@
 //! TTL window.
 //!
 //! Authorization:
-//!  - the heartbeat MUST come from the same `principal_server_did`
-//!    that originally announced the row. We look up
-//!    `directory_resources` by `(resource_kind, resource_id)` and
-//!    confirm `principal_server_did` matches the request header
-//!    `X-Principal-Server-DID`. RFC 9421 HTTP Message Signature
-//!    middleware authenticates the *transport*; the
-//!    principal-server check authenticates the *content owner*.
-//!  - rate-limited via the standard ingest rate limit per
-//!    resource_id and per IP.
+//!  - the heartbeat MUST come from the same `principal_server_did` that originally announced the
+//!    row. We look up `directory_resources` by `(resource_kind, resource_id)` and confirm
+//!    `principal_server_did` matches the request header `X-Principal-Server-DID`. RFC 9421 HTTP
+//!    Message Signature middleware authenticates the *transport*; the principal-server check
+//!    authenticates the *content owner*.
+//!  - rate-limited via the standard ingest rate limit per resource_id and per IP.
 //!
 //! Failure modes:
-//!  - row not found / takedown in force → `not_found` (blinded;
-//!    same shape as a clean miss, see `crate::filter::enumeration`).
+//!  - row not found / takedown in force → `not_found` (blinded; same shape as a clean miss, see
+//!    `crate::filter::enumeration`).
 //!  - principal mismatch → `directory_not_authorized`.
 //!  - row is a destroyed realm → `realm_terminal_state`.
 

@@ -22,12 +22,10 @@
 //!
 //! The walker is intentionally pessimistic:
 //!  - any object key in [`CIRCLE_FORBIDDEN_KEYS`] is a hard reject
-//!  - any string value starting with `cx:circle:` is a hard reject
-//!    (so a `circle_id` smuggled under a free-form `description` field
-//!    is still caught)
-//!  - any forbidden top-level wire field per SDK
-//!    [`contrix_sdk::is_forbidden_wire_field`] (e.g. `discussion_realm_ref`)
-//!    is a hard reject — this is the CXP-0007 anti-rollback floor.
+//!  - any string value starting with `cx:circle:` is a hard reject (so a `circle_id` smuggled under
+//!    a free-form `description` field is still caught)
+//!  - any forbidden top-level wire field per SDK [`contrix_sdk::is_forbidden_wire_field`] (e.g.
+//!    `discussion_realm_ref`) is a hard reject — this is the CXP-0007 anti-rollback floor.
 
 use serde_json::Value as JsonValue;
 
@@ -214,8 +212,9 @@ fn push_pointer_token(out: &mut String, token: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn accepts_realm_only_announce_state() {
