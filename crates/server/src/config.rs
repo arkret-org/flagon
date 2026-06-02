@@ -287,7 +287,7 @@ impl AppConfig {
         let service_did = std::env::var("TEABAY_SERVICE_DID")
             .map_err(|_| anyhow::anyhow!("TEABAY_SERVICE_DID is required"))?;
 
-        // Round 4 — required trust domain on ServiceDescribe v2. Operators
+        // Round 4 — required trust domain on ServiceDescribe. Operators
         // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
         // exists so the in-process conformance harness keeps booting.
         let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")

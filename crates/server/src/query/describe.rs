@@ -2,7 +2,7 @@
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
-//! [`contrix_sdk::ServerDescription::validate_v2`] BEFORE serialisation; a
+//! [`contrix_sdk::ServerDescription::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
@@ -45,7 +45,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 
 /// Round 4 — build the `ServiceDescribe` v2 envelope plus the
 /// directory-service-specific extension fields. Runs
-/// [`ServerDescription::validate_v2`] before returning so a misconfigured
+/// [`ServerDescription::validate`] before returning so a misconfigured
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
@@ -162,7 +162,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // profile the directory advertises is self-claimed. `verified_profiles`
     // is empty until a cotest verifier is wired in; the
     // `development_mode=true ⇒ verified_profiles=[]` invariant is
-    // enforced by `ServerDescription::validate_v2`.
+    // enforced by `ServerDescription::validate`.
     //
     // Round 4 — `claimed_profiles` / `verified_profiles` / `compat_surfaces`
     // are typed entries in the SDK (`ClaimedProfileEntry` /
@@ -216,18 +216,18 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         last_materialized_at: None,
     };
     describe_body
-        .validate_v2()
-        .map_err(|err| format!("ServiceDescribe v2 validation failed: {err}"))?;
+        .validate()
+        .map_err(|err| format!("ServiceDescribe validation failed: {err}"))?;
 
     let mut value = serde_json::to_value(&describe_body)
-        .map_err(|err| format!("ServiceDescribe v2 serialisation failed: {err}"))?;
+        .map_err(|err| format!("ServiceDescribe serialisation failed: {err}"))?;
     let object = value
         .as_object_mut()
-        .ok_or_else(|| "ServiceDescribe v2 must serialise as a JSON object".to_owned())?;
+        .ok_or_else(|| "ServiceDescribe must serialise as a JSON object".to_owned())?;
 
     // Directory-specific extension fields (non-required, ride alongside
     // the canonical 17). The directory surface specification
-    // (discovery-directory.md §9) requires these; ServiceDescribe v2 only
+    // (discovery-directory.md §9) requires these; ServiceDescribe only
     // tightens the *shared* required surface.
     object.insert(
         "public_base_url".to_owned(),
@@ -434,7 +434,7 @@ mod tests {
         ] {
             assert!(
                 value.get(required).is_some(),
-                "ServiceDescribe v2 must carry required field `{required}`"
+                "ServiceDescribe must carry required field `{required}`"
             );
         }
 
@@ -470,7 +470,7 @@ mod tests {
         );
     }
 
-    /// Round 4 — `validate_v2` fails closed when development mode is set
+    /// Round 4 — `validate` fails closed when development mode is set
     /// alongside a non-empty `verified_profiles`. The handler short-
     /// circuits through `internal_error`; here we exercise the
     /// validator directly to assert the contract.
@@ -516,7 +516,7 @@ mod tests {
             reducer_profile: None,
             last_materialized_at: None,
         };
-        assert!(describe_body.validate_v2().is_err());
+        assert!(describe_body.validate().is_err());
     }
 
     /// Round R2/R3 carry-forward — when private contact discovery is
