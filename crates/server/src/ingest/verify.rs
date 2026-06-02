@@ -569,6 +569,7 @@ async fn verify_first_source_ref_resolves(
 ) -> Result<(), (ApiErrorCode, String)> {
     let source_ref = req
         .source_refs
+        .as_slice()
         .first()
         .ok_or_else(|| {
             (
