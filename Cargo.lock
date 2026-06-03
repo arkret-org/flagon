@@ -705,6 +705,7 @@ dependencies = [
  "cokret-ffi",
  "cokret-html",
  "cokret-http-client",
+ "cokret-keystore",
  "cokret-signatures",
  "ed25519-dalek",
  "getrandom 0.3.4",
@@ -741,6 +742,7 @@ name = "cokret-core"
 version = "1.0.0"
 dependencies = [
  "base64",
+ "bs58",
  "chrono",
  "cokret-identifiers",
  "getrandom 0.3.4",
@@ -812,14 +814,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cokret-keystore"
+version = "1.0.0"
+dependencies = [
+ "cokret-core",
+]
+
+[[package]]
 name = "cokret-signatures"
 version = "1.0.0"
 dependencies = [
  "base64",
  "chrono",
  "cokret-core",
+ "ed25519-dalek",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.18",
 ]
 
