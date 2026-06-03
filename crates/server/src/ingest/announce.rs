@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use contrix_sdk::canonical;
-use contrix_sdk::{
+use cokret_sdk::canonical;
+use cokret_sdk::{
     HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_DIGEST, HEADER_SOURCE_TRUST_DOMAIN,
     federation_trust_domain_transcript_fragment,
 };
@@ -81,7 +81,7 @@ fn is_false(value: &bool) -> bool {
 /// replay the same idempotency key (with the same `origin_key_state_digest`)
 /// into trust domain B. The destination + canonical-hash also feed into
 /// the signing transcript via
-/// [`contrix_sdk::federation_trust_domain_transcript_fragment`].
+/// [`cokret_sdk::federation_trust_domain_transcript_fragment`].
 #[derive(Debug, Clone)]
 pub struct FederationCacheKeyInputs {
     pub source_service_did: String,
@@ -218,14 +218,14 @@ pub(crate) fn verify_federation_trust_domain_headers(
     }
     // Validate trust-domain identifiers via the SDK's typed wrapper so
     // method-name regex tightening + scope-length limits are enforced.
-    let source_td = contrix_sdk::TypedTrustDomainId::new(inputs.source_trust_domain.clone())
+    let source_td = cokret_sdk::TypedTrustDomainId::new(inputs.source_trust_domain.clone())
         .map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ck:trust_domain: {err}"),
             )
         })?;
-    let destination_td = contrix_sdk::TypedTrustDomainId::new(
+    let destination_td = cokret_sdk::TypedTrustDomainId::new(
         inputs.destination_trust_domain.clone(),
     )
     .map_err(|err| {
@@ -268,7 +268,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     // an RFC 9421 envelope — the transcript fragment is emitted so the
     // federation outbound path (when wired) reuses the same value.
     let canonical_hash =
-        contrix_sdk::Hash::new(inputs.request_canonical_digest.clone()).map_err(|err| {
+        cokret_sdk::Hash::new(inputs.request_canonical_digest.clone()).map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_REQUEST_CANONICAL_DIGEST} is not a valid Hash: {err}"),
@@ -382,7 +382,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     if matches!(body.resource_kind, ResourceKindWire::Handle) {
         let localpart =
             crate::query::handle::extract_localpart_public(&body.resource_id).to_owned();
-        if contrix_sdk::normalize_handle_localpart(&localpart).is_err() {
+        if cokret_sdk::normalize_handle_localpart(&localpart).is_err() {
             ingest_metric.set_outcome("handle_homograph_forbidden");
             let _ = audit::record(
                 state.db(),
@@ -864,9 +864,9 @@ fn validate_handle_claim_ingest(discovery_state: &JsonValue) -> Result<(), (ApiE
 
     // (2) handle-claim subject MUST be a holder/principal DID.
     if let Some(subject) = obj.get("subject").and_then(JsonValue::as_str) {
-        match contrix_sdk::Did::new(subject.to_owned()) {
+        match cokret_sdk::Did::new(subject.to_owned()) {
             Ok(did) => {
-                if contrix_sdk::validate_handle_claim_subject(&did).is_err() {
+                if cokret_sdk::validate_handle_claim_subject(&did).is_err() {
                     return Err((
                         ApiErrorCode::SchemaViolation,
                         format!(
@@ -937,7 +937,7 @@ pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
     h.finalize().to_vec()
 }
 
-/// Cokret canonical JSON string via the SDK's `contrix_sdk::canonical`
+/// Cokret canonical JSON string via the SDK's `cokret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte

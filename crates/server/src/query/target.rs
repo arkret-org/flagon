@@ -20,13 +20,13 @@
 //!
 //! When the address carries `lt=invite&tok=<token>` (or the request body
 //! supplies `token`), the token's own signed payload carries an authoritative
-//! [`TargetDescriptor`](contrix_sdk::model::TargetDescriptor). We:
-//!   1. parse the address → [`ParsedAddress`](contrix_sdk::model::ParsedAddress),
+//! [`TargetDescriptor`](cokret_sdk::model::TargetDescriptor). We:
+//!   1. parse the address → [`ParsedAddress`](cokret_sdk::model::ParsedAddress),
 //!   2. build a `TargetDescriptor` from the address; for an ALIAS realm we normalize via the realm
 //!      resolution to obtain the canonical `realm_id` and `set_realm_id`,
 //!   3. verify the token's detached Ed25519 JWS over the canonical token payload and extract its
 //!      embedded `target_descriptor`,
-//!   4. call [`verify_token_target`](contrix_sdk::model::verify_token_target), which recomputes &
+//!   4. call [`verify_token_target`](cokret_sdk::model::verify_token_target), which recomputes &
 //!      compares the `sha256:` digest. `via` / `action` / `tok` / `lt` are NOT in the digest, so a
 //!      token minted for object A can never be replayed onto a different object B (scope-confusion
 //!      defence).
@@ -45,12 +45,12 @@
 //! effect immediately.
 
 use chrono::Utc;
-use contrix_sdk::identity::DidKeyResolver;
-use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
-use contrix_sdk::model::{
+use cokret_sdk::identity::DidKeyResolver;
+use cokret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
+use cokret_sdk::model::{
     LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, verify_token_target,
 };
-use contrix_sdk::{
+use cokret_sdk::{
     DirectoryResolveTargetReqBody, DirectoryResolveTargetResBody, RealmId, RealmPreview,
     TargetKind, canonical,
 };
@@ -602,10 +602,10 @@ fn opt_bool(value: bool) -> Option<bool> {
     value.then_some(true)
 }
 
-/// Reduce a [`Proof`](contrix_sdk::Proof) to the opaque string key the
+/// Reduce a [`Proof`](cokret_sdk::Proof) to the opaque string key the
 /// realm-visibility filter matches against. Mirrors how `resolve_realm` treats
 /// the proofs vector as a set of opaque match tokens.
-fn proof_to_key(proof: &contrix_sdk::Proof) -> String {
+fn proof_to_key(proof: &cokret_sdk::Proof) -> String {
     serde_json::to_value(proof)
         .ok()
         .and_then(|v| {
@@ -622,8 +622,8 @@ fn proof_to_key(proof: &contrix_sdk::Proof) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::DateTime;
-    use contrix_sdk::jws::sign_jws_ed25519;
-    use contrix_sdk::model::{AddressAction, build_address};
+    use cokret_sdk::jws::sign_jws_ed25519;
+    use cokret_sdk::model::{AddressAction, build_address};
     use ed25519_dalek::SigningKey;
 
     use super::*;
@@ -845,7 +845,7 @@ mod tests {
         assert_eq!(preview.title.as_deref(), Some("Tea Time"));
         assert_eq!(
             response.join_candidates,
-            Vec::<contrix_sdk::RealmJoinCandidate>::new()
+            Vec::<cokret_sdk::RealmJoinCandidate>::new()
         );
         assert!(response.object_preview.is_none());
     }

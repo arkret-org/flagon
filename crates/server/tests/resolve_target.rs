@@ -3,7 +3,7 @@
 //!
 //! These exercise the directory's object-address resolution semantics against
 //! the pure, Postgres-free cores: the SDK address parser
-//! (`contrix_sdk::model::parse_address`) and the token-binding check
+//! (`cokret_sdk::model::parse_address`) and the token-binding check
 //! (`server::query::target::verify_address_token`). The full HTTP-path smoke
 //! that asserts a realm address resolves byte-for-byte to what
 //! `resolve_realm` returns lives in the Docker-gated
@@ -21,9 +21,9 @@
 //!   (d) a flow address missing `via` → fail-closed (parse error → not_found).
 
 use chrono::Utc;
-use contrix_sdk::canonical;
-use contrix_sdk::jws::sign_jws_ed25519;
-use contrix_sdk::model::{LinkType, ParsedAddress, TargetDescriptor, parse_address};
+use cokret_sdk::canonical;
+use cokret_sdk::jws::sign_jws_ed25519;
+use cokret_sdk::model::{LinkType, ParsedAddress, TargetDescriptor, parse_address};
 use ed25519_dalek::SigningKey;
 use serde_json::json;
 use server::query::target::{TokenCheck, verify_address_token};

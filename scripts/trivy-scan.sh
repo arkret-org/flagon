@@ -9,14 +9,14 @@
 # Env knobs:
 #   TEABAY_SERVER_IMAGE_REF  default: teabay-server:local
 #   TEABAY_ADMIN_IMAGE_REF   default: teabay-admin:local
-#   CONTRIX_SDK_CONTEXT      default: ../cokret-rust-sdk
+#   COKRET_SDK_CONTEXT      default: ../cokret-rust-sdk
 #   TRIVY_SEVERITY           default: HIGH,CRITICAL
 #   TRIVY_EXIT_CODE          default: 1
 set -euo pipefail
 
 server_image_ref="${TEABAY_SERVER_IMAGE_REF:-teabay-server:local}"
 admin_image_ref="${TEABAY_ADMIN_IMAGE_REF:-teabay-admin:local}"
-sdk_context="${CONTRIX_SDK_CONTEXT:-../cokret-rust-sdk}"
+sdk_context="${COKRET_SDK_CONTEXT:-../cokret-rust-sdk}"
 severity="${TRIVY_SEVERITY:-HIGH,CRITICAL}"
 exit_code="${TRIVY_EXIT_CODE:-1}"
 

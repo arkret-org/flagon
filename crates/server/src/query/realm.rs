@@ -12,7 +12,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Duration, Utc};
-use contrix_sdk::{
+use cokret_sdk::{
     Did, EventId, RealmId, RealmJoinCandidate, RealmJoinCandidateRole,
     RealmJoinCandidateServiceType, RealmJoinCandidateSource, RealmJoinMethod,
 };

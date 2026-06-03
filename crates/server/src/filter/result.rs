@@ -5,7 +5,7 @@
 //! the per-query freshness check.
 
 use chrono::{DateTime, Utc};
-use contrix_sdk::RealmJoinCandidate;
+use cokret_sdk::RealmJoinCandidate;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 

@@ -21,10 +21,10 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use contrix_sdk::identity::{DidResolver, DidWebvhResolver};
-use contrix_sdk::canonical;
-use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
-use contrix_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver};
+use cokret_sdk::identity::{DidResolver, DidWebvhResolver};
+use cokret_sdk::canonical;
+use cokret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
+use cokret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use reqwest::Client;
@@ -469,7 +469,7 @@ fn canonical_payload_without_jws(
     canonical_json_bytes(&unsigned).map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
-/// Cokret canonical JSON bytes via the SDK's `contrix_sdk::canonical`
+/// Cokret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// This replaces a previously hand-written serializer that sorted object

@@ -3,7 +3,7 @@ set -euo pipefail
 
 image_ref="${TEABAY_IMAGE_REF:-teabay:local}"
 out_dir="${TEABAY_ARTIFACT_DIR:-artifacts}"
-sdk_context="${CONTRIX_SDK_CONTEXT:-../cokret-rust-sdk}"
+sdk_context="${COKRET_SDK_CONTEXT:-../cokret-rust-sdk}"
 
 mkdir -p "${out_dir}"
 

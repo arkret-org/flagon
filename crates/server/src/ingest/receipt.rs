@@ -3,7 +3,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use contrix_sdk::canonical;
+use cokret_sdk::canonical;
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
 
@@ -135,7 +135,7 @@ fn sign_receipt_statement(
     }))
 }
 
-/// Cokret canonical JSON bytes via the SDK's `contrix_sdk::canonical`
+/// Cokret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte

@@ -24,7 +24,7 @@
 //!  - any object key in [`CIRCLE_FORBIDDEN_KEYS`] is a hard reject
 //!  - any string value starting with `ck:circle:` is a hard reject (so a `circle_id` smuggled under
 //!    a free-form `description` field is still caught)
-//!  - any forbidden top-level wire field per SDK [`contrix_sdk::is_forbidden_wire_field`] (e.g.
+//!  - any forbidden top-level wire field per SDK [`cokret_sdk::is_forbidden_wire_field`] (e.g.
 //!    `discussion_realm_ref`) is a hard reject — this is the CXP-0007 anti-rollback floor.
 
 use serde_json::Value as JsonValue;
@@ -137,7 +137,7 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
                 // names (`circle_id`, `scope_circle_id`, etc.) are
                 // not in the SDK list and fall through to
                 // `ForbiddenKey`.
-                if contrix_sdk::is_forbidden_wire_field(key) {
+                if cokret_sdk::is_forbidden_wire_field(key) {
                     return Err(CircleRejection::ForbiddenLegacyWireField(key.clone()));
                 }
                 if let Some(forbidden) = CIRCLE_FORBIDDEN_KEYS

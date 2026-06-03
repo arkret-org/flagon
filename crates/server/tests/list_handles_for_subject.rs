@@ -17,21 +17,21 @@
 //!   5. cursor pagination boundary.
 
 use chrono::{TimeZone, Utc};
-use contrix_sdk::DirectoryListHandlesForSubjectReqBody;
+use cokret_sdk::DirectoryListHandlesForSubjectReqBody;
 use serde_json::json;
 use server::ingest::DiscoverabilityWire;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 
-fn subject() -> contrix_sdk::Did {
-    contrix_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()
+fn subject() -> cokret_sdk::Did {
+    cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()
 }
 
 fn req(realm_id: Option<&str>, requester: Option<&str>) -> DirectoryListHandlesForSubjectReqBody {
     DirectoryListHandlesForSubjectReqBody {
         subject: subject(),
-        realm_id: realm_id.map(|r| contrix_sdk::RealmId::new(r.to_owned()).unwrap()),
+        realm_id: realm_id.map(|r| cokret_sdk::RealmId::new(r.to_owned()).unwrap()),
         intent: None,
-        requester: requester.map(|r| contrix_sdk::Did::new(r.to_owned()).unwrap()),
+        requester: requester.map(|r| cokret_sdk::Did::new(r.to_owned()).unwrap()),
         proof_challenge: None,
         proofs: Vec::new(),
         as_of: None,

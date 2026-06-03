@@ -9,17 +9,17 @@
 //! `teabay-directory-service-baseline-2026-05-10.json`.
 //!
 //! Source of truth:
-//!   * §3 discovery event kinds → `contrix_sdk::events::{REALM_DISCOVERY, ORGANIZATION_DISCOVERY,
+//!   * §3 discovery event kinds → `cokret_sdk::events::{REALM_DISCOVERY, ORGANIZATION_DISCOVERY,
 //!     ACTOR_DISCOVERY, APPLET_DISCOVERY, HANDLE_DISCOVERY}`
-//!   * §8/§9 directory operations → `contrix_sdk::{OP_DIRECTORY_*}`
+//!   * §8/§9 directory operations → `cokret_sdk::{OP_DIRECTORY_*}`
 
 // ---- §3 discovery event kinds (wire scope: directory_signed_event) ------
 
-pub const EVENT_KIND_REALM_DISCOVERY: &str = contrix_sdk::events::REALM_DISCOVERY;
-pub const EVENT_KIND_ORGANIZATION_DISCOVERY: &str = contrix_sdk::events::ORGANIZATION_DISCOVERY;
-pub const EVENT_KIND_ACTOR_DISCOVERY: &str = contrix_sdk::events::ACTOR_DISCOVERY;
-pub const EVENT_KIND_APPLET_DISCOVERY: &str = contrix_sdk::events::APPLET_DISCOVERY;
-pub const EVENT_KIND_HANDLE_DISCOVERY: &str = contrix_sdk::events::HANDLE_DISCOVERY;
+pub const EVENT_KIND_REALM_DISCOVERY: &str = cokret_sdk::events::REALM_DISCOVERY;
+pub const EVENT_KIND_ORGANIZATION_DISCOVERY: &str = cokret_sdk::events::ORGANIZATION_DISCOVERY;
+pub const EVENT_KIND_ACTOR_DISCOVERY: &str = cokret_sdk::events::ACTOR_DISCOVERY;
+pub const EVENT_KIND_APPLET_DISCOVERY: &str = cokret_sdk::events::APPLET_DISCOVERY;
+pub const EVENT_KIND_HANDLE_DISCOVERY: &str = cokret_sdk::events::HANDLE_DISCOVERY;
 
 /// All discovery event kinds this directory service indexes.
 ///
@@ -36,29 +36,29 @@ pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
 
 // ---- §8 ingest operations -----------------------------------------------
 
-pub const OP_DIRECTORY_ANNOUNCE: &str = contrix_sdk::OP_DIRECTORY_ANNOUNCE;
-pub const OP_DIRECTORY_WITHDRAW: &str = contrix_sdk::OP_DIRECTORY_WITHDRAW;
-pub const OP_DIRECTORY_SUBSCRIBE: &str = contrix_sdk::OP_DIRECTORY_SUBSCRIBE;
+pub const OP_DIRECTORY_ANNOUNCE: &str = cokret_sdk::OP_DIRECTORY_ANNOUNCE;
+pub const OP_DIRECTORY_WITHDRAW: &str = cokret_sdk::OP_DIRECTORY_WITHDRAW;
+pub const OP_DIRECTORY_SUBSCRIBE: &str = cokret_sdk::OP_DIRECTORY_SUBSCRIBE;
 
 // ---- §9 query operations (declared for profile self-check) --------------
 
-pub const OP_DIRECTORY_DESCRIBE: &str = contrix_sdk::OP_DIRECTORY_DESCRIBE;
-pub const OP_DIRECTORY_SEARCH_REALMS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_REALMS;
-pub const OP_DIRECTORY_RESOLVE_REALM: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_REALM;
-pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ORGANIZATIONS;
-pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_ORGANIZATION;
-pub const OP_DIRECTORY_SEARCH_ACTORS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ACTORS;
-pub const OP_DIRECTORY_SEARCH_USERS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_USERS;
-pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
+pub const OP_DIRECTORY_DESCRIBE: &str = cokret_sdk::OP_DIRECTORY_DESCRIBE;
+pub const OP_DIRECTORY_SEARCH_REALMS: &str = cokret_sdk::OP_DIRECTORY_SEARCH_REALMS;
+pub const OP_DIRECTORY_RESOLVE_REALM: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_REALM;
+pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = cokret_sdk::OP_DIRECTORY_SEARCH_ORGANIZATIONS;
+pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_ORGANIZATION;
+pub const OP_DIRECTORY_SEARCH_ACTORS: &str = cokret_sdk::OP_DIRECTORY_SEARCH_ACTORS;
+pub const OP_DIRECTORY_SEARCH_USERS: &str = cokret_sdk::OP_DIRECTORY_SEARCH_USERS;
+pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
 /// Generalized target resolution (`cx.directory.resolve_target`). Not part of
 /// the profile's `required_endpoints`, but published by teabay and advertised
 /// in [`SUPPORTED_OPERATIONS`].
-pub const OP_DIRECTORY_RESOLVE_TARGET: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_TARGET;
+pub const OP_DIRECTORY_RESOLVE_TARGET: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_TARGET;
 /// R3.2 (cokret-spec @ b56cab1) — reverse handle lookup
 /// (`cx.directory.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
 pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =
-    contrix_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
+    cokret_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
 
 /// The profile's **required** operations, in the same order as
 /// `cx.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte

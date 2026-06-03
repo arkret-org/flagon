@@ -2,7 +2,7 @@
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
-//! [`contrix_sdk::ServerDescription::validate`] BEFORE serialisation; a
+//! [`cokret_sdk::ServerDescription::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
@@ -11,7 +11,7 @@
 //! the canonical 17 as non-required extensions so the rest of the
 //! `discovery-directory.md` §9 surface stays intact.
 
-use contrix_sdk::{
+use cokret_sdk::{
     ClaimedProfileEntry, CompatSurfaceEntry, Did, EgressNetworkPolicy, ServerDescription,
     TypedTrustDomainId, VerifiedProfileEntry,
 };
@@ -176,7 +176,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         service_did,
         trust_domain,
         service_type: "directory".to_owned(),
-        protocol_version: contrix_sdk::PROTOCOL_VERSION.to_owned(),
+        protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         supported_operations,
         supported_bindings,
@@ -460,7 +460,7 @@ mod tests {
             service_did: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ck:trust_domain:local.test").unwrap(),
             service_type: "directory".to_owned(),
-            protocol_version: contrix_sdk::PROTOCOL_VERSION.to_owned(),
+            protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["cx.profile.directory_service.v1".to_owned()],
             supported_operations: Vec::new(),
             supported_bindings: Vec::new(),
@@ -473,7 +473,7 @@ mod tests {
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
                 profile_id: "cx.profile.directory_service.v1".to_owned(),
-                claim_kind: contrix_sdk::CotestVerifiedKind::CotestVerified,
+                claim_kind: cokret_sdk::CotestVerifiedKind::CotestVerified,
                 cotest_run_id: "test-run".to_owned(),
                 artifact_digest:
                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"

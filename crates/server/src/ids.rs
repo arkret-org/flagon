@@ -3,7 +3,7 @@
 //! All teabay-issued ids are `ck:<class>:<uuidv7>`. UUIDv7 is time-ordered,
 //! which gives us natural ordering for audit logs without a separate
 //! sequence column, and keeps these service-internal ids aligned with the
-//! protocol-wide UUIDv7 typed-id form (`contrix_sdk::new_prefixed_uuid7`).
+//! protocol-wide UUIDv7 typed-id form (`cokret_sdk::new_prefixed_uuid7`).
 //!
 //! ## CXP-0007 `ck:circle:` tolerance (P2E.7)
 //!
@@ -17,8 +17,8 @@
 //! implemented via the substring sentinel in
 //! `circle_isolation::CIRCLE_TYPED_ID_PREFIX`.
 
-use contrix_sdk::identifiers::is_lowercase_uuidv7;
-use contrix_sdk::new_prefixed_uuid7;
+use cokret_sdk::identifiers::is_lowercase_uuidv7;
+use cokret_sdk::new_prefixed_uuid7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IdClass {

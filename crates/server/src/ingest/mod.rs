@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 // announce body whose discovery_state contains a `recovery_policy_ref`
 // or `recovery_receipt_ref` against the SDK's `RecoveryPolicy` /
 // `RecoveryReceipt` types (once those land — see
-// `cokret-rust-sdk/_contrix_rust_sdk_todos.md` REC-1). Until then a
+// `cokret-rust-sdk/_cokret_rust_sdk_todos.md` REC-1). Until then a
 // caller attempting to announce a recovery-keyed resource is rejected
 // by the `resource_kind` enum at deserialization time, which is the
 // intentional stub for REC-1.
@@ -76,7 +76,7 @@ impl ResourceKindWire {
     }
 }
 
-impl From<ResourceKindWire> for contrix_sdk::DirectoryResourceKind {
+impl From<ResourceKindWire> for cokret_sdk::DirectoryResourceKind {
     fn from(kind: ResourceKindWire) -> Self {
         // The SDK's `DirectoryResourceKind` still carries the pre-inversion
         // name `Space` for the security-boundary kind teabay calls `Realm`
@@ -93,14 +93,14 @@ impl From<ResourceKindWire> for contrix_sdk::DirectoryResourceKind {
     }
 }
 
-impl From<contrix_sdk::DirectoryResourceKind> for ResourceKindWire {
-    fn from(kind: contrix_sdk::DirectoryResourceKind) -> Self {
+impl From<cokret_sdk::DirectoryResourceKind> for ResourceKindWire {
+    fn from(kind: cokret_sdk::DirectoryResourceKind) -> Self {
         match kind {
-            contrix_sdk::DirectoryResourceKind::Space => Self::Realm,
-            contrix_sdk::DirectoryResourceKind::Organization => Self::Organization,
-            contrix_sdk::DirectoryResourceKind::Actor => Self::Actor,
-            contrix_sdk::DirectoryResourceKind::Applet => Self::Applet,
-            contrix_sdk::DirectoryResourceKind::Handle => Self::Handle,
+            cokret_sdk::DirectoryResourceKind::Space => Self::Realm,
+            cokret_sdk::DirectoryResourceKind::Organization => Self::Organization,
+            cokret_sdk::DirectoryResourceKind::Actor => Self::Actor,
+            cokret_sdk::DirectoryResourceKind::Applet => Self::Applet,
+            cokret_sdk::DirectoryResourceKind::Handle => Self::Handle,
         }
     }
 }
@@ -162,7 +162,7 @@ impl DiscoverabilityWire {
     }
 }
 
-impl From<DiscoverabilityWire> for contrix_sdk::Discoverability {
+impl From<DiscoverabilityWire> for cokret_sdk::Discoverability {
     fn from(discoverability: DiscoverabilityWire) -> Self {
         match discoverability {
             DiscoverabilityWire::Public => Self::Public,
@@ -175,15 +175,15 @@ impl From<DiscoverabilityWire> for contrix_sdk::Discoverability {
     }
 }
 
-impl From<contrix_sdk::Discoverability> for DiscoverabilityWire {
-    fn from(discoverability: contrix_sdk::Discoverability) -> Self {
+impl From<cokret_sdk::Discoverability> for DiscoverabilityWire {
+    fn from(discoverability: cokret_sdk::Discoverability) -> Self {
         match discoverability {
-            contrix_sdk::Discoverability::Public => Self::Public,
-            contrix_sdk::Discoverability::Listed => Self::Listed,
-            contrix_sdk::Discoverability::Restricted => Self::Restricted,
-            contrix_sdk::Discoverability::Unlisted => Self::Unlisted,
-            contrix_sdk::Discoverability::InviteOnly => Self::InviteOnly,
-            contrix_sdk::Discoverability::Secret => Self::Secret,
+            cokret_sdk::Discoverability::Public => Self::Public,
+            cokret_sdk::Discoverability::Listed => Self::Listed,
+            cokret_sdk::Discoverability::Restricted => Self::Restricted,
+            cokret_sdk::Discoverability::Unlisted => Self::Unlisted,
+            cokret_sdk::Discoverability::InviteOnly => Self::InviteOnly,
+            cokret_sdk::Discoverability::Secret => Self::Secret,
         }
     }
 }
@@ -203,11 +203,11 @@ mod tests {
             ResourceKindWire::Applet,
             ResourceKindWire::Handle,
         ] {
-            let sdk_kind: contrix_sdk::DirectoryResourceKind = kind.into();
+            let sdk_kind: cokret_sdk::DirectoryResourceKind = kind.into();
             assert_eq!(ResourceKindWire::from(sdk_kind), kind);
         }
-        let realm_sdk: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
-        assert_eq!(realm_sdk, contrix_sdk::DirectoryResourceKind::Space);
+        let realm_sdk: cokret_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
+        assert_eq!(realm_sdk, cokret_sdk::DirectoryResourceKind::Space);
         assert_eq!(
             ResourceKindWire::Realm.discovery_event_kind(),
             "cx.realm.discovery"
@@ -224,8 +224,8 @@ mod tests {
 
     #[test]
     fn db_discoverability_round_trips_through_sdk_type() {
-        let sdk_value: contrix_sdk::Discoverability = DiscoverabilityWire::InviteOnly.into();
-        assert_eq!(sdk_value, contrix_sdk::Discoverability::InviteOnly);
+        let sdk_value: cokret_sdk::Discoverability = DiscoverabilityWire::InviteOnly.into();
+        assert_eq!(sdk_value, cokret_sdk::Discoverability::InviteOnly);
         assert_eq!(
             DiscoverabilityWire::from(sdk_value),
             DiscoverabilityWire::InviteOnly,

@@ -8,7 +8,7 @@
 //! caller — including ones who never proved control of the resource's
 //! governance key. This module fixes that.
 //!
-//! Wire shape (must match [`contrix_sdk::http_signature`] / floria / soland):
+//! Wire shape (must match [`cokret_sdk::http_signature`] / floria / soland):
 //!
 //! ```text
 //! Signature-Input: sig1=("@method" "@target-uri" "@authority" "content-digest");\
@@ -47,15 +47,15 @@ use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-pub use contrix_sdk::http_signature::Ed25519PublicKey;
-use contrix_sdk::http_signature::{
+pub use cokret_sdk::http_signature::Ed25519PublicKey;
+use cokret_sdk::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
     SignedRequestParts, canonical_message, parse_signature_header, parse_signature_input,
     verify_content_digest, verify_signature,
 };
-use contrix_sdk::identity::DidResolver;
-use contrix_sdk::jws::resolve_ed25519_pubkey;
-use contrix_sdk::{CompositeDidResolver, Did};
+use cokret_sdk::identity::DidResolver;
+use cokret_sdk::jws::resolve_ed25519_pubkey;
+use cokret_sdk::{CompositeDidResolver, Did};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -535,7 +535,7 @@ impl Handler for HttpSigMiddleware {
         // through the same alphabet (standard) the inner-list `:...:`
         // wrapper produced. Cheap, and keeps the verify step inside the
         // SDK's typed-error surface.
-        let signature_b64 = contrix_sdk::http_signature::encode_signature_b64(&signature_bytes);
+        let signature_b64 = cokret_sdk::http_signature::encode_signature_b64(&signature_bytes);
         if let Err(err) = verify_signature(&message, &signature_b64, &public_key) {
             reject_invalid_signature(
                 res,
@@ -695,7 +695,7 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-    use contrix_sdk::http_signature::{
+    use cokret_sdk::http_signature::{
         ContentDigest, ContentDigestAlgorithm, Ed25519SigningKey, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };

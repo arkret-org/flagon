@@ -70,7 +70,7 @@ pub struct ResolveHandleRequest {
 }
 
 /// CXP R3 — extract the localpart from a handle value and run it through
-/// `contrix_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
+/// `cokret_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
 /// confusable skeleton + script-mixed reject).
 ///
 /// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
@@ -91,7 +91,7 @@ pub(crate) fn check_handle_homograph(handle: &str) -> Result<(), String> {
     // suffix. For R3 the wire-level guard is localpart-only because the
     // domain reaches us already lowercased and ASCII-restricted by the
     // ingest path.
-    match contrix_sdk::normalize_handle_localpart(localpart) {
+    match cokret_sdk::normalize_handle_localpart(localpart) {
         Ok(_) => Ok(()),
         Err(_) => Err("handle violates homograph / script-mixed policy".to_owned()),
     }
@@ -740,7 +740,7 @@ fn binding_passes(
 /// Round 4 — drop legacy candidates whose `recipient_service_did`
 /// fails the tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
 fn is_round4_tight_did(did: &str) -> bool {
-    contrix_sdk::Did::new(did.to_owned()).is_ok()
+    cokret_sdk::Did::new(did.to_owned()).is_ok()
 }
 
 #[allow(clippy::too_many_arguments)]

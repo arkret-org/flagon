@@ -68,7 +68,7 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
 /// caller want to point at a Circle?" regardless of which surrounding
 /// envelope field carries the id.
 ///
-/// TODO(R3.1): once `contrix_sdk::CircleId` exposes a public
+/// TODO(R3.1): once `cokret_sdk::CircleId` exposes a public
 /// `wire_form()` constructor accepting bare strings, swap this for
 /// the SDK typed parse so we share the validator with the engine
 /// selector parser in `crates/sdk/src/authz/selectors.rs`.
