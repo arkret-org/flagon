@@ -126,7 +126,7 @@ diesel setup
 cargo run -p server --release
 ```
 
-The server then exposes `/api/v1/directory/*` per the spec. Liveness is
+The server then exposes `/_cokret/find/directory/*` per the spec. Liveness is
 `GET /health`, readiness is `GET /readyz`, and Prometheus metrics are served on
 the separate `TEABAY_METRICS_BIND` listener, default `127.0.0.1:9095`, at
 `GET /metrics`. OpenAPI doc at `GET /.well-known/cokret/openapi.{json,yaml}`.
@@ -145,7 +145,7 @@ crates.
 ## Admin console
 
 The Dioxus web console lives in `crates/admin/` and talks to
-`/api/admin/v1/{resources,allowlist,takedown,audit}` with the
+`/_cokret/local/admin/{resources,allowlist,takedown,audit}` with the
 `TEABAY_ADMIN_TOKEN` bearer token.
 
 ```bash
@@ -206,7 +206,7 @@ and takedown audit through the admin operator surface.
 ```
                         +----------------------------+
 client / SDK  ──────▶   |  Salvo router              |
-                        |  /api/v1/directory/*       |
+                        |  /_cokret/find/directory/* |
                         +----------------------------+
                           │                │
                           │ query          │ ingest
@@ -265,7 +265,7 @@ checks across the whole fleet (see T8.3 for the cross-service shape).
 ingest signer keys before accepting traffic:
 
 1. For each resource Principal Server that may call
-   `/api/v1/directory/{announce,withdraw,subscribe}`, obtain the Ed25519
+   `/_cokret/find/directory/{announce,withdraw,push/register}`, obtain the Ed25519
    verifying key that corresponds to the HTTP Message Signature `keyid`.
 2. Encode the raw 32-byte verifying key with unpadded base64url. Standard
    padded base64 is also accepted, but base64url is preferred for env files.
@@ -292,7 +292,7 @@ mechanism and keep `.env` files out of source control.
 
 ### Admin token enforcement
 
-All `/api/admin/v1/*` handlers call the shared admin guard before touching the
+All `/_cokret/local/admin/*` handlers call the shared admin guard before touching the
 database. The guard requires `Authorization: Bearer $TEABAY_ADMIN_TOKEN` and
 returns `unauthenticated` when the token is unset, absent, or mismatched. In
 production posture, `/health.hardening.admin_auth_mode` reports `production`

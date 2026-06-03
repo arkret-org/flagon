@@ -1015,14 +1015,14 @@ fn handle_mock_principal_connection(
         "service": [{
             "id": format!("{principal_server_did}#principal"),
             "type": "CokretPrincipalServer",
-            "serviceEndpoint": format!("http://127.0.0.1:{}/api/v1", addr.port()),
+            "serviceEndpoint": format!("http://127.0.0.1:{}/_cokret", addr.port()),
         }]
     });
     let (status, body) = if path == "/.well-known/did.json" {
         ("200 OK", did_doc)
-    } else if path == format!("/api/v1/events/{event_id}") {
+    } else if path == format!("/_cokret/self/events/{event_id}") {
         ("200 OK", json!({ "event_id": event_id }))
-    } else if path.starts_with("/api/v1/events?") {
+    } else if path.starts_with("/_cokret/self/events/query?") {
         match discovery_state {
             Some(state) => (
                 "200 OK",

@@ -16,7 +16,7 @@ client or SDK
     v
 Salvo router
     |
-    +-- /api/v1/directory/describe
+    +-- /_cokret/find/directory/describe
     |
     +-- query face
     |      search-realms
@@ -31,9 +31,9 @@ Salvo router
     +-- ingest face
     |      announce
     |      withdraw
-    |      subscribe
+    |      push/register
     |
-    +-- /api/admin/v1/*
+    +-- /_cokret/local/admin/*
     |
     +-- /health
     |
@@ -53,7 +53,7 @@ withdrawal runs the handler-level verification chain.
 - `crates/server/src/routing.rs` wires public directory routes, admin routes,
   `/health`, and OpenAPI metadata.
 - `crates/server/src/config.rs` reads environment configuration and builds the
-  advertised service capabilities used by `/api/v1/directory/describe`.
+  advertised service capabilities used by `/_cokret/find/directory/describe`.
 - `crates/server/src/ingest/` handles push announce, withdrawal, pull
   subscription, pull revalidation, verification, and divergence checks.
 - `crates/server/src/query/` builds the search and resolve responses from

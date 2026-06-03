@@ -94,7 +94,7 @@ Migration `20260526010000_add_freshness` adds two operator-facing columns:
 A heartbeat is the cheap "I'm still here" signal. An announcer that
 already has an up-to-date `discovery_state` in the directory does not
 need to re-sign + re-submit the full announce body; it calls
-`POST /api/v1/directory/announce/heartbeat` with the `announce_id` it
+`POST /_cokret/find/directory/announce/heartbeat` with the `announce_id` it
 received from the original announce, and the directory bumps
 `last_refreshed_at` / `expires_at` forward by one TTL window.
 

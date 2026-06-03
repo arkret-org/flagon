@@ -135,7 +135,7 @@ zero respectively before deploying the follow-up NOT NULL migration
 
 ## Admin Console
 
-The admin SPA runs from `crates/admin/` and talks to `/api/admin/v1/*` using the
+The admin SPA runs from `crates/admin/` and talks to `/_cokret/local/admin/*` using the
 `TEABAY_ADMIN_TOKEN` bearer token.
 
 ```bash
@@ -177,7 +177,7 @@ limit 20;
 
 ## Audit Review
 
-Use the admin console or `GET /api/admin/v1/audit` to review:
+Use the admin console or `GET /_cokret/local/admin/audit` to review:
 
 - accepted or rejected ingest
 - pull revalidation success or failure

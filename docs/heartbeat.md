@@ -6,7 +6,7 @@ metrics to watch, and how teabay reacts when a resource stops heartbeating.
 
 ## What A Heartbeat Does
 
-A heartbeat is a lightweight `POST /api/v1/directory/heartbeat` from a
+A heartbeat is a lightweight `POST /_cokret/find/directory/heartbeat` from a
 Principal Server that already owns a published resource. The body identifies
 the resource and the operator-claimed `expires_at`. teabay validates the
 HTTP signature, then updates `directory_resources.last_refreshed_at` and

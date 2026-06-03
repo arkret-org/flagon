@@ -63,8 +63,8 @@ tables (`directory_resources`, `directory_audit`) keeps query latency stable.
 Watch `directory_audit` growth and archive per retention policy.
 
 **Takedown audit review.** Export the full takedown audit with
-`GET /api/admin/v1/takedowns` (optional `since`/`until`) for legal/ops review,
-or browse via `GET /api/admin/v1/audit`. Receipt verification steps are in
+`GET /_cokret/local/admin/takedowns` (optional `since`/`until`) for legal/ops review,
+or browse via `GET /_cokret/local/admin/audit`. Receipt verification steps are in
 [operations.md](operations.md#audit-review) and
 [takedown-receipts.md](takedown-receipts.md).
 

@@ -24,7 +24,7 @@ line unless a release owner declares a supported release branch.
 - RFC 9421 HTTP Message Signature enforcement on ingest endpoints.
 - DID method and trust-domain verification.
 - Accept policy and allowlist enforcement.
-- Admin bearer authentication for `/api/admin/v1/*`.
+- Admin bearer authentication for `/_cokret/local/admin/*`.
 - Anti-enumeration filtering and timing equalization.
 - Private Contact Discovery rate limits and epoch key retention.
 - Pull-mode revalidation and stale-row deletion.
@@ -106,7 +106,7 @@ accepted.
 encoded as `keyid=BASE64URL32` pairs. The `keyid` must match the HTTP Message
 Signature `keyid` sent by the Principal Server.
 
-`TEABAY_ADMIN_TOKEN` is fail-closed for `/api/admin/v1/*`: unset, empty,
+`TEABAY_ADMIN_TOKEN` is fail-closed for `/_cokret/local/admin/*`: unset, empty,
 missing, or mismatched bearer tokens are rejected as unauthenticated. The
 hardening status reports admin auth as `production` only when development mode
 is off and this token is configured.

@@ -39,9 +39,9 @@ The service listens on `TEABAY_BIND` and exposes:
 
 - `GET /health`
 - `GET /readyz`
-- `GET /api/v1/directory/describe`
-- `POST /api/v1/directory/{announce,withdraw,subscribe}`
-- `POST /api/v1/directory/{search-realms,resolve-realm,...}`
+- `GET /_cokret/find/directory/describe`
+- `POST /_cokret/find/directory/{announce,withdraw,push/register}`
+- `POST /_cokret/find/directory/{search-realms,resolve-realm,...}`
 - `GET /.well-known/cokret/openapi.json`
 - `GET /.well-known/cokret/openapi.yaml`
 
@@ -99,7 +99,7 @@ Recommended production settings:
 | `TEABAY_DEVELOPMENT_MODE` | `false` or unset. |
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
-| `TEABAY_ADMIN_TOKEN` | Non-empty bearer token for `/api/admin/v1/*`. |
+| `TEABAY_ADMIN_TOKEN` | Non-empty bearer token for `/_cokret/local/admin/*`. |
 | `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. The temporary rotation-only override requires both `TEABAY_ALLOW_MISSING_CSRF=1` and `TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>`; while active the server emits an error-level warning and fails closed after expiry. |
 | `TEABAY_TRUSTED_PROXY` | Comma-separated list of IPs whose `X-Forwarded-For` the rate-limiter trusts. Unset = trust only the direct `remote_addr`. Set to your TLS-terminating reverse proxy's IPs to avoid spoofed buckets. |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
@@ -150,7 +150,7 @@ handled by the deployment platform before process start.
 ### Admin Token Enforcement
 
 The admin API requires `Authorization: Bearer $TEABAY_ADMIN_TOKEN` for
-`/api/admin/v1/*`. The route guard fails closed: if `TEABAY_ADMIN_TOKEN` is
+`/_cokret/local/admin/*`. The route guard fails closed: if `TEABAY_ADMIN_TOKEN` is
 unset or empty, admin requests return `unauthenticated` instead of becoming
 anonymous. `/health.hardening.admin_auth_mode` reports `production` only when
 development mode is disabled and a non-empty admin token is configured; without
