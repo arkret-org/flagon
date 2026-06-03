@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use contrix_sdk::identity::{DidResolver, DidWebvhResolver};
+use contrix_sdk::canonical;
 use contrix_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use contrix_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver};
 use diesel::prelude::*;
@@ -468,47 +469,15 @@ fn canonical_payload_without_jws(
     canonical_json_bytes(&unsigned).map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
+/// Contrix canonical JSON bytes via the SDK's `contrix_sdk::canonical`
+/// implementation (UTF-16 key ordering, integer-only number profile).
+///
+/// This replaces a previously hand-written serializer that sorted object
+/// keys by byte order (`sort_unstable()`) — divergent from the SDK and
+/// every other Contrix service. Errors are flattened to `String` so the
+/// existing `(ApiErrorCode::SignatureInvalid, _)` call sites are unchanged.
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
-    let mut out = String::new();
-    write_canonical_json(value, &mut out)?;
-    Ok(out.into_bytes())
-}
-
-fn write_canonical_json(value: &JsonValue, out: &mut String) -> Result<(), String> {
-    match value {
-        JsonValue::Null => out.push_str("null"),
-        JsonValue::Bool(true) => out.push_str("true"),
-        JsonValue::Bool(false) => out.push_str("false"),
-        JsonValue::Number(number) => out.push_str(&number.to_string()),
-        JsonValue::String(value) => {
-            out.push_str(&serde_json::to_string(value).map_err(|e| e.to_string())?)
-        }
-        JsonValue::Array(values) => {
-            out.push('[');
-            for (idx, item) in values.iter().enumerate() {
-                if idx > 0 {
-                    out.push(',');
-                }
-                write_canonical_json(item, out)?;
-            }
-            out.push(']');
-        }
-        JsonValue::Object(map) => {
-            out.push('{');
-            let mut keys = map.keys().collect::<Vec<_>>();
-            keys.sort_unstable();
-            for (idx, key) in keys.into_iter().enumerate() {
-                if idx > 0 {
-                    out.push(',');
-                }
-                out.push_str(&serde_json::to_string(key).map_err(|e| e.to_string())?);
-                out.push(':');
-                write_canonical_json(&map[key], out)?;
-            }
-            out.push('}');
-        }
-    }
-    Ok(())
+    canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }
 
 fn verify_jws_ed25519(

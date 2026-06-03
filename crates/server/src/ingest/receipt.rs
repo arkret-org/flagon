@@ -3,6 +3,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
+use contrix_sdk::canonical;
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
 
@@ -134,45 +135,15 @@ fn sign_receipt_statement(
     }))
 }
 
+/// Contrix canonical JSON bytes via the SDK's `contrix_sdk::canonical`
+/// implementation (UTF-16 key ordering, integer-only number profile).
+///
+/// Replaces a hand-written serializer that sorted object keys by byte
+/// order — divergent from the SDK and every other Contrix service. The
+/// receipt JWS signing input therefore now hashes byte-identical canonical
+/// bytes to the rest of the federation.
 fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {
-    let mut out = String::new();
-    write_canonical_json(value, &mut out)?;
-    Ok(out.into_bytes())
-}
-
-fn write_canonical_json(value: &JsonValue, out: &mut String) -> anyhow::Result<()> {
-    match value {
-        JsonValue::Null => out.push_str("null"),
-        JsonValue::Bool(true) => out.push_str("true"),
-        JsonValue::Bool(false) => out.push_str("false"),
-        JsonValue::Number(number) => out.push_str(&number.to_string()),
-        JsonValue::String(value) => out.push_str(&serde_json::to_string(value)?),
-        JsonValue::Array(values) => {
-            out.push('[');
-            for (index, item) in values.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_canonical_json(item, out)?;
-            }
-            out.push(']');
-        }
-        JsonValue::Object(map) => {
-            out.push('{');
-            let mut keys = map.keys().collect::<Vec<_>>();
-            keys.sort_unstable();
-            for (index, key) in keys.into_iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                out.push_str(&serde_json::to_string(key)?);
-                out.push(':');
-                write_canonical_json(&map[key], out)?;
-            }
-            out.push('}');
-        }
-    }
-    Ok(())
+    Ok(canonical::canonical_json_bytes(value)?)
 }
 
 #[cfg(test)]

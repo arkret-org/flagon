@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use contrix_sdk::canonical;
 use contrix_sdk::{
     HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_DIGEST, HEADER_SOURCE_TRUST_DOMAIN,
     federation_trust_domain_transcript_fragment,
@@ -924,55 +925,19 @@ pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
     h.finalize().to_vec()
 }
 
+/// Contrix canonical JSON string via the SDK's `contrix_sdk::canonical`
+/// implementation (UTF-16 key ordering, integer-only number profile).
+///
+/// Replaces a hand-written serializer that sorted object keys by byte
+/// order (`sort_unstable()`) — divergent from the SDK and the rest of the
+/// federation. Errors are flattened to `String` to keep the existing
+/// call-site error contract.
 pub(crate) fn canonical_json_string(value: &JsonValue) -> Result<String, String> {
-    let mut out = String::new();
-    write_canonical_json(value, &mut out)?;
-    Ok(out)
+    canonical::canonical_json_string(value).map_err(|err| err.to_string())
 }
 
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
-    Ok(canonical_json_string(value)?.into_bytes())
-}
-
-fn write_canonical_json(value: &JsonValue, out: &mut String) -> Result<(), String> {
-    match value {
-        JsonValue::Null => out.push_str("null"),
-        JsonValue::Bool(true) => out.push_str("true"),
-        JsonValue::Bool(false) => out.push_str("false"),
-        JsonValue::Number(number) => out.push_str(&number.to_string()),
-        JsonValue::String(value) => out.push_str(
-            &serde_json::to_string(value)
-                .map_err(|error| format!("canonical string encode: {error}"))?,
-        ),
-        JsonValue::Array(values) => {
-            out.push('[');
-            for (index, item) in values.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_canonical_json(item, out)?;
-            }
-            out.push(']');
-        }
-        JsonValue::Object(map) => {
-            out.push('{');
-            let mut keys = map.keys().collect::<Vec<_>>();
-            keys.sort_unstable();
-            for (index, key) in keys.into_iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                out.push_str(
-                    &serde_json::to_string(key)
-                        .map_err(|error| format!("canonical object key encode: {error}"))?,
-                );
-                out.push(':');
-                write_canonical_json(&map[key], out)?;
-            }
-            out.push('}');
-        }
-    }
-    Ok(())
+    canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }
 
 #[derive(Queryable)]
