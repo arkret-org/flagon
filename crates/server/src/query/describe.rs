@@ -1,4 +1,4 @@
-//! `cx.directory.describe` — service capability advertisement.
+//! `ck.directory.describe` — service capability advertisement.
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
@@ -59,9 +59,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // Round 4 — `supported_profiles` is the union of the directory
     // baseline profile and (optionally) the private-contact-discovery
     // extension profile. Empty array is valid; missing is not.
-    let mut supported_profiles = vec!["cx.profile.directory_service.v1".to_owned()];
+    let mut supported_profiles = vec!["ck.profile.directory_service.v1".to_owned()];
     if cfg.private_contact_discovery_enabled {
-        supported_profiles.push("cx.private_contact_discovery.v1".to_owned());
+        supported_profiles.push("ck.private_contact_discovery.v1".to_owned());
     }
 
     // Operations the directory publishes. Single source of truth:
@@ -71,7 +71,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(|op| (*op).to_owned())
         .collect();
     if cfg.private_contact_discovery_enabled {
-        supported_operations.push("cx.directory.private_contact_discovery".to_owned());
+        supported_operations.push("ck.directory.private_contact_discovery".to_owned());
     }
 
     // Transport / encoding bindings this service speaks.
@@ -329,7 +329,7 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     limitations.push(json!({
         "feature": "webhook_fanout_delivery",
         "status": "best_effort",
-        "detail": "cx.directory.push.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
+        "detail": "ck.directory.push.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
     limitations
 }
@@ -446,7 +446,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|op| op == "cx.directory.describe")
+                .any(|op| op == "ck.directory.describe")
         );
     }
 
@@ -461,7 +461,7 @@ mod tests {
             trust_domain: TypedTrustDomainId::new("ck:trust_domain:local.test").unwrap(),
             service_type: "directory".to_owned(),
             protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
-            supported_profiles: vec!["cx.profile.directory_service.v1".to_owned()],
+            supported_profiles: vec!["ck.profile.directory_service.v1".to_owned()],
             supported_operations: Vec::new(),
             supported_bindings: Vec::new(),
             supported_features: Vec::new(),
@@ -472,7 +472,7 @@ mod tests {
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
-                profile_id: "cx.profile.directory_service.v1".to_owned(),
+                profile_id: "ck.profile.directory_service.v1".to_owned(),
                 claim_kind: cokret_sdk::CotestVerifiedKind::CotestVerified,
                 cotest_run_id: "test-run".to_owned(),
                 artifact_digest:
@@ -509,14 +509,14 @@ mod tests {
         assert!(
             !supported
                 .iter()
-                .any(|p| p == "cx.private_contact_discovery.v1"),
+                .any(|p| p == "ck.private_contact_discovery.v1"),
             "PCD must not appear in supported_profiles when disabled"
         );
         let claimed = value["claimed_profiles"].as_array().unwrap();
         assert!(
             !claimed
                 .iter()
-                .any(|p| p["profile_id"] == "cx.private_contact_discovery.v1"),
+                .any(|p| p["profile_id"] == "ck.private_contact_discovery.v1"),
             "PCD must not be claimed when disabled"
         );
     }

@@ -36,15 +36,15 @@ fn router_builds_with_minimal_state() {
 
     let doc = routing::openapi(&salvo::prelude::Router::new());
     assert!(doc.paths.contains_key("/readyz"));
-    assert!(doc.paths.contains_key("/api/admin/v1/audit"));
-    assert!(doc.paths.contains_key("/api/admin/v1/resources"));
-    assert!(doc.paths.contains_key("/api/v1/directory/describe"));
-    assert!(doc.paths.contains_key("/api/v1/directory/announce"));
+    assert!(doc.paths.contains_key("/_cokret/local/admin/audit"));
+    assert!(doc.paths.contains_key("/_cokret/local/admin/resources"));
+    assert!(doc.paths.contains_key("/_cokret/find/directory/describe"));
+    assert!(doc.paths.contains_key("/_cokret/find/directory/announce"));
 
     let doc_json = serde_json::to_value(&doc).expect("OpenAPI document serializes");
     assert_eq!(
-        doc_json["paths"]["/api/v1/directory/announce"]["post"]["operationId"].as_str(),
-        Some("cx.directory.announce")
+        doc_json["paths"]["/_cokret/find/directory/announce"]["post"]["operationId"].as_str(),
+        Some("ck.directory.announce")
     );
 }
 

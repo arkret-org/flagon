@@ -524,7 +524,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
 
 // ---- Round R2/R3 T17 — consent revoke scope=any invalidation ------------
 
-/// `POST /api/admin/v1/consent-revoke` — soland (or any peer service)
+/// `POST /_cokret/local/admin/consent-revoke` — soland (or any peer service)
 /// broadcasts a `consent_revoke{scope=any}` event for an actor; the
 /// directory then **eagerly invalidates** that actor's reachability
 /// entries in the directory ingest cache.
@@ -533,7 +533,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
 /// so the audit trail is preserved — the row is marked with
 /// `reachability_revoked_at` and the search face hides it (resolve
 /// still surfaces it so in-flight subscribers can observe the
-/// revocation tombstone). A `cx.directory.push.register` tombstone webhook
+/// revocation tombstone). A `ck.directory.push.register` tombstone webhook
 /// fires on a best-effort basis through the same fanout path the
 /// announce handler uses.
 #[derive(Debug, Deserialize)]
@@ -621,7 +621,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
     )
     .await;
 
-    // Best-effort tombstone fanout for in-flight `cx.directory.push.register`
+    // Best-effort tombstone fanout for in-flight `ck.directory.push.register`
     // webhook listeners. T07 reuses the same channel for realm destroys.
     let tombstoned_subscriptions =
         crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &affected).await;
@@ -653,7 +653,7 @@ pub struct ReachabilityTombstone {
 /// (T17). Subscribers dispatch on `kind`, not on the free-text `reason`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TombstoneKind {
-    /// T07 — the Realm has been irreversibly destroyed (`cx.realm.destroy`).
+    /// T07 — the Realm has been irreversibly destroyed (`ck.realm.destroy`).
     RealmDestroyed,
     /// T17 — an actor's reachability was revoked (recoverable).
     ReachabilityRevoked,

@@ -67,11 +67,11 @@ impl ResourceKindWire {
     /// `resource_kind=space` is rejected at deserialization.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
-            Self::Realm => "cx.realm.discovery",
-            Self::Organization => "cx.organization.discovery",
-            Self::Actor => "cx.actor.discovery",
-            Self::Applet => "cx.applet.discovery",
-            Self::Handle => "cx.handle.discovery",
+            Self::Realm => "ck.realm.discovery",
+            Self::Organization => "ck.organization.discovery",
+            Self::Actor => "ck.actor.discovery",
+            Self::Applet => "ck.applet.discovery",
+            Self::Handle => "ck.handle.discovery",
         }
     }
 }
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(realm_sdk, cokret_sdk::DirectoryResourceKind::Space);
         assert_eq!(
             ResourceKindWire::Realm.discovery_event_kind(),
-            "cx.realm.discovery"
+            "ck.realm.discovery"
         );
     }
 

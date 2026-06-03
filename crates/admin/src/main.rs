@@ -2154,7 +2154,7 @@ async fn decode_response<T: DeserializeOwned>(response: Response) -> Result<T, S
 
 fn admin_url(base_url: &str, path: &str) -> String {
     format!(
-        "{}/api/admin/v1/{}",
+        "{}/_cokret/local/admin/{}",
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     )
@@ -2162,7 +2162,7 @@ fn admin_url(base_url: &str, path: &str) -> String {
 
 fn directory_url(base_url: &str, path: &str) -> String {
     format!(
-        "{}/api/v1/directory/{}",
+        "{}/_cokret/find/directory/{}",
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     )

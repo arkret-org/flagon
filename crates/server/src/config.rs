@@ -1,6 +1,6 @@
 //! Environment-driven configuration.
 //!
-//! Mirrors the spec `cx.directory.describe` ingest fields (§8.9) so the
+//! Mirrors the spec `ck.directory.describe` ingest fields (§8.9) so the
 //! runtime can both honor and advertise them coherently.
 
 use std::collections::HashMap;
@@ -71,7 +71,7 @@ pub struct AppConfig {
 
     pub rate_limit_per_resource_per_min: u32,
     /// Query-face rate limit (per IP, per 60s window). Applies to every
-    /// `cx.directory.search_*` / `cx.directory.resolve_*` endpoint. 0
+    /// `ck.directory.search_*` / `ck.directory.resolve_*` endpoint. 0
     /// means disabled. Env: `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`.
     pub query_max_queries_per_ip_per_min: u32,
     /// Per-`resource_id` resolve rate limit. Cools off enumeration

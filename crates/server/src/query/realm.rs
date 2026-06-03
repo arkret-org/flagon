@@ -1,6 +1,6 @@
 //! Realm search and resolve. Spec §9.
 //!
-//! `cx.directory.search_realms` and `cx.directory.resolve_realm`. Both
+//! `ck.directory.search_realms` and `ck.directory.resolve_realm`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
@@ -99,7 +99,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "cx.directory.search_realms",
+        "ck.directory.search_realms",
         &privacy_key,
         |target| {
             state
@@ -214,7 +214,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let row = pad_to_budget_observed(
         budget,
-        "cx.directory.resolve_realm",
+        "ck.directory.resolve_realm",
         &key,
         |target| {
             state
@@ -242,7 +242,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
 // ---- shared resolution helper (CXP-0011 reuse) --------------------------
 
 /// The canonical realm-resolution outcome, extracted so the object-level
-/// `cx.directory.resolve_target` handler (CXP-0011,
+/// `ck.directory.resolve_target` handler (CXP-0011,
 /// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
 /// semantics — same key load, same visibility / blinding rules, same
 /// `via_services` and §9.1 common fields — instead of reinventing them.
@@ -472,7 +472,7 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
 }
 
 fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
-    // Round R2/R3 T07 — once `cx.realm.destroy` has anchored, the row's
+    // Round R2/R3 T07 — once `ck.realm.destroy` has anchored, the row's
     // projection collapses to a deterministic tombstone so the resolve
     // / search face surfaces `[erased]` instead of leaking the historical
     // governance state.
@@ -485,7 +485,7 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
             "tombstone": {
                 "kind": "realm_destroyed",
                 "destroyed_at": destroyed_at,
-                "via_event_kind": "cx.realm.destroy",
+                "via_event_kind": "ck.realm.destroy",
             },
         });
         return ResultEnvelope::from_row(
@@ -547,7 +547,7 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
                     RealmJoinCandidateRole::Mirror
                 },
                 endpoint: None,
-                operations: vec!["cx.events.submit".to_owned()],
+                operations: vec!["ck.events.submit".to_owned()],
                 join_methods: vec![
                     RealmJoinMethod::InviteAccept,
                     RealmJoinMethod::MemberJoin,

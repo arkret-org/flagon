@@ -50,18 +50,18 @@ pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = cokret_sdk::OP_DIRECTORY_RES
 pub const OP_DIRECTORY_SEARCH_ACTORS: &str = cokret_sdk::OP_DIRECTORY_SEARCH_ACTORS;
 pub const OP_DIRECTORY_SEARCH_USERS: &str = cokret_sdk::OP_DIRECTORY_SEARCH_USERS;
 pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
-/// Generalized target resolution (`cx.directory.resolve_target`). Not part of
+/// Generalized target resolution (`ck.directory.resolve_target`). Not part of
 /// the profile's `required_endpoints`, but published by teabay and advertised
 /// in [`SUPPORTED_OPERATIONS`].
 pub const OP_DIRECTORY_RESOLVE_TARGET: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_TARGET;
 /// R3.2 (cokret-spec @ b56cab1) — reverse handle lookup
-/// (`cx.directory.list_handles_for_subject`). Given a holder/principal
+/// (`ck.directory.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
 pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =
     cokret_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
 
 /// The profile's **required** operations, in the same order as
-/// `cx.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte
+/// `ck.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte
 /// against the embedded baseline JSON by [`crate::profile::verify_or_panic`].
 pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_DESCRIBE,
@@ -77,7 +77,7 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_SUBSCRIBE,
 ];
 
-/// Every operation `cx.directory.describe` advertises, in wire order. This is
+/// Every operation `ck.directory.describe` advertises, in wire order. This is
 /// the single source of truth for the describe overlay's `supported_operations`
 /// (the conditional `private_contact_discovery` op is appended at runtime when
 /// enabled). It is a superset of [`DIRECTORY_OPERATIONS`] — the required
@@ -106,28 +106,28 @@ mod tests {
 
     #[test]
     fn discovery_kinds_match_sdk() {
-        assert_eq!(EVENT_KIND_REALM_DISCOVERY, "cx.realm.discovery");
+        assert_eq!(EVENT_KIND_REALM_DISCOVERY, "ck.realm.discovery");
         assert_eq!(
             EVENT_KIND_ORGANIZATION_DISCOVERY,
-            "cx.organization.discovery"
+            "ck.organization.discovery"
         );
-        assert_eq!(EVENT_KIND_ACTOR_DISCOVERY, "cx.actor.discovery");
-        assert_eq!(EVENT_KIND_APPLET_DISCOVERY, "cx.applet.discovery");
-        assert_eq!(EVENT_KIND_HANDLE_DISCOVERY, "cx.handle.discovery");
+        assert_eq!(EVENT_KIND_ACTOR_DISCOVERY, "ck.actor.discovery");
+        assert_eq!(EVENT_KIND_APPLET_DISCOVERY, "ck.applet.discovery");
+        assert_eq!(EVENT_KIND_HANDLE_DISCOVERY, "ck.handle.discovery");
     }
 
     #[test]
     fn directory_ops_match_sdk() {
-        assert_eq!(OP_DIRECTORY_ANNOUNCE, "cx.directory.announce");
-        assert_eq!(OP_DIRECTORY_WITHDRAW, "cx.directory.withdraw");
-        assert_eq!(OP_DIRECTORY_SUBSCRIBE, "cx.directory.push.register");
-        assert_eq!(OP_DIRECTORY_DESCRIBE, "cx.directory.describe");
-        assert_eq!(OP_DIRECTORY_SEARCH_REALMS, "cx.directory.search_realms");
-        assert_eq!(OP_DIRECTORY_RESOLVE_REALM, "cx.directory.resolve_realm");
-        assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "cx.directory.resolve_handle");
+        assert_eq!(OP_DIRECTORY_ANNOUNCE, "ck.directory.announce");
+        assert_eq!(OP_DIRECTORY_WITHDRAW, "ck.directory.withdraw");
+        assert_eq!(OP_DIRECTORY_SUBSCRIBE, "ck.directory.push.register");
+        assert_eq!(OP_DIRECTORY_DESCRIBE, "ck.directory.describe");
+        assert_eq!(OP_DIRECTORY_SEARCH_REALMS, "ck.directory.search_realms");
+        assert_eq!(OP_DIRECTORY_RESOLVE_REALM, "ck.directory.resolve_realm");
+        assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "ck.directory.resolve_handle");
         assert_eq!(
             OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT,
-            "cx.directory.list_handles_for_subject"
+            "ck.directory.list_handles_for_subject"
         );
     }
 }

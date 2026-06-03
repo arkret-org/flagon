@@ -1,5 +1,5 @@
 //! Reverse handle lookup — R3.2 (cokret-spec @ b56cab1),
-//! `cx.directory.list_handles_for_subject`.
+//! `ck.directory.list_handles_for_subject`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
 //! known holder/principal DID (the `subject`) plus disclosure context, return
@@ -21,7 +21,7 @@
 //!
 //! ## Output invariant
 //!
-//! Per `cx.schema.list_handles_for_subject_response.v1`, every
+//! Per `ck.schema.list_handles_for_subject_response.v1`, every
 //! `claims[].subject` MUST byte-equal `response.subject`. We fail closed:
 //! any claim whose derived subject does not equal the request subject is
 //! DROPPED before the response is built, and the assembled response is run
@@ -42,7 +42,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 // NOTE: `cokret_sdk::HandleClaim` resolves to the SDK identity-layer claim
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
-// the crate root. The `cx.schema.list_handles_for_subject_response.v1` body
+// the crate root. The `ck.schema.list_handles_for_subject_response.v1` body
 // is built from the wire-schema `model::HandleClaim`, so import it explicitly.
 use cokret_sdk::model::HandleClaim;
 use cokret_sdk::{
@@ -164,7 +164,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let metrics = state.metrics().clone();
     let outcome = pad_to_budget_observed(
         budget,
-        "cx.directory.list_handles_for_subject",
+        "ck.directory.list_handles_for_subject",
         &privacy_key,
         |target| {
             state

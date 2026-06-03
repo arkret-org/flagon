@@ -1,4 +1,4 @@
-//! Salvo router declaration. All `/api/v1/directory/*` endpoints (spec §9)
+//! Salvo router declaration. All `/_cokret/find/directory/*` endpoints (spec §9)
 //! plus `/health` and OpenAPI metadata.
 
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub fn router(state: AppState) -> Router {
         // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
         // §17 — canonical well-known handle endpoint. The query takes
         // `?localpart=<localpart>` and returns the same Directory result
-        // envelope shape that `POST /api/v1/directory/resolve-handle`
+        // envelope shape that `POST /_cokret/find/directory/resolve-handle`
         // emits. Wire-level NFC + UTS#39 + script-mixed checks run on
         // the localpart before any DB lookup. We intentionally implement
         // this as a *proxy* into `query::handle::resolve_handle` so the
@@ -92,7 +92,7 @@ pub fn metrics_service(state: AppState) -> Service {
 }
 
 fn admin_router() -> Router {
-    Router::with_path("api/admin/v1")
+    Router::with_path("_cokret/local/admin")
         .hoop(crate::middleware::AdminAuthHoop)
         .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
@@ -163,7 +163,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
 
     // Ingest face — §8. Transport hardened by RFC 9421 HTTP Message
     // Signature middleware (TB-1 / `crate::middleware::http_sig`). Every
-    // request to `announce`, `withdraw`, or `subscribe` MUST carry a
+    // request to `announce`, `withdraw`, or `push/register` MUST carry a
     // valid Ed25519-signed envelope keyed by a `keyid` in the operator
     // pubkey allowlist; the handler-level 5-step verify chain in
     // `ingest::verify` then runs on top of an already-authenticated
@@ -179,9 +179,9 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
                 .push(Router::with_path("heartbeat").post(ingest::heartbeat::heartbeat)),
         )
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
-        .push(Router::with_path("subscribe").post(ingest::subscribe::subscribe));
+        .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
 
-    Router::with_path("api/v1/directory")
+    Router::with_path("_cokret/find/directory")
         .push(query_routes)
         .push(ingest_routes)
 }
@@ -472,7 +472,7 @@ pub fn openapi(router: &Router) -> OpenApi {
         .add_extension(
             "x-cokret-profile",
             json!({
-                "profile": "cx.profile.directory_service.v1",
+                "profile": "ck.profile.directory_service.v1",
                 "spec": "cokret-spec/spec/v1/zh/discovery/discovery-directory.md",
             }),
         )
@@ -500,7 +500,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "PostgreSQL and background-worker readiness probe.",
         ),
         (
-            "/api/admin/v1/dashboard",
+            "/_cokret/local/admin/dashboard",
             PathItemType::Get,
             "teabay.admin.dashboard_stats",
             "admin",
@@ -508,7 +508,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
         ),
         (
-            "/api/admin/v1/audit",
+            "/_cokret/local/admin/audit",
             PathItemType::Get,
             "teabay.admin.audit_feed",
             "admin",
@@ -516,7 +516,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return the append-only directory audit feed for operator dashboards.",
         ),
         (
-            "/api/admin/v1/allowlist",
+            "/_cokret/local/admin/allowlist",
             PathItemType::Get,
             "teabay.admin.allowlist_list",
             "admin",
@@ -524,7 +524,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return operator-managed accept-policy allowlist entries.",
         ),
         (
-            "/api/admin/v1/allowlist",
+            "/_cokret/local/admin/allowlist",
             PathItemType::Post,
             "teabay.admin.allowlist_upsert",
             "admin",
@@ -532,7 +532,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Add or update an operator-managed accept-policy allowlist entry.",
         ),
         (
-            "/api/admin/v1/allowlist",
+            "/_cokret/local/admin/allowlist",
             PathItemType::Delete,
             "teabay.admin.allowlist_delete",
             "admin",
@@ -540,7 +540,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Remove an operator-managed accept-policy allowlist entry.",
         ),
         (
-            "/api/admin/v1/resources",
+            "/_cokret/local/admin/resources",
             PathItemType::Get,
             "teabay.admin.resources_browser",
             "admin",
@@ -548,7 +548,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return indexed resources with kind, stale, divergent, and text filters.",
         ),
         (
-            "/api/admin/v1/resources",
+            "/_cokret/local/admin/resources",
             PathItemType::Post,
             "teabay.admin.resource_upsert",
             "admin",
@@ -556,7 +556,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Create or update an indexed directory resource directly from the operator console.",
         ),
         (
-            "/api/admin/v1/resources",
+            "/_cokret/local/admin/resources",
             PathItemType::Delete,
             "teabay.admin.resource_delete",
             "admin",
@@ -564,7 +564,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Remove an indexed directory resource directly from the operator console.",
         ),
         (
-            "/api/admin/v1/takedown",
+            "/_cokret/local/admin/takedown",
             PathItemType::Post,
             "teabay.admin.operator_takedown",
             "admin",
@@ -572,7 +572,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Admin-only operator takedown path for §8.7 path 3.",
         ),
         (
-            "/api/admin/v1/takedowns",
+            "/_cokret/local/admin/takedowns",
             PathItemType::Get,
             "teabay.admin.takedown_audit_export",
             "admin",
@@ -580,25 +580,25 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return every operator-takedown audit row within an optional `since` / `until` window.",
         ),
         (
-            "/api/v1/directory/describe",
+            "/_cokret/find/directory/describe",
             PathItemType::Get,
-            "cx.directory.describe",
+            "ck.directory.describe",
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
         ),
         (
-            "/api/v1/directory/search-realms",
+            "/_cokret/find/directory/search-realms",
             PathItemType::Post,
-            "cx.directory.search_realms",
+            "ck.directory.search_realms",
             "query",
             "Search Realms",
             "Return listed/public Realm directory results using the §9.1 result envelope.",
         ),
         (
-            "/api/v1/directory/resolve-realm",
+            "/_cokret/find/directory/resolve-realm",
             PathItemType::Post,
-            "cx.directory.resolve_realm",
+            "ck.directory.resolve_realm",
             "query",
             "Resolve Realm",
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
@@ -609,9 +609,9 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // client-agnostic shareable object address (Realm / Flow / Message)
             // to a target_kind + preview, binding an invite token to the
             // resolved object. Realm resolution delegates to resolve_realm.
-            "/api/v1/directory/resolve-target",
+            "/_cokret/find/directory/resolve-target",
             PathItemType::Post,
-            "cx.directory.resolve_target",
+            "ck.directory.resolve_target",
             "query",
             "Resolve Target",
             "Resolve a client-agnostic shareable object address (Realm / Flow / Message) to a \
@@ -620,41 +620,41 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              object via the target digest so a token cannot be replayed across objects.",
         ),
         (
-            "/api/v1/directory/search-organizations",
+            "/_cokret/find/directory/search-organizations",
             PathItemType::Post,
-            "cx.directory.search_organizations",
+            "ck.directory.search_organizations",
             "query",
             "Search Organizations",
             "Return public/listed Organization directory results.",
         ),
         (
-            "/api/v1/directory/resolve-organization",
+            "/_cokret/find/directory/resolve-organization",
             PathItemType::Post,
-            "cx.directory.resolve_organization",
+            "ck.directory.resolve_organization",
             "query",
             "Resolve Organization",
             "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
         ),
         (
-            "/api/v1/directory/search-actors",
+            "/_cokret/find/directory/search-actors",
             PathItemType::Post,
-            "cx.directory.search_actors",
+            "ck.directory.search_actors",
             "query",
             "Search Actors",
             "Return public Actor discovery records.",
         ),
         (
-            "/api/v1/directory/search-users",
+            "/_cokret/find/directory/search-users",
             PathItemType::Post,
-            "cx.directory.search_users",
+            "ck.directory.search_users",
             "query",
             "Search Users",
             "Realm-gated user search using indexed membership hints.",
         ),
         (
-            "/api/v1/directory/resolve-handle",
+            "/_cokret/find/directory/resolve-handle",
             PathItemType::Post,
-            "cx.directory.resolve_handle",
+            "ck.directory.resolve_handle",
             "query",
             "Resolve Handle",
             "Resolve handle discovery resources with the Directory result envelope.",
@@ -673,10 +673,10 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         ),
         (
             // R3.2 (DIR-TBY-1, cokret-spec @ b56cab1) — reverse handle
-            // lookup. Response shape `cx.schema.list_handles_for_subject_response.v1`.
-            "/api/v1/directory/list-handles-for-subject",
+            // lookup. Response shape `ck.schema.list_handles_for_subject_response.v1`.
+            "/_cokret/find/directory/list-handles-for-subject",
             PathItemType::Post,
-            "cx.directory.list_handles_for_subject",
+            "ck.directory.list_handles_for_subject",
             "query",
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
@@ -684,23 +684,23 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              subjects (ck:actor:/ck:account:/service DID) with failed_precondition.",
         ),
         (
-            "/api/v1/directory/private-contact-discovery",
+            "/_cokret/find/directory/private-contact-discovery",
             PathItemType::Post,
-            "cx.directory.private_contact_discovery",
+            "ck.directory.private_contact_discovery",
             "query",
             "Private Contact Discovery",
             "RFC 9497 VOPRF two-phase private contact discovery.",
         ),
         (
-            "/api/v1/directory/announce",
+            "/_cokret/find/directory/announce",
             PathItemType::Post,
-            "cx.directory.announce",
+            "ck.directory.announce",
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed cx.{kind}.discovery state.",
         ),
         (
-            "/api/v1/directory/announce/heartbeat",
+            "/_cokret/find/directory/announce/heartbeat",
             PathItemType::Post,
             "cx.directory.announce.heartbeat",
             "ingest",
@@ -708,17 +708,17 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Refresh an indexed announce in place without re-signing the full discovery_state body.",
         ),
         (
-            "/api/v1/directory/withdraw",
+            "/_cokret/find/directory/withdraw",
             PathItemType::Post,
-            "cx.directory.withdraw",
+            "ck.directory.withdraw",
             "ingest",
             "Withdraw Discovery State",
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
         ),
         (
-            "/api/v1/directory/subscribe",
+            "/_cokret/find/directory/push/register",
             PathItemType::Post,
-            "cx.directory.push.register",
+            "ck.directory.push.register",
             "ingest",
             "Subscribe To Directory Updates",
             "Register an HMAC-signed webhook subscription for accepted ingest updates.",

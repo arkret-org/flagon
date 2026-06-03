@@ -1,4 +1,4 @@
-//! `cx.directory.withdraw` handler — resource-initiated path 2 from §8.7.
+//! `ck.directory.withdraw` handler — resource-initiated path 2 from §8.7.
 //!
 //! On accept:
 //!   * insert a `withdrawals` row with `kind=resource_withdraw`

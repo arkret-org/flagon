@@ -1,4 +1,4 @@
-//! `cx.directory.announce` handler — push-mode ingest.
+//! `ck.directory.announce` handler — push-mode ingest.
 //!
 //! Spec: discovery-directory.md §8.3 (request shape), §8.5 (verify chain),
 //! §8.6 (TTL), §8.10 (anti-abuse / replay).
@@ -608,7 +608,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
 
     // Round R2/R3 T07 — discovery_state can carry a `terminal_state`
-    // marker after `cx.realm.destroy` anchors. Surface it as a row-level
+    // marker after `ck.realm.destroy` anchors. Surface it as a row-level
     // tombstone so the resolve / search projections collapse to a
     // placeholder. See `derive_realm_terminal_state`.
     let realm_terminal = derive_realm_terminal_state(body.resource_kind, &body.discovery_state);
@@ -676,7 +676,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
             principal_server_did: body.principal_server_did.clone(),
-            reason: "cx.realm.destroy".into(),
+            reason: "ck.realm.destroy".into(),
             revoked_at: destroyed_at,
         };
         let _ =
@@ -1002,7 +1002,7 @@ pub(crate) async fn latest_as_of_for(
 /// Round R2/R3 T14 — extra federation cache fields persisted alongside
 /// the `ingest_announces` row. Push-mode pulls them from request headers
 /// and discovery proof; pull-mode pulls them from the upstream
-/// `cx.events.query` response headers/envelope plus the same proof.
+/// `ck.events.query` response headers/envelope plus the same proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
     pub source_service_did: String,
@@ -1271,7 +1271,7 @@ mod tests {
     #[test]
     fn handle_claim_ingest_rejects_service_handle_claim_type() {
         let state = json!({
-            "kind": "cx.handle.discovery",
+            "kind": "ck.handle.discovery",
             "claim_kind": "service_handle",
             "subject": "did:web:alice.example",
         });
@@ -1315,7 +1315,7 @@ mod tests {
         assert!(super::validate_handle_claim_ingest(&ok).is_ok());
 
         // A realm announce with no handle-claim fields is untouched.
-        let realm = json!({ "kind": "cx.realm.discovery", "discoverability": "public" });
+        let realm = json!({ "kind": "ck.realm.discovery", "discoverability": "public" });
         assert!(super::validate_handle_claim_ingest(&realm).is_ok());
 
         // And the whole projection path accepts the principal-DID claim.
@@ -1328,7 +1328,7 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         let mut first_state = serde_json::Map::new();
-        first_state.insert("kind".to_owned(), json!("cx.realm.discovery"));
+        first_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
         first_state.insert("discoverability".to_owned(), json!("public"));
         first_state.insert(
             "directory_services".to_owned(),
@@ -1341,7 +1341,7 @@ mod tests {
             json!(["did:web:directory.test"]),
         );
         second_state.insert("discoverability".to_owned(), json!("public"));
-        second_state.insert("kind".to_owned(), json!("cx.realm.discovery"));
+        second_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
 
         let first = AnnounceRequest {
             resource_kind: ResourceKindWire::Realm,

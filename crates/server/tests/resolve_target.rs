@@ -1,4 +1,4 @@
-//! Conformance suite for `cx.directory.resolve_target` (R3.3 / CXP-0011,
+//! Conformance suite for `ck.directory.resolve_target` (R3.3 / CXP-0011,
 //! cokret-spec @ cced4b8).
 //!
 //! These exercise the directory's object-address resolution semantics against

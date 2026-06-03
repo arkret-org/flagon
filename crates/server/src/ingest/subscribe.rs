@@ -1,4 +1,4 @@
-//! `cx.directory.push.register` webhook registration and fanout.
+//! `ck.directory.push.register` webhook registration and fanout.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -167,7 +167,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
 }
 
 /// Round R2/R3 T07 + T17 — best-effort tombstone fanout. Sent when a
-/// directory row is invalidated (either by `cx.realm.destroy` arriving
+/// directory row is invalidated (either by `ck.realm.destroy` arriving
 /// on the ingest face or by a `consent_revoke{scope=any}` admin
 /// broadcast) so in-flight subscribers receive a canonical "this row is
 /// no longer authoritative" notification on the same webhook channel

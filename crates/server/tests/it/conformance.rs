@@ -108,14 +108,14 @@ async fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
 }
 
 async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::get("http://local/api/v1/directory/describe")
+    let mut res = TestClient::get("http://local/_cokret/find/directory/describe")
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     let profiles = body["discovery_profiles"].as_array().unwrap();
-    assert!(profiles.contains(&json!("cx.profile.directory_service.v1")));
-    assert!(profiles.contains(&json!("cx.private_contact_discovery.v1")));
+    assert!(profiles.contains(&json!("ck.profile.directory_service.v1")));
+    assert!(profiles.contains(&json!("ck.private_contact_discovery.v1")));
     assert_eq!(body["service_did"], "did:web:directory.test");
     assert!(
         body["accepted_resource_kinds"]
@@ -146,7 +146,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
 }
 
 async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
@@ -163,7 +163,7 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
 }
 
 async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1 }))
         .send(service)
         .await;
@@ -190,7 +190,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .as_str()
         .unwrap_or_else(|| panic!("expected next_cursor for first search page: {body}"));
 
-    let mut res = TestClient::post("http://local/api/v1/directory/search-realms")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1, "cursor": cursor }))
         .send(service)
         .await;
@@ -198,7 +198,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"].as_array().unwrap().len(), 1);
 
-    let res = TestClient::post("http://local/api/v1/directory/search-realms")
+    let res = TestClient::post("http://local/_cokret/find/directory/search-realms")
         .json(&json!({ "cursor": "not-base64" }))
         .send(service)
         .await;
@@ -225,7 +225,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     )
     .await?;
 
-    let mut res = TestClient::post("http://local/api/v1/directory/search-organizations")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-organizations")
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
@@ -236,7 +236,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         "did:web:tea-org.example"
     );
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-organization")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-organization")
         .json(&json!({ "organization_did": "did:web:tea-org.example" }))
         .send(service)
         .await;
@@ -244,7 +244,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["organization_did"], "did:web:tea-org.example");
 
-    let mut res = TestClient::post("http://local/api/v1/directory/search-actors")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-actors")
         .json(&json!({ "query": "alice", "limit": 10 }))
         .send(service)
         .await;
@@ -252,7 +252,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"][0]["actor_id"], "did:web:alice.example");
 
-    let mut res = TestClient::post("http://local/api/v1/directory/search-users")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-users")
         .json(&json!({
             "q": "alice",
             "requester": "did:web:alice.example",
@@ -265,7 +265,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["results"][0]["actor_id"], "did:web:alice.example");
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-handle")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-handle")
         .json(&json!({ "handle": "alice.example" }))
         .send(service)
         .await;
@@ -291,7 +291,7 @@ async fn assert_resolve_realm_status(
     if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
         target.extend(source.clone());
     }
-    let res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+    let res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
         .json(&body)
         .send(service)
         .await;
@@ -304,7 +304,7 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
     let blind = VoprfClient::<Ristretto255>::blind(b"alice.example", &mut rng)?;
     let blinded_input = URL_SAFE_NO_PAD.encode(blind.message.serialize());
 
-    let mut res = TestClient::post("http://local/api/v1/directory/private-contact-discovery")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/private-contact-discovery")
         .json(&json!({
             "phase": "blind",
             "requester": "did:web:requester.test",
@@ -322,7 +322,7 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
         .finalize(b"alice.example", &evaluation, &proof, public_key)?;
     let token = URL_SAFE_NO_PAD.encode(token);
 
-    let mut res = TestClient::post("http://local/api/v1/directory/private-contact-discovery")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/private-contact-discovery")
         .json(&json!({
             "phase": "match",
             "requester": "did:web:requester.test",
@@ -347,7 +347,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     let verification_method = format!("{signer_did}#{public_key}");
     let discovery_state = signed_realm_discovery_state(&verification_method, &signing_key)?;
 
-    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ck:realm:pushed",
@@ -371,7 +371,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
             .is_some_and(|id| id.starts_with("ck:announce:"))
     );
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ck:realm:pushed" }))
         .send(service)
         .await;
@@ -388,7 +388,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
 }
 
 async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/api/v1/directory/subscribe")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/push/register")
         .json(&json!({
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
@@ -431,7 +431,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let mock =
         MockPrincipalServer::spawn_with_discovery_state("evt-pull-realm", pulled_state.clone())?;
 
-    let mut res = TestClient::post("http://local/api/v1/directory/announce")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ck:realm:pull",
@@ -465,7 +465,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         .run_once_for_tests()
         .await?;
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ck:realm:pull" }))
         .send(service)
         .await;
@@ -501,7 +501,7 @@ async fn assert_freshness_flags_are_exposed(
         .execute(&mut conn)
         .await?;
     }
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ck:realm:tea" }))
         .send(service)
         .await;
@@ -517,7 +517,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
 
-    // Path 1: resource state-change (`cx.realm.destroy`) collapses the
+    // Path 1: resource state-change (`ck.realm.destroy`) collapses the
     // indexed Realm into a tombstone projection.
     let mut destroyed_state =
         signed_realm_discovery_state_named(&verification_method, &signing_key, "Destroyable Tea")?;
@@ -527,7 +527,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     destroyed_state["proof"]["jws"] =
         JsonValue::String(sign_detached_jws(&destroyed_state, &signing_key)?);
     let destroy_mock = MockPrincipalServer::spawn("evt-destroy-realm")?;
-    let res = TestClient::post("http://local/api/v1/directory/announce")
+    let res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ck:realm:takedown-state",
@@ -541,7 +541,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
-    let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ck:realm:takedown-state" }))
         .send(service)
         .await;
@@ -555,7 +555,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let withdraw_mock = MockPrincipalServer::spawn("evt-withdraw-realm")?;
     let withdraw_state =
         signed_realm_discovery_state_named(&verification_method, &signing_key, "Withdrawable Tea")?;
-    let res = TestClient::post("http://local/api/v1/directory/announce")
+    let res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ck:realm:takedown-withdraw",
@@ -576,7 +576,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         &signing_key,
         "conformance resource withdraw",
     )?;
-    let mut res = TestClient::post("http://local/api/v1/directory/withdraw")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/withdraw")
         .json(&withdraw_body)
         .send(service)
         .await;
@@ -588,7 +588,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
             .is_some_and(|id| id.starts_with("ck:withdraw:"))
     );
 
-    let res = TestClient::post("http://local/api/v1/directory/resolve-realm")
+    let res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ck:realm:takedown-withdraw" }))
         .send(service)
         .await;
@@ -625,7 +625,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     // Path 3: operator takedown signs a service receipt over the full
     // takedown statement and removes the indexed row.
     let operator_resource_id = "did:web:takedown-operator.example";
-    let res = TestClient::post("http://local/api/admin/v1/resources")
+    let res = TestClient::post("http://local/_cokret/local/admin/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -646,7 +646,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
-    let mut res = TestClient::post("http://local/api/admin/v1/takedown")
+    let mut res = TestClient::post("http://local/_cokret/local/admin/takedown")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -661,7 +661,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let body: JsonValue = res.take_json().await?;
     let operator_withdraw_id = body["withdraw_id"].as_str().expect("withdraw_id");
 
-    let res = TestClient::post("http://local/api/v1/directory/resolve-organization")
+    let res = TestClient::post("http://local/_cokret/find/directory/resolve-organization")
         .json(&json!({ "organization_did": operator_resource_id }))
         .send(service)
         .await;
@@ -725,7 +725,7 @@ async fn withdrawal_proof(
 async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> {
     let managed_resource_id = "did:web:admin-managed.example";
 
-    let res = TestClient::get("http://local/api/admin/v1/resources?limit=5")
+    let res = TestClient::get("http://local/_cokret/local/admin/resources?limit=5")
         .send(service)
         .await;
     assert_eq!(
@@ -733,7 +733,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         StatusCode::UNAUTHORIZED
     );
 
-    let mut res = TestClient::get("http://local/api/admin/v1/resources?resource_kind=realm&divergent=false&stale=false&limit=10")
+    let mut res = TestClient::get("http://local/_cokret/local/admin/resources?resource_kind=realm&divergent=false&stale=false&limit=10")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
@@ -745,7 +745,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .is_some_and(|items| items.len() >= 3)
     );
 
-    let mut res = TestClient::post("http://local/api/admin/v1/allowlist")
+    let mut res = TestClient::post("http://local/_cokret/local/admin/allowlist")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_did": "did:web:principal.test",
@@ -758,7 +758,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["item"]["resource_did"], "did:web:principal.test");
 
-    let mut res = TestClient::get("http://local/api/admin/v1/allowlist?limit=10")
+    let mut res = TestClient::get("http://local/_cokret/local/admin/allowlist?limit=10")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
@@ -766,7 +766,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"][0]["resource_did"], "did:web:principal.test");
 
-    let mut res = TestClient::post("http://local/api/admin/v1/resources")
+    let mut res = TestClient::post("http://local/_cokret/local/admin/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -791,7 +791,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["item"]["resource_id"], managed_resource_id);
     assert_eq!(body["item"]["policy_revision"], "admin-r1");
 
-    let mut res = TestClient::post("http://local/api/v1/directory/search-organizations")
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-organizations")
         .json(&json!({ "query": "Admin Managed", "limit": 10 }))
         .send(service)
         .await;
@@ -805,7 +805,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .any(|result| result["organization_did"] == managed_resource_id)
     );
 
-    let mut res = TestClient::post("http://local/api/admin/v1/takedown")
+    let mut res = TestClient::post("http://local/_cokret/local/admin/takedown")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "handle",
@@ -824,7 +824,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .is_some_and(|id| id.starts_with("ck:withdraw:"))
     );
 
-    let res = TestClient::post("http://local/api/v1/directory/resolve-handle")
+    let res = TestClient::post("http://local/_cokret/find/directory/resolve-handle")
         .json(&json!({ "handle": "alice.example" }))
         .send(service)
         .await;
@@ -834,7 +834,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     );
 
     let mut res = TestClient::delete(
-        "http://local/api/admin/v1/allowlist?resource_did=did:web:principal.test",
+        "http://local/_cokret/local/admin/allowlist?resource_did=did:web:principal.test",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
@@ -844,7 +844,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["deleted"], 1);
 
     let mut res = TestClient::delete(
-        "http://local/api/admin/v1/resources?resource_kind=organization&resource_id=did:web:admin-managed.example",
+        "http://local/_cokret/local/admin/resources?resource_kind=organization&resource_id=did:web:admin-managed.example",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
@@ -854,7 +854,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["deleted"], 1);
 
     let mut res = TestClient::get(
-        "http://local/api/admin/v1/resources?resource_kind=organization&q=admin-managed&limit=10",
+        "http://local/_cokret/local/admin/resources?resource_kind=organization&q=admin-managed&limit=10",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
@@ -863,7 +863,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"].as_array().unwrap().len(), 0);
 
-    let mut res = TestClient::get("http://local/api/admin/v1/audit?limit=50")
+    let mut res = TestClient::get("http://local/_cokret/local/admin/audit?limit=50")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
@@ -1030,7 +1030,7 @@ fn handle_mock_principal_connection(
                     "events": [{
                         "event": {
                             "event_id": event_id,
-                            "kind": "cx.realm.discovery",
+                            "kind": "ck.realm.discovery",
                             "created_at": Utc::now(),
                             "content": state,
                         }
@@ -1067,7 +1067,7 @@ fn signed_realm_discovery_state_named(
     name: &str,
 ) -> anyhow::Result<JsonValue> {
     let mut state = json!({
-        "kind": "cx.realm.discovery",
+        "kind": "ck.realm.discovery",
         "discoverability": "public",
         "directory_services": ["did:web:directory.test"],
         "name": name,

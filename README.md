@@ -21,7 +21,7 @@ After the Phase 1–4 terminology inversion (Round R1.x), discovery
 projections target the **Realm** as the unit of public metadata:
 
 - **Realm:** security boundary — membership, capability, E2EE, federation;
-  the unit on which `cx.realm.discovery` announces and `cx.realm.link`
+  the unit on which `ck.realm.discovery` announces and `ck.realm.link`
   edges (governed_by / discoverable_from / mirror_of) operate.
 - **Space:** navigation container — board, list, section, calendar bucket
   inside a Realm. Spaces are not directly discoverable; they ride along
@@ -29,7 +29,7 @@ projections target the **Realm** as the unit of public metadata:
 
 Per spec, the legacy `cx.space.discovery` kind is **hard-rejected** at
 verify-time — no serde alias, no quiet rewrite. Emitters must send
-`cx.realm.discovery`.
+`ck.realm.discovery`.
 
 ## Round R4 (protocol review closures)
 
@@ -52,7 +52,7 @@ wire-breaking list.
 ## Round R2/R3 operator notes
 
 Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
-key on `cx.directory.announce`. The cache key now includes
+key on `ck.directory.announce`. The cache key now includes
 `Source-Service-DID` / `verification_method` / `service_binding_ref` /
 `origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and
@@ -69,7 +69,7 @@ columns to `ingest_announces` and the `realm_destroyed_at` /
 
 ## Conformance scope
 
-This implementation targets the `cx.profile.directory_service.v1` profile
+This implementation targets the `ck.profile.directory_service.v1` profile
 defined by the Cokret v1 spec — concretely:
 
 - **§7** Directory Service Role (3-responsibility positioning, 6 invariants)
@@ -90,7 +90,7 @@ filters and membership hints where the Directory profile needs them.
 honesty. Current limitations are: pull-mode ingest is declared disabled when
 `TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown webhook fanout is
 HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
-from `cx.directory.push.register` is HMAC-signed best-effort delivery without a
+from `ck.directory.push.register` is HMAC-signed best-effort delivery without a
 durable retry queue; PSI match indexing is capped at 10,000 eligible public or
 listed contact rows and returns `limited=true` when capped.
 
@@ -197,7 +197,7 @@ scripts/local-artifacts.sh
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
-behavior, `cx.directory.push.register`, signed push announce against a mock
+behavior, `ck.directory.push.register`, signed push announce against a mock
 Principal Server, pull-mode revalidation, freshness flags, PSI blind / match,
 and takedown audit through the admin operator surface.
 

@@ -4,7 +4,7 @@
 //! "I'm still here" signal: an announcer that already has an
 //! up-to-date discovery_state in the directory doesn't need to
 //! re-sign + re-submit the full announce body; it just calls
-//! `POST /api/v1/directory/announce/heartbeat` with the
+//! `POST /_cokret/find/directory/announce/heartbeat` with the
 //! `announce_id` it received from the original announce, and the
 //! directory bumps `last_refreshed_at` / `expires_at` forward by one
 //! TTL window.

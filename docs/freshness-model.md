@@ -113,7 +113,7 @@ at `TEABAY_MAX_TTL_SECONDS`.
 
 Recommended cadence: half the row's `effective_ttl_seconds` (e.g.
 30-minute heartbeats for an 1-hour TTL). The endpoint is rate-limited
-on the same per-resource and per-IP buckets as `cx.directory.announce`.
+on the same per-resource and per-IP buckets as `ck.directory.announce`.
 
 Authorization:
 - transport: RFC 9421 HTTP Message Signature middleware

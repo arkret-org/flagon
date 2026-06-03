@@ -21,8 +21,8 @@ INSERT INTO directory_resources (
     'ck:realm:tea',
     'did:web:principal.test',
     -- Round 4 (spec a77b995): the §3 discovery event kind for the
-    -- Realm security boundary is `cx.realm.discovery`.
-    '{"kind":"cx.realm.discovery","discoverability":"public"}'::jsonb,
+    -- Realm security boundary is `ck.realm.discovery`.
+    '{"kind":"ck.realm.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
@@ -44,7 +44,7 @@ INSERT INTO directory_resources (
     'realm'::resource_kind,
     'ck:realm:tea-lab',
     'did:web:principal.test',
-    '{"kind":"cx.realm.discovery","discoverability":"listed"}'::jsonb,
+    '{"kind":"ck.realm.discovery","discoverability":"listed"}'::jsonb,
     '{"name":"Tea Protocol Lab","summary":"Second public conformance realm","member_count_bucket":"11-50"}'::jsonb,
     'listed'::discoverability,
     now() - interval '1 minute',
@@ -62,7 +62,7 @@ INSERT INTO directory_resources (
     'realm'::resource_kind,
     'ck:realm:restricted',
     'did:web:principal.test',
-    '{"kind":"cx.realm.discovery","discoverability":"restricted"}'::jsonb,
+    '{"kind":"ck.realm.discovery","discoverability":"restricted"}'::jsonb,
     '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
     'restricted'::discoverability,
     now(),
@@ -80,7 +80,7 @@ INSERT INTO directory_resources (
     'realm'::resource_kind,
     'ck:realm:secret',
     'did:web:principal.test',
-    '{"kind":"cx.realm.discovery","discoverability":"secret"}'::jsonb,
+    '{"kind":"ck.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
     'secret'::discoverability,
     now(),
@@ -98,7 +98,7 @@ INSERT INTO directory_resources (
     'organization'::resource_kind,
     'did:web:tea-org.example',
     'did:web:principal.test',
-    '{"kind":"cx.organization.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ck.organization.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Tea Org","handle":"tea-org","summary":"Organization conformance fixture"}'::jsonb,
     'public'::discoverability,
     now(),
@@ -116,7 +116,7 @@ INSERT INTO directory_resources (
     'actor'::resource_kind,
     'did:web:alice.example',
     'did:web:principal.test',
-    '{"kind":"cx.actor.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ck.actor.discovery","discoverability":"public"}'::jsonb,
     '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["ck:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
@@ -134,7 +134,7 @@ INSERT INTO directory_resources (
     'handle'::resource_kind,
     'alice.example',
     'did:web:principal.test',
-    '{"kind":"cx.handle.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ck.handle.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
     -- carries `member_delivery_binding.recipient_service_did` + binding_source
     -- so `resolve_handle(intent=member_add)` can run the Realm policy filter.

@@ -5,7 +5,7 @@
 //! routing metadata MUST NEVER appear in the public directory. teabay's
 //! anti-enumeration story is built on the directory only ever indexing
 //! Realm-level discovery state; Circle metadata leaking through
-//! `cx.directory.announce` or a `cx.directory.push.register` filter would
+//! `ck.directory.announce` or a `ck.directory.push.register` filter would
 //! immediately defeat that.
 //!
 //! This module is the single hard-reject point. Both ingest paths
@@ -38,7 +38,7 @@ use serde_json::Value as JsonValue;
 /// project into the directory. `circle_id` / `circle_members` /
 /// `member_circle_ids` cover legacy/short names that downstream
 /// services might be tempted to emit. `cx.circle.*` event-kind echoes
-/// (e.g. `event_kind: "cx.circle.member.add"`) are independently
+/// (e.g. `event_kind: "ck.circle.member.add"`) are independently
 /// rejected via the `ck:circle:` value sentinel.
 pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
     "circle_id",
@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn accepts_realm_only_announce_state() {
         let value = json!({
-            "kind": "cx.realm.discovery",
+            "kind": "ck.realm.discovery",
             "discoverability": "public",
             "directory_services": ["did:web:directory.test"],
             "member_count_bucket": "11-50",
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn rejects_top_level_circle_id() {
         let value = json!({
-            "kind": "cx.realm.discovery",
+            "kind": "ck.realm.discovery",
             "circle_id": "ck:circle:01J0XXXXX",
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -272,7 +272,7 @@ mod tests {
         // value either — the walker catches `ck:circle:` no matter
         // which key it lives under.
         let value = json!({
-            "kind": "cx.realm.discovery",
+            "kind": "ck.realm.discovery",
             "summary": "see also ck:circle:01J0XXXXXX for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn rejects_circle_id_array_element() {
         let value = json!({
-            "kind": "cx.realm.discovery",
+            "kind": "ck.realm.discovery",
             "related": ["ck:realm:a", "ck:circle:b"],
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -303,7 +303,7 @@ mod tests {
             "resource_kind": "realm",
             "resource_id": "ck:circle:01J0CIRCLEULIDV4XYZ",
             "principal_server_did": "did:web:principal.test",
-            "discovery_state": {"kind": "cx.realm.discovery"},
+            "discovery_state": {"kind": "ck.realm.discovery"},
         });
         let err = reject_circle_payload(&envelope).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -336,8 +336,8 @@ mod tests {
     #[test]
     fn property_random_circle_injection_is_always_caught() {
         let bases = [
-            json!({"kind": "cx.realm.discovery"}),
-            json!({"kind": "cx.realm.discovery", "directory_services": []}),
+            json!({"kind": "ck.realm.discovery"}),
+            json!({"kind": "ck.realm.discovery", "directory_services": []}),
             json!({"nested": {"a": {"b": {"c": 1}}}}),
             json!({"list": [1, 2, {"deep": "ok"}]}),
         ];
@@ -386,13 +386,13 @@ mod tests {
     #[test]
     fn property_clean_realm_payloads_are_accepted() {
         let payloads = [
-            json!({"kind": "cx.realm.discovery", "discoverability": "public"}),
-            json!({"kind": "cx.realm.discovery", "directory_services": ["did:web:d.test"], "policy_revision": "r-42"}),
-            json!({"kind": "cx.realm.discovery", "as_of": "2026-05-26T00:00:00Z"}),
-            json!({"kind": "cx.actor.discovery", "handle": "did:web:alice"}),
+            json!({"kind": "ck.realm.discovery", "discoverability": "public"}),
+            json!({"kind": "ck.realm.discovery", "directory_services": ["did:web:d.test"], "policy_revision": "r-42"}),
+            json!({"kind": "ck.realm.discovery", "as_of": "2026-05-26T00:00:00Z"}),
+            json!({"kind": "ck.actor.discovery", "handle": "did:web:alice"}),
             // member_count_bucket is allowed — the bucket grid is the
             // anti-enumeration sanctioned projection.
-            json!({"kind": "cx.realm.discovery", "member_count_bucket": "11-50"}),
+            json!({"kind": "ck.realm.discovery", "member_count_bucket": "11-50"}),
         ];
         for payload in payloads {
             assert!(

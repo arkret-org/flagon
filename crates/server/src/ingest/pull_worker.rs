@@ -3,10 +3,10 @@
 //! Wakes every `TEABAY_PULL_INTERVAL_SECONDS`, scans for entries whose
 //! `next_revalidation_after` has passed, and re-pulls their signed
 //! `cx.{kind}.discovery` state from the resource Principal Server using
-//! the standard `cx.events.query` shape:
+//! the standard `ck.events.query` shape:
 //!
 //! ```text
-//! GET /api/v1/events
+//! GET /_cokret/self/events/query
 //!   ?subject={resource_id}
 //!   &kind=cx.{...}.discovery
 //!   &state_only=true
@@ -236,7 +236,7 @@ impl PullWorker {
 
         // Round R2/R3 T07/T14 — surface realm terminal state on the pull
         // path too, and persist the federation cache-key identity fields
-        // observed from the upstream `cx.events.query` response/envelope.
+        // observed from the upstream `ck.events.query` response/envelope.
         let realm_terminal =
             derive_realm_terminal_state(announce.resource_kind, &announce.discovery_state);
         upsert_resource_and_audit(
@@ -313,7 +313,7 @@ impl PullWorker {
             &self.http,
         )
         .await?;
-        let mut url = endpoint_child(&endpoint, "events")?;
+        let mut url = endpoint_child(&endpoint, "self/events/query")?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("subject", &entry.resource_id);
@@ -591,7 +591,7 @@ mod tests {
         };
         let pulled = PulledEvent {
             event_id: "evt-1".to_owned(),
-            kind: "cx.realm.discovery".to_owned(),
+            kind: "ck.realm.discovery".to_owned(),
             created_at: Utc.timestamp_opt(0, 0).unwrap(),
             content: json!({
                 "proof": {
