@@ -76,6 +76,11 @@ struct NewAuditRow<'a> {
     kind: AuditEventKind,
     resource_kind: Option<crate::ingest::ResourceKindWire>,
     resource_id: Option<&'a str>,
+    /// DID that initiated the audited operation — the resource's
+    /// `principal_server_did`, the directory's own `service_did`, or an
+    /// operator DID depending on the path. This is NOT a spec Realm `Actor`
+    /// object; it is the initiating principal. For credential-vs-claim
+    /// disambiguation prefer `authenticated_actor` / `asserted_operator`.
     actor: Option<&'a str>,
     detail: JsonValue,
     authentication_method: Option<&'a str>,
@@ -159,7 +164,7 @@ pub async fn record_with_identity(
                 &detail,
                 &identity,
                 prev_digest.as_deref(),
-            );
+            )?;
 
             diesel::insert_into(directory_audit::table)
                 .values(NewAuditRow {
@@ -197,7 +202,7 @@ fn compute_row_digest(
     detail: &JsonValue,
     identity: &ActorIdentity<'_>,
     prev_digest: Option<&[u8]>,
-) -> Vec<u8> {
+) -> anyhow::Result<Vec<u8>> {
     let canonical = json!({
         "occurred_at": occurred_at.to_rfc3339(),
         "kind": kind.as_pg(),
@@ -209,11 +214,15 @@ fn compute_row_digest(
         "authenticated_actor": identity.authenticated_actor,
         "asserted_operator": identity.asserted_operator,
     });
-    let canonical_bytes = serde_json::to_vec(&canonical).unwrap_or_default();
+    // Use the shared SDK canonical serializer so "canonical row digest" is
+    // accurate and matches the rest of the stack. Serialization failure is
+    // fatal (fail-loud): a silent empty-bytes fallback would let differing
+    // rows collide and break the tamper-evident chain.
+    let canonical_bytes = contrix_sdk::canonical::canonical_json_bytes(&canonical)?;
     let mut hasher = Sha256::new();
     hasher.update(&canonical_bytes);
     if let Some(prev) = prev_digest {
         hasher.update(prev);
     }
-    hasher.finalize().to_vec()
+    Ok(hasher.finalize().to_vec())
 }

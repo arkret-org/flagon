@@ -19,6 +19,7 @@
 //! preserve.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -126,7 +127,8 @@ struct MetricsInner {
     query_latency: Mutex<BTreeMap<String, QueryLatencyStats>>,
     anti_enum_pad: Mutex<BTreeMap<String, PadHistogram>>,
     pull_revalidations: Mutex<BTreeMap<String, u64>>,
-    divergence_detected: Mutex<u64>,
+    // Pure scalar counter — an atomic avoids taking a lock on this hot path.
+    divergence_detected: AtomicU64,
     expired_rows_purged: Mutex<BTreeMap<String, u64>>,
     takedown_notification_failures: Mutex<BTreeMap<String, u64>>,
     // R3.2 (METRICS-TBY-1) — directory query / filter-drop / cardinality
@@ -183,7 +185,7 @@ impl Metrics {
     }
 
     pub fn record_ingest(&self, kind: &'static str, outcome: &'static str) {
-        let mut ingest = self.inner.ingest.lock().expect("ingest metrics lock");
+        let mut ingest = self.inner.ingest.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         *ingest.entry(IngestKey { kind, outcome }).or_default() += 1;
     }
 
@@ -201,7 +203,7 @@ impl Metrics {
             .inner
             .query_latency
             .lock()
-            .expect("query latency metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let stats = query_latency.entry(op.to_owned()).or_default();
         stats.last_seconds = seconds;
         stats.sum_seconds += seconds;
@@ -214,7 +216,7 @@ impl Metrics {
             .inner
             .anti_enum_pad
             .lock()
-            .expect("anti-enumeration pad metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         anti_enum_pad
             .entry(op.to_owned())
             .or_default()
@@ -226,17 +228,14 @@ impl Metrics {
             .inner
             .pull_revalidations
             .lock()
-            .expect("pull revalidation metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *pull_revalidations.entry(outcome.to_owned()).or_default() += 1;
     }
 
     pub fn record_divergence_detected(&self) {
-        let mut divergence_detected = self
-            .inner
+        self.inner
             .divergence_detected
-            .lock()
-            .expect("divergence metrics lock");
-        *divergence_detected += 1;
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// P5 — increment the `teabay_expired_rows_purged_total{table}`
@@ -246,7 +245,7 @@ impl Metrics {
             .inner
             .expired_rows_purged
             .lock()
-            .expect("expired rows purged metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *expired.entry(table.to_owned()).or_default() += count;
     }
 
@@ -257,7 +256,7 @@ impl Metrics {
             .inner
             .takedown_notification_failures
             .lock()
-            .expect("takedown notification failures metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *failures.entry(stage.to_owned()).or_default() += 1;
     }
 
@@ -270,7 +269,7 @@ impl Metrics {
             .inner
             .query_outcomes
             .lock()
-            .expect("query outcome metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *outcomes
             .entry(QueryOutcomeKey {
                 op: op.to_owned(),
@@ -287,7 +286,7 @@ impl Metrics {
             .inner
             .filter_drops
             .lock()
-            .expect("filter drop metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *drops.entry(reason.to_owned()).or_default() += 1;
     }
 
@@ -298,7 +297,7 @@ impl Metrics {
             .inner
             .cardinality_guard
             .lock()
-            .expect("cardinality guard metrics lock");
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *guard.entry(counter.to_owned()).or_default() += count;
     }
 
@@ -307,60 +306,56 @@ impl Metrics {
             .inner
             .ingest
             .lock()
-            .expect("ingest metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let query_latency = self
             .inner
             .query_latency
             .lock()
-            .expect("query latency metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let anti_enum_pad = self
             .inner
             .anti_enum_pad
             .lock()
-            .expect("anti-enumeration pad metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let pull_revalidations = self
             .inner
             .pull_revalidations
             .lock()
-            .expect("pull revalidation metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        let divergence_detected = *self
-            .inner
-            .divergence_detected
-            .lock()
-            .expect("divergence metrics lock");
+        let divergence_detected = self.inner.divergence_detected.load(Ordering::Relaxed);
         let expired_rows_purged = self
             .inner
             .expired_rows_purged
             .lock()
-            .expect("expired rows purged metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let takedown_notification_failures = self
             .inner
             .takedown_notification_failures
             .lock()
-            .expect("takedown notification failures metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let query_outcomes = self
             .inner
             .query_outcomes
             .lock()
-            .expect("query outcome metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let filter_drops = self
             .inner
             .filter_drops
             .lock()
-            .expect("filter drop metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
         let cardinality_guard = self
             .inner
             .cardinality_guard
             .lock()
-            .expect("cardinality guard metrics lock")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
 
         let mut out = String::new();

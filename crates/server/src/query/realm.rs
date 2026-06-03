@@ -291,6 +291,13 @@ pub(crate) async fn resolve_realm_visible(
 
 // ---- internal load primitives -------------------------------------------
 
+// Tail-column ordering across the three Realm row mirrors (`RealmStoredRow` /
+// `RealmRow` / `RealmSqlRow`) is, by convention,
+// `... via_services, indexed_at, [score], realm_destroyed_at,
+// reachability_revoked_at`. The single intentional difference is that this
+// mirror has NO derived `score` column: the resolve path (which loads
+// `RealmStoredRow`) does not rank, so there is no score to carry. The two
+// search mirrors insert `score` between `indexed_at` and `realm_destroyed_at`.
 #[derive(Debug, Queryable)]
 struct RealmStoredRow {
     resource_id: String,
@@ -473,7 +480,7 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
         let payload = serde_json::json!({
             "realm_id": row.resource_id,
             "discoverability": row.discoverability.as_pg(),
-            "name": "[erased]",
+            "title": "[erased]",
             "summary": "[erased]",
             "tombstone": {
                 "kind": "realm_destroyed",
@@ -734,7 +741,6 @@ WITH ranked AS (
           $2::text IS NULL
           OR public_projection->>'organization_did' = $2
           OR public_projection->>'organization' = $2
-          OR public_projection->'official_organizations' ? $2
       )
       AND (
           $3::text IS NULL

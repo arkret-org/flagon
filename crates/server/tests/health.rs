@@ -22,6 +22,9 @@ fn router_builds_with_minimal_state() {
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
+        // Default-policy assertion below relies on this being unset; clear any
+        // value leaked from another test in this binary.
+        env::remove_var("TEABAY_ACCEPT_POLICY_KIND");
     }
 
     let config = server::AppConfig::from_env().expect("config builds");
@@ -83,6 +86,8 @@ fn hardening_status_shape_matches_cross_service_contract() {
         env::set_var("TEABAY_ADMIN_TOKEN", "prod-admin-token-32bytes-or-more");
         env::set_var("TEABAY_ADMIN_CSRF_TOKEN", "prod-csrf-token-32bytes-or-more");
         env::set_var("TEABAY_CORS_ALLOW_ORIGIN", "https://app.example.com");
+        // Production now requires an explicit accept policy (fail-closed).
+        env::set_var("TEABAY_ACCEPT_POLICY_KIND", "allowlist");
     }
     let prod_config = server::AppConfig::from_env().expect("prod config builds");
     assert!(!prod_config.development_mode);

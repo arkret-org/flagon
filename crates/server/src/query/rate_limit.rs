@@ -67,6 +67,27 @@ pub fn enforce_resolve_rate_limit(
     check(state, res, key, max)
 }
 
+/// Per-search-needle rate limit. Caps how fast a single query string can be
+/// probed across the search endpoints (`search_actors` / `search_users`),
+/// throttling substring/prefix enumeration of the public namespace even when
+/// an attacker spreads requests across many IPs. Reuses the
+/// per-resource-resolve cap. An empty needle is not throttled (it is the
+/// broad "list public" query the per-IP limit already covers). Returns `true`
+/// when the request may proceed.
+pub fn enforce_search_needle_rate_limit(
+    res: &mut Response,
+    state: &AppState,
+    needle: &str,
+) -> bool {
+    let max = state.config().query_max_resolves_per_resource_per_min;
+    let needle = needle.trim();
+    if max == 0 || needle.is_empty() {
+        return true;
+    }
+    let key = format!("query-search-needle:{needle}");
+    check(state, res, key, max)
+}
+
 /// P5 — anti-enumeration response jitter for resolve endpoints. The
 /// per-route deterministic jitter (`LatencyBudget`) handles route-level
 /// timing isolation; this adds a stochastic component so an attacker
@@ -86,8 +107,9 @@ pub async fn apply_resolve_response_jitter() {
 
 /// Resolve the client IP for rate-limit bucketing. Trusts the leading
 /// `X-Forwarded-For` value only when the direct `remote_addr` is in the
-/// `TEABAY_TRUSTED_PROXY` allowlist.
-fn resolve_client_ip(req: &Request, state: &AppState) -> String {
+/// `TEABAY_TRUSTED_PROXY` allowlist. Shared with `crate::ingest::rate_limit`
+/// so both faces resolve the client IP identically behind a reverse proxy.
+pub(crate) fn resolve_client_ip(req: &Request, state: &AppState) -> String {
     let remote = req.remote_addr().to_string();
     let trusted = state.config().trusted_proxy.as_deref().unwrap_or(&[]);
     if trusted.is_empty() {
@@ -132,12 +154,19 @@ fn check(state: &AppState, res: &mut Response, key: String, max: u32) -> bool {
     match state.check_rate_limit(key, max) {
         RateLimitOutcome::Allowed => true,
         RateLimitOutcome::Limited { retry_after } => {
-            let retry_after_seconds = retry_after.as_secs().max(1);
-            if let Ok(value) = retry_after_seconds.to_string().parse() {
-                res.headers_mut().insert(header::RETRY_AFTER, value);
-            }
-            ApiErrorCode::RateLimited.render(res, "query rate limited");
+            reject_rate_limited(res, retry_after, "query rate limited");
             false
         }
     }
+}
+
+/// Render a `429`-style rate-limited rejection with a `Retry-After` header.
+/// Shared by the ingest and query rate-limit guards so the rejection shape
+/// stays consistent across both faces.
+pub(crate) fn reject_rate_limited(res: &mut Response, retry_after: Duration, message: &str) {
+    let retry_after_seconds = retry_after.as_secs().max(1);
+    if let Ok(value) = retry_after_seconds.to_string().parse() {
+        res.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    ApiErrorCode::RateLimited.render(res, message);
 }

@@ -127,6 +127,7 @@ impl HttpSigKeyDirectory for StaticKeyDirectory {
 pub struct DidResolverKeyDirectory {
     static_keys: StaticKeyDirectory,
     accepted_did_methods: Vec<String>,
+    allow_private_networks: bool,
     resolver: Mutex<Option<Arc<CompositeDidResolver>>>,
 }
 
@@ -134,10 +135,12 @@ impl DidResolverKeyDirectory {
     pub fn new(
         static_keys: HashMap<String, Ed25519PublicKey>,
         accepted_did_methods: Vec<String>,
+        allow_private_networks: bool,
     ) -> Self {
         Self {
             static_keys: StaticKeyDirectory::from_map(static_keys),
             accepted_did_methods,
+            allow_private_networks,
             resolver: Mutex::new(None),
         }
     }
@@ -150,7 +153,10 @@ impl DidResolverKeyDirectory {
         if let Some(existing) = resolver.as_ref() {
             return Ok(Arc::clone(existing));
         }
-        let built = Arc::new(did_resolver_chain(&self.accepted_did_methods)?);
+        let built = Arc::new(did_resolver_chain(
+            &self.accepted_did_methods,
+            self.allow_private_networks,
+        )?);
         *resolver = Some(Arc::clone(&built));
         Ok(built)
     }
@@ -848,6 +854,7 @@ mod tests {
         let dir = DidResolverKeyDirectory::new(
             std::collections::HashMap::new(),
             vec!["did:key".to_owned()],
+            false,
         );
 
         assert_eq!(dir.lookup(&key_id), Some(signing_key.verifying_key()));
@@ -862,6 +869,7 @@ mod tests {
         let dir = DidResolverKeyDirectory::new(
             std::collections::HashMap::new(),
             vec!["did:key".to_owned()],
+            false,
         );
         let router = router(Arc::new(dir));
         let body = br#"{"resource_id":"cx:realm:tea"}"#;

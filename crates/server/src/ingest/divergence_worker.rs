@@ -282,7 +282,7 @@ fn directory_resolve_path(kind: ResourceKindWire) -> Option<&'static str> {
         ResourceKindWire::Realm => Some("resolve-realm"),
         ResourceKindWire::Organization => Some("resolve-organization"),
         ResourceKindWire::Handle => Some("resolve-handle"),
-        ResourceKindWire::Space | ResourceKindWire::Actor | ResourceKindWire::Applet => None,
+        ResourceKindWire::Actor | ResourceKindWire::Applet => None,
     }
 }
 
@@ -291,7 +291,7 @@ fn directory_resolve_payload(kind: ResourceKindWire, resource_id: &str) -> Optio
         ResourceKindWire::Realm => Some(json!({ "realm_id": resource_id })),
         ResourceKindWire::Organization => Some(json!({ "organization_did": resource_id })),
         ResourceKindWire::Handle => Some(json!({ "handle": resource_id })),
-        ResourceKindWire::Space | ResourceKindWire::Actor | ResourceKindWire::Applet => None,
+        ResourceKindWire::Actor | ResourceKindWire::Applet => None,
     }
 }
 

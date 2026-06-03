@@ -219,6 +219,7 @@ async fn resolve(
             &canonical_realm_id,
             effective_link_type,
             &state.config().accepted_did_methods,
+            crate::egress::private_networks_allowed(state.config().development_mode),
         ) {
             TokenCheck::Pass => {}
             TokenCheck::Reject => return ResolveOutcome::TokenReject,
@@ -277,12 +278,15 @@ pub fn verify_address_token(
     effective_link_type: LinkType,
 ) -> TokenCheck {
     let accepted_did_methods = vec!["did:key".to_owned()];
+    // did:key resolution is purely local (no network egress), so the SSRF
+    // private-network policy is irrelevant on this path.
     verify_address_token_with_methods(
         parsed,
         token,
         canonical_realm_id,
         effective_link_type,
         &accepted_did_methods,
+        false,
     )
 }
 
@@ -292,13 +296,16 @@ pub fn verify_address_token_with_methods(
     canonical_realm_id: &str,
     effective_link_type: LinkType,
     accepted_did_methods: &[String],
+    allow_private_networks: bool,
 ) -> TokenCheck {
     // An invite link with no token cannot be honoured.
     let Some(token) = token else {
         return TokenCheck::Reject;
     };
 
-    let Some(token_descriptor) = parse_token_descriptor(token, accepted_did_methods) else {
+    let Some(token_descriptor) =
+        parse_token_descriptor(token, accepted_did_methods, allow_private_networks)
+    else {
         return TokenCheck::Reject;
     };
 
@@ -368,6 +375,7 @@ fn normalize_realm(realm_id: &str) -> &str {
 fn parse_token_descriptor(
     token: &str,
     accepted_did_methods: &[String],
+    allow_private_networks: bool,
 ) -> Option<TargetDescriptor> {
     let mut value: JsonValue = serde_json::from_str(token).ok()?;
     if !matches!(
@@ -409,6 +417,7 @@ fn parse_token_descriptor(
         &verification_method,
         &issuer,
         accepted_did_methods,
+        allow_private_networks,
     )?;
 
     let descriptor = value.get("target_descriptor")?;
@@ -421,6 +430,7 @@ fn verify_invite_token_jws(
     verification_method: &str,
     issuer: &str,
     accepted_did_methods: &[String],
+    allow_private_networks: bool,
 ) -> Option<()> {
     if accepted_did_methods.is_empty() {
         return None;
@@ -437,7 +447,7 @@ fn verify_invite_token_jws(
         .ok();
     }
 
-    let resolver = did_resolver_chain(accepted_did_methods).ok()?;
+    let resolver = did_resolver_chain(accepted_did_methods, allow_private_networks).ok()?;
     sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver).ok()
 }
 
@@ -512,11 +522,13 @@ fn build_realm_response(
 ) -> Result<DirectoryResolveTargetResBody, String> {
     let realm_id = RealmId::new(resolved.realm_id.clone())
         .map_err(|e| format!("resolved realm_id not canonical: {e}"))?;
+    // Realm display name is canonically `title` (Realm schema); `name` is
+    // reserved for external protocol/algorithm/service labels and is not a
+    // Realm projection field.
     let title = resolved
         .envelope
         .payload
-        .get("name")
-        .or_else(|| resolved.envelope.payload.get("title"))
+        .get("title")
         .and_then(JsonValue::as_str)
         .map(str::to_owned);
     let realm_preview = RealmPreview {
@@ -816,7 +828,7 @@ mod tests {
         let resolved = crate::query::realm::ResolvedRealm {
             realm_id: format!("cx:realm:{R}"),
             envelope: crate::filter::result::ResultEnvelope::from_row(
-                json!({ "realm_id": format!("cx:realm:{R}"), "name": "Tea Time" }),
+                json!({ "realm_id": format!("cx:realm:{R}"), "title": "Tea Time" }),
                 sample_time(),
                 vec!["cx:event:1".to_owned()],
                 Some("rev-7".to_owned()),

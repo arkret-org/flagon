@@ -44,7 +44,6 @@ thiserror = "2"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
-ulid = "1.1.4"
 url = { version = "2.5.4", features = ["serde"] }
 uuid = { version = "1.18.1", features = ["v4", "v7", "serde"] }
 voprf = "0.6.0-pre.1"

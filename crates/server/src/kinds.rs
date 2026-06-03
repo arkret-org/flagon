@@ -50,14 +50,19 @@ pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = contrix_sdk::OP_DIRECTORY_RE
 pub const OP_DIRECTORY_SEARCH_ACTORS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_ACTORS;
 pub const OP_DIRECTORY_SEARCH_USERS: &str = contrix_sdk::OP_DIRECTORY_SEARCH_USERS;
 pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
+/// Generalized target resolution (`cx.directory.resolve_target`). Not part of
+/// the profile's `required_endpoints`, but published by teabay and advertised
+/// in [`SUPPORTED_OPERATIONS`].
+pub const OP_DIRECTORY_RESOLVE_TARGET: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_TARGET;
 /// R3.2 (contrix-spec @ b56cab1) — reverse handle lookup
 /// (`cx.directory.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
 pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =
     contrix_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
 
-/// Every operation this directory service publishes, in the same order as
-/// `cx.profile.directory_service.v1#/required_endpoints`.
+/// The profile's **required** operations, in the same order as
+/// `cx.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte
+/// against the embedded baseline JSON by [`crate::profile::verify_or_panic`].
 pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_DESCRIBE,
     OP_DIRECTORY_SEARCH_REALMS,
@@ -67,6 +72,29 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_SEARCH_ACTORS,
     OP_DIRECTORY_SEARCH_USERS,
     OP_DIRECTORY_RESOLVE_HANDLE,
+    OP_DIRECTORY_ANNOUNCE,
+    OP_DIRECTORY_WITHDRAW,
+    OP_DIRECTORY_SUBSCRIBE,
+];
+
+/// Every operation `cx.directory.describe` advertises, in wire order. This is
+/// the single source of truth for the describe overlay's `supported_operations`
+/// (the conditional `private_contact_discovery` op is appended at runtime when
+/// enabled). It is a superset of [`DIRECTORY_OPERATIONS`] — the required
+/// endpoints plus the two non-required operations teabay also exposes
+/// (`resolve_target`, `list_handles_for_subject`). The superset relationship is
+/// enforced at startup by [`crate::profile::verify_or_panic`].
+pub const SUPPORTED_OPERATIONS: &[&str] = &[
+    OP_DIRECTORY_DESCRIBE,
+    OP_DIRECTORY_SEARCH_REALMS,
+    OP_DIRECTORY_RESOLVE_REALM,
+    OP_DIRECTORY_RESOLVE_TARGET,
+    OP_DIRECTORY_SEARCH_ORGANIZATIONS,
+    OP_DIRECTORY_RESOLVE_ORGANIZATION,
+    OP_DIRECTORY_SEARCH_ACTORS,
+    OP_DIRECTORY_SEARCH_USERS,
+    OP_DIRECTORY_RESOLVE_HANDLE,
+    OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT,
     OP_DIRECTORY_ANNOUNCE,
     OP_DIRECTORY_WITHDRAW,
     OP_DIRECTORY_SUBSCRIBE,

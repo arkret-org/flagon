@@ -227,7 +227,7 @@ async fn deliver_tombstone(
     let body = json!({
         "subscription_id": subscription.subscription_id,
         "tombstone": {
-            "kind": "reachability_revoked",
+            "kind": tombstone.kind.as_wire(),
             "reason": tombstone.reason,
             "revoked_at": tombstone.revoked_at,
         },
@@ -308,16 +308,18 @@ fn validate_endpoint(endpoint: &str, development_mode: bool) -> Result<(), Strin
 }
 
 fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
-    URL_SAFE_NO_PAD
-        .decode(raw)
-        .or_else(|_| Ok(raw.as_bytes().to_vec()))
-        .and_then(|bytes| {
-            if bytes.len() < 16 {
-                Err("webhook_secret must be at least 16 bytes".to_owned())
-            } else {
-                Ok(bytes)
-            }
-        })
+    // The webhook secret MUST be base64url (no padding). A decode failure is a
+    // hard error rather than a silent "treat the literal string as key" fallback
+    // — that fallback masked client misconfiguration and made the same string
+    // produce different HMAC keys depending on whether it happened to be valid
+    // base64url.
+    let bytes = URL_SAFE_NO_PAD.decode(raw).map_err(|_| {
+        "webhook_secret must be base64url (unpadded) encoded".to_owned()
+    })?;
+    if bytes.len() < 16 {
+        return Err("webhook_secret must decode to at least 16 bytes".to_owned());
+    }
+    Ok(bytes)
 }
 
 fn generate_secret(subscription_id: &str, subscriber_did: &str, endpoint: &str) -> Vec<u8> {

@@ -547,7 +547,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["name"], "[erased]");
+    assert_eq!(body["title"], "[erased]");
     assert_eq!(body["tombstone"]["kind"], "realm_destroyed");
 
     // Path 2: resource-initiated withdraw stores a verifiable governance

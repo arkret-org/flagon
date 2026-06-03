@@ -1,4 +1,6 @@
--- Introduce the dedicated Realm directory resource kind. Existing `space`
--- enum values are retained for legacy rows and future container discovery.
-
-ALTER TYPE resource_kind ADD VALUE IF NOT EXISTS 'realm' BEFORE 'space';
+-- No-op on fresh installs: the dedicated `realm` directory resource kind
+-- now ships directly in the bootstrap `resource_kind` enum
+-- (20260512010000_schema). The pre-inversion `space` enum value has been
+-- removed entirely — teabay no longer indexes container Spaces, so there is
+-- nothing to add or rename here.
+SELECT 1;

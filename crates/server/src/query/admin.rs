@@ -639,11 +639,33 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
 /// realm-destroy detection).
 #[derive(Debug, Clone)]
 pub struct ReachabilityTombstone {
+    pub kind: TombstoneKind,
     pub resource_kind: ResourceKindWire,
     pub resource_id: String,
     pub principal_server_did: String,
     pub reason: String,
     pub revoked_at: DateTime<Utc>,
+}
+
+/// Discriminator for tombstone webhook bodies. These are two semantically
+/// distinct events that previously shared the `reachability_revoked` kind:
+/// a permanent Realm destruction (T07) vs. a recoverable consent revocation
+/// (T17). Subscribers dispatch on `kind`, not on the free-text `reason`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TombstoneKind {
+    /// T07 — the Realm has been irreversibly destroyed (`cx.realm.destroy`).
+    RealmDestroyed,
+    /// T17 — an actor's reachability was revoked (recoverable).
+    ReachabilityRevoked,
+}
+
+impl TombstoneKind {
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::RealmDestroyed => "realm_destroyed",
+            Self::ReachabilityRevoked => "reachability_revoked",
+        }
+    }
 }
 
 async fn invalidate_reachability(
@@ -686,6 +708,7 @@ async fn invalidate_reachability(
         .into_iter()
         .map(
             |(resource_kind, resource_id, principal_server_did)| ReachabilityTombstone {
+                kind: TombstoneKind::ReachabilityRevoked,
                 resource_kind,
                 resource_id,
                 principal_server_did,
@@ -1187,10 +1210,9 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
     let audit_events: i64 = au::directory_audit.count().get_result(&mut *conn).await?;
     let allowlist_entries: i64 = al::accept_allowlist.count().get_result(&mut *conn).await?;
 
-    let mut per_kind = Vec::with_capacity(6);
+    let mut per_kind = Vec::with_capacity(5);
     for kind in [
         ResourceKindWire::Realm,
-        ResourceKindWire::Space,
         ResourceKindWire::Organization,
         ResourceKindWire::Actor,
         ResourceKindWire::Applet,

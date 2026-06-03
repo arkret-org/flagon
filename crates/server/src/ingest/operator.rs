@@ -68,15 +68,18 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         }
     };
 
-    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
-        return;
-    }
+    // Validate required params BEFORE rate-limiting so the limit bucket key is
+    // always a non-empty resource_id (an empty id would collapse every
+    // malformed request into a single shared bucket).
     if body.resource_id.trim().is_empty() {
         ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
     if body.reason.trim().is_empty() {
         ApiErrorCode::MissingParam.render(res, "reason is required");
+        return;
+    }
+    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
         return;
     }
 

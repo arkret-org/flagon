@@ -333,6 +333,11 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
         "closed".to_owned()
     };
     let rate_limit_enabled = cfg.rate_limit_per_resource_per_min > 0;
+    // SSRF egress posture: are private/link-local targets blocked? This honours
+    // the `TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS` override, not just dev mode, so
+    // a stale override is visible in the hardening snapshot.
+    let egress_private_networks_blocked =
+        !crate::egress::private_networks_allowed(development_mode);
     let provider_credential_rotation = if secret_manager_in_use {
         "manual".to_owned()
     } else {
@@ -351,6 +356,10 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
             admin_auth_mode == "production",
         ),
         ("rate_limit_enabled", rate_limit_enabled),
+        (
+            "egress_private_networks_blocked",
+            egress_private_networks_blocked,
+        ),
         (
             "provider_credential_rotation",
             provider_credential_rotation != "none",
@@ -376,6 +385,7 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
         "log_redaction_enabled": log_redaction_enabled,
         "admin_auth_mode": admin_auth_mode,
         "rate_limit_enabled": rate_limit_enabled,
+        "egress_private_networks_blocked": egress_private_networks_blocked,
         "provider_credential_rotation": provider_credential_rotation,
         "checklist_score": checklist_score,
         "checklist_max": checklist_max,
@@ -393,9 +403,10 @@ fn default_hardening_status() -> serde_json::Value {
         "log_redaction_enabled": false,
         "admin_auth_mode": "unknown",
         "rate_limit_enabled": false,
+        "egress_private_networks_blocked": false,
         "provider_credential_rotation": "none",
         "checklist_score": 0,
-        "checklist_max": 9,
+        "checklist_max": 10,
         "warnings": ["state_not_injected"],
     })
 }

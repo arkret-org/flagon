@@ -23,15 +23,12 @@ async fn main() -> anyhow::Result<()> {
 
     let config = AppConfig::from_env()?;
 
-    // Push the parsed DATABASE_URL into the env so any downstream Diesel
-    // tooling that reads it directly (e.g. `diesel print-schema`) sees the
-    // same value our pool used.
-    //
-    // SAFETY: invoked once, before any worker thread starts touching env.
-    unsafe {
-        std::env::set_var("DATABASE_URL", &config.database_url);
-    }
-
+    // `database_url` is threaded explicitly to everything that needs it
+    // (`Db::connect_with` / `run_migrations`); we do NOT write it back into the
+    // process environment. Offline Diesel tooling (`diesel print-schema`) reads
+    // `DATABASE_URL` from `.env` / the shell, not from this runtime process, so
+    // an `unsafe std::env::set_var` here bought nothing and was unsound under
+    // the multi-threaded tokio runtime.
     let db = Db::connect_with(&config.database_url, &config.db_pool)?;
     db.run_migrations(&config.database_url).await?;
     let state = AppState::new(config.clone(), db);

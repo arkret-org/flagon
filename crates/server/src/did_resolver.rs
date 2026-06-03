@@ -10,12 +10,17 @@ use reqwest::Client;
 
 /// Build the production resolver chain for the DID methods accepted by
 /// this teabay instance.
+///
+/// `allow_private_networks` is the single source of truth for SSRF egress
+/// policy and MUST be derived by the caller from `AppConfig`
+/// (`crate::egress::private_networks_allowed(config.development_mode)`), not
+/// re-read from the environment here — that keeps the egress decision tied to
+/// the startup config snapshot.
 pub(crate) fn did_resolver_chain(
     accepted_did_methods: &[String],
+    allow_private_networks: bool,
 ) -> Result<CompositeDidResolver, String> {
     let policy = resolver_policy(accepted_did_methods);
-    let allow_private_networks =
-        crate::egress::private_networks_allowed(development_mode_from_env());
     let http_client = Client::builder()
         .timeout(Duration::from_millis(2_000))
         .redirect(reqwest::redirect::Policy::none())
@@ -50,10 +55,4 @@ pub(crate) fn normalize_did_method_prefix(method: &str) -> String {
     } else {
         format!("{trimmed}:")
     }
-}
-
-fn development_mode_from_env() -> bool {
-    std::env::var("TEABAY_DEVELOPMENT_MODE")
-        .ok()
-        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES" | "on"))
 }

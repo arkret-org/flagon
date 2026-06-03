@@ -73,7 +73,7 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
 /// the SDK typed parse so we share the validator with the engine
 /// selector parser in `crates/sdk/src/authz/selectors.rs`.
 pub fn looks_like_circle_id(value: &str) -> bool {
-    value.starts_with("cx:circle:")
+    value.starts_with(crate::filter::circle_isolation::CIRCLE_TYPED_ID_PREFIX)
 }
 
 #[cfg(test)]

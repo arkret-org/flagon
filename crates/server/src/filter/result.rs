@@ -11,15 +11,16 @@ use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResultEnvelope {
-    /// The actual public-projection payload (Space preview, Org preview, etc.).
+    /// The actual public-projection payload (Realm preview, Org preview, etc.).
     #[serde(flatten)]
     pub payload: JsonValue,
     /// Directory's last refresh timestamp for this entry (§9.1).
     pub as_of: DateTime<Utc>,
     /// Truth-source event id list — clients verify by re-fetching these.
     pub source_refs: Vec<String>,
-    /// Effective discovery-state revision marker (optional).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Effective discovery-state revision marker. §9.1 makes this a MUST on
+    /// every result and forbids omission, so it is serialized even when
+    /// `null` (no `skip_serializing_if`).
     pub policy_revision: Option<String>,
     /// True iff TTL+grace expired without successful revalidation.
     #[serde(skip_serializing_if = "is_false")]
@@ -39,8 +40,14 @@ fn is_false(b: &bool) -> bool {
 impl ResultEnvelope {
     /// Construct from the columns we store on `directory_resources`. The
     /// caller picks the public-projection JSON to embed; we don't enforce
-    /// any particular shape here so that Space / Organization / Actor
+    /// any particular shape here so that Realm / Organization / Actor
     /// previews can each have their own payload schema.
+    ///
+    /// Note: `via_services` is accepted but intentionally NOT stored as an
+    /// envelope field — §9.1 has no `via_services` field; that information is
+    /// expressed via `join_candidates[].service_did` (see
+    /// [`Self::with_join_candidates`]). The parameter is kept so callers can
+    /// pass the row column uniformly across resource kinds.
     #[allow(clippy::too_many_arguments)]
     pub fn from_row(
         payload: JsonValue,

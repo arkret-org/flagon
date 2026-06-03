@@ -14,7 +14,7 @@
 
 use serde::Deserialize;
 
-use crate::kinds::{DIRECTORY_OPERATIONS, DISCOVERY_EVENT_KINDS};
+use crate::kinds::{DIRECTORY_OPERATIONS, DISCOVERY_EVENT_KINDS, SUPPORTED_OPERATIONS};
 
 /// Embedded copy of the directory-service baseline profile.
 ///
@@ -65,6 +65,18 @@ pub fn verify_or_panic() {
         &baseline.required_event_kinds,
         DISCOVERY_EVENT_KINDS,
     );
+
+    // The describe overlay advertises `SUPPORTED_OPERATIONS`; every required
+    // endpoint MUST be advertised, otherwise describe under-reports the
+    // profile's mandatory surface.
+    for required in DIRECTORY_OPERATIONS {
+        assert!(
+            SUPPORTED_OPERATIONS.contains(required),
+            "directory service profile drift: required endpoint {required:?} \
+             is missing from kinds::SUPPORTED_OPERATIONS (the describe overlay) — \
+             describe must advertise every required_endpoint.",
+        );
+    }
 
     tracing::info!(
         profile = %baseline.profile,

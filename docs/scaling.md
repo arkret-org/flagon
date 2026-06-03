@@ -52,6 +52,20 @@ per resource. When you raise this for a busy publisher, also raise
 `max_size` proportionally: the pool capacity is the second bottleneck
 to absorb the burst.
 
+> ⚠️ **Multi-replica caveat (in-process limiters).** The ingest /
+> query rate limiters, the per-search-needle limiter, and the announce
+> idempotency-replay cache are **in-process** (a `Mutex<HashMap<…>>` per
+> replica), unlike the HTTP-signature replay store which is shared in
+> Postgres across replicas. When you run N teabay replicas behind a load
+> balancer, each replica enforces these limits independently, so the
+> effective per-IP / per-resource / per-needle ceiling is **N× the
+> configured value**, and announce replay de-duplication is per-replica.
+> If you need a hard global ceiling or cross-replica replay dedup, pin
+> the rate-limited paths to a single replica, or front them with a shared
+> token-bucket (e.g. Redis). This is a deliberate scope limit, not a bug —
+> the anti-enumeration latency floor/jitter still applies per request on
+> every replica.
+
 ### Connection timeout
 
 `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS` MUST be ≤ the request

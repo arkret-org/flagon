@@ -239,11 +239,3 @@ async fn write_heartbeat(
     .await?;
     Ok(())
 }
-
-// TODO(circle-rollout-P2E.5): background expiry worker. The pull
-// worker (`crate::ingest::pull_worker`) already runs on a timer; the
-// expiry sweep that flips `stale = true` (and eventually deletes
-// rows past a grace period) belongs on the same scheduler. The
-// freshness columns (`expires_at` + partial index
-// `directory_resources_expires_at_idx`) are landed by this commit so
-// the worker can be wired in a follow-up without another migration.

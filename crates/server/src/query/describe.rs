@@ -64,25 +64,12 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         supported_profiles.push("cx.private_contact_discovery.v1".to_owned());
     }
 
-    // Operations the directory publishes (mirrors `crate::kinds::DIRECTORY_OPERATIONS`).
-    let mut supported_operations: Vec<String> = vec![
-        "cx.directory.describe",
-        "cx.directory.search_realms",
-        "cx.directory.resolve_realm",
-        "cx.directory.resolve_target",
-        "cx.directory.search_organizations",
-        "cx.directory.resolve_organization",
-        "cx.directory.search_actors",
-        "cx.directory.search_users",
-        "cx.directory.resolve_handle",
-        "cx.directory.list_handles_for_subject",
-        "cx.directory.announce",
-        "cx.directory.withdraw",
-        "cx.directory.push.register",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
+    // Operations the directory publishes. Single source of truth:
+    // `crate::kinds::SUPPORTED_OPERATIONS` (no parallel string literals here).
+    let mut supported_operations: Vec<String> = crate::kinds::SUPPORTED_OPERATIONS
+        .iter()
+        .map(|op| (*op).to_owned())
+        .collect();
     if cfg.private_contact_discovery_enabled {
         supported_operations.push("cx.directory.private_contact_discovery".to_owned());
     }
@@ -235,14 +222,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     );
     object.insert(
         "resource_types".to_owned(),
-        json!([
-            "realm",
-            "space",
-            "organization",
-            "actor",
-            "applet",
-            "handle"
-        ]),
+        json!(["realm", "organization", "actor", "applet", "handle"]),
     );
     object.insert("restricted_query_proof".to_owned(), JsonValue::Bool(true));
     object.insert(

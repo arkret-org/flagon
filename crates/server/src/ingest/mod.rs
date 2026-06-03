@@ -42,7 +42,6 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKindWire {
     Realm,
-    Space,
     Organization,
     Actor,
     Applet,
@@ -53,7 +52,6 @@ impl ResourceKindWire {
     pub fn as_pg(self) -> &'static str {
         match self {
             Self::Realm => "realm",
-            Self::Space => "space",
             Self::Organization => "organization",
             Self::Actor => "actor",
             Self::Applet => "applet",
@@ -63,12 +61,13 @@ impl ResourceKindWire {
 
     /// Spec `cx.{kind}.discovery` event kind for this resource.
     ///
-    /// Realm is the security boundary. Space is the separate container
-    /// resource kind and does not resolve through the Realm query surface.
+    /// Realm is the security boundary. Container Spaces are authorization
+    /// transparent and are NOT a directory resource kind (`§8.3` enum:
+    /// realm/organization/actor/applet/handle) — an announce carrying
+    /// `resource_kind=space` is rejected at deserialization.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
             Self::Realm => "cx.realm.discovery",
-            Self::Space => "cx.realm.discovery",
             Self::Organization => "cx.organization.discovery",
             Self::Actor => "cx.actor.discovery",
             Self::Applet => "cx.applet.discovery",
@@ -79,9 +78,13 @@ impl ResourceKindWire {
 
 impl From<ResourceKindWire> for contrix_sdk::DirectoryResourceKind {
     fn from(kind: ResourceKindWire) -> Self {
+        // The SDK's `DirectoryResourceKind` still carries the pre-inversion
+        // name `Space` for the security-boundary kind teabay calls `Realm`
+        // (SDK naming lags the Realm/Space inversion). The mapping is a
+        // lossless 1:1 bijection now that teabay no longer has a separate
+        // `Space` variant.
         match kind {
             ResourceKindWire::Realm => Self::Space,
-            ResourceKindWire::Space => Self::Space,
             ResourceKindWire::Organization => Self::Organization,
             ResourceKindWire::Actor => Self::Actor,
             ResourceKindWire::Applet => Self::Applet,
@@ -191,13 +194,32 @@ mod tests {
 
     #[test]
     fn db_resource_kind_round_trips_through_sdk_type() {
-        let sdk_kind: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
-        assert_eq!(sdk_kind, contrix_sdk::DirectoryResourceKind::Space);
-        assert_eq!(ResourceKindWire::from(sdk_kind), ResourceKindWire::Realm);
+        // Round-trip is now a lossless bijection for every variant — there is
+        // no `Space` variant to collapse onto the SDK's lagging `Space` value.
+        for kind in [
+            ResourceKindWire::Realm,
+            ResourceKindWire::Organization,
+            ResourceKindWire::Actor,
+            ResourceKindWire::Applet,
+            ResourceKindWire::Handle,
+        ] {
+            let sdk_kind: contrix_sdk::DirectoryResourceKind = kind.into();
+            assert_eq!(ResourceKindWire::from(sdk_kind), kind);
+        }
+        let realm_sdk: contrix_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
+        assert_eq!(realm_sdk, contrix_sdk::DirectoryResourceKind::Space);
         assert_eq!(
-            ResourceKindWire::Space.discovery_event_kind(),
+            ResourceKindWire::Realm.discovery_event_kind(),
             "cx.realm.discovery"
         );
+    }
+
+    #[test]
+    fn announce_rejects_space_resource_kind() {
+        // `space` is not in the §8.3 resource-kind enum; it must fail to
+        // deserialize rather than be silently accepted/folded onto Realm.
+        let err = serde_json::from_str::<ResourceKindWire>("\"space\"");
+        assert!(err.is_err(), "resource_kind=space must be rejected");
     }
 
     #[test]

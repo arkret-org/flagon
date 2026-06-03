@@ -3,7 +3,7 @@ name = "teabay-testing"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Reusable test fixtures for the teabay Directory Service."
+description = "Shared teabay conformance seed data: the directory_resources seed SQL and the seeded resource-id constants used by the integration tests."
 license.workspace = true
 
 [dependencies]

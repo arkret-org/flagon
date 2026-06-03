@@ -8,7 +8,6 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TYPE resource_kind AS ENUM (
     'realm',
-    'space',
     'organization',
     'actor',
     'applet',

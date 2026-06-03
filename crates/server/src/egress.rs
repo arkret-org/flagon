@@ -29,12 +29,18 @@ impl Resolve for ValidatingDnsResolver {
         let host = name.as_str().to_owned();
         let allow_private_networks = self.allow_private_networks;
         Box::pin(async move {
-            let addrs = resolve_host_addrs(
-                &host,
-                0,
-                "reqwest egress DNS resolver",
-                allow_private_networks,
-            )
+            // `resolve_host_addrs` performs a blocking `getaddrinfo`; run it on
+            // the blocking pool so we never stall a tokio worker thread.
+            let addrs = tokio::task::spawn_blocking(move || {
+                resolve_host_addrs(
+                    &host,
+                    0,
+                    "reqwest egress DNS resolver",
+                    allow_private_networks,
+                )
+            })
+            .await
+            .map_err(|join_err| dns_error(format!("egress DNS resolver task failed: {join_err}")))?
             .map_err(dns_error)?;
             Ok(Box::new(addrs.into_iter()) as Addrs)
         })
@@ -173,7 +179,11 @@ fn blocked_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => blocked_ipv4(ip),
         IpAddr::V6(ip) => {
-            if let Some(v4) = ipv4_mapped(ip) {
+            // Any IPv6 form that embeds an IPv4 address (IPv4-mapped,
+            // IPv4-compatible, NAT64, 6to4) is judged by the embedded v4 so
+            // none of them can smuggle a request to a private / metadata IPv4
+            // (e.g. `[64:ff9b::a9fe:a9fe]` → 169.254.169.254).
+            if let Some(v4) = embedded_ipv4(ip) {
                 return blocked_ipv4(v4);
             }
             blocked_ipv6(ip)
@@ -189,6 +199,7 @@ fn blocked_ipv4(ip: Ipv4Addr) -> bool {
         || (a == 100 && (64..=127).contains(&b))
         || (a == 169 && b == 254)
         || (a == 172 && (16..=31).contains(&b))
+        || (a == 192 && b == 0 && c == 0) // 192.0.0.0/24 IETF protocol assignments
         || (a == 192 && b == 168)
         || (a == 198 && (b == 18 || b == 19))
         || (a == 169 && b == 254 && c == 169 && d == 254)
@@ -200,20 +211,42 @@ fn blocked_ipv6(ip: Ipv6Addr) -> bool {
     ip.is_loopback()
         || ip.is_unspecified()
         || ip.is_multicast()
-        || (segments[0] & 0xfe00) == 0xfc00
-        || (segments[0] & 0xffc0) == 0xfe80
-        || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+        || (segments[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+        || (segments[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+        || (segments[0] == 0x2001 && segments[1] == 0x0db8) // 2001:db8::/32 doc
 }
 
-fn ipv4_mapped(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+/// Extract the embedded IPv4 address from the IPv6 forms that carry one:
+/// IPv4-mapped (`::ffff:0:0/96`), NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`),
+/// and the deprecated IPv4-compatible (`::/96`, excluding `::`/`::1`).
+fn embedded_ipv4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let segments = ip.segments();
-    if segments[..5] == [0, 0, 0, 0, 0] && segments[5] == 0xffff {
+    let last_v4 = || {
         let high = segments[6].to_be_bytes();
         let low = segments[7].to_be_bytes();
-        Some(Ipv4Addr::new(high[0], high[1], low[0], low[1]))
-    } else {
-        None
+        Ipv4Addr::new(high[0], high[1], low[0], low[1])
+    };
+    // IPv4-mapped ::ffff:a.b.c.d
+    if segments[..5] == [0, 0, 0, 0, 0] && segments[5] == 0xffff {
+        return Some(last_v4());
     }
+    // NAT64 64:ff9b::/96 (well-known prefix)
+    if segments[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
+        return Some(last_v4());
+    }
+    // 6to4 2002:WWXX:YYZZ::/16 — embedded IPv4 is segments[1..3]
+    if segments[0] == 0x2002 {
+        let high = segments[1].to_be_bytes();
+        let low = segments[2].to_be_bytes();
+        return Some(Ipv4Addr::new(high[0], high[1], low[0], low[1]));
+    }
+    // IPv4-compatible ::a.b.c.d (deprecated), excluding :: and ::1
+    if segments[..6] == [0, 0, 0, 0, 0, 0]
+        && !(segments[6] == 0 && (segments[7] == 0 || segments[7] == 1))
+    {
+        return Some(last_v4());
+    }
+    None
 }
 
 fn env_bool(name: &str) -> Option<bool> {
@@ -257,6 +290,24 @@ mod tests {
                 .iter()
                 .any(|addr| addr.port() == 8080 && addr.ip().is_loopback())
         );
+    }
+
+    #[test]
+    fn production_rejects_ipv6_embedded_metadata_v4() {
+        // NAT64, IPv4-compatible, 6to4 and IPv4-mapped forms of
+        // 169.254.169.254 / private space must all be blocked.
+        for raw in [
+            "http://[64:ff9b::a9fe:a9fe]/latest/meta-data", // NAT64 169.254.169.254
+            "http://[::a9fe:a9fe]/sink",                     // IPv4-compatible 169.254.169.254
+            "http://[2002:0a00:0001::]/sink",                // 6to4 10.0.0.1
+            "http://[::ffff:10.0.0.1]/sink",                 // IPv4-mapped 10.0.0.1
+        ] {
+            let url = Url::parse(raw).unwrap();
+            assert!(
+                validate_url_for_egress(&url, "test", false).is_err(),
+                "{raw} should be blocked"
+            );
+        }
     }
 
     #[test]

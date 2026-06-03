@@ -460,6 +460,13 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     let cache_key = cache_inputs.key(&request_digest);
 
+    // INVARIANT: the federation trust-domain triple has already been verified
+    // for THIS request above (we only reach here on `Ok(..)`), and the
+    // `Request-Canonical-Digest` is folded into `cache_key` — so a cache hit
+    // can never serve a response whose trust-domain headers were not validated
+    // against the current body. The hit path below therefore does NOT need to
+    // (and must not be changed to) re-run the triple check; it re-runs only the
+    // §8.5 capability verify to decide `historical_only`.
     if let Some(cached) = state.cached_federation_replay(&cache_key) {
         let ctx = VerifyContext::new(state.config(), state.db());
         let capability = ctx.verify(&body).await;
@@ -665,6 +672,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         .await;
         // Round R2/R3 T07 — tombstone fanout to in-flight subscribers.
         let tombstone = crate::query::admin::ReachabilityTombstone {
+            kind: crate::query::admin::TombstoneKind::RealmDestroyed,
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
             principal_server_did: body.principal_server_did.clone(),
@@ -809,6 +817,10 @@ pub(crate) fn derive_public_projection(
     if let Some(obj) = clone.as_object_mut() {
         obj.remove("proof");
         obj.remove("directory_services");
+        // `official_organizations` is a forbidden directory-projection field
+        // (spec §4.5). Strip it so it never enters the index or search SQL;
+        // organization scoping uses the canonical `organization_did`.
+        obj.remove("official_organizations");
         normalize_member_count_projection(obj)?;
     }
     Ok(clone)

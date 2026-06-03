@@ -224,7 +224,6 @@ impl AcceptPolicyKind {
 #[serde(rename_all = "snake_case")]
 pub enum ResourceKindAccept {
     Realm,
-    Space,
     Organization,
     Actor,
     Applet,
@@ -234,7 +233,6 @@ pub enum ResourceKindAccept {
 impl ResourceKindAccept {
     pub const ALL: &'static [Self] = &[
         Self::Realm,
-        Self::Space,
         Self::Organization,
         Self::Actor,
         Self::Applet,
@@ -244,11 +242,23 @@ impl ResourceKindAccept {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Realm => "realm",
-            Self::Space => "space",
             Self::Organization => "organization",
             Self::Actor => "actor",
             Self::Applet => "applet",
             Self::Handle => "handle",
+        }
+    }
+
+    /// Parse a single wire token (`§8.3` resource-kind enum). `space` and any
+    /// other out-of-enum token is rejected.
+    pub fn from_wire(token: &str) -> Option<Self> {
+        match token {
+            "realm" => Some(Self::Realm),
+            "organization" => Some(Self::Organization),
+            "actor" => Some(Self::Actor),
+            "applet" => Some(Self::Applet),
+            "handle" => Some(Self::Handle),
+            _ => None,
         }
     }
 }
@@ -338,8 +348,30 @@ impl AppConfig {
 
         let development_mode = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
 
+        // Production fail-loud: warn if private-network egress is left enabled
+        // outside development mode. The env var overrides `development_mode` as
+        // the egress decision, so a stale `=true` can silently re-open SSRF to
+        // internal targets even after dev mode is turned off.
+        if !development_mode && crate::egress::private_networks_allowed(development_mode) {
+            tracing::warn!(
+                "TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS is enabled while \
+                 development_mode=false: webhook / DID / source-ref egress can \
+                 reach private and link-local addresses. Unset it in production."
+            );
+        }
+
         let accept_policy_kind = match std::env::var("TEABAY_ACCEPT_POLICY_KIND") {
             Ok(v) => AcceptPolicyKind::from_env_value(&v)?,
+            // Fail closed in production: `open` accepts any validly-signed
+            // source, widening the poisoning / anti-enumeration surface.
+            // Operators MUST make the accept-policy choice explicit, mirroring
+            // the CSRF fail-closed guard above.
+            Err(_) if !development_mode => anyhow::bail!(
+                "TEABAY_ACCEPT_POLICY_KIND must be set explicitly in production \
+                 (development_mode=false). Choose one of \
+                 open|allowlist|trust_root_signed|operator_review. \
+                 `open` is intentionally not the production default."
+            ),
             Err(_) => AcceptPolicyKind::Open,
         };
 
@@ -484,6 +516,31 @@ impl AppConfig {
         // P5 — trusted proxy allowlist for the rate-limiter.
         let trusted_proxy = parse_trusted_proxy(std::env::var("TEABAY_TRUSTED_PROXY").ok())?;
 
+        // Operator-configurable subset of the §8.3 resource-kind enum this
+        // directory accepts for ingest. Unset ⇒ full enum. Each token MUST be
+        // a valid §8.3 kind (`space` is not a kind and is rejected).
+        let accepted_resource_kinds = match std::env::var("TEABAY_ACCEPTED_RESOURCE_KINDS") {
+            Ok(raw) if !raw.trim().is_empty() => {
+                let mut kinds = Vec::new();
+                for token in raw.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+                    let kind = ResourceKindAccept::from_wire(token).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "invalid TEABAY_ACCEPTED_RESOURCE_KINDS token {token:?}; \
+                             valid: realm|organization|actor|applet|handle"
+                        )
+                    })?;
+                    if !kinds.contains(&kind) {
+                        kinds.push(kind);
+                    }
+                }
+                if kinds.is_empty() {
+                    anyhow::bail!("TEABAY_ACCEPTED_RESOURCE_KINDS must list at least one kind");
+                }
+                kinds
+            }
+            _ => ResourceKindAccept::ALL.to_vec(),
+        };
+
         Ok(Self {
             bind,
             metrics_bind,
@@ -499,7 +556,7 @@ impl AppConfig {
             accept_policy_kind,
             accept_policy_ref,
             takedown_contact,
-            accepted_resource_kinds: ResourceKindAccept::ALL.to_vec(),
+            accepted_resource_kinds,
             accepted_did_methods,
             allowlist_dids,
             default_ttl: Duration::from_secs(default_ttl_seconds),
@@ -535,6 +592,7 @@ impl AppConfig {
         DidResolverKeyDirectory::new(
             self.http_sig_pubkeys.clone(),
             self.accepted_did_methods.clone(),
+            crate::egress::private_networks_allowed(self.development_mode),
         )
     }
 }

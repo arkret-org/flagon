@@ -486,7 +486,10 @@ fn verify_jws_ed25519(
     verification_method: &str,
     config: &AppConfig,
 ) -> Result<(), String> {
-    let resolver = did_resolver_chain(&config.accepted_did_methods)?;
+    let resolver = did_resolver_chain(
+        &config.accepted_did_methods,
+        crate::egress::private_networks_allowed(config.development_mode),
+    )?;
     let issuer = verification_method
         .split_once('#')
         .map(|(did, _)| did)
@@ -638,8 +641,11 @@ pub(crate) async fn resolve_principal_server_endpoint(
             .set_scheme("http")
             .map_err(|_| anyhow::anyhow!("failed to rewrite loopback DID URL to HTTP"))?;
     } else {
-        let resolver =
-            did_resolver_chain(&config.accepted_did_methods).map_err(|e| anyhow::anyhow!(e))?;
+        let resolver = did_resolver_chain(
+            &config.accepted_did_methods,
+            crate::egress::private_networks_allowed(config.development_mode),
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
         resolver
             .resolve_did(&did)
             .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;

@@ -25,7 +25,7 @@ use crate::state::AppState;
 pub struct SearchActorsRequest {
     #[serde(default)]
     pub query: Option<String>,
-    #[serde(default, alias = "space_id")]
+    #[serde(default)]
     pub realm_id: Option<String>,
     #[serde(default)]
     pub organization_did: Option<String>,
@@ -41,7 +41,7 @@ pub struct SearchUsersRequest {
     pub query: Option<String>,
     #[serde(default)]
     pub requester: Option<String>,
-    #[serde(default, alias = "space_id")]
+    #[serde(default)]
     pub realm_id: Option<String>,
     #[serde(default)]
     pub limit: Option<u32>,
@@ -67,6 +67,13 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
         return;
     }
     let body: SearchActorsRequest = req.parse_json().await.unwrap_or_default();
+    if !crate::query::rate_limit::enforce_search_needle_rate_limit(
+        res,
+        &state,
+        body.query.as_deref().unwrap_or_default(),
+    ) {
+        return;
+    }
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -139,6 +146,9 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     };
     let limit = query.limit.unwrap_or(20).clamp(1, 100) as i64;
     let needle = query.query.unwrap_or_default();
+    if !crate::query::rate_limit::enforce_search_needle_rate_limit(res, &state, &needle) {
+        return;
+    }
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -280,8 +290,12 @@ fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
 }
 
 fn actor_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {
+    // Substring-match only identity fields (handle / name / display_name), not
+    // free-text profile fields. Probing `summary`/`bio` substrings widened the
+    // anti-enumeration surface (an attacker could harvest the public namespace
+    // by free-text fragment) without serving a legitimate lookup need.
     resource_id.to_ascii_lowercase().contains(needle)
-        || ["handle", "name", "display_name", "summary", "bio"]
+        || ["handle", "name", "display_name"]
             .iter()
             .filter_map(|key| projection.get(*key).and_then(JsonValue::as_str))
             .any(|value| value.to_ascii_lowercase().contains(needle))
