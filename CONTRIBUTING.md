@@ -11,7 +11,7 @@ git config core.hooksPath .githooks
 The hook runs `cargo fmt --all -- --check` and `cargo clippy --no-deps -- -D
 warnings` on staged Rust changes. If `.githooks/pre-commit` is missing, copy
 it from
-[`cokret-rust-sdk`](https://github.com/cokret-dev/cokret-rust-sdk) and
+[`cokret-rust-sdk`](https://github.com/cokret/cokret-rust-sdk) and
 adapt to your local toolchain.
 
 ## Scope

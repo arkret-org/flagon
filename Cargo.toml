@@ -8,8 +8,8 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/cokret-dev/teabay"
-homepage = "https://github.com/cokret-dev/teabay"
+repository = "https://github.com/cokret/teabay"
+homepage = "https://github.com/cokret/teabay"
 readme = "README.md"
 authors = ["Cokret contributors"]
 

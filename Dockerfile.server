@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # teabay server image — Rust workspace built against the local Cokret
-# SDK by path. Build from the cokret-dev root with:
+# SDK by path. Build from the cokret root with:
 #
 #   docker build \
 #     --build-context cokret-rust-sdk=../cokret-rust-sdk \

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 #
 # teabay admin SPA image — Dioxus WASM build served by nginx. Build
-# from the cokret-dev root with:
+# from the cokret root with:
 #
 #   docker build \
 #     --build-context cokret-rust-sdk=../cokret-rust-sdk \
