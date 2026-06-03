@@ -1,7 +1,7 @@
 # teabay docs
 
 This directory holds operator and contributor-facing notes for teabay, the
-reference Contrix Directory Service implementation.
+reference Cokret Directory Service implementation.
 
 - [Architecture](architecture.md)
 - [Deployment](deployment.md)

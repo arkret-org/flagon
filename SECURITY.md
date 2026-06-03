@@ -2,7 +2,7 @@
 
 ## Reporting Vulnerabilities
 
-Report suspected vulnerabilities privately to the Contrix maintainers. Do not
+Report suspected vulnerabilities privately to the Cokret maintainers. Do not
 open a public issue with exploit details, credentials, private keys, admin
 tokens, or production resource identifiers.
 
@@ -35,7 +35,7 @@ line unless a release owner declares a supported release branch.
 
 ### Circle is intra-Realm only — it MUST NEVER appear in the directory
 
-CXP-0007 (spec floor `2b0d70d`) introduces `cx:circle:` as an
+CXP-0007 (spec floor `2b0d70d`) introduces `ck:circle:` as an
 intra-Realm encrypted sub-boundary. teabay's anti-enumeration story
 depends on the directory only ever indexing Realm-level discovery
 state: a leak of Circle existence, membership, or routing metadata
@@ -50,7 +50,7 @@ Enforcement points (all in `crates/server/src/`):
   - `CIRCLE_FORBIDDEN_KEYS` (`circle_id`, `circle_members`,
     `scope_circle_id`, `default_scope_circle_id`, etc.) at any
     nesting depth → reject.
-  - Any string value containing `cx:circle:` (case-insensitive,
+  - Any string value containing `ck:circle:` (case-insensitive,
     anywhere — not only as a prefix) → reject.
   - Mirrors the SDK's `forbidden_wire_fields` list for the
     pre-CXP-0007 legacy names (`discussion_realm_ref`, etc.).

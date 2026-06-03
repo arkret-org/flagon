@@ -84,7 +84,7 @@ impl<'a> VerifyContext<'a> {
         // the announce envelope MUST conform to `^did:[a-z0-9]+:[^\s]+$`
         // (lowercase ASCII method, non-empty whitespace-free method-specific
         // id). We push this check through the SDK `Did::new` parser so the
-        // teabay directory and the rest of the Contrix stack share one
+        // teabay directory and the rest of the Cokret stack share one
         // normative parser. Non-conforming inputs short-circuit with a
         // structured rejection BEFORE any signature / accept-policy work,
         // which keeps audit logs clean and rules out legacy actor_id /
@@ -469,12 +469,12 @@ fn canonical_payload_without_jws(
     canonical_json_bytes(&unsigned).map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
-/// Contrix canonical JSON bytes via the SDK's `contrix_sdk::canonical`
+/// Cokret canonical JSON bytes via the SDK's `contrix_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// This replaces a previously hand-written serializer that sorted object
 /// keys by byte order (`sort_unstable()`) — divergent from the SDK and
-/// every other Contrix service. Errors are flattened to `String` so the
+/// every other Cokret service. Errors are flattened to `String` so the
 /// existing `(ApiErrorCode::SignatureInvalid, _)` call sites are unchanged.
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
     canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
@@ -661,13 +661,13 @@ pub(crate) async fn resolve_principal_server_endpoint(
         .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
     let service = services
         .iter()
-        .find(|service| service_type_matches(service, "ContrixPrincipalServer"))
-        .ok_or_else(|| anyhow::anyhow!("DID document has no ContrixPrincipalServer service"))?;
+        .find(|service| service_type_matches(service, "CokretPrincipalServer"))
+        .ok_or_else(|| anyhow::anyhow!("DID document has no CokretPrincipalServer service"))?;
     let endpoint = service
         .get("serviceEndpoint")
         .and_then(JsonValue::as_str)
         .filter(|endpoint| !endpoint.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("ContrixPrincipalServer serviceEndpoint is missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("CokretPrincipalServer serviceEndpoint is missing"))?;
     service_endpoint_url(&doc_url, endpoint, config.development_mode)
 }
 

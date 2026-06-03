@@ -251,9 +251,9 @@ async fn deliver_tombstone(
     let response = http
         .post(target.url().clone())
         .header("content-type", "application/json")
-        .header("x-contrix-webhook-id", &subscription.subscription_id)
-        .header("x-contrix-webhook-signature", signature)
-        .header("x-contrix-webhook-event", "reachability_tombstone")
+        .header("x-cokret-webhook-id", &subscription.subscription_id)
+        .header("x-cokret-webhook-signature", signature)
+        .header("x-cokret-webhook-event", "reachability_tombstone")
         .body(bytes)
         .send()
         .await?;
@@ -440,8 +440,8 @@ async fn deliver_webhook(
     let response = http
         .post(target.url().clone())
         .header("content-type", "application/json")
-        .header("x-contrix-webhook-id", &subscription.subscription_id)
-        .header("x-contrix-webhook-signature", signature)
+        .header("x-cokret-webhook-id", &subscription.subscription_id)
+        .header("x-cokret-webhook-signature", signature)
         .body(bytes)
         .send()
         .await?;

@@ -4,7 +4,7 @@
 //!
 //! The bucket grid below is a **Realm-level** projection only. It is
 //! computed from the Realm's announced membership, never from any
-//! Circle's membership: Circle (`cx:circle:`) is an intra-Realm
+//! Circle's membership: Circle (`ck:circle:`) is an intra-Realm
 //! sub-boundary whose existence and member list MUST NEVER reach the
 //! directory. The [`crate::filter::circle_isolation`] guard
 //! hard-rejects any ingest payload that mentions a Circle before

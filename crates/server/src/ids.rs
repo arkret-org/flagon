@@ -1,17 +1,17 @@
 //! UUIDv7-prefixed identifiers used by teabay.
 //!
-//! All teabay-issued ids are `cx:<class>:<uuidv7>`. UUIDv7 is time-ordered,
+//! All teabay-issued ids are `ck:<class>:<uuidv7>`. UUIDv7 is time-ordered,
 //! which gives us natural ordering for audit logs without a separate
 //! sequence column, and keeps these service-internal ids aligned with the
 //! protocol-wide UUIDv7 typed-id form (`contrix_sdk::new_prefixed_uuid7`).
 //!
-//! ## CXP-0007 `cx:circle:` tolerance (P2E.7)
+//! ## CXP-0007 `ck:circle:` tolerance (P2E.7)
 //!
-//! `cx:circle:` is a recognised typed-id prefix in the wider Contrix
+//! `ck:circle:` is a recognised typed-id prefix in the wider Cokret
 //! identifier space, but the directory MUST NEVER store, project, or
 //! advertise any Circle. teabay deliberately **does not** add a
 //! `Circle` variant to [`IdClass`]: the only correct response to an
-//! incoming `cx:circle:<uuid>` is a reject at the ingest edge (see
+//! incoming `ck:circle:<uuid>` is a reject at the ingest edge (see
 //! [`crate::filter::circle_isolation`]), not a parse-and-store. The
 //! parser tolerance is "recognise the shape to refuse it",
 //! implemented via the substring sentinel in
@@ -31,10 +31,10 @@ pub enum IdClass {
 impl IdClass {
     fn prefix(self) -> &'static str {
         match self {
-            Self::Announce => "cx:announce:",
-            Self::Withdraw => "cx:withdraw:",
-            Self::Subscription => "cx:subscription:",
-            Self::AuditAck => "cx:audit_ack:",
+            Self::Announce => "ck:announce:",
+            Self::Withdraw => "ck:withdraw:",
+            Self::Subscription => "ck:subscription:",
+            Self::AuditAck => "ck:audit_ack:",
         }
     }
 }
@@ -80,11 +80,11 @@ mod tests {
 
     #[test]
     fn audit_ack_prefix_is_not_abbreviated() {
-        assert!(new_id(IdClass::AuditAck).starts_with("cx:audit_ack:"));
+        assert!(new_id(IdClass::AuditAck).starts_with("ck:audit_ack:"));
     }
 
     #[test]
     fn parse_rejects_non_uuidv7_suffix() {
-        assert_eq!(parse("cx:announce:not-a-uuid"), None);
+        assert_eq!(parse("ck:announce:not-a-uuid"), None);
     }
 }

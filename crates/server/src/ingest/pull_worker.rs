@@ -584,7 +584,7 @@ mod tests {
     fn pull_event_populates_federation_cache_fields() {
         let entry = DueEntry {
             resource_kind: ResourceKindWire::Realm,
-            resource_id: "cx:realm:tea".to_owned(),
+            resource_id: "ck:realm:tea".to_owned(),
             principal_server_did: "did:web:principal.example".to_owned(),
             effective_ttl_seconds: 3600,
             last_revision: Some("rev-1".to_owned()),
@@ -600,7 +600,7 @@ mod tests {
             }),
             source_service_did: "did:web:source-service.example".to_owned(),
             service_binding_ref: Some(json!({
-                "realm_id": "cx:realm:tea",
+                "realm_id": "ck:realm:tea",
                 "frontier": ["evt-0"]
             })),
             origin_key_state_digest: "sha256:abc123".to_owned(),

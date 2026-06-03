@@ -1,9 +1,9 @@
-//! Object-address resolve — R3.3 (CXP-0011, contrix-spec @ cced4b8),
+//! Object-address resolve — R3.3 (CXP-0011, cokret-spec @ cced4b8),
 //! `cx.directory.resolve_target`.
 //!
 //! This is the object-level generalization of
 //! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
-//! address (`web+contrix:` URI form OR HTTPS-landing fragment form) points at a
+//! address (`web+cokret:` URI form OR HTTPS-landing fragment form) points at a
 //! Realm, a Flow inside a Realm, or a Message inside a Flow; this endpoint
 //! parses the address, resolves the target, and returns a `target_kind` +
 //! (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields.
@@ -192,7 +192,7 @@ async fn resolve(
     //    point: the realm branch and the alias→canonical normalization both go through
     //    resolve_realm's logic.
     let realm_key = match &parsed.realm {
-        RealmRef::RealmId(uuid) => format!("cx:realm:{uuid}"),
+        RealmRef::RealmId(uuid) => format!("ck:realm:{uuid}"),
         RealmRef::Alias(alias) => alias.clone(),
     };
     let resolved = match resolve_realm_visible(state, &realm_key, requester, proofs).await {
@@ -268,7 +268,7 @@ pub enum TokenCheck {
 ///      be compared) and call `verify_token_target`, which recomputes & compares the digest. Any
 ///      mismatch → reject.
 ///
-/// `canonical_realm_id` is the `cx:realm:<uuid>` the realm resolution produced
+/// `canonical_realm_id` is the `ck:realm:<uuid>` the realm resolution produced
 /// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
 /// mismatch hole.
 pub fn verify_address_token(
@@ -337,12 +337,12 @@ pub fn verify_address_token_with_methods(
 }
 
 /// Rebuild a [`ParsedAddress`] whose realm segment is the canonical
-/// `cx:realm:<uuid>` (sigil-stripped to the bare uuid the grammar expects) so
+/// `ck:realm:<uuid>` (sigil-stripped to the bare uuid the grammar expects) so
 /// the SDK's `verify_token_target` recomputes the digest over a uuid realm
 /// rather than the original alias.
 fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> ParsedAddress {
     let bare_uuid = canonical_realm_id
-        .strip_prefix("cx:realm:")
+        .strip_prefix("ck:realm:")
         .unwrap_or(canonical_realm_id)
         .to_owned();
     ParsedAddress {
@@ -356,9 +356,9 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
 }
 
 /// Normalize a realm id to its bare-uuid form for equality comparison so a
-/// `cx:realm:<uuid>` and the same bare `<uuid>` compare equal.
+/// `ck:realm:<uuid>` and the same bare `<uuid>` compare equal.
 fn normalize_realm(realm_id: &str) -> &str {
-    realm_id.strip_prefix("cx:realm:").unwrap_or(realm_id)
+    realm_id.strip_prefix("ck:realm:").unwrap_or(realm_id)
 }
 
 /// Verify the signed invite token and return its embedded [`TargetDescriptor`].
@@ -562,8 +562,8 @@ fn build_object_response(
     parsed: &ParsedAddress,
     resolved: crate::query::realm::ResolvedRealm,
 ) -> DirectoryResolveTargetResBody {
-    let flow_id = parsed.flow.as_deref().map(|f| format!("cx:flow:{f}"));
-    let message_id = parsed.message.as_deref().map(|m| format!("cx:message:{m}"));
+    let flow_id = parsed.flow.as_deref().map(|f| format!("ck:flow:{f}"));
+    let message_id = parsed.message.as_deref().map(|m| format!("ck:message:{m}"));
     // TODO(R3.3.1): replace this placeholder with the real per-object access
     // gate + stripped Flow / Message projection. For now the preview only
     // echoes the verified target identity so a client can route + render a
@@ -671,10 +671,10 @@ mod tests {
     #[test]
     fn token_binds_to_matching_object() {
         let addr = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         let token = mint_token(&addr, &canonical);
         assert_eq!(
             verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
@@ -686,15 +686,15 @@ mod tests {
     fn token_replayed_onto_other_object_is_rejected() {
         // Token minted for flow A.
         let addr_a = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         let token = mint_token(&addr_a, &canonical);
 
         // Replayed onto flow B (same realm, different flow).
         let addr_b = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F2}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F2}?via={VIA}&lt=invite"
         ))
         .unwrap();
         assert_eq!(
@@ -706,10 +706,10 @@ mod tests {
     #[test]
     fn invite_link_without_token_is_rejected() {
         let addr = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         assert_eq!(
             verify_address_token(&addr, None, &canonical, LinkType::Invite),
             TokenCheck::Reject
@@ -719,10 +719,10 @@ mod tests {
     #[test]
     fn expired_token_is_rejected() {
         let addr = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
         descriptor.link_type = LinkType::Invite;
@@ -754,10 +754,10 @@ mod tests {
     #[test]
     fn unsigned_token_with_matching_descriptor_is_rejected() {
         let addr = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
         descriptor.link_type = LinkType::Invite;
@@ -776,13 +776,13 @@ mod tests {
     #[test]
     fn tampered_signed_token_payload_is_rejected() {
         let addr = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         let token = mint_token(&addr, &canonical);
         let mut value: JsonValue = serde_json::from_str(&token).unwrap();
-        value["target_descriptor"]["flow_id"] = json!(format!("cx:flow:{F2}"));
+        value["target_descriptor"]["flow_id"] = json!(format!("ck:flow:{F2}"));
         let tampered = value.to_string();
         assert_eq!(
             verify_address_token(&addr, Some(&tampered), &canonical, LinkType::Invite),
@@ -796,10 +796,10 @@ mod tests {
         // canonical id injected. Verification must succeed because the server
         // resolved the alias to the same canonical id.
         let alias_addr = parse_address(&format!(
-            "web+contrix:realm/team.example.com/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/team.example.com/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         let token = mint_token(&alias_addr, &canonical);
         assert_eq!(
             verify_address_token(&alias_addr, Some(&token), &canonical, LinkType::Invite),
@@ -810,13 +810,13 @@ mod tests {
     #[test]
     fn token_for_different_realm_is_rejected() {
         let addr = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let other_realm = "01904100-0000-7000-8000-0000000000ff";
-        let token = mint_token(&addr, &format!("cx:realm:{other_realm}"));
+        let token = mint_token(&addr, &format!("ck:realm:{other_realm}"));
         // Address resolved to realm R, token bound to a different realm.
-        let canonical = format!("cx:realm:{R}");
+        let canonical = format!("ck:realm:{R}");
         assert_eq!(
             verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
             TokenCheck::Reject
@@ -826,11 +826,11 @@ mod tests {
     #[test]
     fn realm_response_carries_realm_preview() {
         let resolved = crate::query::realm::ResolvedRealm {
-            realm_id: format!("cx:realm:{R}"),
+            realm_id: format!("ck:realm:{R}"),
             envelope: crate::filter::result::ResultEnvelope::from_row(
-                json!({ "realm_id": format!("cx:realm:{R}"), "title": "Tea Time" }),
+                json!({ "realm_id": format!("ck:realm:{R}"), "title": "Tea Time" }),
                 sample_time(),
-                vec!["cx:event:1".to_owned()],
+                vec!["ck:event:1".to_owned()],
                 Some("rev-7".to_owned()),
                 false,
                 false,
@@ -841,7 +841,7 @@ mod tests {
         let response = build_realm_response(resolved).expect("realm response builds");
         assert_eq!(response.target_kind, TargetKind::Realm);
         let preview = response.realm_preview.expect("realm preview present");
-        assert_eq!(preview.realm_id.as_str(), format!("cx:realm:{R}"));
+        assert_eq!(preview.realm_id.as_str(), format!("ck:realm:{R}"));
         assert_eq!(preview.title.as_deref(), Some("Tea Time"));
         assert_eq!(
             response.join_candidates,
@@ -853,7 +853,7 @@ mod tests {
     #[test]
     fn retired_via_hint_is_ignored_by_parser() {
         let parsed = parse_address(&format!(
-            "web+contrix:realm/{R}/flow/{F}?via={VIA}&via=did:web:extra.example"
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&via=did:web:extra.example"
         ))
         .unwrap();
         assert!(parsed.is_flow());
@@ -870,7 +870,7 @@ mod tests {
             link_type: LinkType::Reference,
             token: None,
         };
-        assert!(build_address(&parsed).starts_with("web+contrix:realm/"));
+        assert!(build_address(&parsed).starts_with("web+cokret:realm/"));
     }
 
     fn sample_time() -> DateTime<Utc> {

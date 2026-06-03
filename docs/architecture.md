@@ -1,6 +1,6 @@
 # Architecture
 
-teabay is the discovery entry layer for Contrix Directory Service traffic. It
+teabay is the discovery entry layer for Cokret Directory Service traffic. It
 accepts signed discovery state from resource Principal Servers, indexes the
 public projection, and serves search and resolve endpoints with the directory
 result envelope required by the protocol.

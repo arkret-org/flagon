@@ -6,7 +6,7 @@
 //! must be indistinguishable from `not_found` (§3 / §10).
 //!
 //! The security boundary resource on this surface is a **Realm**
-//! (`cx:realm:` URI prefix). Container Spaces are a separate
+//! (`ck:realm:` URI prefix). Container Spaces are a separate
 //! `resource_kind=space` row type and are intentionally not returned here.
 
 use base64::Engine as _;
@@ -250,7 +250,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
 /// `realm.rs` stays the single source of truth for what "resolving a Realm"
 /// means; `target.rs` builds its `realm_preview` branch entirely from this.
 pub(crate) struct ResolvedRealm {
-    /// Canonical `cx:realm:<uuid>` resource id (resolved from an alias when
+    /// Canonical `ck:realm:<uuid>` resource id (resolved from an alias when
     /// the caller supplied an alias key).
     pub realm_id: String,
     /// The §9.1 result envelope (public-projection payload + as_of /

@@ -50,9 +50,9 @@ const QUERY_OPS: &[&str] = &[
     "search-actors",
     "search-users",
     "resolve-handle",
-    // R3.2 (contrix-spec @ b56cab1) — reverse handle lookup.
+    // R3.2 (cokret-spec @ b56cab1) — reverse handle lookup.
     "list-handles-for-subject",
-    // R3.3 (CXP-0011, contrix-spec @ cced4b8) — object-level resolve.
+    // R3.3 (CXP-0011, cokret-spec @ cced4b8) — object-level resolve.
     "resolve-target",
 ];
 const PULL_OUTCOMES: &[&str] = &["success", "failure"];

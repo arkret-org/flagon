@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# teabay server image — Rust workspace built against the local Contrix
-# SDK by path. Build from the contrix-dev root with:
+# teabay server image — Rust workspace built against the local Cokret
+# SDK by path. Build from the cokret-dev root with:
 #
 #   docker build \
-#     --build-context contrix-rust-sdk=../contrix-rust-sdk \
+#     --build-context cokret-rust-sdk=../cokret-rust-sdk \
 #     -f Dockerfile.server -t teabay-server .
 #
 # P2E.4 — split out from the previous monolithic `Dockerfile` so the
@@ -14,8 +14,8 @@ FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
 
 WORKDIR /workspace
 
-# teabay depends on the local Contrix SDK by path.
-COPY --from=contrix-rust-sdk . ./contrix-rust-sdk
+# teabay depends on the local Cokret SDK by path.
+COPY --from=cokret-rust-sdk . ./cokret-rust-sdk
 COPY . ./teabay
 
 WORKDIR /workspace/teabay

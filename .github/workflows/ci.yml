@@ -25,11 +25,11 @@ jobs:
         with:
           path: teabay
 
-      - name: Checkout Contrix Rust SDK
+      - name: Checkout Cokret Rust SDK
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/contrix-rust-sdk
-          path: contrix-rust-sdk
+          repository: ${{ github.repository_owner }}/cokret-rust-sdk
+          path: cokret-rust-sdk
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
 
       - name: Install Rust
@@ -82,11 +82,11 @@ jobs:
         with:
           path: teabay
 
-      - name: Checkout Contrix Rust SDK
+      - name: Checkout Cokret Rust SDK
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/contrix-rust-sdk
-          path: contrix-rust-sdk
+          repository: ${{ github.repository_owner }}/cokret-rust-sdk
+          path: cokret-rust-sdk
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
 
       - name: Install Rust
@@ -114,21 +114,21 @@ jobs:
         with:
           path: teabay
 
-      - name: Checkout Contrix Rust SDK
+      - name: Checkout Cokret Rust SDK
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/contrix-rust-sdk
-          path: contrix-rust-sdk
+          repository: ${{ github.repository_owner }}/cokret-rust-sdk
+          path: cokret-rust-sdk
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build server image
-        run: docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -f Dockerfile.server -t teabay-server:ci .
+        run: docker build --build-context cokret-rust-sdk=../cokret-rust-sdk -f Dockerfile.server -t teabay-server:ci .
 
       - name: Build admin image
-        run: docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -f Dockerfile.admin -t teabay-admin:ci .
+        run: docker build --build-context cokret-rust-sdk=../cokret-rust-sdk -f Dockerfile.admin -t teabay-admin:ci .
 
       - name: Scan server image
         uses: aquasecurity/trivy-action@0.28.0

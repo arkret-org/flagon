@@ -89,7 +89,7 @@ pub struct FederationCacheKeyInputs {
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,
     /// Round 4 — `Source-Trust-Domain` header value (lowercased per
-    /// RFC 9421 §2.2 — `cx:trust_domain:<scope>` is already lowercase).
+    /// RFC 9421 §2.2 — `ck:trust_domain:<scope>` is already lowercase).
     /// Empty when the request is not a cross-trust-domain federation
     /// hop.
     pub source_trust_domain: String,
@@ -183,7 +183,7 @@ impl FederationCacheKeyInputs {
 /// accept a body whose:
 /// - `Destination-Trust-Domain` is not this directory's configured `trust_domain`, OR
 /// - `Request-Canonical-Digest` does not match the canonical SHA-256 digest of the request body, OR
-/// - `Source-Trust-Domain` is malformed (not a `cx:trust_domain:` identifier).
+/// - `Source-Trust-Domain` is malformed (not a `ck:trust_domain:` identifier).
 ///
 /// Non-federation announces (no headers present) short-circuit OK —
 /// the legacy `directory_not_authorized` / `signature_invalid` chain
@@ -222,7 +222,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
         .map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
-                format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid cx:trust_domain: {err}"),
+                format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ck:trust_domain: {err}"),
             )
         })?;
     let destination_td = contrix_sdk::TypedTrustDomainId::new(
@@ -231,7 +231,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     .map_err(|err| {
         (
             ApiErrorCode::CrossDomainReplayRejected,
-            format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid cx:trust_domain: {err}"),
+            format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid ck:trust_domain: {err}"),
         )
     })?;
     if destination_td.as_str() != expected_destination_trust_domain {
@@ -246,7 +246,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     }
     // Verify the request-canonical-digest matches the request digest the
     // handler computed over the parsed body. `digest_request` is the
-    // SHA-256 of the Contrix canonical JSON announce body, matching the
+    // SHA-256 of the Cokret canonical JSON announce body, matching the
     // SDK federation transport's `Request-Canonical-Digest` domain.
     let computed_hash = format!("sha256:{}", hex_lower_sha256(request_digest));
     if !inputs
@@ -325,7 +325,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // sub-boundary; the directory's anti-enumeration guarantees rely
     // on Circle membership/existence NEVER reaching teabay's index.
     // The wire message is deliberately low-information so an attacker
-    // can't probe directory state by injecting a `cx:circle:` id.
+    // can't probe directory state by injecting a `ck:circle:` id.
     if let Err(rejection) = circle_isolation::reject_circle_payload(&body.discovery_state) {
         ingest_metric.set_outcome("circle_isolation_violation");
         let _ = audit::record(
@@ -347,7 +347,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // Defence in depth: a few top-level announce fields are free-form
     // strings (`resource_id`, `principal_server_did`,
     // `supersedes_announce_id`) and could carry a smuggled
-    // `cx:circle:` id if a caller is misbehaving. Re-run the typed-id
+    // `ck:circle:` id if a caller is misbehaving. Re-run the typed-id
     // sentinel over the whole request envelope.
     if let Ok(envelope) = serde_json::to_value(&body)
         && let Err(rejection) = circle_isolation::reject_circle_payload(&envelope)
@@ -805,7 +805,7 @@ pub(crate) fn derive_public_projection(
     // Real projection logic (per resource kind) belongs in `crate::query::*`
     // and is deferred to M3.
 
-    // HC-TBY-1/2 (R3.2, contrix-spec @ b56cab1) — handle-claim wire-level
+    // HC-TBY-1/2 (R3.2, cokret-spec @ b56cab1) — handle-claim wire-level
     // scope validation. This runs in `derive_public_projection` so it
     // applies uniformly to BOTH the push-mode announce path and the
     // federation pull-worker / well-known resolver path (both funnel through
@@ -830,7 +830,7 @@ pub(crate) fn derive_public_projection(
 ///
 /// 1. `claim_type` / `class` == `service_handle` is rejected (the draft-era value was removed in
 ///    R3.2). Audit reason `claim_type_unsupported`.
-/// 2. A handle-claim `subject` that is a `cx:actor:` Realm actor id, a `cx:account:` server-local
+/// 2. A handle-claim `subject` that is a `ck:actor:` Realm actor id, a `ck:account:` server-local
 ///    account id, a service DID, or any non-DID resource id is rejected. Audit reason
 ///    `handle_claim_subject_not_principal_did`. The structural DID check is delegated to the SDK's
 ///    `validate_handle_claim_subject` so the directory and the rest of the stack share one rule.
@@ -877,10 +877,10 @@ fn validate_handle_claim_ingest(discovery_state: &JsonValue) -> Result<(), (ApiE
                 }
             }
             Err(_) => {
-                // `cx:actor:` / `cx:account:` / generic resource ids are not
+                // `ck:actor:` / `ck:account:` / generic resource ids are not
                 // valid DIDs at all — same rejection family.
-                if subject.starts_with("cx:actor:")
-                    || subject.starts_with("cx:account:")
+                if subject.starts_with("ck:actor:")
+                    || subject.starts_with("ck:account:")
                     || !subject.starts_with("did:")
                 {
                     return Err((
@@ -926,7 +926,7 @@ fn normalize_member_count_projection(
 }
 
 pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
-    // Contrix canonical JSON body SHA-256 — used for replay detection in
+    // Cokret canonical JSON body SHA-256 — used for replay detection in
     // `ingest_announces.request_digest` and for Request-Canonical-Digest.
     let mut h = Sha256::new();
     let value =
@@ -937,7 +937,7 @@ pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
     h.finalize().to_vec()
 }
 
-/// Contrix canonical JSON string via the SDK's `contrix_sdk::canonical`
+/// Cokret canonical JSON string via the SDK's `contrix_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte
@@ -1172,7 +1172,7 @@ mod tests {
         assert!(!inputs.is_federation_hop());
         let digest = [0u8; 32];
         let outcome =
-            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test");
+            verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test");
         assert!(matches!(outcome, Ok(None)));
     }
 
@@ -1180,11 +1180,11 @@ mod tests {
     /// headers must reject with `cross_domain_replay_rejected`.
     #[test]
     fn trust_domain_verifier_rejects_partial_triad() {
-        let inputs = inputs_with_triad("cx:trust_domain:other.example", "", "");
+        let inputs = inputs_with_triad("ck:trust_domain:other.example", "", "");
         assert!(inputs.is_federation_hop());
         let digest = [0u8; 32];
         let err =
-            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+            verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
                 .unwrap_err();
         assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
     }
@@ -1197,12 +1197,12 @@ mod tests {
         let digest = [0u8; 32];
         let canonical_hash = format!("sha256:{}", hex_lower_sha256(&digest));
         let inputs = inputs_with_triad(
-            "cx:trust_domain:other.example",
-            "cx:trust_domain:wrong.example",
+            "ck:trust_domain:other.example",
+            "ck:trust_domain:wrong.example",
             &canonical_hash,
         );
         let err =
-            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+            verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
                 .unwrap_err();
         assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
         assert!(err.1.contains("does not match"));
@@ -1212,12 +1212,12 @@ mod tests {
     fn trust_domain_verifier_rejects_canonical_digest_mismatch() {
         let digest = [0u8; 32];
         let inputs = inputs_with_triad(
-            "cx:trust_domain:other.example",
-            "cx:trust_domain:teabay.test",
+            "ck:trust_domain:other.example",
+            "ck:trust_domain:teabay.test",
             "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
         );
         let err =
-            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+            verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
                 .unwrap_err();
         assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
         assert!(err.1.contains("does not match canonical body digest"));
@@ -1231,19 +1231,19 @@ mod tests {
         let digest = [0u8; 32];
         let canonical_hash = format!("sha256:{}", hex_lower_sha256(&digest));
         let inputs = inputs_with_triad(
-            "cx:trust_domain:other.example",
-            "cx:trust_domain:teabay.test",
+            "ck:trust_domain:other.example",
+            "ck:trust_domain:teabay.test",
             &canonical_hash,
         );
         let fragment =
-            verify_federation_trust_domain_headers(&inputs, &digest, "cx:trust_domain:teabay.test")
+            verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
                 .expect("triad is valid")
                 .expect("fragment emitted for federation hop");
         assert!(fragment.contains("\"source-trust-domain\""));
         assert!(fragment.contains("\"destination-trust-domain\""));
         assert!(fragment.contains("\"request-canonical-digest\""));
-        assert!(fragment.contains("cx:trust_domain:other.example"));
-        assert!(fragment.contains("cx:trust_domain:teabay.test"));
+        assert!(fragment.contains("ck:trust_domain:other.example"));
+        assert!(fragment.contains("ck:trust_domain:teabay.test"));
     }
 
     /// Round 4 — the cache key MUST bind the trust-domain triad: two
@@ -1254,13 +1254,13 @@ mod tests {
     fn cache_key_separates_by_trust_domain() {
         let digest = [0u8; 32];
         let a = inputs_with_triad(
-            "cx:trust_domain:a.example",
-            "cx:trust_domain:teabay.test",
+            "ck:trust_domain:a.example",
+            "ck:trust_domain:teabay.test",
             "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         );
         let b = inputs_with_triad(
-            "cx:trust_domain:b.example",
-            "cx:trust_domain:teabay.test",
+            "ck:trust_domain:b.example",
+            "ck:trust_domain:teabay.test",
             "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         );
         assert_ne!(a.key(&digest), b.key(&digest));
@@ -1292,9 +1292,9 @@ mod tests {
     #[test]
     fn handle_claim_ingest_rejects_non_principal_subject() {
         for bad in [
-            "cx:actor:tea/alice",
-            "cx:account:server-local-42",
-            "cx:resource:thing",
+            "ck:actor:tea/alice",
+            "ck:account:server-local-42",
+            "ck:resource:thing",
             "not-a-did",
         ] {
             let state = json!({ "subject": bad, "handle": "alice:example.com" });
@@ -1345,7 +1345,7 @@ mod tests {
 
         let first = AnnounceRequest {
             resource_kind: ResourceKindWire::Realm,
-            resource_id: "cx:realm:tea".to_owned(),
+            resource_id: "ck:realm:tea".to_owned(),
             principal_server_did: "did:web:principal.test".to_owned(),
             discovery_state: JsonValue::Object(first_state),
             source_refs: vec!["evt-1".to_owned()],

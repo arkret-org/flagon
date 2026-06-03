@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 // announce body whose discovery_state contains a `recovery_policy_ref`
 // or `recovery_receipt_ref` against the SDK's `RecoveryPolicy` /
 // `RecoveryReceipt` types (once those land — see
-// `contrix-rust-sdk/_contrix_rust_sdk_todos.md` REC-1). Until then a
+// `cokret-rust-sdk/_contrix_rust_sdk_todos.md` REC-1). Until then a
 // caller attempting to announce a recovery-keyed resource is rejected
 // by the `resource_kind` enum at deserialization time, which is the
 // intentional stub for REC-1.

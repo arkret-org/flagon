@@ -22,7 +22,7 @@
 //!
 //! The walker is intentionally pessimistic:
 //!  - any object key in [`CIRCLE_FORBIDDEN_KEYS`] is a hard reject
-//!  - any string value starting with `cx:circle:` is a hard reject (so a `circle_id` smuggled under
+//!  - any string value starting with `ck:circle:` is a hard reject (so a `circle_id` smuggled under
 //!    a free-form `description` field is still caught)
 //!  - any forbidden top-level wire field per SDK [`contrix_sdk::is_forbidden_wire_field`] (e.g.
 //!    `discussion_realm_ref`) is a hard reject — this is the CXP-0007 anti-rollback floor.
@@ -39,7 +39,7 @@ use serde_json::Value as JsonValue;
 /// `member_circle_ids` cover legacy/short names that downstream
 /// services might be tempted to emit. `cx.circle.*` event-kind echoes
 /// (e.g. `event_kind: "cx.circle.member.add"`) are independently
-/// rejected via the `cx:circle:` value sentinel.
+/// rejected via the `ck:circle:` value sentinel.
 pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
     "circle_id",
     "circle_members",
@@ -54,11 +54,11 @@ pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
     "discussion_space_ref",
 ];
 
-/// Canonical typed-id prefix for a Circle (`cx:circle:<ulid>`). Any
+/// Canonical typed-id prefix for a Circle (`ck:circle:<ulid>`). Any
 /// string value carrying this prefix anywhere in the payload is a
 /// hard reject — this is the parser-tolerance plank from P2E.7: we
 /// recognise the typed id only to refuse it.
-pub const CIRCLE_TYPED_ID_PREFIX: &str = "cx:circle:";
+pub const CIRCLE_TYPED_ID_PREFIX: &str = "ck:circle:";
 
 /// Outcome of [`reject_circle_payload`]. The caller maps each variant
 /// to its preferred `ApiErrorCode` — typically `SchemaViolation` for
@@ -72,7 +72,7 @@ pub enum CircleRejection {
     /// wire response MUST NOT echo the field name back to the
     /// attacker.
     ForbiddenKey(&'static str),
-    /// A string value carrying `cx:circle:<...>` was found. The
+    /// A string value carrying `ck:circle:<...>` was found. The
     /// caller MUST NOT echo the actual id back to the attacker; the
     /// returned tuple is `(json_pointer, prefix)` where `prefix` is
     /// always [`CIRCLE_TYPED_ID_PREFIX`].
@@ -86,7 +86,7 @@ pub enum CircleRejection {
 impl CircleRejection {
     /// Stable, low-information wire message. We deliberately do NOT
     /// echo back the field name or any typed id, because the directory
-    /// is anti-enumeration: an attacker probing for "is `cx:circle:X`
+    /// is anti-enumeration: an attacker probing for "is `ck:circle:X`
     /// known here?" must not be able to read that back from the
     /// error body.
     pub fn safe_message(&self) -> &'static str {
@@ -165,7 +165,7 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
             Ok(())
         }
         JsonValue::String(s) => {
-            // We match `cx:circle:` anywhere in the string — not just
+            // We match `ck:circle:` anywhere in the string — not just
             // as a prefix — because an attacker can embed a typed id
             // inside a free-form `summary` / `description` / `note`
             // field and the directory MUST still refuse to index it.
@@ -231,7 +231,7 @@ mod tests {
     fn rejects_top_level_circle_id() {
         let value = json!({
             "kind": "cx.realm.discovery",
-            "circle_id": "cx:circle:01J0XXXXX",
+            "circle_id": "ck:circle:01J0XXXXX",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenKey("circle_id")));
@@ -258,7 +258,7 @@ mod tests {
         // `scope_circle_id` is the canonical CXP-0007 field name — it
         // MUST NEVER appear in a subscribe filter or an announce body.
         let value = json!({
-            "scope_circle_id": "cx:circle:01J0XXXXX",
+            "scope_circle_id": "ck:circle:01J0XXXXX",
         });
         assert!(matches!(
             reject_circle_payload(&value).unwrap_err(),
@@ -269,11 +269,11 @@ mod tests {
     #[test]
     fn rejects_typed_circle_id_embedded_in_free_text_field() {
         // An attacker can't smuggle a Circle id through a free-form
-        // value either — the walker catches `cx:circle:` no matter
+        // value either — the walker catches `ck:circle:` no matter
         // which key it lives under.
         let value = json!({
             "kind": "cx.realm.discovery",
-            "summary": "see also cx:circle:01J0XXXXXX for the back-channel",
+            "summary": "see also ck:circle:01J0XXXXXX for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         match err {
@@ -286,13 +286,13 @@ mod tests {
     fn rejects_circle_id_array_element() {
         let value = json!({
             "kind": "cx.realm.discovery",
-            "related": ["cx:realm:a", "cx:circle:b"],
+            "related": ["ck:realm:a", "ck:circle:b"],
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
-    /// P2E.7 — the parser-tolerance plank: a `cx:circle:<ulid>`
+    /// P2E.7 — the parser-tolerance plank: a `ck:circle:<ulid>`
     /// living in the `resource_id` field of an announce envelope (i.e.
     /// the attacker tries to "announce a Circle into the directory")
     /// MUST be recognised and rejected. The directory never adds an
@@ -301,7 +301,7 @@ mod tests {
     fn rejects_cx_circle_in_resource_id_field() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "cx:circle:01J0CIRCLEULIDV4XYZ",
+            "resource_id": "ck:circle:01J0CIRCLEULIDV4XYZ",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {"kind": "cx.realm.discovery"},
         });
@@ -327,11 +327,11 @@ mod tests {
         assert!(!key_err.safe_message().contains("circle_members"));
         let id_err = CircleRejection::ForbiddenTypedId("/summary".into());
         assert!(!id_err.safe_message().contains("summary"));
-        assert!(!id_err.safe_message().contains("cx:circle:"));
+        assert!(!id_err.safe_message().contains("ck:circle:"));
     }
 
     /// Property-style test (small fixed seed): random injection of
-    /// `circle_id` / `cx:circle:` into otherwise-clean payloads is
+    /// `circle_id` / `ck:circle:` into otherwise-clean payloads is
     /// always caught.
     #[test]
     fn property_random_circle_injection_is_always_caught() {
@@ -342,15 +342,15 @@ mod tests {
             json!({"list": [1, 2, {"deep": "ok"}]}),
         ];
         let injections: &[(&str, JsonValue)] = &[
-            ("circle_id", JsonValue::String("cx:circle:abc".into())),
-            ("scope_circle_id", JsonValue::String("cx:circle:abc".into())),
+            ("circle_id", JsonValue::String("ck:circle:abc".into())),
+            ("scope_circle_id", JsonValue::String("ck:circle:abc".into())),
             (
                 "circle_members",
                 JsonValue::Array(vec![JsonValue::String("did:web:a".into())]),
             ),
             (
                 "default_scope_circle_id",
-                JsonValue::String("cx:circle:abc".into()),
+                JsonValue::String("ck:circle:abc".into()),
             ),
         ];
         for base in bases {
@@ -374,7 +374,7 @@ mod tests {
                 );
                 assert!(
                     reject_circle_payload(&victim2).is_err(),
-                    "injection of cx:circle: literal must be rejected"
+                    "injection of ck:circle: literal must be rejected"
                 );
             }
         }

@@ -38,7 +38,7 @@
 //! | `Content-Digest` present but mismatches    | 401  | `invalid_signature`  |
 //! | Required signed component missing on req   | 400  | `signature_invalid`  |
 //!
-//! `invalid_signature` is the canonical Contrix v1 code per
+//! `invalid_signature` is the canonical Cokret v1 code per
 //! `error-code-registry.json` (401, scope=both); `signature_invalid` is the
 //! ingest-specific §8 code (400) for header-shape problems.
 
@@ -829,7 +829,7 @@ mod tests {
     async fn signed_request_passes_middleware() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -872,7 +872,7 @@ mod tests {
             false,
         );
         let router = router(Arc::new(dir));
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -893,7 +893,7 @@ mod tests {
     async fn replayed_valid_signature_returns_invalid_signature() {
         let dir = directory_with_test_key();
         let router = Arc::new(router(dir));
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -931,7 +931,7 @@ mod tests {
         let router_b = Arc::new(router_with_middleware(
             HttpSigMiddleware::new_with_replay_store(directory, replay_store),
         ));
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -966,7 +966,7 @@ mod tests {
         let mut res = TestClient::post("http://teabay.test/api/v1/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("content-type", "application/json", true)
-            .bytes(br#"{"resource_id":"cx:realm:tea"}"#.to_vec())
+            .bytes(br#"{"resource_id":"ck:realm:tea"}"#.to_vec())
             .send(router)
             .await;
         let status = res.status_code.unwrap_or(StatusCode::OK);
@@ -985,7 +985,7 @@ mod tests {
         dir.insert(TEST_KEY_ID, other_key.verifying_key());
         let router = router(Arc::new(dir));
 
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -1015,7 +1015,7 @@ mod tests {
     async fn missing_content_digest_returns_invalid_signature() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -1044,7 +1044,7 @@ mod tests {
     async fn signature_not_covering_content_digest_returns_invalid_signature() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let now = unix_now_secs();
         let signed = build_signed_request_with_components_and_window(
             "POST",
@@ -1070,7 +1070,7 @@ mod tests {
     async fn expired_signature_returns_invalid_signature() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let now = unix_now_secs();
         let signed = build_signed_request_with_components_and_window(
             "POST",
@@ -1096,7 +1096,7 @@ mod tests {
     async fn future_signature_returns_invalid_signature() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let body = br#"{"resource_id":"cx:realm:tea"}"#;
+        let body = br#"{"resource_id":"ck:realm:tea"}"#;
         let now = unix_now_secs();
         let signed = build_signed_request_with_components_and_window(
             "POST",
@@ -1125,7 +1125,7 @@ mod tests {
         // ed25519 verify even gets called.
         let dir = directory_with_test_key();
         let router = router(dir);
-        let original = br#"{"resource_id":"cx:realm:tea"}"#;
+        let original = br#"{"resource_id":"ck:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
             "http://teabay.test/api/v1/directory/announce",
@@ -1135,7 +1135,7 @@ mod tests {
             TEST_KEY_ID,
             &signing_key(),
         );
-        let tampered_body = br#"{"resource_id":"cx:realm:HIJACKED"}"#.to_vec();
+        let tampered_body = br#"{"resource_id":"ck:realm:HIJACKED"}"#.to_vec();
         let mut res = TestClient::post("http://teabay.test/api/v1/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("signature-input", signed.signature_input, true)

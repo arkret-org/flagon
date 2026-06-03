@@ -7,7 +7,7 @@ markers that ship with the CXP-0007 circle-isolation tightening.
 
 CXP-0007 narrows the cross-circle resolution surface so that a Principal
 Server in one circle cannot probe membership of a resource in another
-circle without the explicit consent edges spelled out in the Contrix v1
+circle without the explicit consent edges spelled out in the Cokret v1
 discoverability spec. The previous behavior allowed inferred resolution via
 `alsoKnownAs` and `via_services` chains; the hardening removes those paths.
 
@@ -56,7 +56,7 @@ sustained per-circle reject rate above the steady-state baseline.
 
 R3 introduces a `circle` variant on the `ResourceSelector` enum
 (matching SDK `ResourceSelector::Circle(CircleId)`, wire pattern
-`^cx:circle:[0-9a-f]{8}-...$`). teabay's ingest filter extends to
+`^ck:circle:[0-9a-f]{8}-...$`). teabay's ingest filter extends to
 accept the new selector kind as a first-class membership scope.
 
 ### Behavior table: ingest vs query
@@ -65,7 +65,7 @@ accept the new selector kind as a first-class membership scope.
 |---|---|---|
 | **Ingest accept** — event submitted with `effective_scope = circle(...)` | No such surface (events lacked a circle-scoped form) | Accepted iff submitter is a current member of the named circle; rejected with `isolation_rejected` otherwise. The ingest filter consults `circle_membership` (FSM-backed) at write time and refuses any event whose `effective_scope.circle_id` the submitter is not a member of. |
 | **Ingest project** — event projected into the audit/event-log table | N/A | Row stored with `effective_scope_kind = "circle"` and `effective_scope_circle_id = <CircleId>`. The B-Tree index `projection_events_effective_scope_idx` covers this column (see `soland/DEPLOYMENT.md` operational notes for sizing). |
-| **Query accept** — caller queries `cx.query.list` with `selector = circle(...)` | N/A | Accepted iff caller is a current member of the named circle. Selector validation matches the canonical `cx:circle:<uuid>` pattern. |
+| **Query accept** — caller queries `cx.query.list` with `selector = circle(...)` | N/A | Accepted iff caller is a current member of the named circle. Selector validation matches the canonical `ck:circle:<uuid>` pattern. |
 | **Query result** — projection rows returned to the caller | Realm-scoped or organization-scoped only | Filtered to rows where `effective_scope_kind = "circle" AND effective_scope_circle_id = caller's-circle-id`. No realm-scoped or organization-scoped rows leak into a circle query (and vice versa). |
 | **Query result** — `prev_digest` / `audit_digest` chain | Realm-/org-scoped chain | Per-circle chain; circles maintain their own independent digest chain to prevent cross-circle digest correlation. |
 | **Ingest reject reason** | `isolation_rejected` with `detail.rule = "<rule#>"` | Same scheme; `detail.rule = "circle-member"` for circle-scoped rejects, with `detail.circle_id` masked to SHA-256 prefix in production redaction. |

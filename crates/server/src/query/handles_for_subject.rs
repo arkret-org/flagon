@@ -1,4 +1,4 @@
-//! Reverse handle lookup — R3.2 (contrix-spec @ b56cab1),
+//! Reverse handle lookup — R3.2 (cokret-spec @ b56cab1),
 //! `cx.directory.list_handles_for_subject`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
@@ -95,7 +95,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     };
 
     // Input validator (DIR-TBY-2): the subject MUST be a holder/principal
-    // DID. Reject `cx:actor:` Realm actor ids, `cx:account:` server-local
+    // DID. Reject `ck:actor:` Realm actor ids, `ck:account:` server-local
     // account ids, service DIDs, and any non-DID resource id with
     // `failed_precondition` carrying the `invalid_subject_kind` reason. We
     // reuse the SDK's `validate_handle_claim_subject` so the reverse-lookup

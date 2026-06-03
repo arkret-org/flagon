@@ -1,5 +1,5 @@
 # cargo-deny configuration. Run `cargo deny check` locally to mirror the
-# supply-chain checks used by sibling Contrix services.
+# supply-chain checks used by sibling Cokret services.
 
 [graph]
 targets = [

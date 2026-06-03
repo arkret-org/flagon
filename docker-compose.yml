@@ -7,7 +7,7 @@
 #     up --build
 #
 # The two image build contexts both need access to the sibling
-# contrix-rust-sdk path; that's wired through `additional_contexts`
+# cokret-rust-sdk path; that's wired through `additional_contexts`
 # below so the relative path is repo-stable.
 
 services:
@@ -32,7 +32,7 @@ services:
       context: .
       dockerfile: Dockerfile.server
       additional_contexts:
-        contrix-rust-sdk: ../contrix-rust-sdk
+        cokret-rust-sdk: ../cokret-rust-sdk
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +60,7 @@ services:
       context: .
       dockerfile: Dockerfile.admin
       additional_contexts:
-        contrix-rust-sdk: ../contrix-rust-sdk
+        cokret-rust-sdk: ../cokret-rust-sdk
     depends_on:
       - teabay-server
     ports:

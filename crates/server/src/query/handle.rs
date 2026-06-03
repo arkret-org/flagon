@@ -74,8 +74,8 @@ pub struct ResolveHandleRequest {
 /// confusable skeleton + script-mixed reject).
 ///
 /// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
-/// (contrix-spec @ 7157ee8 — 2026-05-27). The legacy
-/// `contrix://<domain>/users/<localpart>` URI form was retired in R3.1
+/// (cokret-spec @ 7157ee8 — 2026-05-27). The legacy
+/// `cokret://<domain>/users/<localpart>` URI form was retired in R3.1
 /// and is no longer parsed here. The directory's own dot-separated index
 /// key `<localpart>.<domain>` is still accepted because it remains the
 /// row's `resource_id` shape in storage.
@@ -105,7 +105,7 @@ fn extract_localpart(handle: &str) -> &str {
 /// localpart-extraction rule before the SDK homograph normalizer. Kept
 /// in this module so the two faces stay in lock-step.
 ///
-/// R3.1 wire form (contrix-spec @ 7157ee8): `<localpart>:<domain>(:<port>)?`
+/// R3.1 wire form (cokret-spec @ 7157ee8): `<localpart>:<domain>(:<port>)?`
 /// — the colon separator is taken first because it is the canonical
 /// shape the SDK `Handle::parse` emits. The directory's internal index
 /// shape `<localpart>.<domain>` is still accepted for back-compat with
@@ -127,7 +127,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
 /// from a path-style identifier to a query-string-keyed form:
 ///
 /// ```text
-/// GET https://<domain>/.well-known/contrix/handle?localpart=<localpart>
+/// GET https://<domain>/.well-known/cokret/handle?localpart=<localpart>
 /// ```
 ///
 /// We resolve against the directory's indexed Handle rows and return
@@ -294,7 +294,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::NotFound.render(res, "not found");
         return;
     }
-    // Defence in depth: a bare `cx:circle:` typed id smuggled into the
+    // Defence in depth: a bare `ck:circle:` typed id smuggled into the
     // `handle` field is also collapsed to `not_found` rather than
     // routed into the DB lookup.
     if crate::filter::selector::looks_like_circle_id(&body.handle) {
@@ -867,8 +867,8 @@ mod tests {
 
     #[test]
     fn extract_localpart_accepts_canonical_and_index_forms() {
-        // R3.1 canonical wire form `<localpart>:<domain>` (contrix-spec
-        // @ 7157ee8). The retired `contrix://` URI form is no longer
+        // R3.1 canonical wire form `<localpart>:<domain>` (cokret-spec
+        // @ 7157ee8). The retired `cokret://` URI form is no longer
         // parsed — feeding it now treats the whole string as a bare
         // localpart (which the SDK normalizer will then reject).
         assert_eq!(extract_localpart_public("alice:example.com"), "alice");
@@ -931,7 +931,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -950,7 +950,7 @@ mod tests {
                 "binding_source": "join_policy"
             }
         }));
-        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -984,7 +984,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("cx:realm:tea", "did:web:eve.example");
+        let body = member_add_request("ck:realm:tea", "did:web:eve.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -1003,7 +1003,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
@@ -1049,9 +1049,9 @@ mod tests {
         let warmup = 256;
         let iters = 4096;
 
-        let found_body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
-        let unauthorized_body = member_add_request("cx:realm:tea", "did:web:eve.example");
-        let filtered_body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
+        let found_body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
+        let unauthorized_body = member_add_request("ck:realm:tea", "did:web:eve.example");
+        let filtered_body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
 
         // Warm caches / branch predictor.
         for _ in 0..warmup {
@@ -1128,7 +1128,7 @@ mod tests {
             "allow_binding_sources": ["join_policy"],
             "trusted_audiences": ["did:web:tea-org.example"],
         }));
-        let body = member_add_request("cx:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
 
         let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
         assert!(matches!(outcome, ResolveOutcome::NotFound));

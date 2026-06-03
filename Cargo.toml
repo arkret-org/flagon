@@ -8,10 +8,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/contrix-dev/teabay"
-homepage = "https://github.com/contrix-dev/teabay"
+repository = "https://github.com/cokret-dev/teabay"
+homepage = "https://github.com/cokret-dev/teabay"
 readme = "README.md"
-authors = ["Contrix contributors"]
+authors = ["Cokret contributors"]
 
 [workspace.dependencies]
 anyhow = "1.0.100"
@@ -19,7 +19,7 @@ async-trait = "0.1.83"
 base64 = "0.22.1"
 bs58 = "0.5.1"
 chrono = { version = "0.4.42", features = ["serde"] }
-contrix-sdk = { package = "contrix", version = "1.0.0", path = "../contrix-rust-sdk/crates/sdk", default-features = false, features = ["full-surface", "client"] }
+cokret-sdk = { package = "cokret", version = "1.0.0", path = "../cokret-rust-sdk/crates/sdk", default-features = false, features = ["full-surface", "client"] }
 diesel = { version = "2.3.8", features = ["postgres", "r2d2", "serde_json", "chrono", "uuid", "pq-src"] }
 diesel-async = { version = "0.8", features = ["postgres", "deadpool", "async-connection-wrapper"] }
 deadpool = { version = "0.13", features = ["rt_tokio_1"] }

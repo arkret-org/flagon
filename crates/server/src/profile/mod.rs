@@ -9,7 +9,7 @@
 //! Directory Service to come up.
 //!
 //! Source baseline: `teabay-directory-service-baseline-2026-05-10.json`,
-//! synthesized from contrix-spec sync dc01ad7
+//! synthesized from cokret-spec sync dc01ad7
 //! (`conformance-profiles.json#/profiles/cx.profile.directory_service.v1`).
 
 use serde::Deserialize;

@@ -7,7 +7,7 @@ This guide covers local and production-oriented deployment of teabay.
 - Rust 1.88 or newer.
 - PostgreSQL 14 or newer.
 - `diesel_cli` with Postgres support for manual database setup.
-- The sibling `contrix-rust-sdk` checkout at `../contrix-rust-sdk`, because the
+- The sibling `cokret-rust-sdk` checkout at `../cokret-rust-sdk`, because the
   workspace depends on the SDK by local path.
 - Dioxus CLI 0.7.9 or newer when running the admin SPA.
 
@@ -42,8 +42,8 @@ The service listens on `TEABAY_BIND` and exposes:
 - `GET /api/v1/directory/describe`
 - `POST /api/v1/directory/{announce,withdraw,subscribe}`
 - `POST /api/v1/directory/{search-realms,resolve-realm,...}`
-- `GET /.well-known/contrix/openapi.json`
-- `GET /.well-known/contrix/openapi.yaml`
+- `GET /.well-known/cokret/openapi.json`
+- `GET /.well-known/cokret/openapi.yaml`
 
 Prometheus metrics listen separately on `TEABAY_METRICS_BIND`, default
 `127.0.0.1:9095`, at `GET /metrics`.
@@ -53,7 +53,7 @@ Prometheus metrics listen separately on `TEABAY_METRICS_BIND`, default
 The Dockerfile expects the local SDK as a named build context:
 
 ```bash
-docker build --build-context contrix-rust-sdk=../contrix-rust-sdk -t teabay .
+docker build --build-context cokret-rust-sdk=../cokret-rust-sdk -t teabay .
 ```
 
 Do not push images or create tags from local development slices unless the
@@ -241,7 +241,7 @@ See [`docs/webhook-retry.md`](webhook-retry.md) and
 
 ## Multi-DC federation + backup procedure (R3)
 
-teabay is the contrix Directory Service. In production it is deployed
+teabay is the cokret Directory Service. In production it is deployed
 across two or more data centers ("DCs") with one primary write region
 and one or more standby read regions. The R3 (b47ff6ec) sync did not
 change federation semantics, but several operational details should be
@@ -256,7 +256,7 @@ captured now that handle-homograph wire-level checks are mandatory.
   and `query::private_contact_discovery` from a streaming-replicated
   Postgres replica. The mirror MUST NOT accept write traffic; the
   ingest routes return `503 read_only` on a secondary node.
-- **Federation peers** — other Contrix Directory deployments. Bilateral
+- **Federation peers** — other Cokret Directory deployments. Bilateral
   `directory_peer_links` rows configure pull-subscribe / push-announce
   destinations; each peer's `service_did` MUST be on the local
   `directory_peer_trust` allowlist before subscription is honored.

@@ -117,7 +117,7 @@ rate-limit token accounting runs.
 Companion documentation:
 
 - [`starid/docs/operations.md` → Handle homograph workflow](../../starid/docs/operations.md#handle-homograph-workflow) for triage and audit.
-- [`contrix-rust-sdk/docs/architecture.md`](../../contrix-rust-sdk/docs/architecture.md) for the SDK normalize helper.
+- [`cokret-rust-sdk/docs/architecture.md`](../../cokret-rust-sdk/docs/architecture.md) for the SDK normalize helper.
 - [`yougen/docs/user-manual/r3-error-codes.md` → handle_homograph_forbidden](../../yougen/docs/user-manual/r3-error-codes.md#handle_homograph_forbidden) for the user-facing message.
 
 ### Wire-level order vs application-level order

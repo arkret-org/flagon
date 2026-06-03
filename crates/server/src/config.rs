@@ -30,7 +30,7 @@ pub struct AppConfig {
     /// Round 4 — typed trust domain advertised in
     /// `/directory/describe` and required on every cross-trust-domain
     /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
-    /// to `cx:trust_domain:local.test` so the in-process conformance
+    /// to `ck:trust_domain:local.test` so the in-process conformance
     /// harness keeps working without operator hand-holding.
     pub trust_domain: String,
     pub database_url: String,
@@ -301,10 +301,10 @@ impl AppConfig {
         // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
         // exists so the in-process conformance harness keeps booting.
         let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")
-            .unwrap_or_else(|_| "cx:trust_domain:local.test".to_owned());
+            .unwrap_or_else(|_| "ck:trust_domain:local.test".to_owned());
         if contrix_sdk::TypedTrustDomainId::new(trust_domain.clone()).is_err() {
             anyhow::bail!(
-                "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `cx:trust_domain:` identifier"
+                "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `ck:trust_domain:` identifier"
             );
         }
 

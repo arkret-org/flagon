@@ -1,7 +1,7 @@
-//! Wire constants for Contrix v1 Directory Service event kinds and operations.
+//! Wire constants for Cokret v1 Directory Service event kinds and operations.
 //!
-//! These constants are **re-exported from `contrix-sdk`** (which mirrors the
-//! canonical `contrix-spec` registry). Teabay does NOT maintain a parallel
+//! These constants are **re-exported from `cokret-sdk`** (which mirrors the
+//! canonical `cokret-spec` registry). Teabay does NOT maintain a parallel
 //! copy of the strings; this file only adds aliases (`EVENT_KIND_*_DISCOVERY`)
 //! and the ordered slices (`DISCOVERY_EVENT_KINDS`, `DIRECTORY_OPERATIONS`)
 //! that the profile self-declaration / anti-drift guard
@@ -54,7 +54,7 @@ pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_
 /// the profile's `required_endpoints`, but published by teabay and advertised
 /// in [`SUPPORTED_OPERATIONS`].
 pub const OP_DIRECTORY_RESOLVE_TARGET: &str = contrix_sdk::OP_DIRECTORY_RESOLVE_TARGET;
-/// R3.2 (contrix-spec @ b56cab1) — reverse handle lookup
+/// R3.2 (cokret-spec @ b56cab1) — reverse handle lookup
 /// (`cx.directory.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
 pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =

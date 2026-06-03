@@ -98,7 +98,7 @@ Migration `20260525010100_realm_resource_kind_backfill` rewrites every
 `directory_resources`, `ingest_announces`, `withdrawals`,
 `pull_subscriptions` and `directory_audit` row whose `resource_kind` is
 the legacy `space` value into the new `realm` enum value and rewrites
-`cx:space:` URIs to `cx:realm:`. On large directories this work can run
+`ck:space:` URIs to `ck:realm:`. On large directories this work can run
 for many minutes; the migration sets `statement_timeout = 0` and chunks
 each table in 10k-row batches so it can be safely interrupted and
 resumed by re-running diesel.
@@ -124,7 +124,7 @@ where the previous run left off because the chunk predicate
 ```sql
 SELECT count(*) FILTER (WHERE resource_kind = 'space') AS still_space,
        count(*) FILTER (WHERE resource_kind = 'realm') AS realm,
-       count(*) FILTER (WHERE resource_id LIKE 'cx:space:%') AS legacy_uri
+       count(*) FILTER (WHERE resource_id LIKE 'ck:space:%') AS legacy_uri
   FROM directory_resources;
 ```
 

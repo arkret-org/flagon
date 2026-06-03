@@ -135,11 +135,11 @@ fn sign_receipt_statement(
     }))
 }
 
-/// Contrix canonical JSON bytes via the SDK's `contrix_sdk::canonical`
+/// Cokret canonical JSON bytes via the SDK's `contrix_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte
-/// order — divergent from the SDK and every other Contrix service. The
+/// order — divergent from the SDK and every other Cokret service. The
 /// receipt JWS signing input therefore now hashes byte-identical canonical
 /// bytes to the rest of the federation.
 fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {
@@ -158,7 +158,7 @@ mod tests {
             ReceiptSigningKey::from_raw("did:web:directory.test#receipt-1".to_owned(), [13; 32]);
         let statement = json!({
             "receipt_version": RECEIPT_VERSION,
-            "withdraw_id": "cx:withdraw:test",
+            "withdraw_id": "ck:withdraw:test",
             "kind": "operator_takedown",
         });
 

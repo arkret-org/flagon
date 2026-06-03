@@ -35,9 +35,9 @@ pub fn router(state: AppState) -> Router {
         .push(Router::with_path("readyz").get(readyz))
         .push(directory)
         .push(admin)
-        .push(doc.clone().into_router(".well-known/contrix/openapi.json"))
+        .push(doc.clone().into_router(".well-known/cokret/openapi.json"))
         .push(
-            Router::with_path(".well-known/contrix/openapi.yaml")
+            Router::with_path(".well-known/cokret/openapi.yaml")
                 .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
@@ -51,7 +51,7 @@ pub fn router(state: AppState) -> Router {
         // anti-enumeration latency-floor + jitter and the `not_found`
         // collapse behaviour stay identical across the two surfaces.
         .push(
-            Router::with_path(".well-known/contrix/handle")
+            Router::with_path(".well-known/cokret/handle")
                 .get(query::handle::well_known_resolve_handle),
         )
         .push(
@@ -126,7 +126,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
         .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
-        // R3.3 (CXP-0011, contrix-spec @ cced4b8) — object-level resolve.
+        // R3.3 (CXP-0011, cokret-spec @ cced4b8) — object-level resolve.
         // Generalization of resolve-realm to a client-agnostic shareable
         // address (Realm / Flow / Message). Realm resolution DELEGATES to the
         // resolve_realm logic; invite tokens are bound to the resolved object
@@ -145,7 +145,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(Router::with_path("search-actors").post(query::actor::search_actors))
         .push(Router::with_path("search-users").post(query::actor::search_users))
         .push(Router::with_path("resolve-handle").post(query::handle::resolve_handle))
-        // R3.2 (DIR-TBY-1, contrix-spec @ b56cab1) — reverse handle lookup.
+        // R3.2 (DIR-TBY-1, cokret-spec @ b56cab1) — reverse handle lookup.
         // Inverse of `resolve-handle`: known holder/principal DID + context
         // → currently-visible handle claims + primary handle. Read-only
         // against the indexed view; visibility is decided per-claim by the
@@ -470,10 +470,10 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
 pub fn openapi(router: &Router) -> OpenApi {
     let mut doc = OpenApi::new("teabay", env!("CARGO_PKG_VERSION"))
         .add_extension(
-            "x-contrix-profile",
+            "x-cokret-profile",
             json!({
                 "profile": "cx.profile.directory_service.v1",
-                "spec": "contrix-spec/spec/v1/zh/discovery/discovery-directory.md",
+                "spec": "cokret-spec/spec/v1/zh/discovery/discovery-directory.md",
             }),
         )
         .merge_router(router);
@@ -604,7 +604,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
         ),
         (
-            // R3.3 (CXP-0011, contrix-spec @ cced4b8) — object-level resolve.
+            // R3.3 (CXP-0011, cokret-spec @ cced4b8) — object-level resolve.
             // The object-level generalization of resolve-realm: resolves a
             // client-agnostic shareable object address (Realm / Flow / Message)
             // to a target_kind + preview, binding an invite token to the
@@ -662,7 +662,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             // CXP R3 spec-sync 2026-05-27 (commit b47ff6e) — well-known
             // handle endpoint. Query-string keyed (`?localpart=<localpart>`).
-            "/.well-known/contrix/handle",
+            "/.well-known/cokret/handle",
             PathItemType::Get,
             "cx.directory.well_known_handle",
             "query",
@@ -672,7 +672,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              script-mixed localparts with `handle_homograph_forbidden`.",
         ),
         (
-            // R3.2 (DIR-TBY-1, contrix-spec @ b56cab1) — reverse handle
+            // R3.2 (DIR-TBY-1, cokret-spec @ b56cab1) — reverse handle
             // lookup. Response shape `cx.schema.list_handles_for_subject_response.v1`.
             "/api/v1/directory/list-handles-for-subject",
             PathItemType::Post,
@@ -681,7 +681,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
              and primary handle (inverse of resolve-handle). Rejects non-principal \
-             subjects (cx:actor:/cx:account:/service DID) with failed_precondition.",
+             subjects (ck:actor:/ck:account:/service DID) with failed_precondition.",
         ),
         (
             "/api/v1/directory/private-contact-discovery",

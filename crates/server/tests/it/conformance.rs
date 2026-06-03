@@ -157,7 +157,7 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
             .as_array()
             .unwrap()
             .iter()
-            .any(|result| result["realm_id"] == "cx:realm:tea")
+            .any(|result| result["realm_id"] == "ck:realm:tea")
     );
     Ok(())
 }
@@ -207,19 +207,19 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         StatusCode::BAD_REQUEST
     );
 
-    assert_resolve_realm_status(service, "cx:realm:tea", StatusCode::OK, json!({})).await?;
-    assert_resolve_realm_status(service, "cx:realm:secret", StatusCode::NOT_FOUND, json!({}))
+    assert_resolve_realm_status(service, "ck:realm:tea", StatusCode::OK, json!({})).await?;
+    assert_resolve_realm_status(service, "ck:realm:secret", StatusCode::NOT_FOUND, json!({}))
         .await?;
     assert_resolve_realm_status(
         service,
-        "cx:realm:restricted",
+        "ck:realm:restricted",
         StatusCode::NOT_FOUND,
         json!({}),
     )
     .await?;
     assert_resolve_realm_status(
         service,
-        "cx:realm:restricted",
+        "ck:realm:restricted",
         StatusCode::OK,
         json!({ "requester": "did:web:alice.example" }),
     )
@@ -256,7 +256,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .json(&json!({
             "q": "alice",
             "requester": "did:web:alice.example",
-            "realm_id": "cx:realm:tea",
+            "realm_id": "ck:realm:tea",
             "limit": 10
         }))
         .send(service)
@@ -350,7 +350,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     let mut res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "cx:realm:pushed",
+            "resource_id": "ck:realm:pushed",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": discovery_state,
             "source_refs": ["evt-announce-realm"],
@@ -368,16 +368,16 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     assert!(
         body["announce_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("cx:announce:"))
+            .is_some_and(|id| id.starts_with("ck:announce:"))
     );
 
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:realm:pushed" }))
+        .json(&json!({ "realm_id": "ck:realm:pushed" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["realm_id"], "cx:realm:pushed");
+    assert_eq!(body["realm_id"], "ck:realm:pushed");
     assert_eq!(body["member_count_bucket"], "11-50");
     assert_eq!(body["source_refs"][0], "evt-announce-realm");
     assert_eq!(
@@ -393,7 +393,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
                 "resource_kind": "realm",
-                "resource_id": "cx:realm:pushed"
+                "resource_id": "ck:realm:pushed"
             },
             "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
             "webhook_secret": "0123456789abcdef"
@@ -405,7 +405,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
     assert!(
         body["subscription_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("cx:subscription:"))
+            .is_some_and(|id| id.starts_with("ck:subscription:"))
     );
     assert!(body.get("created_at").is_some());
     assert!(body.get("effective_at").is_some());
@@ -434,7 +434,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let mut res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "cx:realm:pull",
+            "resource_id": "ck:realm:pull",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": pulled_state,
             "source_refs": ["evt-pull-realm"],
@@ -454,7 +454,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET next_revalidation_after = now() - interval '1 second' \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:realm:pull'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ck:realm:pull'",
         )
         .execute(&mut conn)
         .await?;
@@ -466,7 +466,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         .await?;
 
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:realm:pull" }))
+        .json(&json!({ "realm_id": "ck:realm:pull" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -477,7 +477,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let pull_count: i64 = diesel::sql_query(
         "SELECT count(*) FROM ingest_announces \
          WHERE resource_kind = 'realm'::resource_kind \
-           AND resource_id = 'cx:realm:pull' \
+           AND resource_id = 'ck:realm:pull' \
            AND ingest_mode = 'pull'::ingest_mode",
     )
     .get_result::<CountRow>(&mut conn)
@@ -496,13 +496,13 @@ async fn assert_freshness_flags_are_exposed(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET stale = true \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'cx:realm:tea'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ck:realm:tea'",
         )
         .execute(&mut conn)
         .await?;
     }
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:realm:tea" }))
+        .json(&json!({ "realm_id": "ck:realm:tea" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -530,7 +530,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "cx:realm:takedown-state",
+            "resource_id": "ck:realm:takedown-state",
             "principal_server_did": destroy_mock.principal_server_did(),
             "discovery_state": destroyed_state,
             "source_refs": ["evt-destroy-realm"],
@@ -542,7 +542,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
     let mut res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:realm:takedown-state" }))
+        .json(&json!({ "realm_id": "ck:realm:takedown-state" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -558,7 +558,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let res = TestClient::post("http://local/api/v1/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "cx:realm:takedown-withdraw",
+            "resource_id": "ck:realm:takedown-withdraw",
             "principal_server_did": withdraw_mock.principal_server_did(),
             "discovery_state": withdraw_state,
             "source_refs": ["evt-withdraw-realm"],
@@ -571,7 +571,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
 
     let withdraw_body = signed_withdraw_body(
         "realm",
-        "cx:realm:takedown-withdraw",
+        "ck:realm:takedown-withdraw",
         &verification_method,
         &signing_key,
         "conformance resource withdraw",
@@ -585,11 +585,11 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     assert!(
         body["withdraw_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("cx:withdraw:"))
+            .is_some_and(|id| id.starts_with("ck:withdraw:"))
     );
 
     let res = TestClient::post("http://local/api/v1/directory/resolve-realm")
-        .json(&json!({ "realm_id": "cx:realm:takedown-withdraw" }))
+        .json(&json!({ "realm_id": "ck:realm:takedown-withdraw" }))
         .send(service)
         .await;
     assert_eq!(
@@ -599,7 +599,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     let resource_receipt = withdrawal_proof(
         db,
         "realm",
-        "cx:realm:takedown-withdraw",
+        "ck:realm:takedown-withdraw",
         "resource_withdraw",
     )
     .await?;
@@ -619,7 +619,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     );
     assert_eq!(
         resource_receipt.proof["signed_payload"]["resource_id"],
-        "cx:realm:takedown-withdraw"
+        "ck:realm:takedown-withdraw"
     );
 
     // Path 3: operator takedown signs a service receipt over the full
@@ -821,7 +821,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert!(
         body["withdraw_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("cx:withdraw:"))
+            .is_some_and(|id| id.starts_with("ck:withdraw:"))
     );
 
     let res = TestClient::post("http://local/api/v1/directory/resolve-handle")
@@ -1014,7 +1014,7 @@ fn handle_mock_principal_connection(
         "id": principal_server_did,
         "service": [{
             "id": format!("{principal_server_did}#principal"),
-            "type": "ContrixPrincipalServer",
+            "type": "CokretPrincipalServer",
             "serviceEndpoint": format!("http://127.0.0.1:{}/api/v1", addr.port()),
         }]
     });

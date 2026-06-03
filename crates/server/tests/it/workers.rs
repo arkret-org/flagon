@@ -71,7 +71,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES (\
-                 'realm'::resource_kind, 'cx:realm:expired', 'did:web:expired.test', \
+                 'realm'::resource_kind, 'ck:realm:expired', 'did:web:expired.test', \
                  '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '50 hours', \
                  ARRAY['evt-expired'], now() - interval '50 hours', 60, now() + interval '1 minute', \
                  true, false, ARRAY[]::text[], now() - interval '50 hours', now() - interval '48 hours')",
@@ -91,7 +91,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
     let mut conn = state.db().get().await?;
     let count: i64 = diesel::sql_query(
         "SELECT count(*)::BIGINT AS count FROM directory_resources \
-         WHERE resource_id = 'cx:realm:expired'",
+         WHERE resource_id = 'ck:realm:expired'",
     )
     .get_result::<CountRow>(&mut conn)
     .await?
@@ -156,7 +156,7 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
                  pending_id, resource_kind, resource_id, reason, proposed_by, \
                  quorum, status, expires_at) \
              VALUES (\
-                 'pt-test', 'realm'::resource_kind, 'cx:realm:dlq', 'spam', \
+                 'pt-test', 'realm'::resource_kind, 'ck:realm:dlq', 'spam', \
                  'did:web:operator.test', 1, 'pending', now() + interval '1 day')",
         )
         .execute(&mut conn)

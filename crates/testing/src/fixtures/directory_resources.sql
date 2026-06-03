@@ -18,7 +18,7 @@ INSERT INTO directory_resources (
 ) VALUES
 (
     'realm'::resource_kind,
-    'cx:realm:tea',
+    'ck:realm:tea',
     'did:web:principal.test',
     -- Round 4 (spec a77b995): the §3 discovery event kind for the
     -- Realm security boundary is `cx.realm.discovery`.
@@ -38,11 +38,11 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-realm'
+    'ck:announce:test-realm'
 ),
 (
     'realm'::resource_kind,
-    'cx:realm:tea-lab',
+    'ck:realm:tea-lab',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"listed"}'::jsonb,
     '{"name":"Tea Protocol Lab","summary":"Second public conformance realm","member_count_bucket":"11-50"}'::jsonb,
@@ -56,11 +56,11 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-realm-lab'
+    'ck:announce:test-realm-lab'
 ),
 (
     'realm'::resource_kind,
-    'cx:realm:restricted',
+    'ck:realm:restricted',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"restricted"}'::jsonb,
     '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
@@ -74,11 +74,11 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-realm-restricted'
+    'ck:announce:test-realm-restricted'
 ),
 (
     'realm'::resource_kind,
-    'cx:realm:secret',
+    'ck:realm:secret',
     'did:web:principal.test',
     '{"kind":"cx.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
@@ -92,7 +92,7 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-realm-secret'
+    'ck:announce:test-realm-secret'
 ),
 (
     'organization'::resource_kind,
@@ -110,14 +110,14 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-org'
+    'ck:announce:test-org'
 ),
 (
     'actor'::resource_kind,
     'did:web:alice.example',
     'did:web:principal.test',
     '{"kind":"cx.actor.discovery","discoverability":"public"}'::jsonb,
-    '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["cx:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
+    '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["ck:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-actor-alice'],
@@ -128,7 +128,7 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-actor'
+    'ck:announce:test-actor'
 ),
 (
     'handle'::resource_kind,
@@ -149,5 +149,5 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'cx:announce:test-handle'
+    'ck:announce:test-handle'
 );

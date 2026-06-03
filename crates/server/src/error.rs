@@ -1,6 +1,6 @@
 //! Wire-form error codes for teabay.
 //!
-//! The query-side uses Contrix canonical codes (`not_found`, `rate_limited`,
+//! The query-side uses Cokret canonical codes (`not_found`, `rate_limited`,
 //! `unauthenticated`, etc.). The ingest side adds the §8 / §8.10 ingest-
 //! specific codes that are normative on `/api/v1/directory/announce` and
 //! `/api/v1/directory/withdraw`.
@@ -23,7 +23,7 @@ impl ApiErrorCode {
         }
     }
 
-    // -------- canonical Contrix codes used here --------
+    // -------- canonical Cokret codes used here --------
     #[allow(non_upper_case_globals)]
     pub const BadJson: Self = Self::new(contrix_sdk::ERROR_CODE_BAD_JSON, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
@@ -186,10 +186,10 @@ impl ApiErrorCode {
         StatusCode::FORBIDDEN,
     );
 
-    // -------- R3.2 spec-sync 2026-05-28 (contrix-spec @ b56cab1) --------
+    // -------- R3.2 spec-sync 2026-05-28 (cokret-spec @ b56cab1) --------
     // `cx.directory.list_handles_for_subject` input validation. A
-    // `subject` that is not a holder/principal DID (a `cx:actor:` Realm
-    // actor_id, a `cx:account:` server-local account id, a service DID,
+    // `subject` that is not a holder/principal DID (a `ck:actor:` Realm
+    // actor_id, a `ck:account:` server-local account id, a service DID,
     // or a non-DID resource id) is rejected with `failed_precondition`
     // carrying the `invalid_subject_kind` reason in the message — the
     // request is structurally well-formed JSON but cannot be satisfied

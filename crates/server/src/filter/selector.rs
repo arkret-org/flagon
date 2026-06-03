@@ -7,7 +7,7 @@
 //! upstream callers — SDK clients running a unified resource-selector
 //! evaluator, capability engines, governance bridges — now legitimately
 //! emit selector envelopes that include `selector_kind="circle"` and a
-//! `cx:circle:<uuid>` target. The directory's job on the query face is
+//! `ck:circle:<uuid>` target. The directory's job on the query face is
 //! to **recognise** the selector (so the request validates, doesn't
 //! crash) and then respond with the same privacy-preserving `not_found`
 //! shape that every directory miss returns.
@@ -21,7 +21,7 @@
 //! Wire shape per `resource-selector.schema.json` (R3 delta):
 //!
 //! ```json
-//! { "kind": "circle", "circle_id": "cx:circle:<uuid>" }
+//! { "kind": "circle", "circle_id": "ck:circle:<uuid>" }
 //! ```
 //!
 //! Legacy callers may also send `{ "selector_kind": "circle", ... }`
@@ -38,7 +38,7 @@ use serde_json::Value as JsonValue;
 ///   - `{"selector_kind": "circle", ...}`
 ///   - `{"resource_selector": {"kind": "circle", ...}}`
 ///
-/// Case-insensitive on the discriminator value because Contrix typed
+/// Case-insensitive on the discriminator value because Cokret typed
 /// kinds are stable lowercase identifiers.
 pub fn is_circle_selector(filter: &JsonValue) -> bool {
     let Some(map) = filter.as_object() else {
@@ -63,7 +63,7 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
     false
 }
 
-/// True iff `value` carries a `cx:circle:<uuid>` typed id. This is a
+/// True iff `value` carries a `ck:circle:<uuid>` typed id. This is a
 /// thinner check than [`is_circle_selector`]: it answers "does the
 /// caller want to point at a Circle?" regardless of which surrounding
 /// envelope field carries the id.
@@ -86,7 +86,7 @@ mod tests {
     fn recognises_flat_kind_circle() {
         assert!(is_circle_selector(&json!({"kind": "circle"})));
         assert!(is_circle_selector(
-            &json!({"kind": "circle", "circle_id": "cx:circle:abc"})
+            &json!({"kind": "circle", "circle_id": "ck:circle:abc"})
         ));
     }
 
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn recognises_nested_resource_selector() {
         assert!(is_circle_selector(&json!({
-            "resource_selector": {"kind": "circle", "circle_id": "cx:circle:abc"}
+            "resource_selector": {"kind": "circle", "circle_id": "ck:circle:abc"}
         })));
     }
 
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn typed_id_prefix_detected() {
-        assert!(looks_like_circle_id("cx:circle:01J0XYZ"));
-        assert!(!looks_like_circle_id("cx:realm:01J0XYZ"));
+        assert!(looks_like_circle_id("ck:circle:01J0XYZ"));
+        assert!(!looks_like_circle_id("ck:realm:01J0XYZ"));
     }
 }
