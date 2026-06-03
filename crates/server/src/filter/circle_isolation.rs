@@ -37,7 +37,7 @@ use serde_json::Value as JsonValue;
 /// Morph; it MUST stay strictly inside a Realm (soland) and never
 /// project into the directory. `circle_id` / `circle_members` /
 /// `member_circle_ids` cover legacy/short names that downstream
-/// services might be tempted to emit. `cx.circle.*` event-kind echoes
+/// services might be tempted to emit. `ck.circle.*` event-kind echoes
 /// (e.g. `event_kind: "ck.circle.member.add"`) are independently
 /// rejected via the `ck:circle:` value sentinel.
 pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
@@ -309,13 +309,13 @@ mod tests {
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
-    /// P2E.7 — uppercase / mixed-case `Cx:CIRCLE:` MUST still be
+    /// P2E.7 — uppercase / mixed-case `Ck:CIRCLE:` MUST still be
     /// caught (typed-id parsers are case-insensitive per spec
     /// §id-format).
     #[test]
-    fn rejects_mixed_case_cx_circle_prefix() {
+    fn rejects_mixed_case_ck_circle_prefix() {
         let envelope = json!({
-            "discovery_state": {"note": "Cx:CIRCLE:0123ABC"},
+            "discovery_state": {"note": "Ck:CIRCLE:0123ABC"},
         });
         let err = reject_circle_payload(&envelope).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));

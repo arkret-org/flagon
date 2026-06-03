@@ -2,13 +2,13 @@
 //!
 //! Wakes every `TEABAY_PULL_INTERVAL_SECONDS`, scans for entries whose
 //! `next_revalidation_after` has passed, and re-pulls their signed
-//! `cx.{kind}.discovery` state from the resource Principal Server using
+//! `ck.{kind}.discovery` state from the resource Principal Server using
 //! the standard `ck.events.query` shape:
 //!
 //! ```text
 //! GET /_cokret/self/events/query
 //!   ?subject={resource_id}
-//!   &kind=cx.{...}.discovery
+//!   &kind=ck.{...}.discovery
 //!   &state_only=true
 //!   &after_revision={last_known_revision}
 //! ```

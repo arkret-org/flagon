@@ -380,7 +380,7 @@ fn parse_token_descriptor(
     let mut value: JsonValue = serde_json::from_str(token).ok()?;
     if !matches!(
         value.get("kind").and_then(JsonValue::as_str),
-        Some("invite_token" | "cx.directory.invite_token")
+        Some("invite_token" | "ck.directory.invite_token")
     ) {
         return None;
     }

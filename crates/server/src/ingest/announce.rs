@@ -6,10 +6,9 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::canonical;
 use cokret_sdk::{
     HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_DIGEST, HEADER_SOURCE_TRUST_DOMAIN,
-    federation_trust_domain_transcript_fragment,
+    canonical, federation_trust_domain_transcript_fragment,
 };
 use diesel::prelude::*;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -724,7 +723,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
 /// Round R2/R3 T07 — detect a realm terminal state from the verified
 /// discovery_state. The directory accepts the destroy anchor either as
-/// `terminal_state: "destroyed"` (preferred, anchored via the `cx.realm.
+/// `terminal_state: "destroyed"` (preferred, anchored via the `ck.realm.
 /// destroy` event kind) or as a `realm_destroyed: true` shorthand. The
 /// returned timestamp is `as_of_destroyed` if present, else `as_of`.
 pub(crate) fn derive_realm_terminal_state(

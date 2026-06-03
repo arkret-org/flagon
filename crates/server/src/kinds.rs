@@ -38,7 +38,7 @@ pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
 
 pub const OP_DIRECTORY_ANNOUNCE: &str = cokret_sdk::OP_DIRECTORY_ANNOUNCE;
 pub const OP_DIRECTORY_WITHDRAW: &str = cokret_sdk::OP_DIRECTORY_WITHDRAW;
-pub const OP_DIRECTORY_SUBSCRIBE: &str = cokret_sdk::OP_DIRECTORY_SUBSCRIBE;
+pub const OP_DIRECTORY_PUSH_REGISTER: &str = cokret_sdk::OP_DIRECTORY_PUSH_REGISTER;
 
 // ---- §9 query operations (declared for profile self-check) --------------
 
@@ -74,7 +74,7 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_RESOLVE_HANDLE,
     OP_DIRECTORY_ANNOUNCE,
     OP_DIRECTORY_WITHDRAW,
-    OP_DIRECTORY_SUBSCRIBE,
+    OP_DIRECTORY_PUSH_REGISTER,
 ];
 
 /// Every operation `ck.directory.describe` advertises, in wire order. This is
@@ -97,7 +97,7 @@ pub const SUPPORTED_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT,
     OP_DIRECTORY_ANNOUNCE,
     OP_DIRECTORY_WITHDRAW,
-    OP_DIRECTORY_SUBSCRIBE,
+    OP_DIRECTORY_PUSH_REGISTER,
 ];
 
 #[cfg(test)]
@@ -120,7 +120,7 @@ mod tests {
     fn directory_ops_match_sdk() {
         assert_eq!(OP_DIRECTORY_ANNOUNCE, "ck.directory.announce");
         assert_eq!(OP_DIRECTORY_WITHDRAW, "ck.directory.withdraw");
-        assert_eq!(OP_DIRECTORY_SUBSCRIBE, "ck.directory.push.register");
+        assert_eq!(OP_DIRECTORY_PUSH_REGISTER, "ck.directory.push.register");
         assert_eq!(OP_DIRECTORY_DESCRIBE, "ck.directory.describe");
         assert_eq!(OP_DIRECTORY_SEARCH_REALMS, "ck.directory.search_realms");
         assert_eq!(OP_DIRECTORY_RESOLVE_REALM, "ck.directory.resolve_realm");

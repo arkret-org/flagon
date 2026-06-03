@@ -664,7 +664,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // handle endpoint. Query-string keyed (`?localpart=<localpart>`).
             "/.well-known/cokret/handle",
             PathItemType::Get,
-            "cx.directory.well_known_handle",
+            "ck.directory.well_known_handle",
             "query",
             "Well-Known Handle Resolve",
             "Resolve a handle by `?localpart=<localpart>` (identity-handles §17). \
@@ -697,12 +697,12 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ck.directory.announce",
             "ingest",
             "Announce Discovery State",
-            "Push-mode ingest for signed cx.{kind}.discovery state.",
+            "Push-mode ingest for signed ck.{kind}.discovery state.",
         ),
         (
             "/_cokret/find/directory/announce/heartbeat",
             PathItemType::Post,
-            "cx.directory.announce.heartbeat",
+            "ck.directory.announce.heartbeat",
             "ingest",
             "Heartbeat Announced Resource",
             "Refresh an indexed announce in place without re-signing the full discovery_state body.",

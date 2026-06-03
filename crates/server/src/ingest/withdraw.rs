@@ -27,7 +27,7 @@ use crate::state::AppState;
 pub struct WithdrawRequest {
     pub resource_kind: ResourceKindWire,
     pub resource_id: String,
-    /// Same proof envelope used in `cx.{kind}.discovery.proof` — must be
+    /// Same proof envelope used in `ck.{kind}.discovery.proof` — must be
     /// signed by the resource's governance key. Verification follows §8.5
     /// step 2.
     pub governance_proof: JsonValue,

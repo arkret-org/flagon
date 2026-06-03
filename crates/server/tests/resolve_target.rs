@@ -79,8 +79,8 @@ fn realm_address_classifies_as_realm_target() {
     assert!(!parsed.is_message());
 
     // The HTTPS-landing fragment form parses to the identical address.
-    let landing = parse_address(&format!("https://share.cokret.example/#realm/{R}"))
-        .expect("landing parses");
+    let landing =
+        parse_address(&format!("https://share.cokret.example/#realm/{R}")).expect("landing parses");
     assert_eq!(parsed, landing);
 }
 

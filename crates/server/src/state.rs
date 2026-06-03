@@ -167,21 +167,30 @@ impl WorkerRuntime {
     }
 
     fn started(&self, worker: BackgroundWorker, period: Duration) {
-        let mut slot = self.slot(worker).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut slot = self
+            .slot(worker)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         slot.enabled = true;
         slot.period = Some(period);
         slot.last_seen = Some(Instant::now());
     }
 
     fn heartbeat(&self, worker: BackgroundWorker) {
-        let mut slot = self.slot(worker).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut slot = self
+            .slot(worker)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if slot.enabled {
             slot.last_seen = Some(Instant::now());
         }
     }
 
     fn readiness(&self, worker: BackgroundWorker) -> WorkerReadiness {
-        let slot = *self.slot(worker).lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let slot = *self
+            .slot(worker)
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !slot.enabled {
             return WorkerReadiness {
                 enabled: false,
@@ -224,14 +233,20 @@ fn stale_after_for(period: Option<Duration>) -> Duration {
 
 impl AnnounceReplayCache {
     fn get(&self, digest: &[u8]) -> Option<CachedAnnounceResponse> {
-        let mut rows = self.rows.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut rows = self
+            .rows
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
         rows.retain(|_, row| now.duration_since(row.inserted_at) < Duration::from_secs(600));
         rows.get(digest).map(|row| row.response.clone())
     }
 
     fn put(&self, digest: Vec<u8>, response: CachedAnnounceResponse) {
-        let mut rows = self.rows.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut rows = self
+            .rows
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if rows.len() > 8192 {
             let now = Instant::now();
             rows.retain(|_, row| now.duration_since(row.inserted_at) < Duration::from_secs(600));
@@ -254,7 +269,10 @@ impl RateLimiter {
             };
         }
 
-        let mut buckets = self.buckets.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut buckets = self
+            .buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
         buckets.retain(|_, bucket| now.duration_since(bucket.window_start) < window);
 

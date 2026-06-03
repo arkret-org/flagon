@@ -298,9 +298,9 @@ mod tests {
         // 169.254.169.254 / private space must all be blocked.
         for raw in [
             "http://[64:ff9b::a9fe:a9fe]/latest/meta-data", // NAT64 169.254.169.254
-            "http://[::a9fe:a9fe]/sink",                     // IPv4-compatible 169.254.169.254
-            "http://[2002:0a00:0001::]/sink",                // 6to4 10.0.0.1
-            "http://[::ffff:10.0.0.1]/sink",                 // IPv4-mapped 10.0.0.1
+            "http://[::a9fe:a9fe]/sink",                    // IPv4-compatible 169.254.169.254
+            "http://[2002:0a00:0001::]/sink",               // 6to4 10.0.0.1
+            "http://[::ffff:10.0.0.1]/sink",                // IPv4-mapped 10.0.0.1
         ] {
             let url = Url::parse(raw).unwrap();
             assert!(

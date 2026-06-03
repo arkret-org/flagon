@@ -5,7 +5,7 @@
 Reference Cokret v1 **Directory Service** implementation.
 
 teabay is the *discovery entry layer* of the Cokret protocol stack: it accepts
-signed `cx.{realm,organization,actor,applet,handle}.discovery` state from
+signed `ck.{realm,organization,actor,applet,handle}.discovery` state from
 resource Principal Servers, indexes the public-metadata projection, and
 serves authorized search / resolve queries — all while enforcing the
 spec's anti-enumeration filter.
@@ -86,7 +86,7 @@ Section 6 (Private Contact Discovery) is implemented with RFC 9497 VOPRF
 blind / match flows. Parent Space semantics are represented through scope
 filters and membership hints where the Directory profile needs them.
 
-`cx.directory.describe.limitations` is populated at runtime for conformance
+`ck.directory.describe.limitations` is populated at runtime for conformance
 honesty. Current limitations are: pull-mode ingest is declared disabled when
 `TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown webhook fanout is
 HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
@@ -232,7 +232,7 @@ client / SDK  ──────▶   |  Salvo router              |
                           │          +-----------+
                           │                │
                           │     pull-mode  │
-                          │   (cx.events.  │
+                          │   (ck.events.  │
                           │   query)       │
                           ▼                ▼
                   resource Principal Server (soland / other)

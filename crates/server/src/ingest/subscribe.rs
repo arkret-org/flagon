@@ -313,9 +313,9 @@ fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
     // — that fallback masked client misconfiguration and made the same string
     // produce different HMAC keys depending on whether it happened to be valid
     // base64url.
-    let bytes = URL_SAFE_NO_PAD.decode(raw).map_err(|_| {
-        "webhook_secret must be base64url (unpadded) encoded".to_owned()
-    })?;
+    let bytes = URL_SAFE_NO_PAD
+        .decode(raw)
+        .map_err(|_| "webhook_secret must be base64url (unpadded) encoded".to_owned())?;
     if bytes.len() < 16 {
         return Err("webhook_secret must decode to at least 16 bytes".to_owned());
     }

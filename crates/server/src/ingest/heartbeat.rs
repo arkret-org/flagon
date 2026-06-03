@@ -1,4 +1,4 @@
-//! `cx.directory.announce.heartbeat` — refresh-in-place ingest path.
+//! `ck.directory.announce.heartbeat` — refresh-in-place ingest path.
 //!
 //! Spec §8.6 (TTL) + P2E.5 (this round). A heartbeat is the cheap
 //! "I'm still here" signal: an announcer that already has an

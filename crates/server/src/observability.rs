@@ -185,7 +185,11 @@ impl Metrics {
     }
 
     pub fn record_ingest(&self, kind: &'static str, outcome: &'static str) {
-        let mut ingest = self.inner.ingest.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut ingest = self
+            .inner
+            .ingest
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *ingest.entry(IngestKey { kind, outcome }).or_default() += 1;
     }
 

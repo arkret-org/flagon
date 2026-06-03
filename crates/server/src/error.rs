@@ -27,8 +27,7 @@ impl ApiErrorCode {
     #[allow(non_upper_case_globals)]
     pub const BadJson: Self = Self::new(cokret_sdk::ERROR_CODE_BAD_JSON, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
-    pub const BadQuery: Self =
-        Self::new(cokret_sdk::ERROR_CODE_BAD_QUERY, StatusCode::BAD_REQUEST);
+    pub const BadQuery: Self = Self::new(cokret_sdk::ERROR_CODE_BAD_QUERY, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
     pub const SchemaViolation: Self = Self::new(
         cokret_sdk::ERROR_CODE_SCHEMA_VIOLATION,
@@ -79,10 +78,8 @@ impl ApiErrorCode {
         StatusCode::TOO_MANY_REQUESTS,
     );
     #[allow(non_upper_case_globals)]
-    pub const QuotaExceeded: Self = Self::new(
-        cokret_sdk::ERROR_CODE_QUOTA_EXCEEDED,
-        StatusCode::FORBIDDEN,
-    );
+    pub const QuotaExceeded: Self =
+        Self::new(cokret_sdk::ERROR_CODE_QUOTA_EXCEEDED, StatusCode::FORBIDDEN);
     #[allow(non_upper_case_globals)]
     pub const Timeout: Self =
         Self::new(cokret_sdk::ERROR_CODE_TIMEOUT, StatusCode::GATEWAY_TIMEOUT);
