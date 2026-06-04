@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 use dioxus_free_icons::Icon;
 use dioxus_free_icons::icons::ld_icons::{
@@ -8,7 +10,6 @@ use gloo_net::http::{Request, RequestBuilder, Response};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
-use std::rc::Rc;
 
 const BADGE_NEUTRAL: &str = "badge neutral";
 const BADGE_OK: &str = "badge ok";
@@ -423,11 +424,7 @@ fn TabBar(mut active_tab: Signal<Tab>) -> Element {
 }
 
 #[component]
-fn Workspace(
-    active_tab: Signal<Tab>,
-    base_url: Signal<String>,
-    token: Signal<String>,
-) -> Element {
+fn Workspace(active_tab: Signal<Tab>, base_url: Signal<String>, token: Signal<String>) -> Element {
     // 只有此组件订阅 active_tab/base_url/token,切 tab 或改连接参数仅重跑当前面板。
     let selected = active_tab();
     let api_base = base_url();

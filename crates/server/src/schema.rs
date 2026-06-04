@@ -59,6 +59,11 @@ diesel::table! {
         // 20260526010000_add_freshness.
         last_refreshed_at -> Timestamptz,
         expires_at -> Timestamptz,
+        // Spec §3 member_count bucket hysteresis / minimum residency. See
+        // migration 20260605010000_member_count_bucket_residency.
+        member_count_real_bucket -> Nullable<Text>,
+        member_count_bucket_locked -> Nullable<Text>,
+        member_count_bucket_since -> Nullable<Timestamptz>,
     }
 }
 

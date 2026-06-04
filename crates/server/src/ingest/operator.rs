@@ -85,7 +85,13 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
 
     let withdraw_id = new_id(IdClass::Withdraw);
     let acked_at = Utc::now();
-    let effective_at = body.effective_at.unwrap_or(acked_at);
+    // Spec §8.10 anti-revocation-evasion: a takedown MUST NOT take effect in
+    // the past. Clamp the operator-supplied `effective_at` up to `acked_at`
+    // so a backdated value cannot narrow the `TakedownInForce` window.
+    let effective_at = body
+        .effective_at
+        .map(|t| t.max(acked_at))
+        .unwrap_or(acked_at);
     let operator = body.operator.as_deref().unwrap_or("admin-console");
     let notification_status =
         initial_notification_status(state.config().takedown_contact.is_some());

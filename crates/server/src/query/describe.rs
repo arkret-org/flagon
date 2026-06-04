@@ -112,7 +112,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     let limits = json!({
         "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
-        "max_psi_queries_per_epoch": cfg.max_psi_queries_per_epoch,
+        "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
+        "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
         "psi_epoch_seconds": cfg.psi_epoch_seconds,
         "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
         "query_latency_floor_ms": cfg.query_latency_floor.as_millis() as u64,
@@ -283,7 +284,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "rate_limits".to_owned(),
         json!({
             "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
-            "max_psi_queries_per_epoch": cfg.max_psi_queries_per_epoch,
+            "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
+            "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
             "psi_epoch_seconds": cfg.psi_epoch_seconds,
             "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
             "query_latency_floor_ms": cfg.query_latency_floor.as_millis() as u64,
@@ -371,7 +373,8 @@ mod tests {
             rate_limit_per_resource_per_min: 60,
             query_max_queries_per_ip_per_min: 0,
             query_max_resolves_per_resource_per_min: 0,
-            max_psi_queries_per_epoch: 100,
+            max_psi_queries_per_window: 100,
+            psi_quota_window_seconds: 86_400,
             private_contact_discovery_enabled: pcd_enabled,
             psi_epoch_seconds: 3600,
             psi_key_retention_seconds: 7200,

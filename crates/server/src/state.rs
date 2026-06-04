@@ -57,6 +57,21 @@ impl AppState {
             .check(key.into(), max_requests, Duration::from_secs(60))
     }
 
+    /// Rate-limit check with a caller-supplied window. Used by the PSI
+    /// anti-enumeration quota (spec §6.4), whose `quota window` is a fixed
+    /// 24h roll (decoupled from the OPRF key epoch) rather than the 60s
+    /// query-face window.
+    pub fn check_rate_limit_window(
+        &self,
+        key: impl Into<String>,
+        max_requests: u32,
+        window: Duration,
+    ) -> RateLimitOutcome {
+        self.inner
+            .rate_limiter
+            .check(key.into(), max_requests, window)
+    }
+
     pub fn cached_announce_replay(&self, digest: &[u8]) -> Option<CachedAnnounceResponse> {
         self.inner.announce_replay_cache.get(digest)
     }

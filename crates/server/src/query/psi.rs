@@ -126,21 +126,43 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
+    // Spec §6.4 anti-enumeration quota: at most `max_psi_queries_per_window`
+    // *batches* per requester per quota window. A batch is one logical PSI
+    // query, i.e. one `blind` round followed by its `match` round — so the
+    // quota is charged once, at the `blind` phase that opens the batch. The
+    // `match` continuation does not consume an additional unit (otherwise a
+    // single legitimate query would cost two and the default of 1 would be
+    // unusable).
+    //
+    // The quota window is a fixed wall-clock roll (default 24h) and MUST be
+    // decoupled from the OPRF key epoch — a new epoch MUST NOT reset the
+    // quota, and the client-supplied `body.epoch` MUST NOT participate in
+    // the quota key (otherwise an attacker could rotate epoch per batch to
+    // bypass the limit). `epoch` below selects the OPRF key only; it never
+    // feeds the quota bucket.
+    if matches!(body.phase, PsiPhase::Blind) {
+        let quota_window = std::time::Duration::from_secs(state.config().psi_quota_window_seconds);
+        let quota_bucket = Utc::now()
+            .timestamp()
+            .div_euclid(state.config().psi_quota_window_seconds as i64);
+        if let RateLimitOutcome::Limited { retry_after } = state.check_rate_limit_window(
+            format!("psi-quota:{}:{quota_bucket}", body.requester),
+            state.config().max_psi_queries_per_window,
+            quota_window,
+        ) {
+            if let Ok(value) = retry_after.as_secs().max(1).to_string().parse() {
+                res.headers_mut()
+                    .insert(salvo::http::header::RETRY_AFTER, value);
+            }
+            ApiErrorCode::RateLimited.render(res, "PSI quota exhausted");
+            return;
+        }
+    }
+
     let epoch = body
         .epoch
         .clone()
         .unwrap_or_else(|| current_epoch(state.config()));
-    if let RateLimitOutcome::Limited { retry_after } = state.check_rate_limit(
-        format!("psi:{}:{epoch}", body.requester),
-        state.config().max_psi_queries_per_epoch,
-    ) {
-        if let Ok(value) = retry_after.as_secs().max(1).to_string().parse() {
-            res.headers_mut()
-                .insert(salvo::http::header::RETRY_AFTER, value);
-        }
-        ApiErrorCode::RateLimited.render(res, "PSI epoch query budget exceeded");
-        return;
-    }
 
     let key = match load_or_create_epoch_key(&state, &epoch).await {
         Ok(key) => key,

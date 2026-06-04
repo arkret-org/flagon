@@ -713,16 +713,7 @@ WITH ranked AS (
                 similarity(search_text, $1),
                 ts_rank(search_vector, plainto_tsquery('simple', $1))
             )::double precision
-        END AS score,
-        CASE public_projection->>'member_count_bucket'
-            WHEN '2000+' THEN 6
-            WHEN '501-2000' THEN 5
-            WHEN '101-500' THEN 4
-            WHEN '51-100' THEN 3
-            WHEN '11-50' THEN 2
-            WHEN '1-10' THEN 1
-            ELSE 0
-        END AS member_count_rank
+        END AS score
     FROM directory_resources
     WHERE resource_kind = 'realm'::resource_kind
       AND stale = false
@@ -769,7 +760,10 @@ WHERE (
     OR (score = $4 AND indexed_at < $5)
     OR (score = $4 AND indexed_at = $5 AND resource_id > $6)
 )
-ORDER BY score DESC, member_count_rank DESC, indexed_at DESC, resource_id ASC
+-- Spec §3/§11: ranking MUST NOT leak member count. The tiebreaker is the
+-- member-count-independent keyset cursor (indexed_at, resource_id), which
+-- also keeps ORDER BY consistent with the pagination cursor above.
+ORDER BY score DESC, indexed_at DESC, resource_id ASC
 LIMIT $7
 "#;
 

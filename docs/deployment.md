@@ -186,8 +186,9 @@ The hard maximum TTL accepted by the server is 30 days.
 | `TEABAY_QUERY_LATENCY_JITTER_MS` | `10` | Deterministic per-route jitter window. |
 | `TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN` | `60` | Per-resource query budget. |
 | `TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED` | `true` | Enables PSI contact discovery endpoint. |
-| `TEABAY_MAX_PSI_QUERIES_PER_EPOCH` | `60` | Per-epoch PSI query budget. |
-| `TEABAY_PSI_EPOCH_SECONDS` | `604800` | PSI epoch length. |
+| `TEABAY_MAX_PSI_QUERIES_PER_WINDOW` | `1` | Spec §6.4 anti-enumeration quota: max PSI batches per requester per quota window. Decoupled from the OPRF key epoch. |
+| `TEABAY_PSI_QUOTA_WINDOW_SECONDS` | `86400` | Spec §6.4 quota window length (24h default). Independent of `TEABAY_PSI_EPOCH_SECONDS`. |
+| `TEABAY_PSI_EPOCH_SECONDS` | `604800` | OPRF key epoch length (key selection only; never resets the quota). |
 | `TEABAY_PSI_KEY_RETENTION_SECONDS` | `7776000` | PSI key retention, capped at 90 days. |
 
 ## Reverse Proxy

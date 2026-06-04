@@ -38,6 +38,93 @@ pub fn is_valid_member_count_bucket(bucket: &str) -> bool {
     MEMBER_COUNT_BUCKETS.contains(&bucket)
 }
 
+/// Prior member-count residency state read from `directory_resources`
+/// (`member_count_*` columns). `None` for a brand-new row.
+#[derive(Clone, Debug)]
+pub struct MemberCountResidencyPrior {
+    /// Currently-emitted (locked) bucket, mirrored into
+    /// `public_projection->>'member_count_bucket'`.
+    pub locked_bucket: Option<String>,
+    /// When `locked_bucket` last changed.
+    pub locked_since: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Outcome of applying the §3 hysteresis / minimum-residency rule.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemberCountResidencyDecision {
+    /// Bucket to emit publicly this round (pin or switch). `None` when the
+    /// projection carries no member-count bucket at all.
+    pub emitted_bucket: Option<String>,
+    /// Persisted as `member_count_bucket_since` — advances only when the
+    /// emitted bucket actually switches.
+    pub locked_since: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Spec §3 `bucketed` normative anti-oscillation rule.
+///
+/// The *real* bucket (`real_bucket`, derived from the announced count) can
+/// flip on every refresh when the true count hovers at a grid boundary.
+/// Emitting it verbatim is an enumeration side channel. This function pins
+/// the publicly-emitted bucket for a minimum residency window after it
+/// changes: the emitted bucket only switches to the new real bucket once
+/// `now - locked_since >= residency`. Until then the previously locked
+/// bucket is re-emitted.
+///
+/// `residency` is the policy minimum-residency window; callers pass the
+/// entry's effective refresh TTL (spec: default SHOULD ≥ refresh TTL),
+/// clamped to a floor by the caller if an observable refresh interval is
+/// larger.
+pub fn apply_member_count_residency(
+    real_bucket: Option<&str>,
+    prior: &MemberCountResidencyPrior,
+    residency: Duration,
+    now: chrono::DateTime<chrono::Utc>,
+) -> MemberCountResidencyDecision {
+    let Some(real) = real_bucket else {
+        // No member-count signal in this projection; nothing to pin.
+        return MemberCountResidencyDecision {
+            emitted_bucket: None,
+            locked_since: None,
+        };
+    };
+
+    match (&prior.locked_bucket, prior.locked_since) {
+        // First time we see a bucket for this resource: lock it now.
+        (None, _) | (_, None) => MemberCountResidencyDecision {
+            emitted_bucket: Some(real.to_string()),
+            locked_since: Some(now),
+        },
+        (Some(locked), Some(since)) => {
+            if locked == real {
+                // Real bucket unchanged — keep the existing lock window.
+                MemberCountResidencyDecision {
+                    emitted_bucket: Some(locked.clone()),
+                    locked_since: Some(since),
+                }
+            } else {
+                let elapsed = now.signed_duration_since(since);
+                let residency = chrono::Duration::from_std(residency)
+                    .unwrap_or_else(|_| chrono::Duration::seconds(0));
+                if elapsed >= residency {
+                    // Residency satisfied: the real bucket has genuinely
+                    // moved and stayed long enough — switch and re-pin.
+                    MemberCountResidencyDecision {
+                        emitted_bucket: Some(real.to_string()),
+                        locked_since: Some(now),
+                    }
+                } else {
+                    // Still inside the residency window: re-emit the locked
+                    // bucket so boundary oscillation is not observable.
+                    MemberCountResidencyDecision {
+                        emitted_bucket: Some(locked.clone()),
+                        locked_since: Some(since),
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Floor for query / resolve latency. We pad responses up to this floor to
 /// reduce the side channel between "not found" and "found-but-hidden".
 ///
@@ -151,6 +238,84 @@ mod tests {
         assert!(is_valid_member_count_bucket("2000+"));
         assert!(!is_valid_member_count_bucket("2001+"));
         assert!(!is_valid_member_count_bucket("42"));
+    }
+
+    fn prior(
+        locked: Option<&str>,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> MemberCountResidencyPrior {
+        MemberCountResidencyPrior {
+            locked_bucket: locked.map(str::to_string),
+            locked_since: since,
+        }
+    }
+
+    #[test]
+    fn residency_first_observation_locks_immediately() {
+        let now = chrono::Utc::now();
+        let d = apply_member_count_residency(
+            Some("11-50"),
+            &prior(None, None),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("11-50"));
+        assert_eq!(d.locked_since, Some(now));
+    }
+
+    #[test]
+    fn residency_pins_bucket_inside_window() {
+        let since = chrono::Utc::now();
+        let now = since + chrono::Duration::seconds(60); // < 3600 residency
+        // Real bucket flipped 11-50 -> 1-10 but residency not elapsed.
+        let d = apply_member_count_residency(
+            Some("1-10"),
+            &prior(Some("11-50"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("11-50"));
+        assert_eq!(d.locked_since, Some(since)); // since not advanced
+    }
+
+    #[test]
+    fn residency_switches_after_window() {
+        let since = chrono::Utc::now();
+        let now = since + chrono::Duration::seconds(3600);
+        let d = apply_member_count_residency(
+            Some("1-10"),
+            &prior(Some("11-50"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("1-10"));
+        assert_eq!(d.locked_since, Some(now)); // re-pinned
+    }
+
+    #[test]
+    fn residency_unchanged_bucket_keeps_window() {
+        let since = chrono::Utc::now();
+        let now = since + chrono::Duration::seconds(10_000);
+        let d = apply_member_count_residency(
+            Some("11-50"),
+            &prior(Some("11-50"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("11-50"));
+        assert_eq!(d.locked_since, Some(since)); // window preserved
+    }
+
+    #[test]
+    fn residency_no_bucket_is_noop() {
+        let d = apply_member_count_residency(
+            None,
+            &prior(Some("11-50"), Some(chrono::Utc::now())),
+            Duration::from_secs(3600),
+            chrono::Utc::now(),
+        );
+        assert_eq!(d.emitted_bucket, None);
+        assert_eq!(d.locked_since, None);
     }
 
     #[test]

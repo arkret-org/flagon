@@ -65,17 +65,33 @@ state.
 
 ## Private Contact Discovery
 
-The Private Contact Discovery endpoint uses the configured PSI budget and epoch
+The Private Contact Discovery endpoint uses the configured PSI quota and epoch
 settings:
 
 - `TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED`
-- `TEABAY_MAX_PSI_QUERIES_PER_EPOCH`
+- `TEABAY_MAX_PSI_QUERIES_PER_WINDOW`
+- `TEABAY_PSI_QUOTA_WINDOW_SECONDS`
 - `TEABAY_PSI_EPOCH_SECONDS`
 - `TEABAY_PSI_KEY_RETENTION_SECONDS`
 
 Operators should keep PSI query budgets conservative because the endpoint is
 specifically meant to answer membership-style questions without exposing the
 whole directory.
+
+### Quota is decoupled from the OPRF key epoch (spec §6.4)
+
+The anti-enumeration quota is keyed on `psi-quota:{requester}:{floor(now /
+psi_quota_window_seconds)}` — a **fixed wall-clock window** (default 24h) that is
+deliberately independent of the OPRF key epoch. This enforces the three §6.4
+MUSTs:
+
+- A new OPRF key epoch MUST NOT reset the quota — the quota bucket only rolls
+  when the wall-clock window advances.
+- The client-supplied `epoch` field MUST NOT participate in the quota key;
+  otherwise an attacker could rotate `epoch` per batch to land each batch in a
+  fresh bucket and bypass `max_psi_queries_per_window`. `epoch` is used solely
+  to select the OPRF key.
+- The default window is 24h with `max_psi_queries_per_window = 1`.
 
 The match phase indexes at most 10,000 public/listed actor or handle rows per
 request. When the directory has more eligible rows than that cap, the response
