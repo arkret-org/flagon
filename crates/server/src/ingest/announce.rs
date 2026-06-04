@@ -319,7 +319,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    // CXP-0007 / P2E.2 — hard reject any Circle-scoped metadata BEFORE
+    // CKP-0007 / P2E.2 — hard reject any Circle-scoped metadata BEFORE
     // anything else looks at the body. Circle is an intra-Realm
     // sub-boundary; the directory's anti-enumeration guarantees rely
     // on Circle membership/existence NEVER reaching teabay's index.
@@ -370,7 +370,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         return;
     }
 
-    // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+    // CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
     // §17 — wire-level handle homograph guard. When a handle resource
     // is announced, the localpart of `resource_id` MUST pass the SDK's
     // `normalize_handle_localpart` rule (NFC + UTS#39 confusable

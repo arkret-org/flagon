@@ -52,7 +52,7 @@ const QUERY_OPS: &[&str] = &[
     "resolve-handle",
     // R3.2 (cokret-spec @ b56cab1) — reverse handle lookup.
     "list-handles-for-subject",
-    // R3.3 (CXP-0011, cokret-spec @ cced4b8) — object-level resolve.
+    // R3.3 (CKP-0011, cokret-spec @ cced4b8) — object-level resolve.
     "resolve-target",
 ];
 const PULL_OUTCOMES: &[&str] = &["success", "failure"];
@@ -68,7 +68,7 @@ const QUERY_OUTCOMES: &[&str] = &[
     "bad_json",
     "rate_limited",
     "invalid_subject_kind",
-    // R3.3 (CXP-0011) — resolve_target invite-token binding rejection
+    // R3.3 (CKP-0011) — resolve_target invite-token binding rejection
     // (scope-confusion / expired / malformed / alias-mismatch). Surfaced to
     // the SAME blinded not_found wire response; the split is metrics-only.
     "token_reject",
@@ -861,7 +861,7 @@ mod tests {
         ));
     }
 
-    /// R3.3 (CXP-0011) — the `resolve-target` op and the `token_reject`
+    /// R3.3 (CKP-0011) — the `resolve-target` op and the `token_reject`
     /// outcome render with the required label families (including the
     /// pre-seeded zero series before any request fires).
     #[test]

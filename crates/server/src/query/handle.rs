@@ -56,9 +56,9 @@ pub struct ResolveHandleRequest {
     /// a Realm audience. Mirrors `resolve_realm` semantics.
     #[serde(default)]
     pub proofs: Vec<String>,
-    /// CXP R3 spec-sync 2026-05-27 (commit b47ff6e) — directory query
+    /// CKP R3 spec-sync 2026-05-27 (commit b47ff6e) — directory query
     /// filters now accept the unified `resource-selector` shape. We
-    /// recognise the `circle` kind (CXP-0007) and immediately collapse
+    /// recognise the `circle` kind (CKP-0007) and immediately collapse
     /// the response to `not_found`: the directory MUST NEVER index a
     /// Circle resource, so any circle-keyed lookup is by definition a
     /// miss. The selector is accepted (not rejected) on the query face
@@ -69,7 +69,7 @@ pub struct ResolveHandleRequest {
     pub selector: Option<serde_json::Value>,
 }
 
-/// CXP R3 — extract the localpart from a handle value and run it through
+/// CKP R3 — extract the localpart from a handle value and run it through
 /// `cokret_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
 /// confusable skeleton + script-mixed reject).
 ///
@@ -122,7 +122,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
     handle.split('.').next().unwrap_or(handle)
 }
 
-/// CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles §17 —
+/// CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles §17 —
 /// well-known handle endpoint. The spec migrated the well-known shape
 /// from a path-style identifier to a query-string-keyed form:
 ///
@@ -262,7 +262,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
     }
-    // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+    // CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
     // §17 — wire-level canonical compare MUST apply Unicode NFC +
     // UTS#39 confusable skeleton + script-mixed reject before any
     // database lookup. The SDK helper centralises the rule set so the
@@ -279,7 +279,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {
         return;
     }
-    // CXP R3 spec-sync 2026-05-27 — accept `circle` selector kind on
+    // CKP R3 spec-sync 2026-05-27 — accept `circle` selector kind on
     // the query filter. Circle is an intra-Realm sub-boundary; the
     // directory never indexes Circle resources, so a circle-keyed
     // lookup collapses to the standard privacy-preserving `not_found`.
@@ -843,7 +843,7 @@ mod tests {
         RealmDeliveryBindingPolicy::from_projection(projection)
     }
 
-    /// CXP R3 — the homograph guard MUST reject Cyrillic look-alikes
+    /// CKP R3 — the homograph guard MUST reject Cyrillic look-alikes
     /// before any DB lookup. We test the helper directly so the
     /// assertion does not depend on a live AppState.
     #[test]

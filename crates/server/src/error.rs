@@ -172,7 +172,7 @@ impl ApiErrorCode {
     );
 
     // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
-    // CXP R3 handle homograph wire-level enforce. Emitted by
+    // CKP R3 handle homograph wire-level enforce. Emitted by
     // `ck.directory.resolve_handle` (query face) and announce ingest
     // when the handle localpart fails the NFC + UTS#39 confusable +
     // script-mixed normalization check provided by

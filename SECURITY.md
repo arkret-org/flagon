@@ -29,13 +29,13 @@ line unless a release owner declares a supported release branch.
 - Private Contact Discovery rate limits and epoch key retention.
 - Pull-mode revalidation and stale-row deletion.
 - Audit log integrity for ingest, takedown, and admin resource edits.
-- **Circle isolation (CXP-0007).** See "Hard Invariants" below.
+- **Circle isolation (CKP-0007).** See "Hard Invariants" below.
 
 ## Hard Invariants
 
 ### Circle is intra-Realm only — it MUST NEVER appear in the directory
 
-CXP-0007 (spec floor `2b0d70d`) introduces `ck:circle:` as an
+CKP-0007 (spec floor `2b0d70d`) introduces `ck:circle:` as an
 intra-Realm encrypted sub-boundary. teabay's anti-enumeration story
 depends on the directory only ever indexing Realm-level discovery
 state: a leak of Circle existence, membership, or routing metadata
@@ -53,7 +53,7 @@ Enforcement points (all in `crates/server/src/`):
   - Any string value containing `ck:circle:` (case-insensitive,
     anywhere — not only as a prefix) → reject.
   - Mirrors the SDK's `forbidden_wire_fields` list for the
-    pre-CXP-0007 legacy names (`discussion_realm_ref`, etc.).
+    pre-CKP-0007 legacy names (`discussion_realm_ref`, etc.).
 - `ingest/announce.rs` calls the rejector on `discovery_state` AND
   on the full serialized request envelope (catches smuggling via
   top-level `resource_id` / `principal_server_did` /

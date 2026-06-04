@@ -239,10 +239,10 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     }
 }
 
-// ---- shared resolution helper (CXP-0011 reuse) --------------------------
+// ---- shared resolution helper (CKP-0011 reuse) --------------------------
 
 /// The canonical realm-resolution outcome, extracted so the object-level
-/// `ck.directory.resolve_target` handler (CXP-0011,
+/// `ck.directory.resolve_target` handler (CKP-0011,
 /// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
 /// semantics — same key load, same visibility / blinding rules, same
 /// `via_services` and §9.1 common fields — instead of reinventing them.

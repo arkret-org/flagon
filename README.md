@@ -333,4 +333,4 @@ Apache-2.0.
 <!-- circle-rollout milestone pointer -->
 > **Active milestone tracking** (local-only, gitignored): see
 > `_teabay_todos.md` in the parent `cokret/` directory for the
-> circle-rollout (CXP-0007) work item list and per-stage checkpoints.
+> circle-rollout (CKP-0007) work item list and per-stage checkpoints.

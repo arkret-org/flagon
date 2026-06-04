@@ -1,11 +1,11 @@
-# Circle Isolation Hardening (CXP-0007)
+# Circle Isolation Hardening (CKP-0007)
 
 This document captures the operator-visible hard-reject list and audit-log
-markers that ship with the CXP-0007 circle-isolation tightening.
+markers that ship with the CKP-0007 circle-isolation tightening.
 
 ## Background
 
-CXP-0007 narrows the cross-circle resolution surface so that a Principal
+CKP-0007 narrows the cross-circle resolution surface so that a Principal
 Server in one circle cannot probe membership of a resource in another
 circle without the explicit consent edges spelled out in the Cokret v1
 discoverability spec. The previous behavior allowed inferred resolution via

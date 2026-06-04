@@ -1,8 +1,8 @@
-//! CXP R3 spec-sync 2026-05-27 (commit b47ff6e), authz/resource-
+//! CKP R3 spec-sync 2026-05-27 (commit b47ff6e), authz/resource-
 //! selector-grammar — accept the `circle` selector kind on directory
 //! query filters.
 //!
-//! The directory MUST NEVER index Circle resources (CXP-0007;
+//! The directory MUST NEVER index Circle resources (CKP-0007;
 //! `circle_isolation.rs` enforces this on the ingest face). However,
 //! upstream callers — SDK clients running a unified resource-selector
 //! evaluator, capability engines, governance bridges — now legitimately

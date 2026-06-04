@@ -41,7 +41,7 @@ pub fn router(state: AppState) -> Router {
                 .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
-        // CXP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+        // CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
         // §17 — canonical well-known handle endpoint. The query takes
         // `?localpart=<localpart>` and returns the same Directory result
         // envelope shape that `POST /_cokret/find/directory/resolve-handle`
@@ -126,7 +126,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
         .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
-        // R3.3 (CXP-0011, cokret-spec @ cced4b8) — object-level resolve.
+        // R3.3 (CKP-0011, cokret-spec @ cced4b8) — object-level resolve.
         // Generalization of resolve-realm to a client-agnostic shareable
         // address (Realm / Flow / Message). Realm resolution DELEGATES to the
         // resolve_realm logic; invite tokens are bound to the resolved object
@@ -604,7 +604,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
         ),
         (
-            // R3.3 (CXP-0011, cokret-spec @ cced4b8) — object-level resolve.
+            // R3.3 (CKP-0011, cokret-spec @ cced4b8) — object-level resolve.
             // The object-level generalization of resolve-realm: resolves a
             // client-agnostic shareable object address (Realm / Flow / Message)
             // to a target_kind + preview, binding an invite token to the
@@ -660,7 +660,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve handle discovery resources with the Directory result envelope.",
         ),
         (
-            // CXP R3 spec-sync 2026-05-27 (commit b47ff6e) — well-known
+            // CKP R3 spec-sync 2026-05-27 (commit b47ff6e) — well-known
             // handle endpoint. Query-string keyed (`?localpart=<localpart>`).
             "/.well-known/cokret/handle",
             PathItemType::Get,

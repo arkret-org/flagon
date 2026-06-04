@@ -1,6 +1,6 @@
 //! Anti-enumeration helpers (spec §3.x `member_count_mode` + §10).
 //!
-//! ## Circle isolation invariant (CXP-0007, P2E.2)
+//! ## Circle isolation invariant (CKP-0007, P2E.2)
 //!
 //! The bucket grid below is a **Realm-level** projection only. It is
 //! computed from the Realm's announced membership, never from any

@@ -96,7 +96,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
     }
-    // CXP-0007 / P2E.2 — a subscribe filter that asks for Circle-scoped
+    // CKP-0007 / P2E.2 — a subscribe filter that asks for Circle-scoped
     // rows leaks the existence of the Circle (via the eventual fanout
     // pattern) even if no row is ever delivered. Reject before persist.
     // The audit row captures *which* violation (forbidden key or

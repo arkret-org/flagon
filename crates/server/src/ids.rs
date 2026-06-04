@@ -5,7 +5,7 @@
 //! sequence column, and keeps these service-internal ids aligned with the
 //! protocol-wide UUIDv7 typed-id form (`cokret_sdk::new_prefixed_uuid7`).
 //!
-//! ## CXP-0007 `ck:circle:` tolerance (P2E.7)
+//! ## CKP-0007 `ck:circle:` tolerance (P2E.7)
 //!
 //! `ck:circle:` is a recognised typed-id prefix in the wider Cokret
 //! identifier space, but the directory MUST NEVER store, project, or

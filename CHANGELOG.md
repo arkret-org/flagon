@@ -11,7 +11,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 
-## R3.3 — CXP-0011 (cokret-spec @ cced4b8)
+## R3.3 — CKP-0011 (cokret-spec @ cced4b8)
 
 - New operation `ck.directory.resolve_target` (`POST /api/v1/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+cokret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Flow / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`, `via_services`).
 - **Realm resolution DELEGATES** to the existing `resolve_realm` path (`crates/server/src/query/realm.rs::resolve_realm_visible`) so the canonical `realm_id`, `realm_preview`, `via_services`, and the hidden/withdrawn/unknown → blinded `not_found` collapse stay byte-for-byte identical.
@@ -41,7 +41,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### circle-rollout · CXP-0007 enforcement (P2E, cokret-spec `2b0d70d`)
+### circle-rollout · CKP-0007 enforcement (P2E, cokret-spec `2b0d70d`)
 
 The Circle primitive lands in the spec as an intra-Realm encrypted
 sub-boundary. teabay's job is to make sure the directory never sees
@@ -58,7 +58,7 @@ one.
   Mirrored on `POST /api/v1/directory/announce`,
   `POST /api/v1/directory/announce/heartbeat`, and
   `POST /api/v1/directory/subscribe`.
-- **BREAKING** The SDK's CXP-0007 `forbidden-wire-fields` list is
+- **BREAKING** The SDK's CKP-0007 `forbidden-wire-fields` list is
   mirrored at the directory edge (`discussion_realm_ref`,
   `discussion_space_ref`, `parent_ref`, `default_realm_ref`,
   `scope_ref`, `default_scope_ref`, `retention_policy_ref`,

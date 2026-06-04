@@ -1,4 +1,4 @@
-//! Object-address resolve — R3.3 (CXP-0011, cokret-spec @ cced4b8),
+//! Object-address resolve — R3.3 (CKP-0011, cokret-spec @ cced4b8),
 //! `ck.directory.resolve_target`.
 //!
 //! This is the object-level generalization of

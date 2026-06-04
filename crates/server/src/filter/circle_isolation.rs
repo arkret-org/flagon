@@ -1,6 +1,6 @@
 //! Circle isolation guard for ingest/subscribe payloads.
 //!
-//! Circle (CXP-0007, spec b7d35be / 2b0d70d) is an **intra-Realm**
+//! Circle (CKP-0007, spec b7d35be / 2b0d70d) is an **intra-Realm**
 //! encrypted sub-boundary: a Circle's existence, member list, and
 //! routing metadata MUST NEVER appear in the public directory. teabay's
 //! anti-enumeration story is built on the directory only ever indexing
@@ -16,7 +16,7 @@
 //! `ERROR_CODE_SCHEMA_VIOLATION` with the
 //! `circle_isolation_violation` reason sub-code (the closest
 //! spec-registered code; see SDK
-//! `KNOWN_REASON_CODES_CXP_0007`). It does NOT leak which field or
+//! `KNOWN_REASON_CODES_CKP_0007`). It does NOT leak which field or
 //! which Circle id triggered the reject — the rejection message names
 //! only that a Circle reference was found.
 //!
@@ -25,7 +25,7 @@
 //!  - any string value starting with `ck:circle:` is a hard reject (so a `circle_id` smuggled under
 //!    a free-form `description` field is still caught)
 //!  - any forbidden top-level wire field per SDK [`cokret_sdk::is_forbidden_wire_field`] (e.g.
-//!    `discussion_realm_ref`) is a hard reject — this is the CXP-0007 anti-rollback floor.
+//!    `discussion_realm_ref`) is a hard reject — this is the CKP-0007 anti-rollback floor.
 
 use serde_json::Value as JsonValue;
 
@@ -33,7 +33,7 @@ use serde_json::Value as JsonValue;
 /// appearing at any nesting depth inside an ingest payload is an
 /// immediate hard reject.
 ///
-/// `scope_circle_id` is the canonical CXP-0007 field on Flow/Space/
+/// `scope_circle_id` is the canonical CKP-0007 field on Flow/Space/
 /// Morph; it MUST stay strictly inside a Realm (soland) and never
 /// project into the directory. `circle_id` / `circle_members` /
 /// `member_circle_ids` cover legacy/short names that downstream
@@ -47,7 +47,7 @@ pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
     "member_circle_ids",
     "scope_circle_id",
     "default_scope_circle_id",
-    // Pre-CXP-0007 names that the SDK forbidden-wire-fields list
+    // Pre-CKP-0007 names that the SDK forbidden-wire-fields list
     // already hard-rejects on Event payloads; we mirror them here so
     // they fail at the directory edge too.
     "discussion_realm_ref",
@@ -98,7 +98,7 @@ impl CircleRejection {
                 "ingest payload references a Circle typed identifier; Circle is intra-Realm only"
             }
             Self::ForbiddenLegacyWireField(_) => {
-                "ingest payload carries a forbidden legacy wire field (CXP-0007)"
+                "ingest payload carries a forbidden legacy wire field (CKP-0007)"
             }
         }
     }
@@ -132,7 +132,7 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
                 // Order matters: the SDK forbidden-wire-fields list
                 // takes priority for spec-registered legacy names
                 // (e.g. `discussion_realm_ref`) so the caller can
-                // distinguish a CXP-0007 anti-rollback reject from a
+                // distinguish a CKP-0007 anti-rollback reject from a
                 // generic Circle-key reject in audit. The Circle-only
                 // names (`circle_id`, `scope_circle_id`, etc.) are
                 // not in the SDK list and fall through to
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn rejects_scope_circle_id_in_filter() {
-        // `scope_circle_id` is the canonical CXP-0007 field name — it
+        // `scope_circle_id` is the canonical CKP-0007 field name — it
         // MUST NEVER appear in a subscribe filter or an announce body.
         let value = json!({
             "scope_circle_id": "ck:circle:01J0XXXXX",

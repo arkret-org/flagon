@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 // ---- Resource kind (wire enum + diesel impls) ---------------------------
 //
-// CXP R3 spec-sync 2026-05-27 (commit b47ff6e), REC-1 — recovery
+// CKP R3 spec-sync 2026-05-27 (commit b47ff6e), REC-1 — recovery
 // resource pointers (`recovery-policy.schema.json` /
 // `recovery-receipt.schema.json`) are NOT indexed by teabay. The
 // directory's role is realm/organization/actor/handle/applet discovery
