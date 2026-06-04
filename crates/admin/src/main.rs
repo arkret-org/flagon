@@ -8,6 +8,22 @@ use gloo_net::http::{Request, RequestBuilder, Response};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
+use std::rc::Rc;
+
+const BADGE_NEUTRAL: &str = "badge neutral";
+const BADGE_OK: &str = "badge ok";
+const BADGE_WARN: &str = "badge warn";
+const BADGE_DANGER: &str = "badge danger";
+
+/// 把 tone 名称映射到完整的 badge class,避免每次渲染都 `format!`。
+fn badge_class_for(tone: &str) -> &'static str {
+    match tone {
+        "ok" => BADGE_OK,
+        "warn" => BADGE_WARN,
+        "danger" => BADGE_DANGER,
+        _ => BADGE_NEUTRAL,
+    }
+}
 
 const RESOURCE_KINDS: [&str; 5] = ["realm", "organization", "actor", "applet", "handle"];
 const DISCOVERABILITY_LEVELS: [&str; 6] = [
@@ -345,56 +361,45 @@ impl ResourceEditorForm {
 
 #[allow(non_snake_case)]
 fn App() -> Element {
-    let mut active_tab = use_signal(|| Tab::Resources);
-    let mut base_url = use_signal(|| "http://localhost:7781".to_string());
-    let mut token = use_signal(String::new);
-
-    let selected = active_tab();
-    let api_base = base_url();
-    let api_token = token();
+    // 这些 signal 仅作为 props 向下传递,App 本身不读取(不订阅),
+    // 因此 topbar 输入或切 tab 都不会触发整个 App 重跑。
+    let active_tab = use_signal(|| Tab::Resources);
+    let base_url = use_signal(|| "http://localhost:7781".to_string());
+    let token = use_signal(String::new);
 
     rsx! {
         document::Stylesheet { href: asset!("/assets/main.css") }
         main { class: "app-shell",
-            header { class: "topbar",
-                div { class: "brand",
-                    div { class: "brand-title", "teabay admin" }
-                    div { class: "brand-subtitle", "operator console" }
-                }
-                div { class: "field",
-                    label { "API base" }
-                    input {
-                        value: "{api_base}",
-                        oninput: move |event| base_url.set(event.value()),
-                    }
-                }
-                div { class: "field",
-                    label { "Bearer token" }
-                    input {
-                        r#type: "password",
-                        value: "{api_token}",
-                        oninput: move |event| token.set(event.value()),
-                    }
+            TopBar { base_url, token }
+            TabBar { active_tab }
+            Workspace { active_tab, base_url, token }
+        }
+    }
+}
+
+#[component]
+fn TopBar(mut base_url: Signal<String>, mut token: Signal<String>) -> Element {
+    let api_base = base_url();
+    let api_token = token();
+    rsx! {
+        header { class: "topbar",
+            div { class: "brand",
+                div { class: "brand-title", "teabay admin" }
+                div { class: "brand-subtitle", "operator console" }
+            }
+            div { class: "field",
+                label { "API base" }
+                input {
+                    value: "{api_base}",
+                    oninput: move |event| base_url.set(event.value()),
                 }
             }
-            nav { class: "tabs", aria_label: "Admin sections",
-                for tab in Tab::ALL {
-                    button {
-                        class: if selected == tab { "tab active" } else { "tab" },
-                        onclick: move |_| active_tab.set(tab),
-                        "{tab.label()}"
-                    }
-                }
-            }
-            section { class: "workspace",
-                match selected {
-                    Tab::Dashboard => rsx! { DashboardPanel { base_url: api_base.clone(), token: api_token.clone() } },
-                    Tab::Resources => rsx! { ResourcesPanel { base_url: api_base.clone(), token: api_token.clone() } },
-                    Tab::Diagnostics => rsx! { DiagnosticsPanel { base_url: api_base.clone() } },
-                    Tab::Allowlist => rsx! { AllowlistPanel { base_url: api_base.clone(), token: api_token.clone() } },
-                    Tab::Takedown => rsx! { TakedownPanel { base_url: api_base.clone(), token: api_token.clone() } },
-                    Tab::Audit => rsx! { AuditPanel { base_url: api_base.clone(), token: api_token.clone() } },
-                    Tab::Review => rsx! { ReviewPanel { base_url: api_base.clone(), token: api_token.clone() } },
+            div { class: "field",
+                label { "Bearer token" }
+                input {
+                    r#type: "password",
+                    value: "{api_token}",
+                    oninput: move |event| token.set(event.value()),
                 }
             }
         }
@@ -402,7 +407,50 @@ fn App() -> Element {
 }
 
 #[component]
+fn TabBar(mut active_tab: Signal<Tab>) -> Element {
+    let selected = active_tab();
+    rsx! {
+        nav { class: "tabs", aria_label: "Admin sections",
+            for tab in Tab::ALL {
+                button {
+                    class: if selected == tab { "tab active" } else { "tab" },
+                    onclick: move |_| active_tab.set(tab),
+                    "{tab.label()}"
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn Workspace(
+    active_tab: Signal<Tab>,
+    base_url: Signal<String>,
+    token: Signal<String>,
+) -> Element {
+    // 只有此组件订阅 active_tab/base_url/token,切 tab 或改连接参数仅重跑当前面板。
+    let selected = active_tab();
+    let api_base = base_url();
+    let api_token = token();
+    rsx! {
+        section { class: "workspace",
+            match selected {
+                Tab::Dashboard => rsx! { DashboardPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                Tab::Resources => rsx! { ResourcesPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                Tab::Diagnostics => rsx! { DiagnosticsPanel { base_url: api_base.clone() } },
+                Tab::Allowlist => rsx! { AllowlistPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                Tab::Takedown => rsx! { TakedownPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                Tab::Audit => rsx! { AuditPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                Tab::Review => rsx! { ReviewPanel { base_url: api_base.clone(), token: api_token.clone() } },
+            }
+        }
+    }
+}
+
+#[component]
 fn DashboardPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
     let mut stats = use_signal(Option::<DashboardStats>::default);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -414,8 +462,8 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
     let error_text = error();
 
     let load = move |_| {
-        let base_url = base_url.clone();
-        let token = token.clone();
+        let base_url = Rc::clone(&base_url);
+        let token = Rc::clone(&token);
         loading.set(true);
         error.set(String::new());
         status.set("Loading directory stats".to_string());
@@ -436,14 +484,12 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Directory dashboard" }
-                    div { class: "metric-row",
-                        span { class: "badge neutral", "operator overview" }
-                    }
-                }
-                div { class: "actions",
+            PanelHeader {
+                title: "Directory dashboard",
+                badges: rsx! {
+                    span { class: BADGE_NEUTRAL, "operator overview" }
+                },
+                actions: rsx! {
                     button {
                         class: "button primary",
                         disabled: loading_now,
@@ -451,7 +497,7 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
                         DashboardIcon {}
                         "Refresh"
                     }
-                }
+                },
             }
             StatusLine { status: status_text, error: error_text }
             match stats_view {
@@ -509,7 +555,7 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
                             tbody {
                                 for row in payload.per_kind {
                                     tr {
-                                        td { span { class: "badge neutral", "{row.resource_kind}" } }
+                                        td { span { class: BADGE_NEUTRAL, "{row.resource_kind}" } }
                                         td { class: "mono", "{row.count}" }
                                     }
                                 }
@@ -525,7 +571,7 @@ fn DashboardPanel(base_url: String, token: String) -> Element {
 
 #[component]
 fn DashboardTile(label: String, value: String, tone: String) -> Element {
-    let badge_class = format!("badge {tone}");
+    let badge_class = badge_class_for(&tone);
     rsx! {
         div { class: "field span-3",
             label { "{label}" }
@@ -538,6 +584,7 @@ fn DashboardTile(label: String, value: String, tone: String) -> Element {
 
 #[component]
 fn DiagnosticsPanel(base_url: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
     let mut error = use_signal(String::new);
@@ -568,7 +615,7 @@ fn DiagnosticsPanel(base_url: String) -> Element {
     let target_token_value = target_token();
     let target_result_value = target_result();
 
-    let handles_base_url = base_url.clone();
+    let handles_base_url = Rc::clone(&base_url);
     let run_subject_lookup = move |_| {
         let subject_text = subject().trim().to_string();
         if subject_text.is_empty() {
@@ -653,13 +700,11 @@ fn DiagnosticsPanel(base_url: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Directory diagnostics" }
-                    div { class: "metric-row",
-                        span { class: "badge neutral", "query face" }
-                    }
-                }
+            PanelHeader {
+                title: "Directory diagnostics",
+                badges: rsx! {
+                    span { class: BADGE_NEUTRAL, "query face" }
+                },
             }
             StatusLine { status: status_text, error: error_text }
             div { class: "form-surface",
@@ -777,6 +822,8 @@ fn DiagnosticsPanel(base_url: String) -> Element {
 
 #[component]
 fn ResourcesPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
     let mut rows = use_signal(Vec::<ResourceItem>::new);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -800,25 +847,9 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
     let limit_value = limit();
     let row_count = rows_view.len();
     let selected_key_value = selected_key();
-    let editor_view = editor();
-    let editor_kind = editor_view.resource_kind.clone();
-    let editor_resource_id = editor_view.resource_id.clone();
-    let editor_principal = editor_view.principal_server_did.clone();
-    let editor_discoverability = editor_view.discoverability.clone();
-    let editor_as_of = editor_view.as_of.clone();
-    let editor_source_refs = editor_view.source_refs.clone();
-    let editor_policy_revision = editor_view.policy_revision.clone();
-    let editor_ttl = editor_view.effective_ttl_seconds.clone();
-    let editor_stale_value = if editor_view.stale { "true" } else { "false" };
-    let editor_divergent_value = if editor_view.divergent {
-        "true"
-    } else {
-        "false"
-    };
-    let editor_via_services = editor_view.via_services.clone();
-    let editor_public_projection = editor_view.public_projection.clone();
-    let editor_discovery_state = editor_view.discovery_state.clone();
-    let editor_last_announce_id = editor_view.last_announce_id.clone();
+    // 仅订阅“resource_id 是否为空”这一派生布尔,编辑器内逐字段打字不会触发本面板重渲染。
+    let editor_id_empty = use_memo(move || editor.read().resource_id.trim().is_empty());
+    let editor_id_empty = editor_id_empty();
 
     let load_base_url = base_url.clone();
     let load_token = token.clone();
@@ -966,17 +997,15 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Directory resources" }
-                    div { class: "metric-row",
-                        span { class: "badge neutral", "{row_count} rows" }
-                        if !selected_key_value.is_empty() {
-                            span { class: "badge ok", "selected" }
-                        }
+            PanelHeader {
+                title: "Directory resources",
+                badges: rsx! {
+                    span { class: BADGE_NEUTRAL, "{row_count} rows" }
+                    if !selected_key_value.is_empty() {
+                        span { class: BADGE_OK, "selected" }
                     }
-                }
-                div { class: "actions",
+                },
+                actions: rsx! {
                     button {
                         class: "button",
                         disabled: loading_now,
@@ -1000,12 +1029,12 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                     }
                     button {
                         class: "button danger",
-                        disabled: loading_now || editor_resource_id.trim().is_empty(),
+                        disabled: loading_now || editor_id_empty,
                         onclick: delete_resource,
                         TrashIcon {}
                         "Delete"
                     }
-                }
+                },
             }
             StatusLine { status: status_text, error: error_text }
             div { class: "resource-shell",
@@ -1076,6 +1105,7 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                             tbody {
                                 for item in rows_view {
                                     ResourceRow {
+                                        key: "{resource_key(&item)}",
                                         is_selected: selected_key_value == resource_key(&item),
                                         item,
                                         on_load: move |item: ResourceItem| {
@@ -1090,193 +1120,7 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
                         }
                     }
                 }
-                div { class: "form-surface editor-surface",
-                    div { class: "editor-head",
-                        div { class: "panel-title",
-                            h1 { "Data manager" }
-                            div { class: "metric-row",
-                                span { class: "badge neutral",
-                                    if editor_resource_id.trim().is_empty() { "draft" } else { "editing" }
-                                }
-                                if !editor_resource_id.trim().is_empty() {
-                                    span { class: "badge ok", "{editor_resource_id}" }
-                                }
-                            }
-                        }
-                    }
-                    div { class: "form-grid",
-                        div { class: "field span-4",
-                            label { "Kind" }
-                            select {
-                                value: "{editor_kind}",
-                                onchange: move |event| {
-                                    let mut next = editor();
-                                    next.resource_kind = event.value();
-                                    editor.set(next);
-                                },
-                                for item in RESOURCE_KINDS {
-                                    option { value: "{item}", "{item}" }
-                                }
-                            }
-                        }
-                        div { class: "field span-8",
-                            label { "Resource id" }
-                            input {
-                                value: "{editor_resource_id}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.resource_id = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-8",
-                            label { "Principal server DID" }
-                            input {
-                                value: "{editor_principal}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.principal_server_did = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-4",
-                            label { "Discoverability" }
-                            select {
-                                value: "{editor_discoverability}",
-                                onchange: move |event| {
-                                    let mut next = editor();
-                                    next.discoverability = event.value();
-                                    editor.set(next);
-                                },
-                                for item in DISCOVERABILITY_LEVELS {
-                                    option { value: "{item}", "{item}" }
-                                }
-                            }
-                        }
-                        div { class: "field span-6",
-                            label { "As of (RFC3339, optional)" }
-                            input {
-                                placeholder: "2026-05-12T00:00:00Z",
-                                value: "{editor_as_of}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.as_of = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-3",
-                            label { "TTL seconds" }
-                            input {
-                                r#type: "number",
-                                min: "1",
-                                value: "{editor_ttl}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.effective_ttl_seconds = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-3",
-                            label { "Last announce id" }
-                            input {
-                                value: "{editor_last_announce_id}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.last_announce_id = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-6",
-                            label { "Policy revision" }
-                            input {
-                                value: "{editor_policy_revision}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.policy_revision = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-3",
-                            label { "Stale" }
-                            select {
-                                value: "{editor_stale_value}",
-                                onchange: move |event| {
-                                    let mut next = editor();
-                                    next.stale = event.value() == "true";
-                                    editor.set(next);
-                                },
-                                option { value: "false", "false" }
-                                option { value: "true", "true" }
-                            }
-                        }
-                        div { class: "field span-3",
-                            label { "Divergent" }
-                            select {
-                                value: "{editor_divergent_value}",
-                                onchange: move |event| {
-                                    let mut next = editor();
-                                    next.divergent = event.value() == "true";
-                                    editor.set(next);
-                                },
-                                option { value: "false", "false" }
-                                option { value: "true", "true" }
-                            }
-                        }
-                        div { class: "field span-6",
-                            label { "Source refs JSON" }
-                            textarea {
-                                value: "{editor_source_refs}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.source_refs = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-6",
-                            label { "Via services JSON" }
-                            textarea {
-                                value: "{editor_via_services}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.via_services = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-12",
-                            label { "Public projection JSON" }
-                            textarea {
-                                value: "{editor_public_projection}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.public_projection = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                        div { class: "field span-12",
-                            label { "Discovery state JSON (optional)" }
-                            textarea {
-                                value: "{editor_discovery_state}",
-                                oninput: move |event| {
-                                    let mut next = editor();
-                                    next.discovery_state = event.value();
-                                    editor.set(next);
-                                },
-                            }
-                        }
-                    }
-                    div { class: "muted",
-                        "Direct edits write to the indexed directory store and generate admin audit events."
-                    }
-                }
+                ResourceEditor { editor }
             }
         }
     }
@@ -1290,16 +1134,16 @@ fn ResourceRow(
 ) -> Element {
     rsx! {
         tr { class: if is_selected { "row-selected" } else { "" },
-            td { span { class: "badge neutral", "{item.resource_kind}" } }
+            td { span { class: BADGE_NEUTRAL, "{item.resource_kind}" } }
             td { class: "mono", "{item.resource_id}" }
             td { class: "mono", "{item.principal_server_did}" }
             td {
                 div { class: "metric-row",
-                    span { class: "badge neutral", "{item.discoverability}" }
-                    span { class: if item.stale { "badge warn" } else { "badge ok" },
+                    span { class: BADGE_NEUTRAL, "{item.discoverability}" }
+                    span { class: if item.stale { BADGE_WARN } else { BADGE_OK },
                         if item.stale { "stale" } else { "fresh" }
                     }
-                    span { class: if item.divergent { "badge danger" } else { "badge ok" },
+                    span { class: if item.divergent { BADGE_DANGER } else { BADGE_OK },
                         if item.divergent { "divergent" } else { "aligned" }
                     }
                 }
@@ -1321,8 +1165,167 @@ fn ResourceRow(
     }
 }
 
+/// 资源编辑器表单。独立子组件:逐字段打字只重渲染本组件,不会波及左侧列表/工具栏。
+/// 各字段写入用 `with_mut` 原地修改单字段,避免读取整 form -> 改一字段 -> set 写回的双重克隆。
+#[component]
+fn ResourceEditor(mut editor: Signal<ResourceEditorForm>) -> Element {
+    let form = editor.read();
+    let resource_id = form.resource_id.clone();
+    let id_empty = resource_id.trim().is_empty();
+    let kind = form.resource_kind.clone();
+    let principal = form.principal_server_did.clone();
+    let discoverability = form.discoverability.clone();
+    let as_of = form.as_of.clone();
+    let ttl = form.effective_ttl_seconds.clone();
+    let last_announce_id = form.last_announce_id.clone();
+    let policy_revision = form.policy_revision.clone();
+    let stale_value = if form.stale { "true" } else { "false" };
+    let divergent_value = if form.divergent { "true" } else { "false" };
+    let source_refs = form.source_refs.clone();
+    let via_services = form.via_services.clone();
+    let public_projection = form.public_projection.clone();
+    let discovery_state = form.discovery_state.clone();
+    drop(form);
+
+    rsx! {
+        div { class: "form-surface editor-surface",
+            div { class: "editor-head",
+                div { class: "panel-title",
+                    h1 { "Data manager" }
+                    div { class: "metric-row",
+                        span { class: BADGE_NEUTRAL,
+                            if id_empty { "draft" } else { "editing" }
+                        }
+                        if !id_empty {
+                            span { class: BADGE_OK, "{resource_id}" }
+                        }
+                    }
+                }
+            }
+            div { class: "form-grid",
+                div { class: "field span-4",
+                    label { "Kind" }
+                    select {
+                        value: "{kind}",
+                        onchange: move |event| editor.with_mut(|f| f.resource_kind = event.value()),
+                        for item in RESOURCE_KINDS {
+                            option { value: "{item}", "{item}" }
+                        }
+                    }
+                }
+                div { class: "field span-8",
+                    label { "Resource id" }
+                    input {
+                        value: "{resource_id}",
+                        oninput: move |event| editor.with_mut(|f| f.resource_id = event.value()),
+                    }
+                }
+                div { class: "field span-8",
+                    label { "Principal server DID" }
+                    input {
+                        value: "{principal}",
+                        oninput: move |event| editor.with_mut(|f| f.principal_server_did = event.value()),
+                    }
+                }
+                div { class: "field span-4",
+                    label { "Discoverability" }
+                    select {
+                        value: "{discoverability}",
+                        onchange: move |event| editor.with_mut(|f| f.discoverability = event.value()),
+                        for item in DISCOVERABILITY_LEVELS {
+                            option { value: "{item}", "{item}" }
+                        }
+                    }
+                }
+                div { class: "field span-6",
+                    label { "As of (RFC3339, optional)" }
+                    input {
+                        placeholder: "2026-05-12T00:00:00Z",
+                        value: "{as_of}",
+                        oninput: move |event| editor.with_mut(|f| f.as_of = event.value()),
+                    }
+                }
+                div { class: "field span-3",
+                    label { "TTL seconds" }
+                    input {
+                        r#type: "number",
+                        min: "1",
+                        value: "{ttl}",
+                        oninput: move |event| editor.with_mut(|f| f.effective_ttl_seconds = event.value()),
+                    }
+                }
+                div { class: "field span-3",
+                    label { "Last announce id" }
+                    input {
+                        value: "{last_announce_id}",
+                        oninput: move |event| editor.with_mut(|f| f.last_announce_id = event.value()),
+                    }
+                }
+                div { class: "field span-6",
+                    label { "Policy revision" }
+                    input {
+                        value: "{policy_revision}",
+                        oninput: move |event| editor.with_mut(|f| f.policy_revision = event.value()),
+                    }
+                }
+                div { class: "field span-3",
+                    label { "Stale" }
+                    select {
+                        value: "{stale_value}",
+                        onchange: move |event| editor.with_mut(|f| f.stale = event.value() == "true"),
+                        option { value: "false", "false" }
+                        option { value: "true", "true" }
+                    }
+                }
+                div { class: "field span-3",
+                    label { "Divergent" }
+                    select {
+                        value: "{divergent_value}",
+                        onchange: move |event| editor.with_mut(|f| f.divergent = event.value() == "true"),
+                        option { value: "false", "false" }
+                        option { value: "true", "true" }
+                    }
+                }
+                div { class: "field span-6",
+                    label { "Source refs JSON" }
+                    textarea {
+                        value: "{source_refs}",
+                        oninput: move |event| editor.with_mut(|f| f.source_refs = event.value()),
+                    }
+                }
+                div { class: "field span-6",
+                    label { "Via services JSON" }
+                    textarea {
+                        value: "{via_services}",
+                        oninput: move |event| editor.with_mut(|f| f.via_services = event.value()),
+                    }
+                }
+                div { class: "field span-12",
+                    label { "Public projection JSON" }
+                    textarea {
+                        value: "{public_projection}",
+                        oninput: move |event| editor.with_mut(|f| f.public_projection = event.value()),
+                    }
+                }
+                div { class: "field span-12",
+                    label { "Discovery state JSON (optional)" }
+                    textarea {
+                        value: "{discovery_state}",
+                        oninput: move |event| editor.with_mut(|f| f.discovery_state = event.value()),
+                    }
+                }
+            }
+            div { class: "muted",
+                "Direct edits write to the indexed directory store and generate admin audit events."
+            }
+        }
+    }
+}
+
 #[component]
 fn AllowlistPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
     let mut rows = use_signal(Vec::<AllowlistItem>::new);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -1402,14 +1405,12 @@ fn AllowlistPanel(base_url: String, token: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Accept allowlist" }
-                    div { class: "metric-row",
-                        span { class: "badge neutral", "{row_count} rows" }
-                    }
-                }
-                div { class: "actions",
+            PanelHeader {
+                title: "Accept allowlist",
+                badges: rsx! {
+                    span { class: BADGE_NEUTRAL, "{row_count} rows" }
+                },
+                actions: rsx! {
                     button {
                         class: "button",
                         disabled: loading_now,
@@ -1424,7 +1425,7 @@ fn AllowlistPanel(base_url: String, token: String) -> Element {
                         SaveIcon {}
                         "Save"
                     }
-                }
+                },
             }
             div { class: "form-grid",
                 div { class: "field span-5",
@@ -1474,6 +1475,7 @@ fn AllowlistPanel(base_url: String, token: String) -> Element {
                     tbody {
                         for item in rows_view {
                             AllowlistRow {
+                                key: "{item.resource_did}",
                                 item,
                                 base_url: base_url.clone(),
                                 token: token.clone(),
@@ -1496,8 +1498,8 @@ fn AllowlistPanel(base_url: String, token: String) -> Element {
 #[component]
 fn AllowlistRow(
     item: AllowlistItem,
-    base_url: String,
-    token: String,
+    base_url: Rc<str>,
+    token: Rc<str>,
     on_deleted: EventHandler<String>,
 ) -> Element {
     let mut deleting = use_signal(|| false);
@@ -1549,6 +1551,8 @@ fn AllowlistRow(
 
 #[component]
 fn TakedownPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
     let mut resource_kind = use_signal(|| "realm".to_string());
     let mut resource_id = use_signal(String::new);
     let mut reason = use_signal(String::new);
@@ -1618,11 +1622,9 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Operator takedown" }
-                }
-                div { class: "actions",
+            PanelHeader {
+                title: "Operator takedown",
+                actions: rsx! {
                     button {
                         class: "button primary",
                         disabled: loading_now,
@@ -1630,7 +1632,7 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
                         SendIcon {}
                         "Submit"
                     }
-                }
+                },
             }
             div { class: "split",
                 div { class: "form-surface",
@@ -1694,6 +1696,8 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
 
 #[component]
 fn AuditPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
     let mut rows = use_signal(Vec::<AuditEvent>::new);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -1735,14 +1739,12 @@ fn AuditPanel(base_url: String, token: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Audit log" }
-                    div { class: "metric-row",
-                        span { class: "badge neutral", "{row_count} rows" }
-                    }
-                }
-                div { class: "actions",
+            PanelHeader {
+                title: "Audit log",
+                badges: rsx! {
+                    span { class: BADGE_NEUTRAL, "{row_count} rows" }
+                },
+                actions: rsx! {
                     button {
                         class: "button primary",
                         disabled: loading_now,
@@ -1750,7 +1752,7 @@ fn AuditPanel(base_url: String, token: String) -> Element {
                         RefreshIcon {}
                         "Load"
                     }
-                }
+                },
             }
             div { class: "toolbar",
                 div { class: "field span-8",
@@ -1780,6 +1782,8 @@ fn AuditPanel(base_url: String, token: String) -> Element {
 
 #[component]
 fn ReviewPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
     let mut rows = use_signal(Vec::<AuditEvent>::new);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -1820,15 +1824,13 @@ fn ReviewPanel(base_url: String, token: String) -> Element {
 
     rsx! {
         div { class: "panel",
-            div { class: "panel-head",
-                div { class: "panel-title",
-                    h1 { "Operator review" }
-                    div { class: "metric-row",
-                        span { class: "badge neutral", "{row_count} items" }
-                        span { class: "badge warn", "audit-backed" }
-                    }
-                }
-                div { class: "actions",
+            PanelHeader {
+                title: "Operator review",
+                badges: rsx! {
+                    span { class: BADGE_NEUTRAL, "{row_count} items" }
+                    span { class: BADGE_WARN, "audit-backed" }
+                },
+                actions: rsx! {
                     button {
                         class: "button primary",
                         disabled: loading_now,
@@ -1836,7 +1838,7 @@ fn ReviewPanel(base_url: String, token: String) -> Element {
                         ListIcon {}
                         "Load"
                     }
-                }
+                },
             }
             div { class: "toolbar",
                 div { class: "field span-2",
@@ -1872,7 +1874,7 @@ fn AuditTable(rows: Vec<AuditEvent>) -> Element {
                 }
                 tbody {
                     for item in rows {
-                        AuditRow { item }
+                        AuditRow { key: "{item.audit_id}", item }
                     }
                 }
             }
@@ -1898,6 +1900,29 @@ fn AuditRow(item: AuditEvent) -> Element {
             }
             td { "{actor}" }
             td { class: "mono", "{detail}" }
+        }
+    }
+}
+
+/// 统一的面板头部外壳:`.panel-head > (.panel-title(h1 + .metric-row badges)) + .actions`。
+/// `badges` / `actions` 为可选插槽,调用方传 `rsx! {{ ... }}`,不需要时省略。
+#[component]
+fn PanelHeader(
+    title: String,
+    #[props(default)] badges: Option<Element>,
+    #[props(default)] actions: Option<Element>,
+) -> Element {
+    rsx! {
+        div { class: "panel-head",
+            div { class: "panel-title",
+                h1 { "{title}" }
+                if let Some(badges) = badges {
+                    div { class: "metric-row", {badges} }
+                }
+            }
+            if let Some(actions) = actions {
+                div { class: "actions", {actions} }
+            }
         }
     }
 }
@@ -2051,8 +2076,8 @@ fn PlusIcon() -> Element {
 }
 
 fn load_allowlist_entries(
-    base_url: String,
-    token: String,
+    base_url: Rc<str>,
+    token: Rc<str>,
     limit: String,
     mut rows: Signal<Vec<AllowlistItem>>,
     mut loading: Signal<bool>,
@@ -2080,8 +2105,8 @@ fn load_allowlist_entries(
 }
 
 async fn get_admin<T: DeserializeOwned>(
-    base_url: String,
-    token: String,
+    base_url: Rc<str>,
+    token: Rc<str>,
     path: &'static str,
     params: Vec<(&'static str, String)>,
 ) -> Result<T, String> {
@@ -2094,8 +2119,8 @@ async fn get_admin<T: DeserializeOwned>(
 }
 
 async fn post_admin<B: Serialize + ?Sized, T: DeserializeOwned>(
-    base_url: String,
-    token: String,
+    base_url: Rc<str>,
+    token: Rc<str>,
     path: &'static str,
     body: &B,
 ) -> Result<T, String> {
@@ -2107,8 +2132,8 @@ async fn post_admin<B: Serialize + ?Sized, T: DeserializeOwned>(
 }
 
 async fn delete_admin<T: DeserializeOwned>(
-    base_url: String,
-    token: String,
+    base_url: Rc<str>,
+    token: Rc<str>,
     path: &'static str,
     params: Vec<(&'static str, String)>,
 ) -> Result<T, String> {
@@ -2121,7 +2146,7 @@ async fn delete_admin<T: DeserializeOwned>(
 }
 
 async fn post_directory<B: Serialize + ?Sized, T: DeserializeOwned>(
-    base_url: String,
+    base_url: Rc<str>,
     path: &'static str,
     body: &B,
 ) -> Result<T, String> {
@@ -2316,12 +2341,12 @@ fn truncate(value: &str, max: usize) -> String {
 
 fn audit_badge_class(kind: &str) -> &'static str {
     match kind {
-        "ingest_rejected" | "revalidation_failed" | "operator_takedown" => "badge danger",
+        "ingest_rejected" | "revalidation_failed" | "operator_takedown" => BADGE_DANGER,
         "allowlist_added" | "allowlist_removed" | "withdrawal" | "admin_resource_deleted" => {
-            "badge warn"
+            BADGE_WARN
         }
-        "admin_resource_upserted" => "badge ok",
-        _ => "badge neutral",
+        "admin_resource_upserted" => BADGE_OK,
+        _ => BADGE_NEUTRAL,
     }
 }
 
