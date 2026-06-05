@@ -17,7 +17,7 @@ use serde_json::{Value as JsonValue, json};
 use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::enforce_query_rate_limit;
 use crate::state::AppState;
 
@@ -184,7 +184,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
 struct ActorRow {
     resource_id: String,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -201,8 +201,8 @@ async fn run_actor_search(
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let rows: Vec<ActorRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Actor))
-        .filter(r::discoverability.eq(DiscoverabilityWire::Public))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Actor))
+        .filter(r::discoverability.eq(DiscoverabilityDb::Public))
         .order(r::indexed_at.desc())
         .limit(limit.max(500))
         .select((
@@ -238,8 +238,8 @@ async fn run_user_search(
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let rows: Vec<ActorRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Actor))
-        .filter(r::discoverability.eq(DiscoverabilityWire::Public))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Actor))
+        .filter(r::discoverability.eq(DiscoverabilityDb::Public))
         .order(r::indexed_at.desc())
         .limit(500)
         .select((

@@ -19,7 +19,7 @@
 use chrono::{TimeZone, Utc};
 use cokret_sdk::DirectoryListHandlesForSubjectReqBody;
 use serde_json::json;
-use server::ingest::DiscoverabilityWire;
+use server::ingest::DiscoverabilityDb;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 
 fn subject() -> cokret_sdk::Did {
@@ -40,7 +40,7 @@ fn req(realm_id: Option<&str>, requester: Option<&str>) -> DirectoryListHandlesF
     }
 }
 
-fn row(projection: serde_json::Value, disc: DiscoverabilityWire) -> SubjectHandleRow {
+fn row(projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleRow {
     SubjectHandleRow::for_test(
         projection,
         disc,
@@ -59,7 +59,7 @@ fn happy_path_single_active_claim() {
             "handle": "alice:example.com",
             "verified": true
         }),
-        DiscoverabilityWire::Public,
+        DiscoverabilityDb::Public,
     )];
 
     let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
@@ -89,11 +89,11 @@ fn subject_mismatch_claim_is_dropped() {
     let rows = vec![
         row(
             json!({ "did": "did:web:eve.example", "handle": "eve:example.com" }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
         row(
             json!({ "did": "did:web:alice.example", "handle": "alice:example.com" }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
     ];
 
@@ -118,7 +118,7 @@ fn subject_mismatch_claim_is_dropped() {
 fn subject_mismatch_only_candidate_returns_empty() {
     let rows = vec![row(
         json!({ "did": "did:web:eve.example", "handle": "eve:example.com" }),
-        DiscoverabilityWire::Public,
+        DiscoverabilityDb::Public,
     )];
 
     let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
@@ -140,14 +140,14 @@ fn audience_out_of_scope_is_filtered() {
                 "handle": "scoped:example.com",
                 "audience": "did:web:someone-else.example"
             }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
         row(
             json!({
                 "did": "did:web:alice.example",
                 "handle": "open:example.com"
             }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
     ];
 
@@ -173,7 +173,7 @@ fn audience_matching_requester_is_retained() {
             "handle": "scoped:example.com",
             "audience": "did:web:tea-org.example"
         }),
-        DiscoverabilityWire::Public,
+        DiscoverabilityDb::Public,
     )];
 
     let body = req(None, Some("did:web:tea-org.example"));
@@ -192,7 +192,7 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
                 "handle": "trusted:example.com",
                 "issuer": "did:web:issuer.tea"
             }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
         row(
             json!({
@@ -200,7 +200,7 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
                 "handle": "untrusted:example.com",
                 "issuer": "did:web:issuer.rogue"
             }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
     ];
 
@@ -224,15 +224,15 @@ fn cursor_pagination_boundary() {
     let rows = vec![
         row(
             json!({ "did": "did:web:alice.example", "handle": "a:example.com" }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
         row(
             json!({ "did": "did:web:alice.example", "handle": "b:example.com" }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
         row(
             json!({ "did": "did:web:alice.example", "handle": "c:example.com" }),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         ),
     ];
 
@@ -274,7 +274,7 @@ fn cursor_pagination_boundary() {
 fn non_visible_row_is_dropped_by_disclosure_gate() {
     let rows = vec![row(
         json!({ "did": "did:web:alice.example", "handle": "secret:example.com" }),
-        DiscoverabilityWire::Secret,
+        DiscoverabilityDb::Secret,
     )];
 
     let response = assemble_response(&req(None, None), rows, &[], 0, 20, None).expect("ok");

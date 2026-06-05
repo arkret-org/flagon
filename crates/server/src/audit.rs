@@ -74,7 +74,7 @@ impl AuditEventKind {
 struct NewAuditRow<'a> {
     occurred_at: DateTime<Utc>,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::ResourceKindWire>,
+    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&'a str>,
     /// DID that initiated the audited operation — the resource's
     /// `principal_server_did`, the directory's own `service_did`, or an
@@ -108,7 +108,7 @@ pub struct ActorIdentity<'a> {
 pub async fn record(
     db: &Db,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::ResourceKindWire>,
+    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
     actor: Option<&str>,
     detail: JsonValue,
@@ -137,7 +137,7 @@ pub async fn record(
 pub async fn record_with_identity(
     db: &Db,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::ResourceKindWire>,
+    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
     actor: Option<&str>,
     detail: JsonValue,
@@ -196,7 +196,7 @@ pub async fn record_with_identity(
 fn compute_row_digest(
     occurred_at: DateTime<Utc>,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::ResourceKindWire>,
+    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
     actor: Option<&str>,
     detail: &JsonValue,
@@ -206,7 +206,7 @@ fn compute_row_digest(
     let canonical = json!({
         "occurred_at": occurred_at.to_rfc3339(),
         "kind": kind.as_pg(),
-        "resource_kind": resource_kind.map(crate::ingest::ResourceKindWire::as_pg),
+        "resource_kind": resource_kind.map(crate::ingest::DirectoryResourceKindDb::as_pg),
         "resource_id": resource_id,
         "actor": actor,
         "detail": detail,

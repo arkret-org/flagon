@@ -4,6 +4,17 @@ DROP TABLE IF EXISTS directory_audit;
 
 DROP TABLE IF EXISTS accept_allowlist;
 
+DROP INDEX IF EXISTS directory_invite_revocations_target_idx;
+DROP TABLE IF EXISTS directory_invite_revocations;
+
+DROP INDEX IF EXISTS directory_object_access_requesters_gin_idx;
+DROP INDEX IF EXISTS directory_object_access_lookup_idx;
+DROP TABLE IF EXISTS directory_object_access;
+
+DROP INDEX IF EXISTS psi_contact_tokens_resource_idx;
+DROP INDEX IF EXISTS psi_contact_tokens_lookup_idx;
+DROP TABLE IF EXISTS psi_contact_tokens;
+
 DROP INDEX IF EXISTS psi_epoch_keys_expires_at_idx;
 DROP TABLE IF EXISTS psi_epoch_keys;
 

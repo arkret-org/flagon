@@ -20,12 +20,12 @@ use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::receipt::resource_withdrawal_proof;
-use crate::ingest::{ResourceKindWire, WithdrawalKindWire, verify};
+use crate::ingest::{DirectoryResourceKindDb, WithdrawalKindWire, verify};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WithdrawRequest {
-    pub resource_kind: ResourceKindWire,
+    pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     /// Same proof envelope used in `ck.{kind}.discovery.proof` — must be
     /// signed by the resource's governance key. Verification follows §8.5
@@ -232,5 +232,7 @@ async fn persist_withdraw(
         .scope_boxed()
     })
     .await?;
+    crate::psi_index::delete_resource_tokens(state.db(), body.resource_kind, &body.resource_id)
+        .await?;
     Ok(())
 }

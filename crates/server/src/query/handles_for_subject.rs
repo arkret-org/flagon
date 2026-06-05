@@ -28,14 +28,12 @@
 //! through the SDK's [`DirectoryListHandlesForSubjectResBody::validate`] as a
 //! defence-in-depth check (a validate failure collapses to `not_found`).
 //!
-//! ## Deferred work
+//! ## Disclosure scope
 //!
-//! - Historical replay for `as_of` in the past is `TODO(R3.2.1)`: we accept the `as_of` field
-//!   (happy path returns the current indexed view and echoes `as_of` back) but do not yet
-//!   reconstruct the handle index as of an arbitrary past instant.
-//! - The full disclosure-policy engine (per-claim visibility, claim_scope evaluation) is shared
-//!   with `resolve_handle` and is `TODO(R3.2.1)`; for R3.2 we apply the directory-visibility gate,
-//!   issuer-trust ordering, and audience scope filter the same way `resolve_handle` does.
+//! The full disclosure-policy engine (per-claim visibility and claim_scope
+//! evaluation) is shared with `resolve_handle`. This endpoint applies the
+//! directory-visibility gate, issuer-trust ordering, audience scope filter, and
+//! historical `as_of` replay for the indexed handle projections.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -50,6 +48,7 @@ use cokret_sdk::{
     validate_handle_claim_subject,
 };
 use diesel::prelude::*;
+use diesel::sql_types::{BigInt, Jsonb, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde_json::Value as JsonValue;
@@ -57,7 +56,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::state::AppState;
 
@@ -218,10 +217,11 @@ async fn build_response(
     limit: u32,
     metrics: &crate::observability::Metrics,
 ) -> ListOutcome {
-    let (rows, scan_capped) = match load_subject_handle_rows(state, body.subject.as_str()).await {
-        Ok(result) => result,
-        Err(_) => return ListOutcome::Error,
-    };
+    let (rows, scan_capped) =
+        match load_subject_handle_rows(state, body.subject.as_str(), body.as_of).await {
+            Ok(result) => result,
+            Err(_) => return ListOutcome::Error,
+        };
     if scan_capped {
         // DIR-TBY-3: the bounded candidate scan hit its ceiling, so the
         // reverse-lookup set may be incomplete. Surface it for operators.
@@ -233,7 +233,7 @@ async fn build_response(
     // Issuer-trust ordering (DIR-TBY-2): when the target Realm declares an
     // `accepted_issuers` order, rows from non-accepted issuers are filtered.
     let accepted_issuers = match body.realm_id.as_ref() {
-        Some(realm_id) => load_accepted_issuers(state, realm_id.as_str()).await,
+        Some(realm_id) => load_accepted_issuers(state, realm_id.as_str(), body.as_of).await,
         None => Vec::new(),
     };
 
@@ -274,15 +274,15 @@ pub fn assemble_response(
         }
     };
 
-    // The most-recent `as_of` across the visible rows is the response's
-    // `as_of` (TODO(R3.2.1): historical replay uses the request `as_of`).
+    // Without a historical request, the most-recent `as_of` across visible
+    // rows is the response timestamp. With `body.as_of`, historical loading has
+    // already bounded the rows and the response keeps the requested timestamp.
     let mut as_of = body.as_of.unwrap_or_else(Utc::now);
 
     let mut claims: Vec<HandleClaim> = Vec::new();
     for row in rows {
-        // Disclosure gate: only directory-visible rows surface (shared with
-        // resolve_handle). TODO(R3.2.1): full per-claim visibility +
-        // claim_scope evaluation.
+        // Disclosure gate: only directory-visible rows surface, shared with
+        // resolve_handle.
         if !row.discoverability.is_directory_visible() {
             drop("disclosure");
             continue;
@@ -359,7 +359,7 @@ pub fn assemble_response(
 #[derive(Debug, Queryable, Clone)]
 pub struct SubjectHandleRow {
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
 }
 
@@ -369,7 +369,7 @@ impl SubjectHandleRow {
     /// without a Postgres round trip.
     pub fn for_test(
         public_projection: JsonValue,
-        discoverability: DiscoverabilityWire,
+        discoverability: DiscoverabilityDb,
         as_of: DateTime<Utc>,
     ) -> Self {
         Self {
@@ -392,11 +392,15 @@ impl SubjectHandleRow {
 async fn load_subject_handle_rows(
     state: &AppState,
     subject: &str,
+    as_of: Option<DateTime<Utc>>,
 ) -> anyhow::Result<(Vec<SubjectHandleRow>, bool)> {
+    if let Some(as_of) = as_of {
+        return load_subject_handle_rows_at(state, subject, as_of).await;
+    }
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let rows: Vec<SubjectHandleRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Handle))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Handle))
         // Stale rows (TTL+grace expired) MUST NOT surface, same as
         // resolve_handle's `load_handle_row`.
         .filter(r::stale.eq(false))
@@ -412,6 +416,73 @@ async fn load_subject_handle_rows(
         .collect();
     Ok((matching, scan_capped))
 }
+
+#[derive(Debug, QueryableByName)]
+struct HistoricalHandleRow {
+    #[diesel(sql_type = Jsonb)]
+    discovery_state: JsonValue,
+    #[diesel(sql_type = Timestamptz)]
+    as_of: DateTime<Utc>,
+}
+
+async fn load_subject_handle_rows_at(
+    state: &AppState,
+    subject: &str,
+    as_of: DateTime<Utc>,
+) -> anyhow::Result<(Vec<SubjectHandleRow>, bool)> {
+    let mut conn = state.db().get().await?;
+    let rows: Vec<HistoricalHandleRow> = diesel::sql_query(HISTORICAL_HANDLES_SQL)
+        .bind::<Timestamptz, _>(as_of)
+        .bind::<BigInt, _>(MAX_CANDIDATE_SCAN)
+        .load(&mut *conn)
+        .await?;
+    let scan_capped = rows.len() as i64 >= MAX_CANDIDATE_SCAN;
+    let mut matching = Vec::new();
+    for row in rows {
+        let discoverability = discoverability_from_state(&row.discovery_state)?;
+        let public_projection = crate::ingest::announce::derive_public_projection(
+            &row.discovery_state,
+            discoverability,
+        )
+        .map_err(|(_, message)| anyhow::anyhow!(message))?;
+        if projection_subject(&public_projection) == Some(subject) {
+            matching.push(SubjectHandleRow {
+                public_projection,
+                discoverability,
+                as_of: row.as_of,
+            });
+        }
+    }
+    Ok((matching, scan_capped))
+}
+
+const HISTORICAL_HANDLES_SQL: &str = r#"
+WITH latest AS (
+    SELECT DISTINCT ON (a.resource_id)
+        a.resource_id,
+        a.discovery_state,
+        a.source_refs,
+        a.as_of
+    FROM ingest_announces a
+    WHERE a.resource_kind = 'handle'::resource_kind
+      AND a.as_of <= $1
+    ORDER BY a.resource_id, a.as_of DESC
+)
+SELECT
+    l.discovery_state,
+    l.as_of
+FROM latest l
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM withdrawals w
+    WHERE w.resource_kind = 'handle'::resource_kind
+      AND w.resource_id = l.resource_id
+      AND w.effective_at <= $1
+      AND w.effective_at >= l.as_of
+)
+ORDER BY l.as_of DESC, l.resource_id ASC
+LIMIT $2
+"#;
 
 /// Extract the holder/principal DID a handle projection asserts. Order of
 /// preference: explicit `subject`, then `did` (teabay's stored holder DID
@@ -497,13 +568,26 @@ fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
 
 /// Load a Realm's `accepted_issuers` ordering from its cached projection.
 /// Empty (or absent Realm) means "no issuer-trust constraint".
-async fn load_accepted_issuers(state: &AppState, realm_id: &str) -> Vec<String> {
+async fn load_accepted_issuers(
+    state: &AppState,
+    realm_id: &str,
+    as_of: Option<DateTime<Utc>>,
+) -> Vec<String> {
+    if let Some(as_of) = as_of
+        && let Ok(Some((projection, discoverability))) =
+            load_historical_realm_projection(state, realm_id, as_of).await
+    {
+        if !discoverability.is_directory_visible() {
+            return Vec::new();
+        }
+        return accepted_issuers_from_projection(&projection);
+    }
     use crate::schema::directory_resources::dsl as r;
     let Ok(mut conn) = state.db().get().await else {
         return Vec::new();
     };
-    let projection: Option<(JsonValue, DiscoverabilityWire)> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Realm))
+    let projection: Option<(JsonValue, DiscoverabilityDb)> = r::directory_resources
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Realm))
         .filter(r::resource_id.eq(realm_id))
         .select((r::public_projection, r::discoverability))
         .first(&mut *conn)
@@ -518,6 +602,64 @@ async fn load_accepted_issuers(state: &AppState, realm_id: &str) -> Vec<String> 
         // Hidden / withdrawn Realm — treat as no declared trust set.
         return Vec::new();
     }
+    accepted_issuers_from_projection(&projection)
+}
+
+async fn load_historical_realm_projection(
+    state: &AppState,
+    realm_id: &str,
+    as_of: DateTime<Utc>,
+) -> anyhow::Result<Option<(JsonValue, DiscoverabilityDb)>> {
+    let mut conn = state.db().get().await?;
+    let row: Option<HistoricalRealmRow> = diesel::sql_query(HISTORICAL_REALM_SQL)
+        .bind::<Text, _>(realm_id)
+        .bind::<Timestamptz, _>(as_of)
+        .get_result(&mut *conn)
+        .await
+        .optional()?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let discoverability = discoverability_from_state(&row.discovery_state)?;
+    let projection =
+        crate::ingest::announce::derive_public_projection(&row.discovery_state, discoverability)
+            .map_err(|(_, message)| anyhow::anyhow!(message))?;
+    Ok(Some((projection, discoverability)))
+}
+
+#[derive(Debug, QueryableByName)]
+struct HistoricalRealmRow {
+    #[diesel(sql_type = Jsonb)]
+    discovery_state: JsonValue,
+}
+
+const HISTORICAL_REALM_SQL: &str = r#"
+SELECT a.discovery_state
+FROM ingest_announces a
+WHERE a.resource_kind = 'realm'::resource_kind
+  AND a.resource_id = $1
+  AND a.as_of <= $2
+  AND NOT EXISTS (
+      SELECT 1
+      FROM withdrawals w
+      WHERE w.resource_kind = 'realm'::resource_kind
+        AND w.resource_id = a.resource_id
+        AND w.effective_at <= $2
+        AND w.effective_at >= a.as_of
+  )
+ORDER BY a.as_of DESC
+LIMIT 1
+"#;
+
+fn discoverability_from_state(discovery_state: &JsonValue) -> anyhow::Result<DiscoverabilityDb> {
+    let value = discovery_state
+        .get("discoverability")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| anyhow::anyhow!("discovery_state.discoverability missing"))?;
+    DiscoverabilityDb::from_pg(value)
+}
+
+fn accepted_issuers_from_projection(projection: &JsonValue) -> Vec<String> {
     projection
         .get("accepted_issuers")
         .or_else(|| projection.pointer("/policy/accepted_issuers"))
@@ -599,7 +741,7 @@ mod tests {
 
     use super::*;
 
-    fn handle_row(projection: JsonValue, discoverability: DiscoverabilityWire) -> SubjectHandleRow {
+    fn handle_row(projection: JsonValue, discoverability: DiscoverabilityDb) -> SubjectHandleRow {
         SubjectHandleRow::for_test(
             projection,
             discoverability,
@@ -624,7 +766,7 @@ mod tests {
     fn claim_from_projection_binds_request_subject() {
         let row = handle_row(
             json!({"did":"did:web:alice.example","handle":"alice:example.com","verified":true}),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         );
         let claim = claim_from_projection(&row, "did:web:alice.example").expect("claim built");
         assert_eq!(
@@ -647,7 +789,7 @@ mod tests {
         // DROP so claims[].subject == response.subject always holds.
         let row = handle_row(
             json!({"did":"did:web:eve.example","handle":"alice:example.com"}),
-            DiscoverabilityWire::Public,
+            DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "did:web:alice.example").is_none());
     }

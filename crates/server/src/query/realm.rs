@@ -24,9 +24,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
+use crate::filter::discoverers::{
+    RestrictedClaimPresentation, VerifiedRestrictedClaims, verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{
     apply_resolve_response_jitter, enforce_query_rate_limit, enforce_resolve_rate_limit,
 };
@@ -41,7 +44,9 @@ pub struct SearchRealmsRequest {
     #[serde(default)]
     pub requester: Option<String>,
     #[serde(default)]
-    pub proofs: Vec<String>,
+    pub proof_challenge: Option<String>,
+    #[serde(default)]
+    pub proofs: Vec<RestrictedClaimPresentation>,
     #[serde(default)]
     pub cursor: Option<String>,
     #[serde(default)]
@@ -75,7 +80,16 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let needle = body.query.unwrap_or_default();
     let scope = body.scope.unwrap_or_default();
     let requester = body.requester;
-    let proofs = body.proofs;
+    let proof_challenge = body.proof_challenge;
+    let verified_claims = verify_restricted_claim_presentations(
+        &body.proofs,
+        requester.as_deref(),
+        proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default();
     let cursor = match body.cursor.as_deref().map(decode_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
@@ -113,7 +127,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 &scope,
                 cursor.as_ref(),
                 requester.as_deref(),
-                &proofs,
+                &verified_claims,
                 limit + 1,
             )
             .await
@@ -167,7 +181,9 @@ pub struct ResolveRealmRequest {
     #[serde(default)]
     pub requester: Option<String>,
     #[serde(default)]
-    pub proofs: Vec<String>,
+    pub proof_challenge: Option<String>,
+    #[serde(default)]
+    pub proofs: Vec<RestrictedClaimPresentation>,
 }
 
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
@@ -230,12 +246,21 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         async { load_realm_row(&state, &key).await },
     )
     .await;
+    let verified_claims = verify_restricted_claim_presentations(
+        &body.proofs,
+        body.requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default();
 
     // P5 — stochastic anti-enumeration jitter on resolve responses.
     apply_resolve_response_jitter().await;
 
     match row {
-        Ok(Some(r)) if is_result_visible(&r, body.requester.as_deref(), &body.proofs) => {
+        Ok(Some(r)) if is_result_visible(&r, body.requester.as_deref(), &verified_claims) => {
             res.render(Json(envelope_from_row(r)));
         }
         // Hidden, withdrawn, or unknown — all collapse to blinded not_found.
@@ -277,12 +302,12 @@ pub(crate) async fn resolve_realm_visible(
     state: &AppState,
     key: &str,
     requester: Option<&str>,
-    proofs: &[String],
+    verified_claims: &VerifiedRestrictedClaims,
 ) -> anyhow::Result<Option<ResolvedRealm>> {
     let Some(row) = load_realm_row(state, key).await? else {
         return Ok(None);
     };
-    if !is_result_visible(&row, requester, proofs) {
+    if !is_result_visible(&row, requester, verified_claims) {
         return Ok(None);
     }
     let realm_id = row.resource_id.clone();
@@ -308,7 +333,7 @@ pub(crate) async fn resolve_realm_visible(
 struct RealmStoredRow {
     resource_id: String,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -326,7 +351,7 @@ struct RealmStoredRow {
 struct RealmRow {
     resource_id: String,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -412,7 +437,7 @@ async fn run_visible_realm_search(
     scope: &SearchScope,
     cursor: Option<&RealmCursor>,
     requester: Option<&str>,
-    proofs: &[String],
+    verified_claims: &VerifiedRestrictedClaims,
     visible_limit: i64,
 ) -> anyhow::Result<Vec<RealmRow>> {
     let target_len = visible_limit.max(1) as usize;
@@ -431,7 +456,7 @@ async fn run_visible_realm_search(
         let mut next_scan_cursor = None;
         for row in rows {
             next_scan_cursor = Some(cursor_from_row(&row));
-            if is_result_visible(&row, requester, proofs) {
+            if is_result_visible(&row, requester, verified_claims) {
                 visible_rows.push(row);
                 if visible_rows.len() >= target_len {
                     return Ok(visible_rows);
@@ -455,7 +480,7 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let row: Option<RealmStoredRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Realm))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Realm))
         .filter(r::resource_id.eq(key))
         .select((
             r::resource_id,
@@ -572,7 +597,11 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
         .collect()
 }
 
-fn is_result_visible(row: &RealmRow, requester: Option<&str>, proofs: &[String]) -> bool {
+fn is_result_visible(
+    row: &RealmRow,
+    requester: Option<&str>,
+    verified_claims: &VerifiedRestrictedClaims,
+) -> bool {
     // Round R2/R3 T17 — once reachability has been revoked for the
     // affected actor we drop the row from the search face. Resolve
     // still surfaces the row (so existing in-flight conversations can
@@ -581,22 +610,20 @@ fn is_result_visible(row: &RealmRow, requester: Option<&str>, proofs: &[String])
         return false;
     }
     match row.discoverability {
-        DiscoverabilityWire::Public
-        | DiscoverabilityWire::Listed
-        | DiscoverabilityWire::Unlisted => true,
-        DiscoverabilityWire::Restricted => {
-            has_restricted_query_authorization(&row.public_projection, requester, proofs)
+        DiscoverabilityDb::Public | DiscoverabilityDb::Listed | DiscoverabilityDb::Unlisted => true,
+        DiscoverabilityDb::Restricted => {
+            has_restricted_query_authorization(&row.public_projection, requester, verified_claims)
         }
-        DiscoverabilityWire::InviteOnly | DiscoverabilityWire::Secret => false,
+        DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret => false,
     }
 }
 
 fn has_restricted_query_authorization(
     projection: &JsonValue,
     requester: Option<&str>,
-    proofs: &[String],
+    verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
-    crate::filter::discoverers::matches_allowed_discoverers(projection, requester, proofs)
+    crate::filter::discoverers::matches_allowed_discoverers(projection, requester, verified_claims)
 }
 
 impl TryFrom<RealmSqlRow> for RealmRow {
@@ -606,7 +633,7 @@ impl TryFrom<RealmSqlRow> for RealmRow {
         Ok(Self {
             resource_id: row.resource_id,
             public_projection: row.public_projection,
-            discoverability: DiscoverabilityWire::from_pg(&row.discoverability)?,
+            discoverability: DiscoverabilityDb::from_pg(&row.discoverability)?,
             as_of: row.as_of,
             source_refs: row.source_refs,
             policy_revision: row.policy_revision,
@@ -746,7 +773,7 @@ mod tests {
                 "allowed_discoverers": [
                     {
                         "type": "claim",
-                        "claim_kind": "org_membership",
+                        "claim_type": "organization_membership",
                         "organization": "did:web:acme.example",
                         "issuer": "did:web:acme.example"
                     },
@@ -758,17 +785,25 @@ mod tests {
         assert!(has_restricted_query_authorization(
             &projection,
             Some("did:web:alice.example"),
-            &[]
+            &VerifiedRestrictedClaims::default(),
         ));
+        let claim = cokret_sdk::PresentedClaim::organization_membership(
+            "claim-1",
+            cokret_sdk::Did::new("did:web:bob.example".to_owned()).unwrap(),
+            cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
+            cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
+            vec!["member".to_owned()],
+        );
+        let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
         assert!(has_restricted_query_authorization(
             &projection,
             Some("did:web:bob.example"),
-            &["org_membership".to_string()]
+            &verified_claims,
         ));
         assert!(!has_restricted_query_authorization(
             &projection,
             Some("did:web:bob.example"),
-            &["other_claim".to_string()]
+            &VerifiedRestrictedClaims::default(),
         ));
     }
 }

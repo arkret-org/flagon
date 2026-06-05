@@ -18,6 +18,7 @@ pub mod kinds;
 pub mod middleware;
 pub mod observability;
 pub mod profile;
+mod psi_index;
 pub mod query;
 pub mod routing;
 pub mod schema;

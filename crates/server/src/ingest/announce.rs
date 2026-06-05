@@ -30,12 +30,12 @@ use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::VerifyContext;
-use crate::ingest::{DiscoverabilityWire, IngestModeWire, ResourceKindWire, header_value};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb, IngestModeWire, header_value};
 use crate::state::{AppState, CachedAnnounceResponse};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnnounceRequest {
-    pub resource_kind: ResourceKindWire,
+    pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub principal_server_did: String,
     pub discovery_state: JsonValue,
@@ -373,7 +373,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // Otherwise an attacker could push a Cyrillic / mixed-script
     // homograph row that later collides with the canonical-form
     // localpart at resolve time.
-    if matches!(body.resource_kind, ResourceKindWire::Handle) {
+    if matches!(body.resource_kind, DirectoryResourceKindDb::Handle) {
         let localpart =
             crate::query::handle::extract_localpart_public(&body.resource_id).to_owned();
         if cokret_sdk::normalize_handle_localpart(&localpart).is_err() {
@@ -728,10 +728,10 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 /// destroy` event kind) or as a `realm_destroyed: true` shorthand. The
 /// returned timestamp is `as_of_destroyed` if present, else `as_of`.
 pub(crate) fn derive_realm_terminal_state(
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     discovery_state: &JsonValue,
 ) -> Option<DateTime<Utc>> {
-    if !matches!(resource_kind, ResourceKindWire::Realm) {
+    if !matches!(resource_kind, DirectoryResourceKindDb::Realm) {
         return None;
     }
     let destroyed_marker = discovery_state
@@ -798,7 +798,7 @@ pub(crate) fn effective_ttl_seconds(
 
 pub(crate) fn derive_public_projection(
     discovery_state: &JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
 ) -> Result<JsonValue, (ApiErrorCode, String)> {
     // Ingest-projection / validation critical path (NOT a placeholder — the
     // "deferred to M3" note that used to live here was stale). Everything this
@@ -847,7 +847,7 @@ pub(crate) fn derive_public_projection(
 /// *explicitly* declares `bucketed`. `public` / `listed` default to disclosing
 /// (the resource may still pick `omit`/`bucketed`/`exact`).
 fn member_count_disclosure_omitted(
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     declared_mode: Option<&str>,
 ) -> bool {
     match declared_mode {
@@ -857,10 +857,10 @@ fn member_count_disclosure_omitted(
         // No explicit mode: non-public discoverability defaults to `omit`.
         None => matches!(
             discoverability,
-            DiscoverabilityWire::Restricted
-                | DiscoverabilityWire::Unlisted
-                | DiscoverabilityWire::InviteOnly
-                | DiscoverabilityWire::Secret
+            DiscoverabilityDb::Restricted
+                | DiscoverabilityDb::Unlisted
+                | DiscoverabilityDb::InviteOnly
+                | DiscoverabilityDb::Secret
         ),
     }
 }
@@ -939,7 +939,7 @@ fn validate_handle_claim_ingest(discovery_state: &JsonValue) -> Result<(), (ApiE
 
 fn normalize_member_count_projection(
     obj: &mut serde_json::Map<String, JsonValue>,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     declared_mode: Option<&str>,
 ) -> Result<(), (ApiErrorCode, String)> {
     // §3 default-`omit`: for non-public discoverability without an explicit
@@ -1022,7 +1022,7 @@ struct AnnounceLookup {
 
 async fn find_announce_by_natural_key(
     db: &Db,
-    kind: ResourceKindWire,
+    kind: DirectoryResourceKindDb,
     resource_id: &str,
     as_of: DateTime<Utc>,
 ) -> anyhow::Result<Option<AnnounceLookup>> {
@@ -1045,7 +1045,7 @@ async fn find_announce_by_natural_key(
 
 pub(crate) async fn latest_as_of_for(
     db: &Db,
-    kind: ResourceKindWire,
+    kind: DirectoryResourceKindDb,
     resource_id: &str,
 ) -> anyhow::Result<Option<DateTime<Utc>>> {
     use crate::schema::directory_resources::dsl;
@@ -1270,6 +1270,15 @@ pub(crate) async fn upsert_resource_and_audit(
             .scope_boxed()
         })
         .await?;
+    crate::psi_index::sync_resource_tokens(
+        db,
+        body.resource_kind,
+        &body.resource_id,
+        verified.discoverability,
+        false,
+        &emitted_projection,
+    )
+    .await?;
     Ok(emitted_projection)
 }
 
@@ -1449,7 +1458,7 @@ mod tests {
         assert!(super::validate_handle_claim_ingest(&realm).is_ok());
 
         // And the whole projection path accepts the principal-DID claim.
-        assert!(derive_public_projection(&ok, DiscoverabilityWire::Public).is_ok());
+        assert!(derive_public_projection(&ok, DiscoverabilityDb::Public).is_ok());
     }
 
     #[test]
@@ -1474,7 +1483,7 @@ mod tests {
         second_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
 
         let first = AnnounceRequest {
-            resource_kind: ResourceKindWire::Realm,
+            resource_kind: DirectoryResourceKindDb::Realm,
             resource_id: "ck:realm:tea".to_owned(),
             principal_server_did: "did:web:principal.test".to_owned(),
             discovery_state: JsonValue::Object(first_state),

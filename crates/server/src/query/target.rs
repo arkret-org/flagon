@@ -38,27 +38,27 @@
 //! unauthorized requester. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
-//!
-//! TODO(R3.3.1): join-policy revocation lookup. The Ed25519 signature over the
-//! token payload, `exp`, `aud`, and target digest binding are enforced here;
-//! deployments still need a revocation source before invite revokes can take
-//! effect immediately.
-
 use chrono::Utc;
 use cokret_sdk::identity::DidKeyResolver;
 use cokret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use cokret_sdk::model::{
-    LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, verify_token_target,
+    LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
+    verify_token_target,
 };
-use cokret_sdk::{
-    DirectoryResolveTargetReqBody, DirectoryResolveTargetResBody, RealmId, RealmPreview,
-    TargetKind, canonical,
-};
+use cokret_sdk::{DirectoryResolveTargetResBody, RealmId, RealmPreview, TargetKind, canonical};
+use diesel::prelude::*;
+use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
+use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
+use sha2::{Digest, Sha256};
 
 use crate::did_resolver::did_resolver_chain;
 use crate::error::ApiErrorCode;
+use crate::filter::discoverers::{
+    RestrictedClaimPresentation, VerifiedRestrictedClaims, matches_allowed_discoverers,
+    verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::query::realm::resolve_realm_visible;
@@ -66,6 +66,19 @@ use crate::state::AppState;
 
 /// Dashed metric op label for this surface.
 const OP: &str = "resolve-target";
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveTargetRequest {
+    pub address: String,
+    #[serde(default)]
+    pub requester: Option<String>,
+    #[serde(default)]
+    pub proof_challenge: Option<String>,
+    #[serde(default)]
+    pub proofs: Vec<RestrictedClaimPresentation>,
+    #[serde(default)]
+    pub token: Option<String>,
+}
 
 #[handler]
 pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Response) {
@@ -78,7 +91,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     };
     let _query_timer = state.metrics().query_timer(OP);
 
-    let body: DirectoryResolveTargetReqBody = match req.parse_json().await {
+    let body: ResolveTargetRequest = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             state.metrics().record_query_outcome(OP, "bad_json");
@@ -101,7 +114,15 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     }
 
     let requester = body.requester.as_ref().map(|d| d.as_str().to_owned());
-    let proofs: Vec<String> = body.proofs.iter().map(proof_to_key).collect();
+    let verified_claims = verify_restricted_claim_presentations(
+        &body.proofs,
+        requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default();
     // The address carries the token via `tok=`; the request body MAY also carry
     // it explicitly. The body wins when both are present.
     let token = body.token.clone();
@@ -129,7 +150,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
             &state,
             &body.address,
             requester.as_deref(),
-            &proofs,
+            &verified_claims,
             token.as_deref(),
         ),
     )
@@ -177,7 +198,7 @@ async fn resolve(
     state: &AppState,
     address: &str,
     requester: Option<&str>,
-    proofs: &[String],
+    verified_claims: &VerifiedRestrictedClaims,
     token: Option<&str>,
 ) -> ResolveOutcome {
     // 1. Parse the address. A fail-closed parse (unknown keyword, wrong order, missing intermediate
@@ -195,7 +216,8 @@ async fn resolve(
         RealmRef::RealmId(uuid) => format!("ck:realm:{uuid}"),
         RealmRef::Alias(alias) => alias.clone(),
     };
-    let resolved = match resolve_realm_visible(state, &realm_key, requester, proofs).await {
+    let resolved = match resolve_realm_visible(state, &realm_key, requester, verified_claims).await
+    {
         Ok(Some(r)) => r,
         // Hidden / withdrawn / unknown realm, OR an alias that resolves to
         // nothing → blinded not_found (same as resolve_realm).
@@ -212,8 +234,9 @@ async fn resolve(
     if effective_link_type == LinkType::Preview {
         return ResolveOutcome::TokenReject;
     }
+    let mut verified_invite_token = None;
     if effective_link_type == LinkType::Invite || token.is_some() {
-        match verify_address_token_with_methods(
+        match verify_address_token_details_with_methods(
             &parsed,
             token,
             &canonical_realm_id,
@@ -221,8 +244,17 @@ async fn resolve(
             &state.config().accepted_did_methods,
             crate::egress::private_networks_allowed(state.config().development_mode),
         ) {
-            TokenCheck::Pass => {}
-            TokenCheck::Reject => return ResolveOutcome::TokenReject,
+            Ok(verified) => match invite_token_revoked(state, &verified).await {
+                Ok(false) => verified_invite_token = Some(verified),
+                Ok(true) => return ResolveOutcome::TokenReject,
+                Err(error) => {
+                    return ResolveOutcome::Error(format!(
+                        "resolve_target invite revocation lookup: {error}"
+                    ));
+                }
+            },
+            Err(TokenCheck::Reject) => return ResolveOutcome::TokenReject,
+            Err(TokenCheck::Pass) => unreachable!("detail verifier never returns Pass as error"),
         }
     }
 
@@ -235,18 +267,28 @@ async fn resolve(
         };
     }
 
-    // Flow / Message branch. The access-gate (membership / flow ACL) lives
-    // inside the Realm and is not yet wired into the directory projection —
-    // TODO(R3.3.1). We surface a deterministic `object_preview` placeholder
-    // anchored to the verified target identity. The realm-resolution gate above
-    // already enforced that the enclosing Realm is visible to the requester.
     let target_kind = if parsed.is_message() {
         TargetKind::Message
     } else {
         TargetKind::Flow
     };
-    let response = build_object_response(target_kind, &canonical_realm_id, &parsed, resolved);
-    ResolveOutcome::Ok(response)
+    let invite_authorized =
+        effective_link_type == LinkType::Invite && verified_invite_token.is_some();
+    match build_object_response(
+        state,
+        target_kind,
+        &canonical_realm_id,
+        &parsed,
+        requester,
+        verified_claims,
+        invite_authorized,
+    )
+    .await
+    {
+        Ok(Some(response)) => ResolveOutcome::Ok(response),
+        Ok(None) => ResolveOutcome::NotFound,
+        Err(error) => ResolveOutcome::Error(format!("resolve_target object access: {error}")),
+    }
 }
 
 /// Result of the token-binding check. Split out so the conformance suite can
@@ -255,6 +297,13 @@ async fn resolve(
 pub enum TokenCheck {
     Pass,
     Reject,
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifiedInviteToken {
+    pub descriptor: TargetDescriptor,
+    pub token_payload_digest: Vec<u8>,
+    pub target_digest: String,
 }
 
 /// Verify an invite token against the parsed address under the canonical
@@ -279,15 +328,36 @@ pub fn verify_address_token_with_methods(
     accepted_did_methods: &[String],
     allow_private_networks: bool,
 ) -> TokenCheck {
+    match verify_address_token_details_with_methods(
+        parsed,
+        token,
+        canonical_realm_id,
+        effective_link_type,
+        accepted_did_methods,
+        allow_private_networks,
+    ) {
+        Ok(_) => TokenCheck::Pass,
+        Err(reject) => reject,
+    }
+}
+
+pub fn verify_address_token_details_with_methods(
+    parsed: &ParsedAddress,
+    token: Option<&str>,
+    canonical_realm_id: &str,
+    effective_link_type: LinkType,
+    accepted_did_methods: &[String],
+    allow_private_networks: bool,
+) -> Result<VerifiedInviteToken, TokenCheck> {
     // An invite link with no token cannot be honoured.
     let Some(token) = token else {
-        return TokenCheck::Reject;
+        return Err(TokenCheck::Reject);
     };
 
-    let Some(token_descriptor) =
+    let Some(mut verified_token) =
         parse_token_descriptor(token, accepted_did_methods, allow_private_networks)
     else {
-        return TokenCheck::Reject;
+        return Err(TokenCheck::Reject);
     };
 
     // Build the address-derived descriptor and inject the canonical realm id so
@@ -301,8 +371,8 @@ pub fn verify_address_token_with_methods(
     // confusion / alias-mismatch — reject. (verify_token_target would also
     // catch this via the digest, but checking explicitly keeps the
     // realm-mismatch path obvious and metrics-attributable.)
-    if normalize_realm(&token_descriptor.realm_id) != normalize_realm(canonical_realm_id) {
-        return TokenCheck::Reject;
+    if normalize_realm(&verified_token.descriptor.realm_id) != normalize_realm(canonical_realm_id) {
+        return Err(TokenCheck::Reject);
     }
 
     // Digest comparison over the canonicalized address descriptor. We feed the
@@ -310,10 +380,16 @@ pub fn verify_address_token_with_methods(
     // so verify_token_target's own from_parsed + set effective_link_type path
     // reproduces the exact bytes.
     let canonical_parsed = with_canonical_realm(parsed, canonical_realm_id);
-    if verify_token_target(&token_descriptor, &canonical_parsed, effective_link_type) {
-        TokenCheck::Pass
+    if verify_token_target(
+        &verified_token.descriptor,
+        &canonical_parsed,
+        effective_link_type,
+    ) {
+        verified_token.target_digest =
+            target_digest(&verified_token.descriptor).map_err(|_| TokenCheck::Reject)?;
+        Ok(verified_token)
     } else {
-        TokenCheck::Reject
+        Err(TokenCheck::Reject)
     }
 }
 
@@ -357,7 +433,7 @@ fn parse_token_descriptor(
     token: &str,
     accepted_did_methods: &[String],
     allow_private_networks: bool,
-) -> Option<TargetDescriptor> {
+) -> Option<VerifiedInviteToken> {
     let mut value: JsonValue = serde_json::from_str(token).ok()?;
     if !matches!(
         value.get("kind").and_then(JsonValue::as_str),
@@ -392,6 +468,7 @@ fn parse_token_descriptor(
 
     let jws = detach_jws(&mut value)?;
     let canonical_bytes = canonical::canonical_json_bytes(&value).ok()?;
+    let token_payload_digest = Sha256::digest(&canonical_bytes).to_vec();
     verify_invite_token_jws(
         &canonical_bytes,
         &jws,
@@ -402,7 +479,13 @@ fn parse_token_descriptor(
     )?;
 
     let descriptor = value.get("target_descriptor")?;
-    serde_json::from_value(descriptor.clone()).ok()
+    let descriptor: TargetDescriptor = serde_json::from_value(descriptor.clone()).ok()?;
+    let target_digest = target_digest(&descriptor).ok()?;
+    Some(VerifiedInviteToken {
+        descriptor,
+        token_payload_digest,
+        target_digest,
+    })
 }
 
 fn verify_invite_token_jws(
@@ -532,49 +615,156 @@ fn build_realm_response(
     })
 }
 
-/// Build the Flow / Message target response. The access-gate / real Flow /
-/// Message projection is `TODO(R3.3.1)`; we surface a deterministic placeholder
-/// preview anchored to the verified target identity and carry only the §9.1
-/// freshness/source fields from the enclosing Realm. Realm join routing is
-/// intentionally omitted until the object access gate can decide whether the
-/// caller may receive it.
-fn build_object_response(
+#[derive(Debug, Queryable)]
+struct ObjectAccessRow {
+    public_projection: JsonValue,
+    allowed_requesters: Vec<String>,
+    required_claims: JsonValue,
+    as_of: chrono::DateTime<Utc>,
+    source_refs: Vec<String>,
+    policy_revision: Option<String>,
+    stale: bool,
+    divergent: bool,
+}
+
+async fn build_object_response(
+    state: &AppState,
     target_kind: TargetKind,
     canonical_realm_id: &str,
     parsed: &ParsedAddress,
-    resolved: crate::query::realm::ResolvedRealm,
-) -> DirectoryResolveTargetResBody {
-    let flow_id = parsed.flow.as_deref().map(|f| format!("ck:flow:{f}"));
-    let message_id = parsed.message.as_deref().map(|m| format!("ck:message:{m}"));
-    // TODO(R3.3.1): replace this placeholder with the real per-object access
-    // gate + stripped Flow / Message projection. For now the preview only
-    // echoes the verified target identity so a client can route + render a
-    // skeleton; it carries NO Realm-internal state.
-    let object_preview = json!({
-        "realm_id": canonical_realm_id,
-        "flow_id": flow_id,
-        "message_id": message_id,
-        "kind": match target_kind {
-            TargetKind::Message => "message",
-            TargetKind::Flow => "flow",
-            TargetKind::Realm => "realm",
-        },
-        "placeholder": true,
-        "note": "object access-gate deferred (R3.3.1); enclosing realm is visible",
-    });
+    requester: Option<&str>,
+    verified_claims: &VerifiedRestrictedClaims,
+    invite_authorized: bool,
+) -> anyhow::Result<Option<DirectoryResolveTargetResBody>> {
+    let Some(flow_id) = parsed.flow.as_deref().map(|f| format!("ck:flow:{f}")) else {
+        return Ok(None);
+    };
+    let message_id = parsed
+        .message
+        .as_deref()
+        .map(|m| format!("ck:message:{m}"))
+        .unwrap_or_default();
+    let object_kind = match target_kind {
+        TargetKind::Flow => "flow",
+        TargetKind::Message => "message",
+        TargetKind::Realm => return Ok(None),
+    };
 
-    DirectoryResolveTargetResBody {
+    let Some(row) = load_object_access_row(
+        state,
+        canonical_realm_id,
+        object_kind,
+        &flow_id,
+        &message_id,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    if !object_access_allowed(&row, requester, verified_claims, invite_authorized) {
+        return Ok(None);
+    }
+
+    let mut object_preview = row.public_projection;
+    if let Some(obj) = object_preview.as_object_mut() {
+        obj.insert(
+            "realm_id".to_owned(),
+            JsonValue::String(canonical_realm_id.to_owned()),
+        );
+        obj.insert("flow_id".to_owned(), JsonValue::String(flow_id));
+        if !message_id.is_empty() {
+            obj.insert("message_id".to_owned(), JsonValue::String(message_id));
+        }
+        obj.insert("kind".to_owned(), JsonValue::String(object_kind.to_owned()));
+    }
+
+    Ok(Some(DirectoryResolveTargetResBody {
         target_kind,
         realm_preview: None,
         object_preview: Some(object_preview),
         join_rule: None,
-        as_of: resolved.envelope.as_of,
-        source_refs: resolved.envelope.source_refs.clone(),
+        as_of: row.as_of,
+        source_refs: row.source_refs,
         join_candidates: Vec::new(),
-        policy_revision: resolved.envelope.policy_revision.clone(),
-        stale: opt_bool(resolved.envelope.stale),
-        divergent: opt_bool(resolved.envelope.divergent),
+        policy_revision: row.policy_revision,
+        stale: opt_bool(row.stale),
+        divergent: opt_bool(row.divergent),
+    }))
+}
+
+async fn load_object_access_row(
+    state: &AppState,
+    realm_id: &str,
+    object_kind: &str,
+    flow_id: &str,
+    message_id: &str,
+) -> anyhow::Result<Option<ObjectAccessRow>> {
+    use crate::schema::directory_object_access::dsl as o;
+
+    let mut conn = state.db().get().await?;
+    let row = o::directory_object_access
+        .filter(o::realm_id.eq(realm_id))
+        .filter(o::object_kind.eq(object_kind))
+        .filter(o::flow_id.eq(flow_id))
+        .filter(o::message_id.eq(message_id))
+        .filter(o::stale.eq(false))
+        .select((
+            o::public_projection,
+            o::allowed_requesters,
+            o::required_claims,
+            o::as_of,
+            o::source_refs,
+            o::policy_revision,
+            o::stale,
+            o::divergent,
+        ))
+        .first(&mut *conn)
+        .await
+        .optional()?;
+    Ok(row)
+}
+
+fn object_access_allowed(
+    row: &ObjectAccessRow,
+    requester: Option<&str>,
+    verified_claims: &VerifiedRestrictedClaims,
+    invite_authorized: bool,
+) -> bool {
+    if invite_authorized {
+        return true;
     }
+    if let Some(requester) = requester
+        && row
+            .allowed_requesters
+            .iter()
+            .any(|allowed| allowed == requester)
+    {
+        return true;
+    }
+    if verified_claims.is_empty() {
+        return false;
+    }
+    let required = json!({ "allowed_discoverers": row.required_claims.clone() });
+    matches_allowed_discoverers(&required, requester, verified_claims)
+}
+
+async fn invite_token_revoked(
+    state: &AppState,
+    token: &VerifiedInviteToken,
+) -> anyhow::Result<bool> {
+    use crate::schema::directory_invite_revocations::dsl as rev;
+
+    let mut conn = state.db().get().await?;
+    let now = Utc::now();
+    let count: i64 = rev::directory_invite_revocations
+        .filter(rev::token_payload_digest.eq(&token.token_payload_digest))
+        .filter(rev::target_digest.eq(&token.target_digest))
+        .filter(rev::revoked_at.le(now))
+        .filter(rev::expires_at.is_null().or(rev::expires_at.gt(now)))
+        .count()
+        .get_result(&mut *conn)
+        .await?;
+    Ok(count > 0)
 }
 
 /// Render the boolean §9.1 freshness flags only when they are `true` (so the
@@ -582,23 +772,6 @@ fn build_object_response(
 /// noisy default).
 fn opt_bool(value: bool) -> Option<bool> {
     value.then_some(true)
-}
-
-/// Reduce a [`Proof`](cokret_sdk::Proof) to the opaque string key the
-/// realm-visibility filter matches against. Mirrors how `resolve_realm` treats
-/// the proofs vector as a set of opaque match tokens.
-fn proof_to_key(proof: &cokret_sdk::Proof) -> String {
-    serde_json::to_value(proof)
-        .ok()
-        .and_then(|v| {
-            v.get("id")
-                .or_else(|| v.get("claim_id"))
-                .or_else(|| v.get("claim_kind"))
-                .or_else(|| v.get("type"))
-                .and_then(JsonValue::as_str)
-                .map(str::to_owned)
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -850,50 +1023,36 @@ mod tests {
     }
 
     #[test]
-    fn object_placeholder_omits_realm_join_candidates() {
-        let parsed = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
-        ))
-        .unwrap();
-        let resolved = crate::query::realm::ResolvedRealm {
-            realm_id: format!("ck:realm:{R}"),
-            envelope: crate::filter::result::ResultEnvelope::from_row(
-                json!({ "realm_id": format!("ck:realm:{R}"), "title": "Tea Time" }),
-                sample_time(),
-                vec!["ck:event:1".to_owned()],
-                Some("rev-7".to_owned()),
-                false,
-                false,
-                vec!["did:web:hps.example".to_owned()],
-            ),
-            join_candidates: vec![cokret_sdk::RealmJoinCandidate {
-                realm_id: RealmId::new(format!("ck:realm:{R}")).unwrap(),
-                service_did: cokret_sdk::Did::new("did:web:hps.example".to_owned()).unwrap(),
-                service_type: cokret_sdk::RealmJoinCandidateServiceType::PrincipalServer,
-                role: cokret_sdk::RealmJoinCandidateRole::Primary,
-                endpoint: None,
-                operations: vec!["ck.self.events.submit".to_owned()],
-                join_methods: vec![cokret_sdk::RealmJoinMethod::InviteAccept],
-                priority: Some(0),
-                source: cokret_sdk::RealmJoinCandidateSource::DirectoryIngest,
-                source_refs: Vec::new(),
-                frontier_ref: None,
-                as_of: sample_time(),
-                expires_at: sample_time() + chrono::Duration::minutes(15),
-                proofs: Vec::new(),
-            }],
+    fn object_access_gate_requires_policy_or_invite() {
+        let row = ObjectAccessRow {
+            public_projection: json!({ "title": "Flow" }),
+            allowed_requesters: vec!["did:web:alice.example".to_owned()],
+            required_claims: json!([]),
+            as_of: sample_time(),
+            source_refs: vec!["ck:event:1".to_owned()],
+            policy_revision: None,
+            stale: false,
+            divergent: false,
         };
 
-        let response = build_object_response(
-            TargetKind::Flow,
-            &format!("ck:realm:{R}"),
-            &parsed,
-            resolved,
-        );
-
-        assert_eq!(response.target_kind, TargetKind::Flow);
-        assert!(response.object_preview.is_some());
-        assert!(response.join_candidates.is_empty());
+        assert!(object_access_allowed(
+            &row,
+            Some("did:web:alice.example"),
+            &VerifiedRestrictedClaims::default(),
+            false,
+        ));
+        assert!(!object_access_allowed(
+            &row,
+            Some("did:web:bob.example"),
+            &VerifiedRestrictedClaims::default(),
+            false,
+        ));
+        assert!(object_access_allowed(
+            &row,
+            Some("did:web:bob.example"),
+            &VerifiedRestrictedClaims::default(),
+            true,
+        ));
     }
 
     #[test]

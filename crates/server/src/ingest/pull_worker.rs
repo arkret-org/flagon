@@ -45,7 +45,7 @@ use crate::ingest::verify::{
     VerifyContext, endpoint_child, resolve_principal_server_endpoint, strict_http_client,
     strict_http_client_for_egress,
 };
-use crate::ingest::{IngestModeWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 use crate::state::{AppState, BackgroundWorker};
 
 pub struct PullWorker {
@@ -129,7 +129,7 @@ impl PullWorker {
         use crate::schema::directory_resources::dsl as r;
         let mut conn = self.state.db().get().await?;
         let now = Utc::now();
-        let rows: Vec<(ResourceKindWire, String, String, i32)> = r::directory_resources
+        let rows: Vec<(DirectoryResourceKindDb, String, String, i32)> = r::directory_resources
             .filter(r::stale.eq(false))
             .filter(r::next_revalidation_after.le(now))
             .select((
@@ -162,7 +162,7 @@ impl PullWorker {
     async fn last_revision_if_pull_due(
         &self,
         conn: &mut diesel_async::AsyncPgConnection,
-        resource_kind: ResourceKindWire,
+        resource_kind: DirectoryResourceKindDb,
         resource_id: &str,
         now: DateTime<Utc>,
     ) -> anyhow::Result<Option<Option<String>>> {
@@ -443,12 +443,26 @@ impl PullWorker {
         let mut conn = self.state.db().get().await?;
         let grace_seconds = self.state.config().revalidation_grace.as_secs() as i64;
         let cutoff = Utc::now() - chrono::Duration::seconds(grace_seconds);
+        let stale_resources: Vec<(DirectoryResourceKindDb, String)> = r::directory_resources
+            .filter(r::stale.eq(false))
+            .filter(r::next_revalidation_after.le(cutoff))
+            .select((r::resource_kind, r::resource_id))
+            .load(&mut *conn)
+            .await?;
         diesel::update(r::directory_resources)
             .filter(r::stale.eq(false))
             .filter(r::next_revalidation_after.le(cutoff))
             .set(r::stale.eq(true))
             .execute(&mut *conn)
             .await?;
+        for (resource_kind, resource_id) in stale_resources {
+            crate::psi_index::delete_resource_tokens_on_conn(
+                &mut conn,
+                resource_kind,
+                &resource_id,
+            )
+            .await?;
+        }
         Ok(())
     }
 
@@ -458,7 +472,7 @@ impl PullWorker {
         let grace_seconds = self.state.config().revalidation_grace.as_secs() as i64;
         let cutoff =
             Utc::now() - chrono::Duration::seconds(grace_seconds) - chrono::Duration::hours(24);
-        let doomed: Vec<(ResourceKindWire, String, String)> = r::directory_resources
+        let doomed: Vec<(DirectoryResourceKindDb, String, String)> = r::directory_resources
             .filter(r::stale.eq(true))
             .filter(r::next_revalidation_after.le(cutoff))
             .select((r::resource_kind, r::resource_id, r::principal_server_did))
@@ -470,6 +484,12 @@ impl PullWorker {
                 .filter(r::resource_id.eq(&resource_id))
                 .execute(&mut *conn)
                 .await?;
+            crate::psi_index::delete_resource_tokens_on_conn(
+                &mut conn,
+                resource_kind,
+                &resource_id,
+            )
+            .await?;
             let _ = audit::record(
                 self.state.db(),
                 AuditEventKind::RevalidationFailed,
@@ -489,7 +509,7 @@ impl PullWorker {
 
 #[derive(Clone, Debug)]
 struct DueEntry {
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: String,
     principal_server_did: String,
     effective_ttl_seconds: i32,
@@ -584,7 +604,7 @@ mod tests {
     #[test]
     fn pull_event_populates_federation_cache_fields() {
         let entry = DueEntry {
-            resource_kind: ResourceKindWire::Realm,
+            resource_kind: DirectoryResourceKindDb::Realm,
             resource_id: "ck:realm:tea".to_owned(),
             principal_server_did: "did:web:principal.example".to_owned(),
             effective_ttl_seconds: 3600,

@@ -17,7 +17,7 @@ use crate::error::ApiErrorCode;
 use crate::filter::circle_isolation;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
-use crate::ingest::{IngestModeWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -47,7 +47,7 @@ pub struct SubscribeResponse {
 pub struct AcceptedIngestEvent {
     pub announce_id: String,
     pub ingest_mode: IngestModeWire,
-    pub resource_kind: ResourceKindWire,
+    pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub principal_server_did: String,
     pub indexed_at: DateTime<Utc>,

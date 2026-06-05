@@ -66,12 +66,27 @@ impl FreshnessWorker {
         let now = Utc::now();
         let grace = chrono::Duration::from_std(self.state.config().revalidation_grace)?;
         let stale_cutoff = now - grace;
+        let stale_resources: Vec<(crate::ingest::DirectoryResourceKindDb, String)> =
+            r::directory_resources
+                .filter(r::stale.eq(false))
+                .filter(r::expires_at.lt(stale_cutoff))
+                .select((r::resource_kind, r::resource_id))
+                .load(&mut *conn)
+                .await?;
         let flipped = diesel::update(r::directory_resources)
             .filter(r::stale.eq(false))
             .filter(r::expires_at.lt(stale_cutoff))
             .set(r::stale.eq(true))
             .execute(&mut *conn)
             .await?;
+        for (resource_kind, resource_id) in stale_resources {
+            crate::psi_index::delete_resource_tokens_on_conn(
+                &mut conn,
+                resource_kind,
+                &resource_id,
+            )
+            .await?;
+        }
         if flipped > 0 {
             info!(
                 flipped,

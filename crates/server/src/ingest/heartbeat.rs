@@ -33,7 +33,7 @@ use serde_json::json;
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
-use crate::ingest::{ResourceKindWire, header_value};
+use crate::ingest::{DirectoryResourceKindDb, header_value};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -178,7 +178,7 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
 
 #[derive(Debug, Queryable)]
 struct HeartbeatRow {
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: String,
     principal_server_did: String,
     effective_ttl_seconds: i32,

@@ -16,7 +16,7 @@ use tokio::time::interval;
 use tracing::{info, warn};
 
 use crate::audit::{self, AuditEventKind};
-use crate::ingest::ResourceKindWire;
+use crate::ingest::DirectoryResourceKindDb;
 use crate::ingest::verify::strict_http_client_for_egress;
 use crate::state::{AppState, BackgroundWorker};
 
@@ -27,7 +27,7 @@ pub struct DivergenceWorker {
 
 #[derive(Debug, Clone)]
 struct DivergenceCandidate {
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: String,
     policy_revision: Option<String>,
     divergent: bool,
@@ -101,7 +101,13 @@ impl DivergenceWorker {
     async fn fetch_candidates(&self, limit: i64) -> anyhow::Result<Vec<DivergenceCandidate>> {
         use crate::schema::directory_resources::dsl as r;
 
-        type CandidateRow = (ResourceKindWire, String, Option<String>, bool, Vec<String>);
+        type CandidateRow = (
+            DirectoryResourceKindDb,
+            String,
+            Option<String>,
+            bool,
+            Vec<String>,
+        );
 
         let mut conn = self.state.db().get().await?;
         let rows: Vec<CandidateRow> = r::directory_resources
@@ -277,21 +283,24 @@ fn is_remote_https_service(state: &AppState, service: &str) -> bool {
         && service.starts_with("https://")
 }
 
-fn directory_resolve_path(kind: ResourceKindWire) -> Option<&'static str> {
+fn directory_resolve_path(kind: DirectoryResourceKindDb) -> Option<&'static str> {
     match kind {
-        ResourceKindWire::Realm => Some("resolve-realm"),
-        ResourceKindWire::Organization => Some("resolve-organization"),
-        ResourceKindWire::Handle => Some("resolve-handle"),
-        ResourceKindWire::Actor | ResourceKindWire::Applet => None,
+        DirectoryResourceKindDb::Realm => Some("resolve-realm"),
+        DirectoryResourceKindDb::Organization => Some("resolve-organization"),
+        DirectoryResourceKindDb::Handle => Some("resolve-handle"),
+        DirectoryResourceKindDb::Actor | DirectoryResourceKindDb::Applet => None,
     }
 }
 
-fn directory_resolve_payload(kind: ResourceKindWire, resource_id: &str) -> Option<JsonValue> {
+fn directory_resolve_payload(
+    kind: DirectoryResourceKindDb,
+    resource_id: &str,
+) -> Option<JsonValue> {
     match kind {
-        ResourceKindWire::Realm => Some(json!({ "realm_id": resource_id })),
-        ResourceKindWire::Organization => Some(json!({ "organization_did": resource_id })),
-        ResourceKindWire::Handle => Some(json!({ "handle": resource_id })),
-        ResourceKindWire::Actor | ResourceKindWire::Applet => None,
+        DirectoryResourceKindDb::Realm => Some(json!({ "realm_id": resource_id })),
+        DirectoryResourceKindDb::Organization => Some(json!({ "organization_did": resource_id })),
+        DirectoryResourceKindDb::Handle => Some(json!({ "handle": resource_id })),
+        DirectoryResourceKindDb::Actor | DirectoryResourceKindDb::Applet => None,
     }
 }
 

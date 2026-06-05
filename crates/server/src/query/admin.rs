@@ -11,7 +11,7 @@ use serde_json::{Value as JsonValue, json};
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ingest::announce::effective_ttl_seconds;
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
 
@@ -37,7 +37,7 @@ struct AuditDbRow {
     audit_id: i64,
     occurred_at: DateTime<Utc>,
     kind: AuditEventKind,
-    resource_kind: Option<ResourceKindWire>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<String>,
     actor: Option<String>,
     detail: JsonValue,
@@ -95,7 +95,7 @@ struct NewAllowlistRow<'a> {
 #[derive(Debug, Default, Deserialize)]
 struct ResourcesQuery {
     #[serde(default)]
-    resource_kind: Option<ResourceKindWire>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     #[serde(default)]
     q: Option<String>,
     #[serde(default)]
@@ -108,14 +108,14 @@ struct ResourcesQuery {
 
 #[derive(Debug, Deserialize)]
 struct ResourceUpsertRequest {
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: String,
     principal_server_did: String,
     #[serde(default)]
     discovery_state: JsonValue,
     #[serde(default)]
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     #[serde(default)]
     as_of: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -137,19 +137,19 @@ struct ResourceUpsertRequest {
 #[derive(Debug, Default, Deserialize)]
 struct ResourceDeleteQuery {
     #[serde(default)]
-    resource_kind: Option<ResourceKindWire>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     #[serde(default)]
     resource_id: Option<String>,
 }
 
 #[derive(Debug, Queryable)]
 struct ResourceAdminRow {
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: String,
     principal_server_did: String,
     discovery_state: JsonValue,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -640,7 +640,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
 #[derive(Debug, Clone)]
 pub struct ReachabilityTombstone {
     pub kind: TombstoneKind,
-    pub resource_kind: ResourceKindWire,
+    pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub principal_server_did: String,
     pub reason: String,
@@ -695,7 +695,7 @@ async fn invalidate_reachability(
     if !body.resource_ids.is_empty() {
         query = query.filter(r::resource_id.eq_any(&body.resource_ids));
     }
-    let affected_rows: Vec<(ResourceKindWire, String, String)> = query
+    let affected_rows: Vec<(DirectoryResourceKindDb, String, String)> = query
         .set((
             r::reachability_revoked_at.eq(Some(revoked_at)),
             r::reachability_revoked_reason.eq(Some(reason)),
@@ -961,12 +961,22 @@ async fn upsert_managed_resource(
         .execute(&mut *conn)
         .await?;
 
+    crate::psi_index::sync_resource_tokens(
+        state.db(),
+        body.resource_kind,
+        body.resource_id.trim(),
+        body.discoverability,
+        body.stale.unwrap_or(false),
+        &public_projection,
+    )
+    .await?;
+
     load_resource(state, body.resource_kind, body.resource_id.trim()).await
 }
 
 async fn load_resource(
     state: &AppState,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
 ) -> anyhow::Result<ResourceAdminItem> {
     use crate::schema::directory_resources::dsl as r;
@@ -1000,57 +1010,59 @@ async fn load_resource(
 
 async fn delete_managed_resource(
     state: &AppState,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
 ) -> anyhow::Result<Option<ResourceDeleteAudit>> {
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
-    conn.transaction::<_, anyhow::Error, _>(|conn| {
-        async move {
-            let existing = r::directory_resources
-                .filter(r::resource_kind.eq(resource_kind))
-                .filter(r::resource_id.eq(resource_id))
-                .select((
-                    r::principal_server_did,
-                    r::policy_revision,
-                    r::via_services,
-                    r::last_announce_id,
-                ))
-                .first::<(String, Option<String>, Vec<String>, Option<String>)>(&mut *conn)
-                .await
-                .optional()?;
-
-            let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
-                existing
-            else {
-                return Ok(None);
-            };
-
-            diesel::delete(
-                r::directory_resources
+    let outcome = conn
+        .transaction::<_, anyhow::Error, _>(|conn| {
+            async move {
+                let existing = r::directory_resources
                     .filter(r::resource_kind.eq(resource_kind))
-                    .filter(r::resource_id.eq(resource_id)),
-            )
-            .execute(&mut *conn)
-            .await?;
+                    .filter(r::resource_id.eq(resource_id))
+                    .select((
+                        r::principal_server_did,
+                        r::policy_revision,
+                        r::via_services,
+                        r::last_announce_id,
+                    ))
+                    .first::<(String, Option<String>, Vec<String>, Option<String>)>(&mut *conn)
+                    .await
+                    .optional()?;
 
-            Ok(Some(ResourceDeleteAudit {
-                principal_server_did,
-                policy_revision,
-                via_services,
-                last_announce_id,
-            }))
-        }
-        .scope_boxed()
-    })
-    .await
+                let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
+                    existing
+                else {
+                    return Ok(None);
+                };
+
+                diesel::delete(
+                    r::directory_resources
+                        .filter(r::resource_kind.eq(resource_kind))
+                        .filter(r::resource_id.eq(resource_id)),
+                )
+                .execute(&mut *conn)
+                .await?;
+
+                Ok(Some(ResourceDeleteAudit {
+                    principal_server_did,
+                    policy_revision,
+                    via_services,
+                    last_announce_id,
+                }))
+            }
+            .scope_boxed()
+        })
+        .await?;
+    if outcome.is_some() {
+        crate::psi_index::delete_resource_tokens(state.db(), resource_kind, resource_id).await?;
+    }
+    Ok(outcome)
 }
 
-fn normalized_public_projection(
-    raw: &JsonValue,
-    discoverability: DiscoverabilityWire,
-) -> JsonValue {
+fn normalized_public_projection(raw: &JsonValue, discoverability: DiscoverabilityDb) -> JsonValue {
     let mut projection = raw.clone();
     let object = projection
         .as_object_mut()
@@ -1115,7 +1127,7 @@ impl From<AuditDbRow> for AuditFeedItem {
             audit_id: row.audit_id,
             occurred_at: row.occurred_at,
             kind: row.kind.as_pg(),
-            resource_kind: row.resource_kind.map(ResourceKindWire::as_pg),
+            resource_kind: row.resource_kind.map(DirectoryResourceKindDb::as_pg),
             resource_id: row.resource_id,
             actor: row.actor,
             detail: row.detail,
@@ -1212,11 +1224,11 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
 
     let mut per_kind = Vec::with_capacity(5);
     for kind in [
-        ResourceKindWire::Realm,
-        ResourceKindWire::Organization,
-        ResourceKindWire::Actor,
-        ResourceKindWire::Applet,
-        ResourceKindWire::Handle,
+        DirectoryResourceKindDb::Realm,
+        DirectoryResourceKindDb::Organization,
+        DirectoryResourceKindDb::Actor,
+        DirectoryResourceKindDb::Applet,
+        DirectoryResourceKindDb::Handle,
     ] {
         let count: i64 = r::directory_resources
             .filter(r::resource_kind.eq(kind))
@@ -1286,7 +1298,7 @@ struct TakedownExportQuery {
 struct TakedownAuditExportRow {
     audit_id: i64,
     occurred_at: DateTime<Utc>,
-    resource_kind: Option<ResourceKindWire>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<String>,
     actor: Option<String>,
     detail: JsonValue,
@@ -1398,7 +1410,7 @@ impl From<TakedownAuditExportRow> for TakedownAuditExportItem {
         Self {
             audit_id: row.audit_id,
             occurred_at: row.occurred_at,
-            resource_kind: row.resource_kind.map(ResourceKindWire::as_pg),
+            resource_kind: row.resource_kind.map(DirectoryResourceKindDb::as_pg),
             resource_id: row.resource_id,
             actor: row.actor,
             detail: row.detail,

@@ -19,9 +19,12 @@ use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
+use crate::filter::discoverers::{
+    RestrictedClaimPresentation, VerifiedRestrictedClaims, verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::state::AppState;
 
@@ -55,7 +58,7 @@ pub struct ResolveHandleRequest {
     /// Optional proofs / claim ids the requester presents to be admitted as
     /// a Realm audience. Mirrors `resolve_realm` semantics.
     #[serde(default)]
-    pub proofs: Vec<String>,
+    pub proofs: Vec<RestrictedClaimPresentation>,
     /// CKP R3 spec-sync 2026-05-27 (commit b47ff6e) — directory query
     /// filters now accept the unified `resource-selector` shape. We
     /// recognise the `circle` kind (CKP-0007) and immediately collapse
@@ -228,7 +231,7 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
                 Ok(Some(row)) => row,
                 _ => return ResolveOutcome::NotFound,
             };
-            evaluate_handle_disclosure(row, &body, None)
+            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None)
         },
     )
     .await;
@@ -302,6 +305,15 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::NotFound.render(res, "not found");
         return;
     }
+    let verified_claims = verify_restricted_claim_presentations(
+        &body.proofs,
+        body.requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default();
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -352,7 +364,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 Err(_) => return ResolveOutcome::NotFound,
             };
 
-            evaluate_handle_disclosure(row, &body, policy.as_ref())
+            evaluate_handle_disclosure(row, &body, &verified_claims, policy.as_ref())
         },
     )
     .await;
@@ -396,7 +408,7 @@ enum ResolveOutcome {
 struct HandleRow {
     resource_id: String,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -409,7 +421,7 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let row: Option<HandleRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Handle))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Handle))
         .filter(r::resource_id.eq(handle))
         // Freshness worker flips `stale=true` once `expires_at` plus the
         // configured revalidation grace has elapsed; stale rows MUST NOT
@@ -482,8 +494,8 @@ async fn load_realm_policy(
 ) -> anyhow::Result<RealmDeliveryBindingPolicy> {
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
-    let projection: Option<(JsonValue, DiscoverabilityWire)> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Realm))
+    let projection: Option<(JsonValue, DiscoverabilityDb)> = r::directory_resources
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Realm))
         .filter(r::resource_id.eq(realm_id))
         .select((r::public_projection, r::discoverability))
         .first(&mut *conn)
@@ -534,7 +546,11 @@ impl RealmDeliveryBindingPolicy {
     /// True iff the requester is in the audience-binding allow-list, either
     /// via `trusted_audiences` (preferred) or `allowed_discoverers`
     /// fallback shared with `resolve_realm`.
-    fn audience_authorized(&self, requester: Option<&str>, proofs: &[String]) -> bool {
+    fn audience_authorized(
+        &self,
+        requester: Option<&str>,
+        verified_claims: &VerifiedRestrictedClaims,
+    ) -> bool {
         if self.trusted_audiences.is_empty()
             && !crate::filter::discoverers::has_allowed_discoverers(&self.raw_projection)
         {
@@ -552,7 +568,7 @@ impl RealmDeliveryBindingPolicy {
         crate::filter::discoverers::matches_allowed_discoverers(
             &self.raw_projection,
             requester,
-            proofs,
+            verified_claims,
         )
     }
 }
@@ -583,6 +599,7 @@ fn string_array_at(root: &JsonValue, flat_key: &str, nested: Option<&JsonValue>)
 fn evaluate_handle_disclosure(
     row: HandleRow,
     body: &ResolveHandleRequest,
+    verified_claims: &VerifiedRestrictedClaims,
     policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
     let audience = body
@@ -593,7 +610,7 @@ fn evaluate_handle_disclosure(
 
     // Member-add path: audience-bind on the Realm, filter candidate bindings.
     if let Some(policy) = policy {
-        if !policy.audience_authorized(body.requester.as_deref(), &body.proofs) {
+        if !policy.audience_authorized(body.requester.as_deref(), verified_claims) {
             // Unauthorized requester: collapse to not_found so the
             // directory does not disclose subject_id / member_delivery_binding.
             return ResolveOutcome::NotFound;
@@ -715,7 +732,7 @@ fn is_round4_tight_did(did: &str) -> bool {
 fn envelope_from_projection(
     public_projection: JsonValue,
     resource_id: String,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -776,7 +793,7 @@ mod tests {
         HandleRow {
             resource_id: "alice.example".to_string(),
             public_projection,
-            discoverability: DiscoverabilityWire::Public,
+            discoverability: DiscoverabilityDb::Public,
             as_of: Utc.timestamp_opt(0, 0).unwrap(),
             source_refs: vec!["evt-handle-alice".to_string()],
             policy_revision: Some("rev-handle-1".to_string()),
@@ -902,7 +919,12 @@ mod tests {
         let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
-        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
+        let outcome = evaluate_handle_disclosure(
+            row,
+            &body,
+            &VerifiedRestrictedClaims::default(),
+            Some(&policy),
+        );
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
@@ -921,7 +943,12 @@ mod tests {
         let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
-        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
+        let outcome = evaluate_handle_disclosure(
+            row,
+            &body,
+            &VerifiedRestrictedClaims::default(),
+            Some(&policy),
+        );
         let envelope = match outcome {
             ResolveOutcome::Found(envelope) => envelope,
             ResolveOutcome::NotFound => panic!("expected Found, got NotFound"),
@@ -955,7 +982,12 @@ mod tests {
         let body = member_add_request("ck:realm:tea", "did:web:eve.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
-        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
+        let outcome = evaluate_handle_disclosure(
+            row,
+            &body,
+            &VerifiedRestrictedClaims::default(),
+            Some(&policy),
+        );
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
@@ -974,7 +1006,12 @@ mod tests {
         let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
 
-        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
+        let outcome = evaluate_handle_disclosure(
+            row,
+            &body,
+            &VerifiedRestrictedClaims::default(),
+            Some(&policy),
+        );
         let envelope = match outcome {
             ResolveOutcome::Found(envelope) => envelope,
             ResolveOutcome::NotFound => panic!("expected Found, got NotFound"),
@@ -1023,16 +1060,35 @@ mod tests {
 
         // Warm caches / branch predictor.
         for _ in 0..warmup {
-            let _ = evaluate_handle_disclosure(allowed_row.clone(), &found_body, Some(&policy));
-            let _ =
-                evaluate_handle_disclosure(allowed_row.clone(), &unauthorized_body, Some(&policy));
-            let _ = evaluate_handle_disclosure(filtered_row.clone(), &filtered_body, Some(&policy));
+            let _ = evaluate_handle_disclosure(
+                allowed_row.clone(),
+                &found_body,
+                &VerifiedRestrictedClaims::default(),
+                Some(&policy),
+            );
+            let _ = evaluate_handle_disclosure(
+                allowed_row.clone(),
+                &unauthorized_body,
+                &VerifiedRestrictedClaims::default(),
+                Some(&policy),
+            );
+            let _ = evaluate_handle_disclosure(
+                filtered_row.clone(),
+                &filtered_body,
+                &VerifiedRestrictedClaims::default(),
+                Some(&policy),
+            );
         }
 
         let measure = |body: &ResolveHandleRequest, row: &HandleRow| -> Duration {
             let start = Instant::now();
             for _ in 0..iters {
-                let _ = evaluate_handle_disclosure(row.clone(), body, Some(&policy));
+                let _ = evaluate_handle_disclosure(
+                    row.clone(),
+                    body,
+                    &VerifiedRestrictedClaims::default(),
+                    Some(&policy),
+                );
             }
             start.elapsed()
         };
@@ -1057,8 +1113,14 @@ mod tests {
     #[test]
     fn audience_authorization_accepts_trusted_audiences() {
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
-        assert!(policy.audience_authorized(Some("did:web:tea-org.example"), &[]));
-        assert!(!policy.audience_authorized(Some("did:web:eve.example"), &[]));
+        assert!(policy.audience_authorized(
+            Some("did:web:tea-org.example"),
+            &VerifiedRestrictedClaims::default()
+        ));
+        assert!(!policy.audience_authorized(
+            Some("did:web:eve.example"),
+            &VerifiedRestrictedClaims::default()
+        ));
     }
 
     #[test]
@@ -1066,8 +1128,14 @@ mod tests {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "allowed_discoverers": [{ "requester": "did:web:alice.example" }],
         }));
-        assert!(policy.audience_authorized(Some("did:web:alice.example"), &[]));
-        assert!(!policy.audience_authorized(Some("did:web:bob.example"), &[]));
+        assert!(policy.audience_authorized(
+            Some("did:web:alice.example"),
+            &VerifiedRestrictedClaims::default()
+        ));
+        assert!(!policy.audience_authorized(
+            Some("did:web:bob.example"),
+            &VerifiedRestrictedClaims::default()
+        ));
     }
 
     #[test]
@@ -1078,7 +1146,10 @@ mod tests {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "allowed_recipient_services": ["did:web:principal.tea"],
         }));
-        assert!(policy.audience_authorized(Some("did:web:anybody.example"), &[]));
+        assert!(policy.audience_authorized(
+            Some("did:web:anybody.example"),
+            &VerifiedRestrictedClaims::default()
+        ));
     }
 
     #[test]
@@ -1098,7 +1169,12 @@ mod tests {
         }));
         let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
 
-        let outcome = evaluate_handle_disclosure(row, &body, Some(&policy));
+        let outcome = evaluate_handle_disclosure(
+            row,
+            &body,
+            &VerifiedRestrictedClaims::default(),
+            Some(&policy),
+        );
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 }

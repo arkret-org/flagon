@@ -34,7 +34,7 @@ use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
 use crate::did_resolver::did_resolver_chain;
 use crate::error::ApiErrorCode;
-use crate::ingest::ResourceKindWire;
+use crate::ingest::DirectoryResourceKindDb;
 use crate::ingest::announce::AnnounceRequest;
 
 const MAX_VIA_SERVICES: usize = 8;
@@ -42,7 +42,7 @@ const MAX_VIA_SERVICES: usize = 8;
 #[derive(Debug)]
 pub struct VerifyOutcome {
     /// Effective `discoverability` parsed from discovery_state.
-    pub discoverability: super::DiscoverabilityWire,
+    pub discoverability: super::DiscoverabilityDb,
     /// `via_services` to populate from DID document (or fallback to
     /// `principal_server_did`).
     pub via_services: Vec<String>,
@@ -92,7 +92,9 @@ impl<'a> VerifyContext<'a> {
         // controller DID shapes at the ingest boundary.
         if matches!(
             req.resource_kind,
-            ResourceKindWire::Organization | ResourceKindWire::Actor | ResourceKindWire::Applet
+            DirectoryResourceKindDb::Organization
+                | DirectoryResourceKindDb::Actor
+                | DirectoryResourceKindDb::Applet
         ) {
             Did::new(req.resource_id.clone()).map_err(|e| {
                 (
@@ -216,7 +218,9 @@ impl<'a> VerifyContext<'a> {
         // DID method allowlist (applies regardless of accept policy kind).
         if matches!(
             req.resource_kind,
-            ResourceKindWire::Organization | ResourceKindWire::Actor | ResourceKindWire::Applet
+            DirectoryResourceKindDb::Organization
+                | DirectoryResourceKindDb::Actor
+                | DirectoryResourceKindDb::Applet
         ) {
             let method = did_method(&req.resource_id).unwrap_or_default();
             if !self
@@ -369,7 +373,7 @@ fn trust_root_allowed(config: &AppConfig, issuer: &str) -> bool {
 
 pub(crate) fn verify_discovery_proof(
     discovery_state: &JsonValue,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
@@ -386,7 +390,7 @@ pub(crate) fn verify_discovery_proof(
 pub(crate) fn verify_governance_proof_payload(
     canonical_payload_without_jws: &JsonValue,
     proof: &JsonValue,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
@@ -398,7 +402,7 @@ pub(crate) fn verify_governance_proof_payload(
 fn verify_detached_jws_payload(
     canonical_bytes: &[u8],
     proof: &JsonValue,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
@@ -499,7 +503,7 @@ fn verify_jws_ed25519(
 }
 
 fn enforce_governance_method_binding(
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     verification_method: &str,
 ) -> Result<(), (ApiErrorCode, String)> {
@@ -509,7 +513,9 @@ fn enforce_governance_method_binding(
         .unwrap_or(verification_method);
     if matches!(
         resource_kind,
-        ResourceKindWire::Organization | ResourceKindWire::Actor | ResourceKindWire::Applet
+        DirectoryResourceKindDb::Organization
+            | DirectoryResourceKindDb::Actor
+            | DirectoryResourceKindDb::Applet
     ) && did != resource_id
     {
         return Err((
@@ -522,7 +528,7 @@ fn enforce_governance_method_binding(
 
 async fn resource_already_indexed(
     db: &Db,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
 ) -> anyhow::Result<bool> {
     use crate::schema::directory_resources::dsl;
@@ -808,7 +814,7 @@ fn directory_services_lists_self(discovery_state: &JsonValue, self_did: &str) ->
 
 fn read_discoverability(
     discovery_state: &JsonValue,
-) -> Result<super::DiscoverabilityWire, (ApiErrorCode, String)> {
+) -> Result<super::DiscoverabilityDb, (ApiErrorCode, String)> {
     let s = discovery_state
         .get("discoverability")
         .and_then(JsonValue::as_str)
@@ -818,8 +824,7 @@ fn read_discoverability(
                 "discovery_state.discoverability missing".into(),
             )
         })?;
-    super::DiscoverabilityWire::from_pg(s)
-        .map_err(|e| (ApiErrorCode::SchemaViolation, e.to_string()))
+    super::DiscoverabilityDb::from_pg(s).map_err(|e| (ApiErrorCode::SchemaViolation, e.to_string()))
 }
 
 fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) -> Vec<String> {
@@ -867,7 +872,7 @@ async fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {
 
 async fn previously_withdrawn(
     db: &Db,
-    resource_kind: ResourceKindWire,
+    resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
 ) -> anyhow::Result<Option<DateTime<Utc>>> {
     use crate::schema::withdrawals::dsl;

@@ -147,6 +147,49 @@ diesel::table! {
         public_key -> Bytea,
         created_at -> Timestamptz,
         expires_at -> Timestamptz,
+        tokens_indexed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ResourceKind;
+
+    psi_contact_tokens (epoch, resource_kind, resource_id, token) {
+        epoch -> Text,
+        token -> Bytea,
+        resource_kind -> ResourceKind,
+        resource_id -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    directory_object_access (realm_id, object_kind, flow_id, message_id) {
+        realm_id -> Text,
+        object_kind -> Text,
+        flow_id -> Text,
+        message_id -> Text,
+        public_projection -> Jsonb,
+        allowed_requesters -> Array<Text>,
+        required_claims -> Jsonb,
+        as_of -> Timestamptz,
+        source_refs -> Array<Text>,
+        policy_revision -> Nullable<Text>,
+        indexed_at -> Timestamptz,
+        stale -> Bool,
+        divergent -> Bool,
+    }
+}
+
+diesel::table! {
+    directory_invite_revocations (token_payload_digest) {
+        token_payload_digest -> Bytea,
+        target_digest -> Text,
+        revoked_at -> Timestamptz,
+        revoked_by -> Text,
+        reason -> Nullable<Text>,
+        expires_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -239,6 +282,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     pull_subscriptions,
     webhook_subscriptions,
     psi_epoch_keys,
+    psi_contact_tokens,
+    directory_object_access,
+    directory_invite_revocations,
     accept_allowlist,
     directory_audit,
     admin_tokens,

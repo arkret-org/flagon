@@ -203,11 +203,71 @@ CREATE TABLE psi_epoch_keys (
     server_key BYTEA       NOT NULL,
     public_key BYTEA       NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL,
+    tokens_indexed_at TIMESTAMPTZ
 );
 
 CREATE INDEX psi_epoch_keys_expires_at_idx
     ON psi_epoch_keys (expires_at);
+
+CREATE TABLE psi_contact_tokens (
+    epoch         TEXT          NOT NULL
+        REFERENCES psi_epoch_keys (epoch) ON DELETE CASCADE,
+    token         BYTEA         NOT NULL,
+    resource_kind resource_kind NOT NULL,
+    resource_id   TEXT          NOT NULL,
+    created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    PRIMARY KEY (epoch, resource_kind, resource_id, token)
+);
+
+CREATE INDEX psi_contact_tokens_lookup_idx
+    ON psi_contact_tokens (epoch, token);
+
+CREATE INDEX psi_contact_tokens_resource_idx
+    ON psi_contact_tokens (resource_kind, resource_id);
+
+-- ---- Object access and invite revocation --------------------------------
+
+CREATE TABLE directory_object_access (
+    realm_id        TEXT        NOT NULL,
+    object_kind     TEXT        NOT NULL
+        CHECK (object_kind IN ('flow', 'message')),
+    flow_id         TEXT        NOT NULL,
+    message_id      TEXT        NOT NULL DEFAULT '',
+    public_projection JSONB     NOT NULL,
+    allowed_requesters TEXT[]   NOT NULL DEFAULT '{}',
+    required_claims JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    as_of           TIMESTAMPTZ NOT NULL,
+    source_refs     TEXT[]      NOT NULL,
+    policy_revision TEXT,
+    indexed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    stale           BOOLEAN     NOT NULL DEFAULT false,
+    divergent       BOOLEAN     NOT NULL DEFAULT false,
+    CHECK (
+        (object_kind = 'flow' AND message_id = '')
+        OR (object_kind = 'message' AND message_id <> '')
+    ),
+    PRIMARY KEY (realm_id, object_kind, flow_id, message_id)
+);
+
+CREATE INDEX directory_object_access_lookup_idx
+    ON directory_object_access (realm_id, object_kind, flow_id, message_id)
+    WHERE stale = false;
+
+CREATE INDEX directory_object_access_requesters_gin_idx
+    ON directory_object_access USING GIN (allowed_requesters);
+
+CREATE TABLE directory_invite_revocations (
+    token_payload_digest BYTEA       PRIMARY KEY,
+    target_digest        TEXT        NOT NULL,
+    revoked_at           TIMESTAMPTZ NOT NULL,
+    revoked_by           TEXT        NOT NULL,
+    reason               TEXT,
+    expires_at           TIMESTAMPTZ
+);
+
+CREATE INDEX directory_invite_revocations_target_idx
+    ON directory_invite_revocations (target_digest, revoked_at DESC);
 
 -- ---- Operator allowlist --------------------------------------------------
 

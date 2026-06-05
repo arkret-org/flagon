@@ -5,8 +5,6 @@
 //! finalized VOPRF outputs against this Directory's public contact candidates
 //! and returns a fixed-cardinality bitmap.
 
-use std::collections::HashSet;
-
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
@@ -15,18 +13,15 @@ use diesel_async::RunQueryDsl;
 use rand::rngs::OsRng;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
 use voprf::{BlindedElement, Group, Ristretto255, VoprfServer};
 
 use crate::config::AppConfig;
 use crate::error::ApiErrorCode;
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
 use crate::schema::psi_epoch_keys;
 use crate::state::{AppState, RateLimitOutcome};
 
 const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
 const MATCH_CARDINALITY: usize = 256;
-const PSI_INDEX_BATCH_SIZE: i64 = 1_024;
 
 type PsiServer = VoprfServer<Ristretto255>;
 type PsiBlindedElement = BlindedElement<Ristretto255>;
@@ -83,6 +78,7 @@ struct PsiEpochKey {
     epoch: String,
     server_key: Vec<u8>,
     public_key: Vec<u8>,
+    tokens_indexed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Insertable)]
@@ -234,21 +230,6 @@ async fn handle_match_phase(
         return;
     }
 
-    let server = match PsiServer::deserialize(&key.server_key) {
-        Ok(server) => server,
-        Err(error) => {
-            ApiErrorCode::InternalError.render(res, format!("PSI server key deserialize: {error}"));
-            return;
-        }
-    };
-    let index = match load_indexed_match_tokens(state, &server).await {
-        Ok(index) => index,
-        Err(error) => {
-            ApiErrorCode::InternalError.render(res, format!("PSI match index: {error}"));
-            return;
-        }
-    };
-
     let query_id = body.query_id.clone().unwrap_or_else(random_query_id);
     let decoded_tokens = match decode_match_tokens(&body.match_tokens) {
         Ok(tokens) => tokens,
@@ -257,11 +238,20 @@ async fn handle_match_phase(
             return;
         }
     };
+    let matching_tokens =
+        match crate::psi_index::load_matching_tokens(state.db(), &key.epoch, &decoded_tokens).await
+        {
+            Ok(tokens) => tokens,
+            Err(error) => {
+                ApiErrorCode::InternalError.render(res, format!("PSI match index: {error}"));
+                return;
+            }
+        };
 
     let mut hit_bitmap = decoded_tokens
         .iter()
         .take(MATCH_CARDINALITY)
-        .map(|token| index.tokens.contains(token))
+        .map(|token| matching_tokens.contains(token))
         .collect::<Vec<_>>();
     let padding_count = MATCH_CARDINALITY.saturating_sub(hit_bitmap.len());
     hit_bitmap.resize(MATCH_CARDINALITY, false);
@@ -289,13 +279,14 @@ async fn load_or_create_epoch_key(
         .execute(&mut *conn)
         .await?;
 
-    if let Some(row) = k::psi_epoch_keys
+    if let Some(mut row) = k::psi_epoch_keys
         .filter(k::epoch.eq(epoch_value))
-        .select((k::epoch, k::server_key, k::public_key))
+        .select((k::epoch, k::server_key, k::public_key, k::tokens_indexed_at))
         .first::<PsiEpochKey>(&mut *conn)
         .await
         .optional()?
     {
+        ensure_epoch_tokens_indexed(&mut conn, &mut row).await?;
         return Ok(row);
     }
 
@@ -321,66 +312,27 @@ async fn load_or_create_epoch_key(
         .execute(&mut *conn)
         .await?;
 
-    let row = k::psi_epoch_keys
+    let mut row = k::psi_epoch_keys
         .filter(k::epoch.eq(epoch_value))
-        .select((k::epoch, k::server_key, k::public_key))
+        .select((k::epoch, k::server_key, k::public_key, k::tokens_indexed_at))
         .first::<PsiEpochKey>(&mut *conn)
         .await?;
+    ensure_epoch_tokens_indexed(&mut conn, &mut row).await?;
     Ok(row)
 }
 
-#[derive(Debug)]
-struct IndexedMatchTokens {
-    tokens: HashSet<Vec<u8>>,
-}
-
-async fn load_indexed_match_tokens(
-    state: &AppState,
-    server: &PsiServer,
-) -> anyhow::Result<IndexedMatchTokens> {
-    use crate::schema::directory_resources::dsl as r;
-
-    let mut conn = state.db().get().await?;
-    let mut tokens = HashSet::new();
-    for kind in [ResourceKindWire::Actor, ResourceKindWire::Handle] {
-        let mut after_resource_id: Option<String> = None;
-        loop {
-            let mut query = r::directory_resources
-                .filter(r::resource_kind.eq(kind))
-                .filter(
-                    r::discoverability
-                        .eq(DiscoverabilityWire::Public)
-                        .or(r::discoverability.eq(DiscoverabilityWire::Listed)),
-                )
-                .into_boxed();
-            if let Some(cursor) = after_resource_id.as_ref() {
-                query = query.filter(r::resource_id.gt(cursor.clone()));
-            }
-            let rows: Vec<(ResourceKindWire, String, JsonValue)> = query
-                .order(r::resource_id.asc())
-                .limit(PSI_INDEX_BATCH_SIZE)
-                .select((r::resource_kind, r::resource_id, r::public_projection))
-                .load(&mut *conn)
-                .await?;
-            if rows.is_empty() {
-                break;
-            }
-            let fetched = rows.len();
-            for (kind, resource_id, projection) in rows {
-                after_resource_id = Some(resource_id.clone());
-                for input in contact_candidate_inputs(kind, &resource_id, &projection) {
-                    let output = server
-                        .evaluate(input.as_bytes())
-                        .map_err(|error| anyhow::anyhow!("VOPRF evaluate `{input}`: {error}"))?;
-                    tokens.insert(output.to_vec());
-                }
-            }
-            if fetched < PSI_INDEX_BATCH_SIZE as usize {
-                break;
-            }
-        }
+async fn ensure_epoch_tokens_indexed(
+    conn: &mut diesel_async::AsyncPgConnection,
+    key: &mut PsiEpochKey,
+) -> anyhow::Result<()> {
+    if key.tokens_indexed_at.is_some() {
+        return Ok(());
     }
-    Ok(IndexedMatchTokens { tokens })
+    let server = PsiServer::deserialize(&key.server_key)
+        .map_err(|error| anyhow::anyhow!("PSI server key deserialize: {error}"))?;
+    crate::psi_index::rebuild_epoch_tokens_on_conn(conn, &key.epoch, &server).await?;
+    key.tokens_indexed_at = Some(Utc::now());
+    Ok(())
 }
 
 fn current_epoch(config: &AppConfig) -> String {
@@ -413,41 +365,6 @@ fn decode_match_tokens(tokens: &[String]) -> Result<Vec<Vec<u8>>, String> {
         .collect()
 }
 
-fn contact_candidate_inputs(
-    kind: ResourceKindWire,
-    resource_id: &str,
-    projection: &JsonValue,
-) -> HashSet<String> {
-    let mut out = HashSet::new();
-    push_candidate(&mut out, resource_id);
-
-    match kind {
-        ResourceKindWire::Actor | ResourceKindWire::Handle => {
-            for key in [
-                "handle",
-                "did",
-                "actor_id",
-                "email_hash",
-                "phone_hash",
-                "contact_hash",
-            ] {
-                if let Some(value) = projection.get(key).and_then(JsonValue::as_str) {
-                    push_candidate(&mut out, value);
-                }
-            }
-        }
-        ResourceKindWire::Realm | ResourceKindWire::Organization | ResourceKindWire::Applet => {}
-    }
-    out
-}
-
-fn push_candidate(out: &mut HashSet<String>, value: &str) {
-    let normalized = value.trim().to_ascii_lowercase();
-    if !normalized.is_empty() {
-        out.insert(normalized);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -456,8 +373,8 @@ mod tests {
 
     #[test]
     fn contact_candidates_include_resource_and_projection_identifiers() {
-        let inputs = contact_candidate_inputs(
-            ResourceKindWire::Handle,
+        let inputs = crate::psi_index::contact_candidate_inputs(
+            crate::ingest::DirectoryResourceKindDb::Handle,
             "Alice.Example",
             &json!({
                 "did": "did:web:alice.example",

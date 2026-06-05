@@ -10,10 +10,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::matches_allowed_discoverers;
+use crate::filter::discoverers::{
+    RestrictedClaimPresentation, VerifiedRestrictedClaims, matches_allowed_discoverers,
+    verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
-use crate::ingest::{DiscoverabilityWire, ResourceKindWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{
     apply_resolve_response_jitter, enforce_query_rate_limit, enforce_resolve_rate_limit,
 };
@@ -24,7 +27,11 @@ pub struct SearchOrgsRequest {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
-    pub claims: Option<JsonValue>,
+    pub requester: Option<String>,
+    #[serde(default)]
+    pub proof_challenge: Option<String>,
+    #[serde(default)]
+    pub proofs: Vec<RestrictedClaimPresentation>,
     #[serde(default)]
     pub cursor: Option<String>,
     #[serde(default)]
@@ -48,10 +55,17 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
-    // Derive the requester identity + presented proof references from the
-    // `claims` object so restricted organizations can be authorization-gated
-    // with the exact same `allowed_discoverers` semantics as `search_realms`.
-    let (requester, proofs) = claims_to_requester_proofs(body.claims.as_ref());
+    let requester = body.requester;
+    let proof_challenge = body.proof_challenge;
+    let verified_claims = verify_restricted_claim_presentations(
+        &body.proofs,
+        requester.as_deref(),
+        proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default();
     let cursor = match body.cursor.as_deref().map(decode_org_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
@@ -86,7 +100,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 &needle,
                 cursor.as_ref(),
                 requester.as_deref(),
-                &proofs,
+                &verified_claims,
                 limit + 1,
             )
             .await
@@ -141,37 +155,6 @@ fn decode_org_cursor(cursor: &str) -> Result<OrgCursor, String> {
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid cursor body: {e}"))
 }
 
-/// Flatten the request `claims` object into `(requester, proofs)` consumable by
-/// the shared `allowed_discoverers` matcher. Requester is read from the usual
-/// identity keys; every string value (top-level or inside a `proofs`/`claims`
-/// array) is collected as a candidate proof reference.
-fn claims_to_requester_proofs(claims: Option<&JsonValue>) -> (Option<String>, Vec<String>) {
-    let Some(JsonValue::Object(obj)) = claims else {
-        return (None, Vec::new());
-    };
-    let requester = ["requester", "subject", "did", "actor"]
-        .iter()
-        .find_map(|key| obj.get(*key).and_then(JsonValue::as_str))
-        .map(str::to_owned);
-
-    let mut proofs = Vec::new();
-    let mut push = |value: &JsonValue| {
-        if let Some(s) = value.as_str() {
-            proofs.push(s.to_owned());
-        }
-    };
-    for (key, value) in obj {
-        match value {
-            JsonValue::String(_) => push(value),
-            JsonValue::Array(arr) if key == "proofs" || key == "claims" => {
-                arr.iter().for_each(&mut push);
-            }
-            _ => {}
-        }
-    }
-    (requester, proofs)
-}
-
 #[derive(Debug, Deserialize)]
 pub struct ResolveOrgRequest {
     #[serde(default)]
@@ -179,7 +162,11 @@ pub struct ResolveOrgRequest {
     #[serde(default)]
     pub handle: Option<String>,
     #[serde(default)]
-    pub proofs: Vec<String>,
+    pub requester: Option<String>,
+    #[serde(default)]
+    pub proof_challenge: Option<String>,
+    #[serde(default)]
+    pub proofs: Vec<RestrictedClaimPresentation>,
 }
 
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
@@ -233,12 +220,21 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         async { load_org_row(&state, &key).await },
     )
     .await;
+    let verified_claims = verify_restricted_claim_presentations(
+        &body.proofs,
+        body.requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default();
 
     // P5 — stochastic anti-enumeration jitter on resolve responses.
     apply_resolve_response_jitter().await;
 
     match row {
-        Ok(Some(r)) if r.discoverability.is_directory_visible() => {
+        Ok(Some(r)) if is_org_visible(&r, body.requester.as_deref(), &verified_claims) => {
             res.render(Json(envelope_from_row(r)));
         }
         _ => ApiErrorCode::NotFound.render(res, "not found"),
@@ -249,7 +245,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
 struct OrgRow {
     resource_id: String,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityWire,
+    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: Option<String>,
@@ -262,15 +258,19 @@ struct OrgRow {
 /// Whether an organization row is visible to the (requester, proofs) given its
 /// discoverability. `public`/`listed` are always visible; `restricted` is
 /// gated by `allowed_discoverers`; everything else is hidden (fail-closed).
-fn is_org_visible(row: &OrgRow, requester: Option<&str>, proofs: &[String]) -> bool {
+fn is_org_visible(
+    row: &OrgRow,
+    requester: Option<&str>,
+    verified_claims: &VerifiedRestrictedClaims,
+) -> bool {
     match row.discoverability {
-        DiscoverabilityWire::Public | DiscoverabilityWire::Listed => true,
-        DiscoverabilityWire::Restricted => {
-            matches_allowed_discoverers(&row.public_projection, requester, proofs)
+        DiscoverabilityDb::Public | DiscoverabilityDb::Listed => true,
+        DiscoverabilityDb::Restricted => {
+            matches_allowed_discoverers(&row.public_projection, requester, verified_claims)
         }
-        DiscoverabilityWire::Unlisted
-        | DiscoverabilityWire::InviteOnly
-        | DiscoverabilityWire::Secret => false,
+        DiscoverabilityDb::Unlisted | DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret => {
+            false
+        }
     }
 }
 
@@ -285,13 +285,13 @@ async fn run_org_search_page(
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let mut query = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Organization))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Organization))
         .filter(r::stale.eq(false))
         .filter(
             r::discoverability
-                .eq(DiscoverabilityWire::Public)
-                .or(r::discoverability.eq(DiscoverabilityWire::Listed))
-                .or(r::discoverability.eq(DiscoverabilityWire::Restricted)),
+                .eq(DiscoverabilityDb::Public)
+                .or(r::discoverability.eq(DiscoverabilityDb::Listed))
+                .or(r::discoverability.eq(DiscoverabilityDb::Restricted)),
         )
         .into_boxed();
     if let Some(cursor) = cursor {
@@ -330,7 +330,7 @@ async fn run_visible_org_search(
     needle: &str,
     cursor: Option<&OrgCursor>,
     requester: Option<&str>,
-    proofs: &[String],
+    verified_claims: &VerifiedRestrictedClaims,
     visible_limit: i64,
 ) -> anyhow::Result<Vec<OrgRow>> {
     let needle = needle.trim().to_ascii_lowercase();
@@ -353,7 +353,7 @@ async fn run_visible_org_search(
             });
             let needle_ok =
                 needle.is_empty() || org_matches(&row.public_projection, &row.resource_id, &needle);
-            if needle_ok && is_org_visible(&row, requester, proofs) {
+            if needle_ok && is_org_visible(&row, requester, verified_claims) {
                 visible_rows.push(row);
                 if visible_rows.len() >= target_len {
                     return Ok(visible_rows);
@@ -375,7 +375,7 @@ async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgR
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let row: Option<OrgRow> = r::directory_resources
-        .filter(r::resource_kind.eq(ResourceKindWire::Organization))
+        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Organization))
         .filter(r::resource_id.eq(key))
         .select((
             r::resource_id,

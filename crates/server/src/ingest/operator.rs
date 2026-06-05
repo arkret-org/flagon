@@ -13,13 +13,13 @@ use crate::error::ApiErrorCode;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::receipt::operator_takedown_proof;
-use crate::ingest::{ResourceKindWire, WithdrawalKindWire};
+use crate::ingest::{DirectoryResourceKindDb, WithdrawalKindWire};
 use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct OperatorTakedownRequest {
-    pub resource_kind: ResourceKindWire,
+    pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub reason: String,
     #[serde(default)]
@@ -197,6 +197,8 @@ async fn persist_operator_takedown(
         .scope_boxed()
     })
     .await?;
+    crate::psi_index::delete_resource_tokens(state.db(), body.resource_kind, &body.resource_id)
+        .await?;
     Ok(())
 }
 
