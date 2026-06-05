@@ -92,20 +92,14 @@ Useful tables for operator inspection:
   revalidation activity.
 - `withdrawals`: takedown and withdrawal receipts.
 
-## Realm backfill runbook
+## Realm resource-kind migration
 
-Migration `20260525010100_realm_resource_kind_backfill` rewrites every
-`directory_resources`, `ingest_announces`, `withdrawals`,
-`pull_subscriptions` and `directory_audit` row whose `resource_kind` is
-the legacy `space` value into the new `realm` enum value and rewrites
-`ck:space:` URIs to `ck:realm:`. On large directories this work can run
-for many minutes; the migration sets `statement_timeout = 0` and chunks
-each table in 10k-row batches so it can be safely interrupted and
-resumed by re-running diesel.
+Fresh teabay installs use `realm` as the directory resource kind for
+discoverable collaboration boundaries. Space containers are not indexed as
+directory resources.
 
-**Pre-flight (large datasets).** Take a backup. Run
-`SELECT count(*) FROM directory_resources WHERE resource_kind = 'space';`
-to estimate the row count. Plan for ~1–2 ms per row on commodity SSD,
+**Pre-flight (large datasets).** Take a backup before running schema changes.
+Plan for ~1–2 ms per touched row on commodity SSD,
 i.e. ~3 minutes per million rows of `directory_resources` plus
 proportional time for `ingest_announces` and `directory_audit`.
 
@@ -115,23 +109,18 @@ proportional time for `ingest_announces` and `directory_audit`.
 DATABASE_URL=postgres://teabay@.../teabay diesel migration run
 ```
 
-The migration is idempotent — re-running after a crash continues from
-where the previous run left off because the chunk predicate
-(`resource_kind = 'space'`) shrinks monotonically.
+The migration is idempotent; fresh databases already carry the Realm resource
+kind in the bootstrap schema.
 
 **Verification.**
 
 ```sql
-SELECT count(*) FILTER (WHERE resource_kind = 'space') AS still_space,
-       count(*) FILTER (WHERE resource_kind = 'realm') AS realm,
-       count(*) FILTER (WHERE resource_id LIKE 'ck:space:%') AS legacy_uri
+SELECT count(*) FILTER (WHERE resource_kind = 'realm') AS realms
   FROM directory_resources;
 ```
 
-All three counts should be zero, zero (or matching the new total), and
-zero respectively before deploying the follow-up NOT NULL migration
-(planned next release) that hardens `resource_kind` to reject any new
-`space` writes.
+The `realms` count should match the number of discoverable Realm directory
+entries expected for the deployment.
 
 ## Admin Console
 

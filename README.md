@@ -17,8 +17,7 @@ authority, nor a global crawler. See `cokret-spec/spec/v1/zh/discovery/discovery
 
 ## Realm vs Space
 
-After the Phase 1–4 terminology inversion (Round R1.x), discovery
-projections target the **Realm** as the unit of public metadata:
+Discovery projections target the **Realm** as the unit of public metadata:
 
 - **Realm:** security boundary — membership, capability, E2EE, federation;
   the unit on which `ck.realm.discovery` announces and `ck.realm.link`
@@ -27,9 +26,8 @@ projections target the **Realm** as the unit of public metadata:
   inside a Realm. Spaces are not directly discoverable; they ride along
   their parent Realm.
 
-Per spec, the legacy `cx.space.discovery` kind is **hard-rejected** at
-verify-time — no serde alias, no quiet rewrite. Emitters must send
-`ck.realm.discovery`.
+Per spec, directory discovery uses `ck.realm.discovery`; Space containers are
+not independently announced to teabay.
 
 ## Round R4 (protocol review closures)
 

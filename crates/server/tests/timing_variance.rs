@@ -94,7 +94,13 @@ where
     let mut samples = Vec::with_capacity(TRIALS);
     for _ in 0..TRIALS {
         let start = Instant::now();
-        pad_to_budget(*budget, "ck.find.directory.resolve_handle", privacy_key, f()).await;
+        pad_to_budget(
+            *budget,
+            "ck.find.directory.resolve_handle",
+            privacy_key,
+            f(),
+        )
+        .await;
         samples.push(start.elapsed());
     }
     samples

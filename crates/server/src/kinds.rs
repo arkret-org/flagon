@@ -120,11 +120,23 @@ mod tests {
     fn directory_ops_match_sdk() {
         assert_eq!(OP_DIRECTORY_ANNOUNCE, "ck.find.directory.announce");
         assert_eq!(OP_DIRECTORY_WITHDRAW, "ck.find.directory.withdraw");
-        assert_eq!(OP_DIRECTORY_PUSH_REGISTER, "ck.find.directory.push.register");
+        assert_eq!(
+            OP_DIRECTORY_PUSH_REGISTER,
+            "ck.find.directory.push.register"
+        );
         assert_eq!(OP_DIRECTORY_DESCRIBE, "ck.find.directory.describe");
-        assert_eq!(OP_DIRECTORY_SEARCH_REALMS, "ck.find.directory.search_realms");
-        assert_eq!(OP_DIRECTORY_RESOLVE_REALM, "ck.find.directory.resolve_realm");
-        assert_eq!(OP_DIRECTORY_RESOLVE_HANDLE, "ck.find.directory.resolve_handle");
+        assert_eq!(
+            OP_DIRECTORY_SEARCH_REALMS,
+            "ck.find.directory.search_realms"
+        );
+        assert_eq!(
+            OP_DIRECTORY_RESOLVE_REALM,
+            "ck.find.directory.resolve_realm"
+        );
+        assert_eq!(
+            OP_DIRECTORY_RESOLVE_HANDLE,
+            "ck.find.directory.resolve_handle"
+        );
         assert_eq!(
             OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT,
             "ck.find.directory.list_handles_for_subject"
