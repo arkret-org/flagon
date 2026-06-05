@@ -39,7 +39,11 @@ pub struct WithdrawRequest {
 
 #[derive(Debug, Serialize)]
 pub struct WithdrawResponse {
-    pub withdraw_id: String,
+    /// Directory-local audit reference (spec discovery-directory §9). This is
+    /// *not* a registered typed ID; it is the wire name the client parses to
+    /// correlate the withdrawal with the directory's audit trail. Its value is
+    /// the internal typed withdraw id.
+    pub withdrawal_ref: String,
     pub acked_at: chrono::DateTime<Utc>,
 }
 
@@ -155,7 +159,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     ingest_metric.set_outcome("verify_ok");
     res.render(Json(WithdrawResponse {
-        withdraw_id,
+        withdrawal_ref: withdraw_id,
         acked_at,
     }));
 }

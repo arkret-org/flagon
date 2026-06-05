@@ -583,7 +583,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert!(
-        body["withdraw_id"]
+        body["withdrawal_ref"]
             .as_str()
             .is_some_and(|id| id.starts_with("ck:withdraw:"))
     );

@@ -30,7 +30,7 @@ use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::VerifyContext;
-use crate::ingest::{IngestModeWire, ResourceKindWire};
+use crate::ingest::{DiscoverabilityWire, IngestModeWire, ResourceKindWire, header_value};
 use crate::state::{AppState, CachedAnnounceResponse};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,14 +292,6 @@ fn hex_lower_sha256(bytes: &[u8]) -> String {
         out.push_str(&format!("{byte:02x}"));
     }
     out
-}
-
-fn header_value(req: &Request, name: &str) -> Option<String> {
-    req.headers()
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
 }
 
 #[handler]
@@ -587,7 +579,10 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let announce_id = new_id(IdClass::Announce);
     let indexed_at = Utc::now();
     let next_revalidation = indexed_at + chrono::Duration::seconds(effective_ttl);
-    let public_projection = match derive_public_projection(&body.discovery_state) {
+    let public_projection = match derive_public_projection(
+        &body.discovery_state,
+        verified.discoverability,
+    ) {
         Ok(projection) => projection,
         Err((code, msg)) => {
             ingest_metric.set_outcome("projection_rejected");
@@ -803,12 +798,21 @@ pub(crate) fn effective_ttl_seconds(
 
 pub(crate) fn derive_public_projection(
     discovery_state: &JsonValue,
+    discoverability: DiscoverabilityWire,
 ) -> Result<JsonValue, (ApiErrorCode, String)> {
-    // Strict subset suitable for indexing — drop the proof envelope and
-    // anything else that could leak governance internals.
-    //
-    // Real projection logic (per resource kind) belongs in `crate::query::*`
-    // and is deferred to M3.
+    // Ingest-projection / validation critical path (NOT a placeholder — the
+    // "deferred to M3" note that used to live here was stale). Everything this
+    // function does is normative and load-bearing:
+    //   * `validate_handle_claim_ingest` enforces the HC-TBY-1/2 wire scope
+    //     (retired `claim_type`/`class`, non-principal handle-claim subjects).
+    //   * the `proof` / `directory_services` / `official_organizations` fields
+    //     are stripped so governance internals and the forbidden §4.5
+    //     `official_organizations` field never enter the index or search SQL.
+    //   * `normalize_member_count_projection` enforces the §3 member-count
+    //     disclosure rules (bucket-grid validity + default-`omit` for
+    //     non-public discoverability).
+    // Do not weaken or short-circuit any of these without re-reading §3 / §4.5
+    // / the HC-TBY-* requirements.
 
     // HC-TBY-1/2 (R3.2, cokret-spec @ b56cab1) — handle-claim wire-level
     // scope validation. This runs in `derive_public_projection` so it
@@ -818,6 +822,14 @@ pub(crate) fn derive_public_projection(
     // pulled-back claims" requirement.
     validate_handle_claim_ingest(discovery_state)?;
 
+    // The effective `member_count_mode` is read from the *original*
+    // discovery_state (before stripping); spec §3 places it at
+    // `anti_enumeration.member_count_mode`.
+    let declared_mode = discovery_state
+        .pointer("/anti_enumeration/member_count_mode")
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned);
+
     let mut clone = discovery_state.clone();
     if let Some(obj) = clone.as_object_mut() {
         obj.remove("proof");
@@ -826,9 +838,32 @@ pub(crate) fn derive_public_projection(
         // (spec §4.5). Strip it so it never enters the index or search SQL;
         // organization scoping uses the canonical `organization_did`.
         obj.remove("official_organizations");
-        normalize_member_count_projection(obj)?;
+        normalize_member_count_projection(obj, discoverability, declared_mode.as_deref())?;
     }
     Ok(clone)
+}
+
+/// Spec §3: `restricted` / `unlisted` / `invite_only` / `secret` default to
+/// `member_count_mode = omit` and only disclose a bucket when the resource
+/// *explicitly* declares `bucketed`. `public` / `listed` default to disclosing
+/// (the resource may still pick `omit`/`bucketed`/`exact`).
+fn member_count_disclosure_omitted(
+    discoverability: DiscoverabilityWire,
+    declared_mode: Option<&str>,
+) -> bool {
+    match declared_mode {
+        // An explicit mode always wins, regardless of discoverability.
+        Some("omit") => true,
+        Some(_) => false,
+        // No explicit mode: non-public discoverability defaults to `omit`.
+        None => matches!(
+            discoverability,
+            DiscoverabilityWire::Restricted
+                | DiscoverabilityWire::Unlisted
+                | DiscoverabilityWire::InviteOnly
+                | DiscoverabilityWire::Secret
+        ),
+    }
 }
 
 /// HC-TBY-1/2 — reject handle-claim ingest that violates the R3.2 wire scope:
@@ -905,7 +940,19 @@ fn validate_handle_claim_ingest(discovery_state: &JsonValue) -> Result<(), (ApiE
 
 fn normalize_member_count_projection(
     obj: &mut serde_json::Map<String, JsonValue>,
+    discoverability: DiscoverabilityWire,
+    declared_mode: Option<&str>,
 ) -> Result<(), (ApiErrorCode, String)> {
+    // §3 default-`omit`: for non-public discoverability without an explicit
+    // `bucketed`/`exact` declaration the directory MUST NOT disclose any
+    // member-count signal — drop both the exact count and any pre-supplied
+    // bucket (even if `preview.fields` listed it).
+    if member_count_disclosure_omitted(discoverability, declared_mode) {
+        obj.remove("member_count");
+        obj.remove("member_count_bucket");
+        return Ok(());
+    }
+
     if let Some(bucket) = obj.get("member_count_bucket").and_then(JsonValue::as_str)
         && !is_valid_member_count_bucket(bucket)
     {
@@ -922,10 +969,20 @@ fn normalize_member_count_projection(
                 "member_count must be an integer when present".into(),
             )
         })?;
-        obj.insert(
-            "member_count_bucket".into(),
-            JsonValue::String(bucket_member_count(count).to_string()),
-        );
+        // A zero/negative count has no valid bucket (lowest grid bucket is
+        // `1-10` = "1 to 10 members"); omit rather than falsely advertise the
+        // lowest non-empty bucket.
+        match bucket_member_count(count) {
+            Some(bucket) => {
+                obj.insert(
+                    "member_count_bucket".into(),
+                    JsonValue::String(bucket.to_string()),
+                );
+            }
+            None => {
+                obj.remove("member_count_bucket");
+            }
+        }
     }
     Ok(())
 }
@@ -1393,7 +1450,7 @@ mod tests {
         assert!(super::validate_handle_claim_ingest(&realm).is_ok());
 
         // And the whole projection path accepts the principal-DID claim.
-        assert!(derive_public_projection(&ok).is_ok());
+        assert!(derive_public_projection(&ok, DiscoverabilityWire::Public).is_ok());
     }
 
     #[test]

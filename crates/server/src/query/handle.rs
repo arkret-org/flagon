@@ -534,7 +534,9 @@ impl RealmDeliveryBindingPolicy {
     /// via `trusted_audiences` (preferred) or `allowed_discoverers`
     /// fallback shared with `resolve_realm`.
     fn audience_authorized(&self, requester: Option<&str>, proofs: &[String]) -> bool {
-        if self.trusted_audiences.is_empty() && !has_allowed_discoverers(&self.raw_projection) {
+        if self.trusted_audiences.is_empty()
+            && !crate::filter::discoverers::has_allowed_discoverers(&self.raw_projection)
+        {
             // No audience constraint declared — fall through to the default
             // discoverability gate the row itself carries.
             return true;
@@ -546,7 +548,11 @@ impl RealmDeliveryBindingPolicy {
         }
         // Reuse the `allowed_discoverers` shape when the Realm does not
         // declare explicit trusted audiences.
-        allowed_discoverers_match(&self.raw_projection, requester, proofs)
+        crate::filter::discoverers::matches_allowed_discoverers(
+            &self.raw_projection,
+            requester,
+            proofs,
+        )
     }
 }
 
@@ -567,45 +573,6 @@ fn string_array_at(root: &JsonValue, flat_key: &str, nested: Option<&JsonValue>)
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn has_allowed_discoverers(projection: &JsonValue) -> bool {
-    projection
-        .get("allowed_discoverers")
-        .or_else(|| projection.pointer("/payload/allowed_discoverers"))
-        .and_then(JsonValue::as_array)
-        .map(|arr| !arr.is_empty())
-        .unwrap_or(false)
-}
-
-fn allowed_discoverers_match(
-    projection: &JsonValue,
-    requester: Option<&str>,
-    proofs: &[String],
-) -> bool {
-    let Some(discoverers) = projection
-        .get("allowed_discoverers")
-        .or_else(|| projection.pointer("/payload/allowed_discoverers"))
-        .and_then(JsonValue::as_array)
-    else {
-        return false;
-    };
-    discoverers.iter().any(|entry| match entry {
-        JsonValue::String(value) => proofs.iter().any(|proof| proof == value),
-        JsonValue::Object(obj) => {
-            let requester_matches = requester.is_some_and(|requester| {
-                ["requester", "subject", "did", "actor"]
-                    .iter()
-                    .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(requester))
-            });
-            let proof_matches = ["proof", "presentation", "claim", "claim_id", "claim_kind"]
-                .iter()
-                .filter_map(|key| obj.get(*key).and_then(JsonValue::as_str))
-                .any(|expected| proofs.iter().any(|proof| proof == expected));
-            requester_matches || proof_matches
-        }
-        _ => false,
-    })
 }
 
 // ---- Disclosure decision -------------------------------------------------

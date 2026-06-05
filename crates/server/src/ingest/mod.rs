@@ -13,7 +13,19 @@ pub mod verify;
 pub mod withdraw;
 
 use diesel_derive_enum::DbEnum;
+use salvo::Request;
 use serde::{Deserialize, Serialize};
+
+/// Read a request header as a trimmed, non-empty `String`. Shared by the
+/// ingest handlers (announce / heartbeat) so the trim+empty-filter convention
+/// lives in one place.
+pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
+    req.headers()
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
 
 // ---- Resource kind (wire enum + diesel impls) ---------------------------
 //
@@ -150,6 +162,21 @@ impl DiscoverabilityWire {
             Self::InviteOnly => "invite_only",
             Self::Secret => "secret",
         }
+    }
+
+    /// Inverse of [`Self::as_pg`]: parse the canonical snake_case wire / pg
+    /// string. Single source of truth so `query`/`ingest` paths do not each
+    /// hand-roll the six-state match.
+    pub fn from_pg(value: &str) -> anyhow::Result<Self> {
+        Ok(match value {
+            "public" => Self::Public,
+            "listed" => Self::Listed,
+            "restricted" => Self::Restricted,
+            "unlisted" => Self::Unlisted,
+            "invite_only" => Self::InviteOnly,
+            "secret" => Self::Secret,
+            other => anyhow::bail!("unknown discoverability {other}"),
+        })
     }
 
     /// True when the resource is allowed in *any* directory result, even

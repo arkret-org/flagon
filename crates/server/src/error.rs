@@ -170,6 +170,15 @@ impl ApiErrorCode {
         cokret_sdk::ERROR_CODE_POLICY_REVISION_ROLLBACK,
         StatusCode::CONFLICT,
     );
+    // §8.7 — a heartbeat / announce against a Realm that has reached the
+    // `ck.realm.destroy` terminal state. Distinct from
+    // `policy_revision_rollback` (which means an `as_of`/`policy_revision`
+    // earlier than the indexed value, §8.10).
+    #[allow(non_upper_case_globals)]
+    pub const RealmTerminalState: Self = Self::new(
+        cokret_sdk::ERROR_CODE_REALM_TERMINAL_STATE,
+        StatusCode::CONFLICT,
+    );
 
     // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
     // CKP R3 handle homograph wire-level enforce. Emitted by

@@ -32,8 +32,8 @@ use serde_json::json;
 
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
-use crate::ingest::ResourceKindWire;
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
+use crate::ingest::{ResourceKindWire, header_value};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -128,7 +128,7 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
 
     if lookup.realm_destroyed_at.is_some() {
         ingest_metric.set_outcome("realm_destroyed");
-        ApiErrorCode::PolicyRevisionRollback.render(res, "realm is in terminal destroyed state");
+        ApiErrorCode::RealmTerminalState.render(res, "realm is in terminal destroyed state");
         return;
     }
 
@@ -174,14 +174,6 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
             ApiErrorCode::InternalError.render(res, format!("heartbeat persist: {error}"));
         }
     }
-}
-
-fn header_value(req: &Request, name: &str) -> Option<String> {
-    req.headers()
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug, Queryable)]

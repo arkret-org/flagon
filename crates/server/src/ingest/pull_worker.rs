@@ -229,9 +229,11 @@ impl PullWorker {
         let next_revalidation = indexed_at + chrono::Duration::seconds(effective_ttl);
         let announce_id = new_id(IdClass::Announce);
         let public_projection =
-            derive_public_projection(&announce.discovery_state).map_err(|(code, message)| {
-                anyhow::anyhow!("projection rejected with {}: {message}", code.wire_code())
-            })?;
+            derive_public_projection(&announce.discovery_state, verified.discoverability).map_err(
+                |(code, message)| {
+                    anyhow::anyhow!("projection rejected with {}: {message}", code.wire_code())
+                },
+            )?;
 
         // Round R2/R3 T07/T14 — surface realm terminal state on the pull
         // path too, and persist the federation cache-key identity fields

@@ -22,15 +22,20 @@ use sha2::{Digest, Sha256};
 pub const MEMBER_COUNT_BUCKETS: &[&str] =
     &["1-10", "11-50", "51-100", "101-500", "501-2000", "2000+"];
 
-pub fn bucket_member_count(count: i64) -> &'static str {
+/// Map an exact member count to its §3.x bucket. Returns `None` for a count of
+/// zero or below: the lowest grid bucket is `1-10` ("1 to 10 members"), so a
+/// zero/negative count has no valid bucket. Folding it into `1-10` would
+/// falsely advertise members and silently mask an upstream counting bug — the
+/// caller MUST omit `member_count_bucket` instead.
+pub fn bucket_member_count(count: i64) -> Option<&'static str> {
     match count {
-        i64::MIN..=0 => "1-10", // pre-conditions: callers should not pass 0; bucket lower bound.
-        1..=10 => "1-10",
-        11..=50 => "11-50",
-        51..=100 => "51-100",
-        101..=500 => "101-500",
-        501..=2000 => "501-2000",
-        _ => "2000+",
+        i64::MIN..=0 => None,
+        1..=10 => Some("1-10"),
+        11..=50 => Some("11-50"),
+        51..=100 => Some("51-100"),
+        101..=500 => Some("101-500"),
+        501..=2000 => Some("501-2000"),
+        _ => Some("2000+"),
     }
 }
 
@@ -220,16 +225,18 @@ mod tests {
 
     #[test]
     fn buckets_cover_normative_grid() {
-        assert_eq!(bucket_member_count(1), "1-10");
-        assert_eq!(bucket_member_count(10), "1-10");
-        assert_eq!(bucket_member_count(11), "11-50");
-        assert_eq!(bucket_member_count(50), "11-50");
-        assert_eq!(bucket_member_count(51), "51-100");
-        assert_eq!(bucket_member_count(101), "101-500");
-        assert_eq!(bucket_member_count(501), "501-2000");
-        assert_eq!(bucket_member_count(2_000), "501-2000");
-        assert_eq!(bucket_member_count(2_001), "2000+");
-        assert_eq!(bucket_member_count(1_000_000), "2000+");
+        assert_eq!(bucket_member_count(0), None);
+        assert_eq!(bucket_member_count(-5), None);
+        assert_eq!(bucket_member_count(1), Some("1-10"));
+        assert_eq!(bucket_member_count(10), Some("1-10"));
+        assert_eq!(bucket_member_count(11), Some("11-50"));
+        assert_eq!(bucket_member_count(50), Some("11-50"));
+        assert_eq!(bucket_member_count(51), Some("51-100"));
+        assert_eq!(bucket_member_count(101), Some("101-500"));
+        assert_eq!(bucket_member_count(501), Some("501-2000"));
+        assert_eq!(bucket_member_count(2_000), Some("501-2000"));
+        assert_eq!(bucket_member_count(2_001), Some("2000+"));
+        assert_eq!(bucket_member_count(1_000_000), Some("2000+"));
     }
 
     #[test]

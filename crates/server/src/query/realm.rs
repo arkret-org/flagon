@@ -123,7 +123,12 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
 
     match result {
         Ok(mut rows) => {
-            let next_cursor = if rows.len() > limit as usize {
+            // We over-fetched `limit + 1` rows; a full extra row means the
+            // result set is truncated and more pages exist (spec §9.1 /
+            // profiles-presence §4.1 unified `has_more` convention, which
+            // supersedes the legacy `limited` flag).
+            let has_more = rows.len() > limit as usize;
+            let next_cursor = if has_more {
                 rows.truncate(limit as usize);
                 rows.last().map(encode_cursor).transpose()
             } else {
@@ -140,6 +145,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
             res.render(Json(json!({
                 "results": envelopes,
                 "next_cursor": next_cursor,
+                "has_more": has_more,
             })));
         }
         Err(e) => {
@@ -590,33 +596,7 @@ fn has_restricted_query_authorization(
     requester: Option<&str>,
     proofs: &[String],
 ) -> bool {
-    let Some(discoverers) = allowed_discoverers(projection) else {
-        return false;
-    };
-
-    discoverers.iter().any(|entry| match entry {
-        JsonValue::String(value) => proofs.iter().any(|proof| proof == value),
-        JsonValue::Object(obj) => {
-            let requester_matches = requester.is_some_and(|requester| {
-                ["requester", "subject", "did", "actor"]
-                    .iter()
-                    .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(requester))
-            });
-            let proof_matches = ["proof", "presentation", "claim", "claim_id", "claim_kind"]
-                .iter()
-                .filter_map(|key| obj.get(*key).and_then(JsonValue::as_str))
-                .any(|expected| proofs.iter().any(|proof| proof == expected));
-            requester_matches || proof_matches
-        }
-        _ => false,
-    })
-}
-
-fn allowed_discoverers(projection: &JsonValue) -> Option<&Vec<JsonValue>> {
-    projection
-        .get("allowed_discoverers")
-        .or_else(|| projection.pointer("/payload/allowed_discoverers"))
-        .and_then(JsonValue::as_array)
+    crate::filter::discoverers::matches_allowed_discoverers(projection, requester, proofs)
 }
 
 impl TryFrom<RealmSqlRow> for RealmRow {
@@ -626,7 +606,7 @@ impl TryFrom<RealmSqlRow> for RealmRow {
         Ok(Self {
             resource_id: row.resource_id,
             public_projection: row.public_projection,
-            discoverability: discoverability_from_str(&row.discoverability)?,
+            discoverability: DiscoverabilityWire::from_pg(&row.discoverability)?,
             as_of: row.as_of,
             source_refs: row.source_refs,
             policy_revision: row.policy_revision,
@@ -658,18 +638,6 @@ impl From<RealmStoredRow> for RealmRow {
             realm_destroyed_at: row.realm_destroyed_at,
             reachability_revoked_at: row.reachability_revoked_at,
         }
-    }
-}
-
-fn discoverability_from_str(value: &str) -> anyhow::Result<DiscoverabilityWire> {
-    match value {
-        "public" => Ok(DiscoverabilityWire::Public),
-        "listed" => Ok(DiscoverabilityWire::Listed),
-        "restricted" => Ok(DiscoverabilityWire::Restricted),
-        "unlisted" => Ok(DiscoverabilityWire::Unlisted),
-        "invite_only" => Ok(DiscoverabilityWire::InviteOnly),
-        "secret" => Ok(DiscoverabilityWire::Secret),
-        other => anyhow::bail!("unknown discoverability {other}"),
     }
 }
 

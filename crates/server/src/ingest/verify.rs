@@ -814,18 +814,8 @@ fn read_discoverability(
                 "discovery_state.discoverability missing".into(),
             )
         })?;
-    match s {
-        "public" => Ok(super::DiscoverabilityWire::Public),
-        "listed" => Ok(super::DiscoverabilityWire::Listed),
-        "restricted" => Ok(super::DiscoverabilityWire::Restricted),
-        "unlisted" => Ok(super::DiscoverabilityWire::Unlisted),
-        "invite_only" => Ok(super::DiscoverabilityWire::InviteOnly),
-        "secret" => Ok(super::DiscoverabilityWire::Secret),
-        other => Err((
-            ApiErrorCode::SchemaViolation,
-            format!("unknown discoverability {other}"),
-        )),
-    }
+    super::DiscoverabilityWire::from_pg(s)
+        .map_err(|e| (ApiErrorCode::SchemaViolation, e.to_string()))
 }
 
 fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) -> Vec<String> {
