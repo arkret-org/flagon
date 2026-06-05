@@ -1,4 +1,4 @@
-//! Conformance suite for `ck.directory.list_handles_for_subject` (DIR-TBY-5,
+//! Conformance suite for `ck.find.directory.list_handles_for_subject` (DIR-TBY-5,
 //! R3.2 / cokret-spec @ b56cab1).
 //!
 //! These exercise the directory's reverse-handle-lookup response assembly

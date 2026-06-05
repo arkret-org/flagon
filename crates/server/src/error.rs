@@ -182,7 +182,7 @@ impl ApiErrorCode {
 
     // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
     // CKP R3 handle homograph wire-level enforce. Emitted by
-    // `ck.directory.resolve_handle` (query face) and announce ingest
+    // `ck.find.directory.resolve_handle` (query face) and announce ingest
     // when the handle localpart fails the NFC + UTS#39 confusable +
     // script-mixed normalization check provided by
     // `cokret_sdk::normalize_handle_localpart`.
@@ -193,7 +193,7 @@ impl ApiErrorCode {
     );
 
     // -------- R3.2 spec-sync 2026-05-28 (cokret-spec @ b56cab1) --------
-    // `ck.directory.list_handles_for_subject` input validation. A
+    // `ck.find.directory.list_handles_for_subject` input validation. A
     // `subject` that is not a holder/principal DID (a `ck:actor:` Realm
     // actor_id, a `ck:account:` server-local account id, a service DID,
     // or a non-DID resource id) is rejected with `failed_precondition`

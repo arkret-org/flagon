@@ -1,6 +1,6 @@
 //! Actor / user search. Spec §9.
 //!
-//! `ck.directory.search_actors` and `ck.directory.search_users` (mention
+//! `ck.find.directory.search_actors` and `ck.find.directory.search_users` (mention
 //! autocomplete).
 //!
 //! `realm_id` scopes `search_users` / `search_actors` to the security
@@ -46,7 +46,7 @@ pub struct SearchUsersRequest {
     #[serde(default)]
     pub limit: Option<u32>,
     /// Why the requester wants to enumerate users. Spec 0a5ab85:
-    /// `ck.directory.search_users` adds `intent`. Implementations MUST
+    /// `ck.find.directory.search_users` adds `intent`. Implementations MUST
     /// pipe this into anti-enumeration filtering and Realm
     /// `allowed_recipient_services` policy checks.
     #[serde(default)]
@@ -88,7 +88,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.directory.search_actors",
+        "ck.find.directory.search_actors",
         &privacy_key,
         |target| {
             state
@@ -157,7 +157,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     let privacy_key = format!("q={needle};requester={requester};realm={realm_id};limit={limit}");
     let result = pad_to_budget_observed(
         budget,
-        "ck.directory.search_users",
+        "ck.find.directory.search_users",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad("search-users", target),
         async { run_user_search(&state, &needle, requester, realm_id, limit).await },

@@ -1,4 +1,4 @@
-//! `ck.directory.push.register` webhook registration and fanout.
+//! `ck.find.directory.push.register` webhook registration and fanout.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;

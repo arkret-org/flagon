@@ -44,7 +44,7 @@ fn router_builds_with_minimal_state() {
     let doc_json = serde_json::to_value(&doc).expect("OpenAPI document serializes");
     assert_eq!(
         doc_json["paths"]["/_cokret/find/directory/announce"]["post"]["operationId"].as_str(),
-        Some("ck.directory.announce")
+        Some("ck.find.directory.announce")
     );
 }
 

@@ -1,7 +1,7 @@
 //! T8.2 — wall-clock variance smoke for teabay's
 //! `pad_to_budget` latency floor.
 //!
-//! `ck.directory.resolve_handle` (Spec §10) requires that the three
+//! `ck.find.directory.resolve_handle` (Spec §10) requires that the three
 //! policy outcomes — `found`, `not_found` (genuine miss), and
 //! `unauthorized` (collapsed to `not_found`) — share the same visible
 //! latency tier on the wire so a remote observer cannot enumerate
@@ -94,7 +94,7 @@ where
     let mut samples = Vec::with_capacity(TRIALS);
     for _ in 0..TRIALS {
         let start = Instant::now();
-        pad_to_budget(*budget, "ck.directory.resolve_handle", privacy_key, f()).await;
+        pad_to_budget(*budget, "ck.find.directory.resolve_handle", privacy_key, f()).await;
         samples.push(start.elapsed());
     }
     samples

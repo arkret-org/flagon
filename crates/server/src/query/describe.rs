@@ -1,4 +1,4 @@
-//! `ck.directory.describe` — service capability advertisement.
+//! `ck.find.directory.describe` — service capability advertisement.
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
@@ -71,7 +71,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(|op| (*op).to_owned())
         .collect();
     if cfg.private_contact_discovery_enabled {
-        supported_operations.push("ck.directory.private_contact_discovery".to_owned());
+        supported_operations.push("ck.find.directory.private_contact_discovery".to_owned());
     }
 
     // Transport / encoding bindings this service speaks.
@@ -331,7 +331,7 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     limitations.push(json!({
         "feature": "webhook_fanout_delivery",
         "status": "best_effort",
-        "detail": "ck.directory.push.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
+        "detail": "ck.find.directory.push.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
     limitations.push(json!({
         "feature": "resolve_target.object_access_gate",
@@ -464,7 +464,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|op| op == "ck.directory.describe")
+                .any(|op| op == "ck.find.directory.describe")
         );
         let limitation_features: std::collections::BTreeSet<_> = value["limitations"]
             .as_array()

@@ -1,4 +1,4 @@
-//! `ck.directory.announce` handler — push-mode ingest.
+//! `ck.find.directory.announce` handler — push-mode ingest.
 //!
 //! Spec: discovery-directory.md §8.3 (request shape), §8.5 (verify chain),
 //! §8.6 (TTL), §8.10 (anti-abuse / replay).
@@ -1063,7 +1063,7 @@ pub(crate) async fn latest_as_of_for(
 /// Round R2/R3 T14 — extra federation cache fields persisted alongside
 /// the `ingest_announces` row. Push-mode pulls them from request headers
 /// and discovery proof; pull-mode pulls them from the upstream
-/// `ck.events.query` response headers/envelope plus the same proof.
+/// `ck.self.events.query` response headers/envelope plus the same proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
     pub source_service_did: String,

@@ -3,7 +3,7 @@
 //! Wakes every `TEABAY_PULL_INTERVAL_SECONDS`, scans for entries whose
 //! `next_revalidation_after` has passed, and re-pulls their signed
 //! `ck.{kind}.discovery` state from the resource Principal Server using
-//! the standard `ck.events.query` shape:
+//! the standard `ck.self.events.query` shape:
 //!
 //! ```text
 //! GET /_cokret/self/events/query
@@ -237,7 +237,7 @@ impl PullWorker {
 
         // Round R2/R3 T07/T14 — surface realm terminal state on the pull
         // path too, and persist the federation cache-key identity fields
-        // observed from the upstream `ck.events.query` response/envelope.
+        // observed from the upstream `ck.self.events.query` response/envelope.
         let realm_terminal =
             derive_realm_terminal_state(announce.resource_kind, &announce.discovery_state);
         let fanout_projection = upsert_resource_and_audit(
