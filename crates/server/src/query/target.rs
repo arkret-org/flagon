@@ -534,9 +534,10 @@ fn build_realm_response(
 
 /// Build the Flow / Message target response. The access-gate / real Flow /
 /// Message projection is `TODO(R3.3.1)`; we surface a deterministic placeholder
-/// preview anchored to the verified target identity, while the §9.1 common
-/// fields + join_candidates are taken from the (already-resolved, already-visible)
-/// enclosing Realm.
+/// preview anchored to the verified target identity and carry only the §9.1
+/// freshness/source fields from the enclosing Realm. Realm join routing is
+/// intentionally omitted until the object access gate can decide whether the
+/// caller may receive it.
 fn build_object_response(
     target_kind: TargetKind,
     canonical_realm_id: &str,
@@ -569,7 +570,7 @@ fn build_object_response(
         join_rule: None,
         as_of: resolved.envelope.as_of,
         source_refs: resolved.envelope.source_refs.clone(),
-        join_candidates: resolved.join_candidates.clone(),
+        join_candidates: Vec::new(),
         policy_revision: resolved.envelope.policy_revision.clone(),
         stale: opt_bool(resolved.envelope.stale),
         divergent: opt_bool(resolved.envelope.divergent),
@@ -846,6 +847,53 @@ mod tests {
             Vec::<cokret_sdk::RealmJoinCandidate>::new()
         );
         assert!(response.object_preview.is_none());
+    }
+
+    #[test]
+    fn object_placeholder_omits_realm_join_candidates() {
+        let parsed = parse_address(&format!(
+            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+        ))
+        .unwrap();
+        let resolved = crate::query::realm::ResolvedRealm {
+            realm_id: format!("ck:realm:{R}"),
+            envelope: crate::filter::result::ResultEnvelope::from_row(
+                json!({ "realm_id": format!("ck:realm:{R}"), "title": "Tea Time" }),
+                sample_time(),
+                vec!["ck:event:1".to_owned()],
+                Some("rev-7".to_owned()),
+                false,
+                false,
+                vec!["did:web:hps.example".to_owned()],
+            ),
+            join_candidates: vec![cokret_sdk::RealmJoinCandidate {
+                realm_id: RealmId::new(format!("ck:realm:{R}")).unwrap(),
+                service_did: cokret_sdk::Did::new("did:web:hps.example".to_owned()).unwrap(),
+                service_type: cokret_sdk::RealmJoinCandidateServiceType::PrincipalServer,
+                role: cokret_sdk::RealmJoinCandidateRole::Primary,
+                endpoint: None,
+                operations: vec!["ck.self.events.submit".to_owned()],
+                join_methods: vec![cokret_sdk::RealmJoinMethod::InviteAccept],
+                priority: Some(0),
+                source: cokret_sdk::RealmJoinCandidateSource::DirectoryIngest,
+                source_refs: Vec::new(),
+                frontier_ref: None,
+                as_of: sample_time(),
+                expires_at: sample_time() + chrono::Duration::minutes(15),
+                proofs: Vec::new(),
+            }],
+        };
+
+        let response = build_object_response(
+            TargetKind::Flow,
+            &format!("ck:realm:{R}"),
+            &parsed,
+            resolved,
+        );
+
+        assert_eq!(response.target_kind, TargetKind::Flow);
+        assert!(response.object_preview.is_some());
+        assert!(response.join_candidates.is_empty());
     }
 
     #[test]

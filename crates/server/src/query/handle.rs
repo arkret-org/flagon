@@ -411,8 +411,9 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
     let row: Option<HandleRow> = r::directory_resources
         .filter(r::resource_kind.eq(ResourceKindWire::Handle))
         .filter(r::resource_id.eq(handle))
-        // Freshness worker flips `stale=true` once `expires_at < now()`;
-        // stale rows MUST NOT surface through the resolve face.
+        // Freshness worker flips `stale=true` once `expires_at` plus the
+        // configured revalidation grace has elapsed; stale rows MUST NOT
+        // surface through the resolve face.
         .filter(r::stale.eq(false))
         .select((
             r::resource_id,

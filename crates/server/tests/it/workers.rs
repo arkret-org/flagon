@@ -101,6 +101,65 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Result<()> {
+    if !docker_tests_enabled() {
+        eprintln!(
+            "skipping freshness_worker_waits_until_revalidation_grace_elapsed; set TEABAY_RUN_DOCKER_TESTS=1"
+        );
+        return Ok(());
+    }
+    let (_pg, database_url) = boot_postgres()?;
+    let (_config, state) = test_app_state(&database_url).await?;
+
+    {
+        let mut conn = state.db().get().await?;
+        diesel::sql_query(
+            "INSERT INTO directory_resources (\
+                 resource_kind, resource_id, principal_server_did, discovery_state, \
+                 public_projection, discoverability, as_of, source_refs, indexed_at, \
+                 effective_ttl_seconds, next_revalidation_after, stale, divergent, \
+                 via_services, last_refreshed_at, expires_at) \
+             VALUES \
+                 ('realm'::resource_kind, 'ck:realm:within-grace', 'did:web:fresh.test', \
+                  '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '2 hours', \
+                  ARRAY['evt-within-grace'], now() - interval '2 hours', 60, now() - interval '30 minutes', \
+                  false, false, ARRAY[]::text[], now() - interval '2 hours', now() - interval '30 minutes'), \
+                 ('realm'::resource_kind, 'ck:realm:past-grace', 'did:web:stale.test', \
+                  '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '3 hours', \
+                  ARRAY['evt-past-grace'], now() - interval '3 hours', 60, now() - interval '2 hours', \
+                  false, false, ARRAY[]::text[], now() - interval '3 hours', now() - interval '2 hours')",
+        )
+        .execute(&mut conn)
+        .await?;
+    }
+
+    let worker = server::ingest::freshness_worker::FreshnessWorker::new(
+        state.clone(),
+        Duration::from_secs(60),
+    );
+    let flipped = worker.run_once().await?;
+    assert_eq!(flipped, 1, "only the row past grace should flip stale");
+
+    let mut conn = state.db().get().await?;
+    let stale_count: i64 = diesel::sql_query(
+        "SELECT count(*)::BIGINT AS count FROM directory_resources WHERE stale = true",
+    )
+    .get_result::<CountRow>(&mut conn)
+    .await?
+    .count;
+    assert_eq!(stale_count, 1);
+    let within_grace_count: i64 = diesel::sql_query(
+        "SELECT count(*)::BIGINT AS count FROM directory_resources \
+         WHERE resource_id = 'ck:realm:within-grace' AND stale = false",
+    )
+    .get_result::<CountRow>(&mut conn)
+    .await?
+    .count;
+    assert_eq!(within_grace_count, 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
     if !docker_tests_enabled() {
         eprintln!(

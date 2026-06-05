@@ -3,17 +3,17 @@
 //! The heartbeat ingest path (P2E.5) writes `expires_at` on every
 //! refresh; this worker is the other half of the contract: every
 //! `tick` (default 10 minutes) it sweeps `directory_resources` and
-//! marks any row whose `expires_at < now()` as `stale = true`. Query
-//! handlers (`actor`, `realm`, `organization`, `handle`) all filter
-//! on `stale = false`, so this flips a row out of the search face
-//! without deleting the audit history.
+//! marks any row whose revalidation TTL plus configured grace has elapsed
+//! as `stale = true`. Query handlers (`actor`, `realm`, `organization`,
+//! `handle`) all filter on `stale = false`, so this flips a row out of the
+//! search face without deleting the audit history.
 //!
 //! Unlike `PullWorker`, this worker does NOT make outbound HTTP
 //! calls — it is a pure database sweep, so it remains cheap to run
 //! frequently and safe to run alongside the pull/divergence workers.
 //! Rows already past the pull worker's 24h delete window are still
 //! purged by `PullWorker::purge_stale_past_delete_window`; this
-//! worker only owns the `expires_at`-driven stale flip.
+//! worker only owns the `expires_at + revalidation_grace` stale flip.
 
 use std::time::Duration;
 
@@ -64,16 +64,19 @@ impl FreshnessWorker {
         use crate::schema::directory_resources::dsl as r;
         let mut conn = self.state.db().get().await?;
         let now = Utc::now();
+        let grace = chrono::Duration::from_std(self.state.config().revalidation_grace)?;
+        let stale_cutoff = now - grace;
         let flipped = diesel::update(r::directory_resources)
             .filter(r::stale.eq(false))
-            .filter(r::expires_at.lt(now))
+            .filter(r::expires_at.lt(stale_cutoff))
             .set(r::stale.eq(true))
             .execute(&mut *conn)
             .await?;
         if flipped > 0 {
             info!(
                 flipped,
-                "freshness worker: rows flipped to stale by expires_at"
+                grace_seconds = self.state.config().revalidation_grace.as_secs(),
+                "freshness worker: rows flipped to stale after revalidation grace"
             );
         }
         Ok(flipped)

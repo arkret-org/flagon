@@ -26,7 +26,7 @@ use crate::state::{AppState, RateLimitOutcome};
 
 const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
 const MATCH_CARDINALITY: usize = 256;
-const MAX_PSI_INDEX_CANDIDATES: usize = 10_000;
+const PSI_INDEX_BATCH_SIZE: i64 = 1_024;
 
 type PsiServer = VoprfServer<Ristretto255>;
 type PsiBlindedElement = BlindedElement<Ristretto255>;
@@ -75,9 +75,6 @@ pub struct MatchResponse {
     pub hit_bitmap: Vec<bool>,
     pub padding_count: usize,
     pub fixed_cardinality: usize,
-    pub limited: bool,
-    pub indexed_candidate_count: usize,
-    pub indexed_candidate_limit: usize,
     pub voprf_profile: &'static str,
 }
 
@@ -276,9 +273,6 @@ async fn handle_match_phase(
         hit_bitmap,
         padding_count,
         fixed_cardinality: MATCH_CARDINALITY,
-        limited: index.limited,
-        indexed_candidate_count: index.indexed_candidate_count,
-        indexed_candidate_limit: MAX_PSI_INDEX_CANDIDATES,
         voprf_profile: VOPRF_PROFILE,
     }));
 }
@@ -338,8 +332,6 @@ async fn load_or_create_epoch_key(
 #[derive(Debug)]
 struct IndexedMatchTokens {
     tokens: HashSet<Vec<u8>>,
-    indexed_candidate_count: usize,
-    limited: bool,
 }
 
 async fn load_indexed_match_tokens(
@@ -349,44 +341,46 @@ async fn load_indexed_match_tokens(
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
-    let rows: Vec<(ResourceKindWire, String, JsonValue)> = r::directory_resources
-        .filter(
-            r::resource_kind
-                .eq(ResourceKindWire::Actor)
-                .or(r::resource_kind.eq(ResourceKindWire::Handle)),
-        )
-        .filter(
-            r::discoverability
-                .eq(DiscoverabilityWire::Public)
-                .or(r::discoverability.eq(DiscoverabilityWire::Listed)),
-        )
-        .limit((MAX_PSI_INDEX_CANDIDATES + 1) as i64)
-        .select((r::resource_kind, r::resource_id, r::public_projection))
-        .load(&mut *conn)
-        .await?;
-
-    let (rows, limited) = apply_candidate_limit(rows);
-    let indexed_candidate_count = rows.len();
     let mut tokens = HashSet::new();
-    for (kind, resource_id, projection) in rows {
-        for input in contact_candidate_inputs(kind, &resource_id, &projection) {
-            let output = server
-                .evaluate(input.as_bytes())
-                .map_err(|error| anyhow::anyhow!("VOPRF evaluate `{input}`: {error}"))?;
-            tokens.insert(output.to_vec());
+    for kind in [ResourceKindWire::Actor, ResourceKindWire::Handle] {
+        let mut after_resource_id: Option<String> = None;
+        loop {
+            let mut query = r::directory_resources
+                .filter(r::resource_kind.eq(kind))
+                .filter(
+                    r::discoverability
+                        .eq(DiscoverabilityWire::Public)
+                        .or(r::discoverability.eq(DiscoverabilityWire::Listed)),
+                )
+                .into_boxed();
+            if let Some(cursor) = after_resource_id.as_ref() {
+                query = query.filter(r::resource_id.gt(cursor.clone()));
+            }
+            let rows: Vec<(ResourceKindWire, String, JsonValue)> = query
+                .order(r::resource_id.asc())
+                .limit(PSI_INDEX_BATCH_SIZE)
+                .select((r::resource_kind, r::resource_id, r::public_projection))
+                .load(&mut *conn)
+                .await?;
+            if rows.is_empty() {
+                break;
+            }
+            let fetched = rows.len();
+            for (kind, resource_id, projection) in rows {
+                after_resource_id = Some(resource_id.clone());
+                for input in contact_candidate_inputs(kind, &resource_id, &projection) {
+                    let output = server
+                        .evaluate(input.as_bytes())
+                        .map_err(|error| anyhow::anyhow!("VOPRF evaluate `{input}`: {error}"))?;
+                    tokens.insert(output.to_vec());
+                }
+            }
+            if fetched < PSI_INDEX_BATCH_SIZE as usize {
+                break;
+            }
         }
     }
-    Ok(IndexedMatchTokens {
-        tokens,
-        indexed_candidate_count,
-        limited,
-    })
-}
-
-fn apply_candidate_limit<T>(mut rows: Vec<T>) -> (Vec<T>, bool) {
-    let limited = rows.len() > MAX_PSI_INDEX_CANDIDATES;
-    rows.truncate(MAX_PSI_INDEX_CANDIDATES);
-    (rows, limited)
+    Ok(IndexedMatchTokens { tokens })
 }
 
 fn current_epoch(config: &AppConfig) -> String {
@@ -478,12 +472,22 @@ mod tests {
     }
 
     #[test]
-    fn psi_candidate_limit_marks_truncated_index() {
-        let rows = (0..=MAX_PSI_INDEX_CANDIDATES).collect::<Vec<_>>();
-        let (limited_rows, limited) = apply_candidate_limit(rows);
+    fn match_response_does_not_expose_index_size() {
+        let value = serde_json::to_value(MatchResponse {
+            phase: "match",
+            epoch: "psi-epoch-1".to_owned(),
+            key_id: "psi-epoch-1".to_owned(),
+            query_id: "query".to_owned(),
+            hit_bitmap: vec![false; MATCH_CARDINALITY],
+            padding_count: 0,
+            fixed_cardinality: MATCH_CARDINALITY,
+            voprf_profile: VOPRF_PROFILE,
+        })
+        .expect("serialize match response");
 
-        assert!(limited);
-        assert_eq!(limited_rows.len(), MAX_PSI_INDEX_CANDIDATES);
+        assert!(value.get("limited").is_none());
+        assert!(value.get("indexed_candidate_count").is_none());
+        assert!(value.get("indexed_candidate_limit").is_none());
     }
 
     #[test]

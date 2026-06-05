@@ -37,6 +37,8 @@ use crate::error::ApiErrorCode;
 use crate::ingest::ResourceKindWire;
 use crate::ingest::announce::AnnounceRequest;
 
+const MAX_VIA_SERVICES: usize = 8;
+
 #[derive(Debug)]
 pub struct VerifyOutcome {
     /// Effective `discoverability` parsed from discovery_state.
@@ -658,6 +660,8 @@ pub(crate) async fn resolve_principal_server_endpoint(
         .get("service")
         .and_then(JsonValue::as_array)
         .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
+    // DID Document order is the owner-controlled priority order for multiple
+    // Principal Server services; teabay keeps that deterministic convention.
     let service = services
         .iter()
         .find(|service| service_type_matches(service, "CokretPrincipalServer"))
@@ -823,13 +827,22 @@ fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) 
         .get("via_services")
         .and_then(JsonValue::as_array)
     {
-        let v: Vec<_> = arr
-            .iter()
-            .filter_map(JsonValue::as_str)
-            .map(str::to_string)
-            .collect();
-        if !v.is_empty() {
-            return v;
+        let mut services = Vec::new();
+        for value in arr.iter().filter_map(JsonValue::as_str) {
+            let did = value.trim();
+            if did.is_empty()
+                || Did::new(did.to_owned()).is_err()
+                || services.iter().any(|existing| existing == did)
+            {
+                continue;
+            }
+            services.push(did.to_owned());
+            if services.len() == MAX_VIA_SERVICES {
+                break;
+            }
+        }
+        if !services.is_empty() {
+            return services;
         }
     }
     vec![principal_server_did.to_string()]
@@ -868,4 +881,55 @@ async fn previously_withdrawn(
         .await
         .optional()?;
     Ok(row)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn derive_via_services_dedupes_valid_dids_and_caps_count() {
+        let discovery_state = json!({
+            "via_services": [
+                " did:web:primary.example ",
+                "not-a-did",
+                "did:web:primary.example",
+                "did:web:mirror1.example",
+                "did:web:mirror2.example",
+                "did:web:mirror3.example",
+                "did:web:mirror4.example",
+                "did:web:mirror5.example",
+                "did:web:mirror6.example",
+                "did:web:mirror7.example",
+                "did:web:mirror8.example"
+            ]
+        });
+
+        let derived = derive_via_services(&discovery_state, "did:web:fallback.example");
+
+        assert_eq!(derived.len(), MAX_VIA_SERVICES);
+        assert_eq!(derived[0], "did:web:primary.example");
+        assert!(!derived.iter().any(|did| did == "not-a-did"));
+        assert_eq!(
+            derived
+                .iter()
+                .filter(|did| did.as_str() == "did:web:primary.example")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn derive_via_services_falls_back_when_array_has_no_valid_dids() {
+        let discovery_state = json!({
+            "via_services": ["", "not-a-did", 7]
+        });
+
+        assert_eq!(
+            derive_via_services(&discovery_state, "did:web:fallback.example"),
+            vec!["did:web:fallback.example".to_owned()]
+        );
+    }
 }
