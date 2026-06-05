@@ -90,13 +90,8 @@ impl ResourceKindWire {
 
 impl From<ResourceKindWire> for cokret_sdk::DirectoryResourceKind {
     fn from(kind: ResourceKindWire) -> Self {
-        // The SDK's `DirectoryResourceKind` still carries the pre-inversion
-        // name `Space` for the security-boundary kind teabay calls `Realm`
-        // (SDK naming lags the Realm/Space inversion). The mapping is a
-        // lossless 1:1 bijection now that teabay no longer has a separate
-        // `Space` variant.
         match kind {
-            ResourceKindWire::Realm => Self::Space,
+            ResourceKindWire::Realm => Self::Realm,
             ResourceKindWire::Organization => Self::Organization,
             ResourceKindWire::Actor => Self::Actor,
             ResourceKindWire::Applet => Self::Applet,
@@ -108,7 +103,7 @@ impl From<ResourceKindWire> for cokret_sdk::DirectoryResourceKind {
 impl From<cokret_sdk::DirectoryResourceKind> for ResourceKindWire {
     fn from(kind: cokret_sdk::DirectoryResourceKind) -> Self {
         match kind {
-            cokret_sdk::DirectoryResourceKind::Space => Self::Realm,
+            cokret_sdk::DirectoryResourceKind::Realm => Self::Realm,
             cokret_sdk::DirectoryResourceKind::Organization => Self::Organization,
             cokret_sdk::DirectoryResourceKind::Actor => Self::Actor,
             cokret_sdk::DirectoryResourceKind::Applet => Self::Applet,
@@ -221,8 +216,7 @@ mod tests {
 
     #[test]
     fn db_resource_kind_round_trips_through_sdk_type() {
-        // Round-trip is now a lossless bijection for every variant — there is
-        // no `Space` variant to collapse onto the SDK's lagging `Space` value.
+        // Round-trip is a lossless bijection for every variant.
         for kind in [
             ResourceKindWire::Realm,
             ResourceKindWire::Organization,
@@ -234,7 +228,7 @@ mod tests {
             assert_eq!(ResourceKindWire::from(sdk_kind), kind);
         }
         let realm_sdk: cokret_sdk::DirectoryResourceKind = ResourceKindWire::Realm.into();
-        assert_eq!(realm_sdk, cokret_sdk::DirectoryResourceKind::Space);
+        assert_eq!(realm_sdk, cokret_sdk::DirectoryResourceKind::Realm);
         assert_eq!(
             ResourceKindWire::Realm.discovery_event_kind(),
             "ck.realm.discovery"
