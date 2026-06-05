@@ -351,8 +351,8 @@ async fn run_visible_org_search(
                 indexed_at: row.indexed_at,
                 resource_id: row.resource_id.clone(),
             });
-            let needle_ok = needle.is_empty()
-                || org_matches(&row.public_projection, &row.resource_id, &needle);
+            let needle_ok =
+                needle.is_empty() || org_matches(&row.public_projection, &row.resource_id, &needle);
             if needle_ok && is_org_visible(&row, requester, proofs) {
                 visible_rows.push(row);
                 if visible_rows.len() >= target_len {

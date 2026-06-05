@@ -16,7 +16,6 @@ use rand::rngs::OsRng;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use sha2::{Digest, Sha512};
 use voprf::{BlindedElement, Group, Ristretto255, VoprfServer};
 
 use crate::config::AppConfig;
@@ -212,7 +211,7 @@ async fn handle_blind_phase(
         proofs.push(URL_SAFE_NO_PAD.encode(evaluated.proof.serialize()));
     }
 
-    let query_id = query_id(&body.requester, &key.epoch, &body.blinded_inputs);
+    let query_id = random_query_id();
     let padding_count = MATCH_CARDINALITY.saturating_sub(evaluations.len());
     res.render(Json(BlindResponse {
         phase: "blind",
@@ -253,10 +252,7 @@ async fn handle_match_phase(
         }
     };
 
-    let query_id = body
-        .query_id
-        .clone()
-        .unwrap_or_else(|| query_id(&body.requester, &key.epoch, &body.match_tokens));
+    let query_id = body.query_id.clone().unwrap_or_else(random_query_id);
     let decoded_tokens = match decode_match_tokens(&body.match_tokens) {
         Ok(tokens) => tokens,
         Err(message) => {
@@ -400,14 +396,8 @@ fn current_epoch(config: &AppConfig) -> String {
     format!("psi-epoch-{epoch}")
 }
 
-fn query_id(requester: &str, epoch: &str, inputs: &[String]) -> String {
-    let mut h = Sha512::new();
-    h.update(requester.as_bytes());
-    h.update(epoch.as_bytes());
-    for input in inputs {
-        h.update(input.as_bytes());
-    }
-    URL_SAFE_NO_PAD.encode(&h.finalize()[..24])
+fn random_query_id() -> String {
+    URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>())
 }
 
 fn decode_blinded_element(input: &str) -> Result<PsiBlindedElement, String> {
@@ -494,5 +484,20 @@ mod tests {
 
         assert!(limited);
         assert_eq!(limited_rows.len(), MAX_PSI_INDEX_CANDIDATES);
+    }
+
+    #[test]
+    fn psi_query_id_is_opaque_random_token() {
+        let first = random_query_id();
+        let second = random_query_id();
+
+        assert_eq!(first.len(), 32);
+        assert_eq!(second.len(), 32);
+        assert_ne!(first, second);
+        assert!(
+            first
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
     }
 }

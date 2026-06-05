@@ -271,25 +271,6 @@ pub enum TokenCheck {
 /// `canonical_realm_id` is the `ck:realm:<uuid>` the realm resolution produced
 /// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
 /// mismatch hole.
-pub fn verify_address_token(
-    parsed: &ParsedAddress,
-    token: Option<&str>,
-    canonical_realm_id: &str,
-    effective_link_type: LinkType,
-) -> TokenCheck {
-    let accepted_did_methods = vec!["did:key".to_owned()];
-    // did:key resolution is purely local (no network egress), so the SSRF
-    // private-network policy is irrelevant on this path.
-    verify_address_token_with_methods(
-        parsed,
-        token,
-        canonical_realm_id,
-        effective_link_type,
-        &accepted_did_methods,
-        false,
-    )
-}
-
 pub fn verify_address_token_with_methods(
     parsed: &ParsedAddress,
     token: Option<&str>,
@@ -666,6 +647,23 @@ mod tests {
         let mut bytes = vec![0xed, 0x01];
         bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
         format!("z{}", bs58::encode(bytes).into_string())
+    }
+
+    fn verify_address_token(
+        parsed: &ParsedAddress,
+        token: Option<&str>,
+        canonical_realm_id: &str,
+        effective_link_type: LinkType,
+    ) -> TokenCheck {
+        let accepted_did_methods = vec!["did:key".to_owned()];
+        verify_address_token_with_methods(
+            parsed,
+            token,
+            canonical_realm_id,
+            effective_link_type,
+            &accepted_did_methods,
+            false,
+        )
     }
 
     #[test]

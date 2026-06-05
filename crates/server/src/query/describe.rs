@@ -333,6 +333,21 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
         "status": "best_effort",
         "detail": "ck.directory.push.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
+    limitations.push(json!({
+        "feature": "resolve_target.object_access_gate",
+        "status": "not_implemented",
+        "detail": "Flow/Message resolve_target responses only prove the enclosing Realm is visible; object_preview is a placeholder until the per-object access gate and projection lookup land.",
+    }));
+    limitations.push(json!({
+        "feature": "resolve_target.invite_revocation_lookup",
+        "status": "not_implemented",
+        "detail": "Invite token signature, expiry, audience and target digest are checked, but live invite revocation requires a Principal Server join-policy revocation feed that is not wired yet.",
+    }));
+    limitations.push(json!({
+        "feature": "list_handles_for_subject.historical_as_of",
+        "status": "not_implemented",
+        "detail": "The as_of request field is accepted and echoed, but historical replay still serves the current indexed view until the handle-claim snapshot store lands.",
+    }));
     limitations
 }
 
@@ -451,6 +466,15 @@ mod tests {
                 .iter()
                 .any(|op| op == "ck.directory.describe")
         );
+        let limitation_features: std::collections::BTreeSet<_> = value["limitations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|entry| entry.get("feature").and_then(JsonValue::as_str))
+            .collect();
+        assert!(limitation_features.contains("resolve_target.object_access_gate"));
+        assert!(limitation_features.contains("resolve_target.invite_revocation_lookup"));
+        assert!(limitation_features.contains("list_handles_for_subject.historical_as_of"));
     }
 
     /// Round 4 — `validate` fails closed when development mode is set

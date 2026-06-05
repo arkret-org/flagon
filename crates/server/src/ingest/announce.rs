@@ -803,14 +803,13 @@ pub(crate) fn derive_public_projection(
     // Ingest-projection / validation critical path (NOT a placeholder — the
     // "deferred to M3" note that used to live here was stale). Everything this
     // function does is normative and load-bearing:
-    //   * `validate_handle_claim_ingest` enforces the HC-TBY-1/2 wire scope
-    //     (retired `claim_type`/`class`, non-principal handle-claim subjects).
-    //   * the `proof` / `directory_services` / `official_organizations` fields
-    //     are stripped so governance internals and the forbidden §4.5
-    //     `official_organizations` field never enter the index or search SQL.
-    //   * `normalize_member_count_projection` enforces the §3 member-count
-    //     disclosure rules (bucket-grid validity + default-`omit` for
-    //     non-public discoverability).
+    //   * `validate_handle_claim_ingest` enforces the HC-TBY-1/2 wire scope (retired
+    //     `claim_type`/`class`, non-principal handle-claim subjects).
+    //   * the `proof` / `directory_services` / `official_organizations` fields are stripped so
+    //     governance internals and the forbidden §4.5 `official_organizations` field never enter
+    //     the index or search SQL.
+    //   * `normalize_member_count_projection` enforces the §3 member-count disclosure rules
+    //     (bucket-grid validity + default-`omit` for non-public discoverability).
     // Do not weaken or short-circuit any of these without re-reading §3 / §4.5
     // / the HC-TBY-* requirements.
 
