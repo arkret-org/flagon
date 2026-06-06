@@ -837,9 +837,45 @@ pub(crate) fn derive_public_projection(
         // (spec §4.5). Strip it so it never enters the index or search SQL;
         // organization scoping uses the canonical `organization_did`.
         obj.remove("official_organizations");
+        strip_private_search_projection_fields(obj);
         normalize_member_count_projection(obj, discoverability, declared_mode.as_deref())?;
     }
     Ok(clone)
+}
+
+fn strip_private_search_projection_fields(obj: &mut serde_json::Map<String, JsonValue>) {
+    const PRIVATE_SEARCH_FIELDS: &[&str] = &[
+        "search_policy",
+        "search_index_manifest",
+        "enabled_profile_refs",
+        "allowed_service_dids",
+        "data_classes",
+        "index_retention_ms",
+        "revocation_behavior",
+        "encrypted_index",
+        "encrypted_shard",
+        "blind_tokens",
+        "shard_key",
+        "epoch_id",
+    ];
+
+    obj.retain(|key, value| {
+        if PRIVATE_SEARCH_FIELDS.contains(&key.as_str()) {
+            return false;
+        }
+        match value {
+            JsonValue::Object(nested) => strip_private_search_projection_fields(nested),
+            JsonValue::Array(values) => {
+                for item in values {
+                    if let JsonValue::Object(nested) = item {
+                        strip_private_search_projection_fields(nested);
+                    }
+                }
+            }
+            _ => {}
+        }
+        true
+    });
 }
 
 /// Spec §3: `restricted` / `unlisted` / `invite_only` / `secret` default to
@@ -1459,6 +1495,47 @@ mod tests {
 
         // And the whole projection path accepts the principal-DID claim.
         assert!(derive_public_projection(&ok, DiscoverabilityDb::Public).is_ok());
+    }
+
+    #[test]
+    fn public_projection_strips_private_realm_search_fields() {
+        let state = json!({
+            "kind": "ck.realm.discovery",
+            "title": "Tea Time",
+            "search_policy": {
+                "enabled_profile_refs": ["ck.profile.search.blind_index.v1"],
+                "allowed_service_dids": ["did:web:search.example"],
+                "data_classes": ["encrypted_index", "blind_tokens"],
+                "index_retention_ms": 3600,
+                "revocation_behavior": "drop_stale"
+            },
+            "search_index_manifest": {
+                "encrypted_index": "ciphertext",
+                "blind_tokens": ["tok"],
+                "shard_key": "shard-a",
+                "epoch_id": 7
+            },
+            "service_capabilities": [{
+                "service_did": "did:web:search.example",
+                "profile": "ck.profile.search.blind_index.v1",
+                "blind_tokens": ["tok"]
+            }]
+        });
+
+        let projected = derive_public_projection(&state, DiscoverabilityDb::Public).unwrap();
+        assert_eq!(projected["title"], "Tea Time");
+        assert!(projected.get("search_policy").is_none());
+        assert!(projected.get("search_index_manifest").is_none());
+        assert!(
+            projected["service_capabilities"][0]
+                .get("service_did")
+                .is_some()
+        );
+        assert!(
+            projected["service_capabilities"][0]
+                .get("blind_tokens")
+                .is_none()
+        );
     }
 
     #[test]
