@@ -339,7 +339,7 @@ impl PullWorker {
         let service_binding_ref = response_header_value(response.headers(), "service-binding-ref");
         let origin_key_state_digest =
             response_header_value(response.headers(), "origin-key-state-digest");
-        let body = response.json::<EventsQueryResBody>().await?;
+        let body = response.json::<EventsQueryOutcome>().await?;
         let mut event = body
             .events
             .into_iter()
@@ -521,7 +521,7 @@ struct RefreshOutcome {
 }
 
 #[derive(Debug, Deserialize)]
-struct EventsQueryResBody {
+struct EventsQueryOutcome {
     events: Vec<EventEnvelope>,
 }
 

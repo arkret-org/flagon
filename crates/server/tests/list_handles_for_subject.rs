@@ -17,7 +17,7 @@
 //!   5. cursor pagination boundary.
 
 use chrono::{TimeZone, Utc};
-use cokret_sdk::DirectoryListHandlesForSubjectReqBody;
+use cokret_sdk::DirectoryListHandlesForSubjectRequestBody;
 use serde_json::json;
 use server::ingest::DiscoverabilityDb;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
@@ -26,8 +26,8 @@ fn subject() -> cokret_sdk::Did {
     cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()
 }
 
-fn req(realm_id: Option<&str>, requester: Option<&str>) -> DirectoryListHandlesForSubjectReqBody {
-    DirectoryListHandlesForSubjectReqBody {
+fn req(realm_id: Option<&str>, requester: Option<&str>) -> DirectoryListHandlesForSubjectRequestBody {
+    DirectoryListHandlesForSubjectRequestBody {
         subject: subject(),
         realm_id: realm_id.map(|r| cokret_sdk::RealmId::new(r.to_owned()).unwrap()),
         intent: None,

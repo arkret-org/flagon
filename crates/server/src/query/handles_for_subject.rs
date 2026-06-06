@@ -25,7 +25,7 @@
 //! `claims[].subject` MUST byte-equal `response.subject`. We fail closed:
 //! any claim whose derived subject does not equal the request subject is
 //! DROPPED before the response is built, and the assembled response is run
-//! through the SDK's [`DirectoryListHandlesForSubjectResBody::validate`] as a
+//! through the SDK's [`DirectorySubjectHandleList::validate`] as a
 //! defence-in-depth check (a validate failure collapses to `not_found`).
 //!
 //! ## Disclosure scope
@@ -44,7 +44,7 @@ use chrono::{DateTime, Utc};
 // is built from the wire-schema `model::HandleClaim`, so import it explicitly.
 use cokret_sdk::model::HandleClaim;
 use cokret_sdk::{
-    DirectoryListHandlesForSubjectReqBody, DirectoryListHandlesForSubjectResBody, Handle,
+    DirectoryListHandlesForSubjectRequestBody, DirectorySubjectHandleList, Handle,
     validate_handle_claim_subject,
 };
 use diesel::prelude::*;
@@ -82,7 +82,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     };
     let _query_timer = state.metrics().query_timer("list-handles-for-subject");
 
-    let body: DirectoryListHandlesForSubjectReqBody = match req.parse_json().await {
+    let body: DirectoryListHandlesForSubjectRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             state
@@ -205,14 +205,14 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
 }
 
 enum ListOutcome {
-    Ok(DirectoryListHandlesForSubjectResBody),
+    Ok(DirectorySubjectHandleList),
     FailClosed,
     Error,
 }
 
 async fn build_response(
     state: &AppState,
-    body: &DirectoryListHandlesForSubjectReqBody,
+    body: &DirectoryListHandlesForSubjectRequestBody,
     cursor_offset: usize,
     limit: u32,
     metrics: &crate::observability::Metrics,
@@ -261,13 +261,13 @@ async fn build_response(
 /// the populated, validated response body. `metrics`, when present, receives
 /// per-reason `filter_drop` increments.
 pub fn assemble_response(
-    body: &DirectoryListHandlesForSubjectReqBody,
+    body: &DirectoryListHandlesForSubjectRequestBody,
     rows: Vec<SubjectHandleRow>,
     accepted_issuers: &[String],
     cursor_offset: usize,
     limit: u32,
     metrics: Option<&crate::observability::Metrics>,
-) -> Option<DirectoryListHandlesForSubjectResBody> {
+) -> Option<DirectorySubjectHandleList> {
     let drop = |reason: &str| {
         if let Some(m) = metrics {
             m.record_filter_drop(reason);
@@ -337,7 +337,7 @@ pub fn assemble_response(
     let has_more = next_offset < total;
     let next_cursor = has_more.then(|| encode_cursor(next_offset));
 
-    let response = DirectoryListHandlesForSubjectResBody {
+    let response = DirectorySubjectHandleList {
         subject: body.subject.clone(),
         claims: page,
         primary_handle,
@@ -696,7 +696,7 @@ fn issuer_in_accepted(projection: &JsonValue, accepted: &[String]) -> bool {
 /// audience is always compatible; a request with no context never filters.
 fn audience_compatible(
     projection: &JsonValue,
-    body: &DirectoryListHandlesForSubjectReqBody,
+    body: &DirectoryListHandlesForSubjectRequestBody,
 ) -> bool {
     let Some(claim_audience) = projection.get("audience").and_then(JsonValue::as_str) else {
         return true;
@@ -827,7 +827,7 @@ mod tests {
 
     #[test]
     fn audience_filter_passes_unpinned_and_matching() {
-        let body = DirectoryListHandlesForSubjectReqBody {
+        let body = DirectoryListHandlesForSubjectRequestBody {
             subject: cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap(),
             realm_id: None,
             intent: None,

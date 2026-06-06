@@ -45,7 +45,7 @@ use cokret_sdk::model::{
     LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
     verify_token_target,
 };
-use cokret_sdk::{DirectoryResolveTargetResBody, RealmId, RealmPreview, TargetKind, canonical};
+use cokret_sdk::{DirectoryTargetResolutionOutcome, RealmId, RealmPreview, TargetKind, canonical};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -188,7 +188,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
 /// `/metrics` surface can distinguish a scope-confusion / token failure from a
 /// genuine miss for operator dashboards. The wire bytes are identical.
 enum ResolveOutcome {
-    Ok(DirectoryResolveTargetResBody),
+    Ok(DirectoryTargetResolutionOutcome),
     TokenReject,
     NotFound,
     Error(String),
@@ -583,7 +583,7 @@ fn detach_jws(value: &mut JsonValue) -> Option<String> {
 /// / §9.1 envelope to the realm resolution.
 fn build_realm_response(
     resolved: crate::query::realm::ResolvedRealm,
-) -> Result<DirectoryResolveTargetResBody, String> {
+) -> Result<DirectoryTargetResolutionOutcome, String> {
     let realm_id = RealmId::new(resolved.realm_id.clone())
         .map_err(|e| format!("resolved realm_id not canonical: {e}"))?;
     // Realm display name is canonically `title` (Realm schema); `name` is
@@ -601,7 +601,7 @@ fn build_realm_response(
         preview: resolved.envelope.payload.clone(),
     };
 
-    Ok(DirectoryResolveTargetResBody {
+    Ok(DirectoryTargetResolutionOutcome {
         target_kind: TargetKind::Realm,
         realm_preview: Some(realm_preview),
         object_preview: None,
@@ -635,7 +635,7 @@ async fn build_object_response(
     requester: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
     invite_authorized: bool,
-) -> anyhow::Result<Option<DirectoryResolveTargetResBody>> {
+) -> anyhow::Result<Option<DirectoryTargetResolutionOutcome>> {
     let Some(flow_id) = parsed.flow.as_deref().map(|f| format!("ck:flow:{f}")) else {
         return Ok(None);
     };
@@ -678,7 +678,7 @@ async fn build_object_response(
         obj.insert("kind".to_owned(), JsonValue::String(object_kind.to_owned()));
     }
 
-    Ok(Some(DirectoryResolveTargetResBody {
+    Ok(Some(DirectoryTargetResolutionOutcome {
         target_kind,
         realm_preview: None,
         object_preview: Some(object_preview),
