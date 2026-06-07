@@ -319,9 +319,23 @@ impl AppConfig {
             .map_err(|_| anyhow::anyhow!("DATABASE_URL is required"))?;
 
         let cors_allow_origin = std::env::var("TEABAY_CORS_ALLOW_ORIGIN").ok();
-        let admin_token = std::env::var("TEABAY_ADMIN_TOKEN")
-            .ok()
-            .filter(|token| !token.trim().is_empty());
+        let development_mode = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
+        let admin_token = if development_mode {
+            std::env::var("TEABAY_ADMIN_TOKEN")
+                .ok()
+                .filter(|token| !token.trim().is_empty())
+        } else {
+            if std::env::var("TEABAY_ADMIN_TOKEN")
+                .ok()
+                .is_some_and(|token| !token.trim().is_empty())
+            {
+                tracing::warn!(
+                    "TEABAY_ADMIN_TOKEN is ignored when TEABAY_DEVELOPMENT_MODE=false; \
+                     provision rotating HMAC admin credentials in admin_tokens instead"
+                );
+            }
+            None
+        };
         let admin_csrf_token = std::env::var("TEABAY_ADMIN_CSRF_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty());
@@ -330,8 +344,7 @@ impl AppConfig {
         // development_mode). Fail-closed at startup so an operator
         // cannot silently expose the admin SPA without CSRF protection.
         // See docs/deployment.md hardening checklist.
-        let development_mode_for_csrf = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
-        if !development_mode_for_csrf && admin_csrf_token.is_none() {
+        if !development_mode && admin_csrf_token.is_none() {
             if read_bool(TEABAY_ALLOW_MISSING_CSRF, false)? {
                 let expires_at = missing_csrf_escape_hatch_until()?;
                 tracing::error!(
@@ -352,8 +365,6 @@ impl AppConfig {
             read_u64("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", 1_800)?;
         let admin_token_rotation_window =
             Duration::from_secs(admin_token_rotation_window_secs.max(60));
-
-        let development_mode = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
 
         // Production fail-loud: warn if private-network egress is left enabled
         // outside development mode. The env var overrides `development_mode` as

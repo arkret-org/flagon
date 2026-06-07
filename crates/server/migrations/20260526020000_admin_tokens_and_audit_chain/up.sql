@@ -1,8 +1,8 @@
 -- A.8.4 — admin token rotation table.
 --
--- Long-lived `TEABAY_ADMIN_TOKEN` static bearer is still accepted for
--- backwards compatibility, but operators can now provision rotating
--- HMAC-SHA256 tokens with a 30-minute window. Each row is one shared
+-- Static `TEABAY_ADMIN_TOKEN` bearer is development-only. Production
+-- admin callers provision rotating HMAC-SHA256 tokens with a 30-minute
+-- window. Each row is one shared
 -- HMAC secret + a key id that's surfaced in audit so we can attribute
 -- admin actions to a specific operator credential.
 CREATE TABLE IF NOT EXISTS admin_tokens (
@@ -23,8 +23,8 @@ CREATE INDEX IF NOT EXISTS admin_tokens_active_idx
 -- Append `audit_digest = sha256(canonical(row) || prev_digest)` so an
 -- operator can verify the audit log was not tampered with after the
 -- fact. The `authentication_method` column records which credential
--- the actor authenticated with (static token, rotating HMAC, or
--- service signature); the `asserted_operator` column carries the
+-- the actor authenticated with (development static token, rotating HMAC,
+-- or service signature); the `asserted_operator` column carries the
 -- operator the actor claimed to be (separate from the
 -- authenticated_actor identity).
 ALTER TABLE directory_audit

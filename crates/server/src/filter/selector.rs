@@ -25,7 +25,8 @@
 //! ```
 //!
 //! Legacy callers may also send `{ "selector_kind": "circle", ... }`
-//! or include the typed id at top level; the parser is forgiving.
+//! or include the typed id at top level; discriminator values remain
+//! strict lowercase per the protocol registry.
 
 use serde_json::Value as JsonValue;
 
@@ -38,15 +39,13 @@ use serde_json::Value as JsonValue;
 ///   - `{"selector_kind": "circle", ...}`
 ///   - `{"resource_selector": {"kind": "circle", ...}}`
 ///
-/// Case-insensitive on the discriminator value because Cokret typed
-/// kinds are stable lowercase identifiers.
 pub fn is_circle_selector(filter: &JsonValue) -> bool {
     let Some(map) = filter.as_object() else {
         return false;
     };
     for key in ["kind", "selector_kind"] {
         if let Some(value) = map.get(key).and_then(JsonValue::as_str)
-            && value.eq_ignore_ascii_case("circle")
+            && value == "circle"
         {
             return true;
         }
@@ -56,7 +55,7 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
         .and_then(JsonValue::as_object)
         .and_then(|inner| inner.get("kind"))
         .and_then(JsonValue::as_str)
-        && nested.eq_ignore_ascii_case("circle")
+        && nested == "circle"
     {
         return true;
     }
@@ -86,7 +85,7 @@ mod tests {
     fn recognises_flat_kind_circle() {
         assert!(is_circle_selector(&json!({"kind": "circle"})));
         assert!(is_circle_selector(
-            &json!({"kind": "circle", "circle_id": "ck:circle:abc"})
+            &json!({"kind": "circle", "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"})
         ));
     }
 
@@ -98,13 +97,13 @@ mod tests {
     #[test]
     fn recognises_nested_resource_selector() {
         assert!(is_circle_selector(&json!({
-            "resource_selector": {"kind": "circle", "circle_id": "ck:circle:abc"}
+            "resource_selector": {"kind": "circle", "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"}
         })));
     }
 
     #[test]
-    fn case_insensitive_on_discriminator() {
-        assert!(is_circle_selector(&json!({"kind": "CIRCLE"})));
+    fn rejects_uppercase_discriminator() {
+        assert!(!is_circle_selector(&json!({"kind": "CIRCLE"})));
     }
 
     #[test]
@@ -116,7 +115,11 @@ mod tests {
 
     #[test]
     fn typed_id_prefix_detected() {
-        assert!(looks_like_circle_id("ck:circle:01J0XYZ"));
-        assert!(!looks_like_circle_id("ck:realm:01J0XYZ"));
+        assert!(looks_like_circle_id(
+            "ck:circle:01904100-0000-7000-8000-000000000001"
+        ));
+        assert!(!looks_like_circle_id(
+            "ck:realm:01904100-0000-7000-8000-000000000001"
+        ));
     }
 }

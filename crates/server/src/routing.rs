@@ -323,14 +323,16 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
     // No external secret manager; `http_sig_pubkeys` is the closest
     // in-process surface that the operator has wired keys in
     // somewhere outside source.
-    let secret_manager_in_use = !cfg.http_sig_pubkeys.is_empty() || cfg.admin_token.is_some();
+    let secret_manager_in_use = !cfg.http_sig_pubkeys.is_empty();
     let log_redaction_enabled = !development_mode;
     let admin_auth_mode = if development_mode {
-        "development".to_owned()
-    } else if cfg.admin_token.as_deref().is_some_and(|t| !t.is_empty()) {
-        "production".to_owned()
+        if cfg.admin_token.as_deref().is_some_and(|t| !t.is_empty()) {
+            "development_static_bearer".to_owned()
+        } else {
+            "development".to_owned()
+        }
     } else {
-        "closed".to_owned()
+        "rotating_hmac".to_owned()
     };
     let rate_limit_enabled = cfg.rate_limit_per_resource_per_min > 0;
     // SSRF egress posture: are private/link-local targets blocked? This honours
@@ -353,7 +355,7 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
         ("log_redaction_enabled", log_redaction_enabled),
         (
             "admin_auth_mode_production",
-            admin_auth_mode == "production",
+            admin_auth_mode == "rotating_hmac",
         ),
         ("rate_limit_enabled", rate_limit_enabled),
         (

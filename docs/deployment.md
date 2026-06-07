@@ -99,7 +99,7 @@ Recommended production settings:
 | `TEABAY_DEVELOPMENT_MODE` | `false` or unset. |
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
-| `TEABAY_ADMIN_TOKEN` | Non-empty bearer token for `/_cokret/local/admin/*`. |
+| `TEABAY_ADMIN_TOKEN` | Development-only bearer token for local `/_cokret/local/admin/*` access. Ignored when `TEABAY_DEVELOPMENT_MODE=false`; production uses rotating HMAC rows in `admin_tokens`. |
 | `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. The temporary rotation-only override requires both `TEABAY_ALLOW_MISSING_CSRF=1` and `TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>`; while active the server emits an error-level warning and fails closed after expiry. |
 | `TEABAY_TRUSTED_PROXY` | Comma-separated list of IPs whose `X-Forwarded-For` the rate-limiter trusts. Unset = trust only the direct `remote_addr`. Set to your TLS-terminating reverse proxy's IPs to avoid spoofed buckets. |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
@@ -149,12 +149,12 @@ handled by the deployment platform before process start.
 
 ### Admin Token Enforcement
 
-The admin API requires `Authorization: Bearer $TEABAY_ADMIN_TOKEN` for
-`/_cokret/local/admin/*`. The route guard fails closed: if `TEABAY_ADMIN_TOKEN` is
-unset or empty, admin requests return `unauthenticated` instead of becoming
-anonymous. `/health.hardening.admin_auth_mode` reports `production` only when
-development mode is disabled and a non-empty admin token is configured; without
-that token it reports `closed`.
+The admin API requires an `Authorization: Bearer ...` credential for
+`/_cokret/local/admin/*`. In production (`TEABAY_DEVELOPMENT_MODE=false`), use
+`Bearer hmac:<key_id>:<ts>:<mac_base64>` backed by an active `admin_tokens` row;
+the legacy static `TEABAY_ADMIN_TOKEN` bearer is ignored. In development mode,
+`TEABAY_ADMIN_TOKEN` remains available for local tooling. `/health.hardening.admin_auth_mode`
+reports `rotating_hmac` on the production path.
 
 ### Takedown Receipt Signing
 
@@ -270,9 +270,9 @@ captured now that handle-homograph wire-level checks are mandatory.
 2. **Logical dump cadence** — nightly `pg_dump -Fc` for off-DC restore
    drills. Restore SHOULD be verified at least quarterly using a
    throwaway secondary DC.
-3. **Crypto material** — `TEABAY_ADMIN_TOKEN` and the takedown HMAC
-   secret (`TEABAY_TAKEDOWN_HMAC_KEY`) MUST be stored in a secrets
-   manager (Vault / Doppler / cloud KMS). Rotate every 90 days.
+3. **Crypto material** — admin HMAC token secrets in `admin_tokens` and the
+   takedown HMAC secret (`TEABAY_TAKEDOWN_HMAC_KEY`) MUST be stored in a
+   secrets manager (Vault / Doppler / cloud KMS). Rotate every 90 days.
 
 ### Failover
 

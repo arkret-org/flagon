@@ -97,7 +97,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     .collect();
 
     // `auth_metadata` advertises the transport-layer auth that ingest
-    // mounts (RFC 9421 HTTP Message Signature) and the admin bearer.
+    // mounts (RFC 9421 HTTP Message Signature) and the admin HMAC
+    // surface. Static bearer auth is development-only.
     let auth_metadata = json!({
         "ingest": {
             "kind": "rfc9421_http_message_signature",
@@ -105,8 +106,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             "algorithms": ["ed25519"],
         },
         "admin": {
-            "kind": "bearer_token",
-            "required": cfg.admin_token.is_some(),
+            "kind": "rotating_hmac",
+            "required": true,
+            "development_static_bearer": cfg.development_mode && cfg.admin_token.is_some(),
         },
     });
 

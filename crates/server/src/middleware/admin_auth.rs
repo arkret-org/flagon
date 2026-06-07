@@ -1,9 +1,12 @@
 //! Admin bearer authentication with HMAC-SHA256 rotation support.
 //!
-//! Two credential forms are accepted:
+//! Two credential forms are accepted, but the static bearer is limited
+//! to development mode:
 //!
-//! * **Static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`. Existing operator scripts
-//!   and the in-process conformance harness continue to work.
+//! * **Development static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`.
+//!   Existing local operator scripts and the in-process conformance harness
+//!   continue to work while `TEABAY_DEVELOPMENT_MODE=true`; production rejects
+//!   this long-lived credential shape.
 //!
 //! * **Rotating HMAC** — `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`. The shared secret
 //!   is provisioned by row in `admin_tokens`. Clients compute `mac = HMAC_SHA256(secret,
@@ -58,8 +61,8 @@ impl AdminCredential {
 
     /// Human-readable actor identifier for the audit row. Defaults to
     /// the key id for HMAC credentials and to a static literal for the
-    /// long-lived bearer (the static bearer is not pinned to a single
-    /// operator identity).
+    /// development-only bearer (the static bearer is not pinned to a
+    /// single operator identity).
     pub fn authenticated_actor(&self) -> String {
         match (self.method, self.key_id.as_deref()) {
             (AdminAuthMethod::RotatingHmac, Some(key_id)) => format!("admin:{key_id}"),
@@ -83,6 +86,10 @@ pub async fn verify_admin_credential(
         return verify_rotating_hmac(state, rest).await;
     }
 
+    if !static_admin_bearer_allowed(state.config().development_mode) {
+        return Err(ApiErrorCode::Unauthenticated);
+    }
+
     let expected = state
         .config()
         .admin_token
@@ -96,6 +103,10 @@ pub async fn verify_admin_credential(
     } else {
         Err(ApiErrorCode::Unauthenticated)
     }
+}
+
+fn static_admin_bearer_allowed(development_mode: bool) -> bool {
+    development_mode
 }
 
 fn extract_bearer(req: &Request) -> Option<&str> {
@@ -253,8 +264,8 @@ impl Handler for AdminAuthHoop {
     }
 }
 
-/// Constant-time byte comparison so a static bearer cannot be probed
-/// byte-by-byte against the configured token.
+/// Constant-time byte comparison so a development static bearer cannot
+/// be probed byte-by-byte against the configured token.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -264,4 +275,15 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_admin_bearer_is_development_only() {
+        assert!(static_admin_bearer_allowed(true));
+        assert!(!static_admin_bearer_allowed(false));
+    }
 }

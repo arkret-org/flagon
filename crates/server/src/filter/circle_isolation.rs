@@ -54,7 +54,7 @@ pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
     "discussion_space_ref",
 ];
 
-/// Canonical typed-id prefix for a Circle (`ck:circle:<ulid>`). Any
+/// Canonical typed-id prefix for a Circle (`ck:circle:<uuid>`). Any
 /// string value carrying this prefix anywhere in the payload is a
 /// hard reject — this is the parser-tolerance plank from P2E.7: we
 /// recognise the typed id only to refuse it.
@@ -231,7 +231,7 @@ mod tests {
     fn rejects_top_level_circle_id() {
         let value = json!({
             "kind": "ck.realm.discovery",
-            "circle_id": "ck:circle:01J0XXXXX",
+            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenKey("circle_id")));
@@ -258,7 +258,7 @@ mod tests {
         // `scope_circle_id` is the canonical CKP-0007 field name — it
         // MUST NEVER appear in a subscribe filter or an announce body.
         let value = json!({
-            "scope_circle_id": "ck:circle:01J0XXXXX",
+            "scope_circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
         });
         assert!(matches!(
             reject_circle_payload(&value).unwrap_err(),
@@ -273,7 +273,7 @@ mod tests {
         // which key it lives under.
         let value = json!({
             "kind": "ck.realm.discovery",
-            "summary": "see also ck:circle:01J0XXXXXX for the back-channel",
+            "summary": "see also ck:circle:01904100-0000-7000-8000-000000000001 for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         match err {
@@ -286,13 +286,16 @@ mod tests {
     fn rejects_circle_id_array_element() {
         let value = json!({
             "kind": "ck.realm.discovery",
-            "related": ["ck:realm:a", "ck:circle:b"],
+            "related": [
+                "ck:realm:01904100-0000-7000-8000-000000000101",
+                "ck:circle:01904100-0000-7000-8000-000000000001",
+            ],
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
-    /// P2E.7 — the parser-tolerance plank: a `ck:circle:<ulid>`
+    /// P2E.7 — the parser-tolerance plank: a `ck:circle:<uuid>`
     /// living in the `resource_id` field of an announce envelope (i.e.
     /// the attacker tries to "announce a Circle into the directory")
     /// MUST be recognised and rejected. The directory never adds an
@@ -301,7 +304,7 @@ mod tests {
     fn rejects_cx_circle_in_resource_id_field() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ck:circle:01J0CIRCLEULIDV4XYZ",
+            "resource_id": "ck:circle:01904100-0000-7000-8000-000000000001",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {"kind": "ck.realm.discovery"},
         });
@@ -315,7 +318,7 @@ mod tests {
     #[test]
     fn rejects_mixed_case_ck_circle_prefix() {
         let envelope = json!({
-            "discovery_state": {"note": "Ck:CIRCLE:0123ABC"},
+            "discovery_state": {"note": "Ck:CIRCLE:01904100-0000-7000-8000-000000000001"},
         });
         let err = reject_circle_payload(&envelope).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -342,15 +345,21 @@ mod tests {
             json!({"list": [1, 2, {"deep": "ok"}]}),
         ];
         let injections: &[(&str, JsonValue)] = &[
-            ("circle_id", JsonValue::String("ck:circle:abc".into())),
-            ("scope_circle_id", JsonValue::String("ck:circle:abc".into())),
+            (
+                "circle_id",
+                JsonValue::String("ck:circle:01904100-0000-7000-8000-000000000001".into()),
+            ),
+            (
+                "scope_circle_id",
+                JsonValue::String("ck:circle:01904100-0000-7000-8000-000000000001".into()),
+            ),
             (
                 "circle_members",
                 JsonValue::Array(vec![JsonValue::String("did:web:a".into())]),
             ),
             (
                 "default_scope_circle_id",
-                JsonValue::String("ck:circle:abc".into()),
+                JsonValue::String("ck:circle:01904100-0000-7000-8000-000000000001".into()),
             ),
         ];
         for base in bases {
@@ -370,7 +379,9 @@ mod tests {
                 let mut victim2 = base.clone();
                 victim2.as_object_mut().unwrap().insert(
                     "note".to_owned(),
-                    JsonValue::String(format!("see {CIRCLE_TYPED_ID_PREFIX}01")),
+                    JsonValue::String(format!(
+                        "see {CIRCLE_TYPED_ID_PREFIX}01904100-0000-7000-8000-000000000001"
+                    )),
                 );
                 assert!(
                     reject_circle_payload(&victim2).is_err(),

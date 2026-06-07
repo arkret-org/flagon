@@ -125,7 +125,8 @@ entries expected for the deployment.
 ## Admin Console
 
 The admin SPA runs from `crates/admin/` and talks to `/_cokret/local/admin/*` using the
-`TEABAY_ADMIN_TOKEN` bearer token.
+development-only `TEABAY_ADMIN_TOKEN` bearer token or a production rotating
+HMAC bearer.
 
 ```bash
 cd crates/admin
@@ -133,7 +134,8 @@ dx serve --platform web --port 8080
 ```
 
 Point the API base field at the teabay service, usually
-`http://localhost:7781`, and use the configured admin token.
+`http://localhost:7781`, and use the configured development token or HMAC
+credential.
 
 ## Pull Revalidation
 
@@ -201,11 +203,11 @@ For receipt verification:
 For admin access checks:
 
 1. Confirm `TEABAY_DEVELOPMENT_MODE=false` in production.
-2. Confirm `TEABAY_ADMIN_TOKEN` is non-empty in the runtime environment.
-3. Confirm requests use `Authorization: Bearer <token>`.
-4. Check `/health` and require `hardening.admin_auth_mode` to be `production`.
-   A value of `closed` means the admin token is missing and admin routes should
-   reject requests.
+2. Confirm an active `admin_tokens` row exists for the caller's `key_id`.
+3. Confirm requests use `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`.
+4. Check `/health` and require `hardening.admin_auth_mode` to be `rotating_hmac`.
+   A development/static bearer value in production means the deployment is using
+   the wrong credential path and requests should be rejected.
 
 For stale or missing resources:
 

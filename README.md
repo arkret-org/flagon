@@ -144,7 +144,8 @@ crates.
 
 The Dioxus web console lives in `crates/admin/` and talks to
 `/_cokret/local/admin/{resources,allowlist,takedown,audit}` with the
-`TEABAY_ADMIN_TOKEN` bearer token.
+development-only `TEABAY_ADMIN_TOKEN` bearer token, or a production
+rotating HMAC bearer minted from an `admin_tokens` row.
 
 ```bash
 cd crates/admin
@@ -282,7 +283,7 @@ expired.
 ### Secret handling for 1.0
 
 teabay 1.0 uses environment-variable secret provisioning only:
-`TEABAY_HTTP_SIG_PUBKEYS`, `TEABAY_ADMIN_TOKEN`, database credentials, and
+`TEABAY_HTTP_SIG_PUBKEYS`, database credentials, and
 deployment-specific TLS or proxy secrets are injected by the runtime
 environment. A Vault / AWS Secrets Manager adapter is explicitly out of scope
 for 1.0; operators should use their orchestrator's existing secret injection
@@ -291,12 +292,12 @@ mechanism and keep `.env` files out of source control.
 ### Admin token enforcement
 
 All `/_cokret/local/admin/*` handlers call the shared admin guard before touching the
-database. The guard requires `Authorization: Bearer $TEABAY_ADMIN_TOKEN` and
-returns `unauthenticated` when the token is unset, absent, or mismatched. In
-production posture, `/health.hardening.admin_auth_mode` reports `production`
-only when `TEABAY_DEVELOPMENT_MODE=false` and a non-empty
-`TEABAY_ADMIN_TOKEN` is configured; otherwise the admin surface is reported as
-`closed`.
+database. In development mode the guard can accept
+`Authorization: Bearer $TEABAY_ADMIN_TOKEN`. In production
+(`TEABAY_DEVELOPMENT_MODE=false`) that static bearer is ignored; admin callers
+must use `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>` backed by an
+active `admin_tokens` row. `/health.hardening.admin_auth_mode` reports
+`rotating_hmac` for the production path.
 
 ### Takedown receipts
 
@@ -313,7 +314,7 @@ Operator takedowns store a service-signed detached JWS receipt and require
 - [ ] Secret env vars injected by the deployment platform, not committed `.env` files
 - [ ] Receipt signing key provisioned (`TEABAY_RECEIPT_SIGNING_KEY_B64`)
 - [ ] Log redaction enabled (default outside dev mode)
-- [ ] Admin auth in production mode (`TEABAY_ADMIN_TOKEN`)
+- [ ] Admin auth in production mode (`admin_tokens` rotating HMAC)
 - [ ] Rate limit enabled
 - [ ] Provider credential rotation scheduled (when applicable)
 

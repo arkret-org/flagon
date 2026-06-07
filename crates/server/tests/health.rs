@@ -66,6 +66,7 @@ fn hardening_status_shape_matches_cross_service_contract() {
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
+        env::remove_var("TEABAY_ADMIN_TOKEN");
     }
     let config = server::AppConfig::from_env().expect("config builds");
     // The hardening status function is exercised via the `/health`
@@ -83,6 +84,7 @@ fn hardening_status_shape_matches_cross_service_contract() {
     unsafe {
         env::set_var("TEABAY_DEVELOPMENT_MODE", "false");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "true");
+        // Static admin bearer is development-only; production ignores it.
         env::set_var("TEABAY_ADMIN_TOKEN", "prod-admin-token-32bytes-or-more");
         env::set_var("TEABAY_ADMIN_CSRF_TOKEN", "prod-csrf-token-32bytes-or-more");
         env::set_var("TEABAY_CORS_ALLOW_ORIGIN", "https://app.example.com");
@@ -92,6 +94,6 @@ fn hardening_status_shape_matches_cross_service_contract() {
     let prod_config = server::AppConfig::from_env().expect("prod config builds");
     assert!(!prod_config.development_mode);
     assert!(prod_config.require_http_sig);
-    assert!(prod_config.admin_token.is_some());
+    assert!(prod_config.admin_token.is_none());
     assert!(prod_config.cors_allow_origin.is_some());
 }

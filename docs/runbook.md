@@ -49,7 +49,7 @@ Safe restart:
 3. Wait for `/readyz` to return `200`. On boot the worker heartbeats start
    stale, so allow up to `stale_after_ms` for `pull`/`divergence` to report
    `ready=true`.
-4. Confirm `hardening.admin_auth_mode` is `production` and
+4. Confirm `hardening.admin_auth_mode` is `rotating_hmac` and
    `development_mode=false` on `/health` before re-admitting traffic.
 
 PostgreSQL is the single source of truth — fail over the database with your
@@ -103,6 +103,7 @@ and `consecutive_failures`.
   loop has stalled or the process is overloaded — inspect logs for that worker
   and restart if it does not recover.
 - **Accidental dev-mode deploy.** `/health` `hardening.development_mode=true`
-  or `admin_auth_mode` not `production` — log redaction is off and admin auth
-  may be open. Treat as an incident; set `TEABAY_DEVELOPMENT_MODE=false` and a
-  non-empty `TEABAY_ADMIN_TOKEN`, then restart.
+  or `admin_auth_mode` not `rotating_hmac` — log redaction is off or admin auth
+  may be on the development static-bearer path. Treat as an incident; set
+  `TEABAY_DEVELOPMENT_MODE=false`, provision an active `admin_tokens` HMAC key,
+  then restart.
