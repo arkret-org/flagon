@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "server"
 version.workspace = true
 edition.workspace = true
@@ -44,6 +44,6 @@ uuid.workspace = true
 voprf.workspace = true
 
 [dev-dependencies]
-teabay-testing = { version = "0.1.0", path = "../testing" }
+teabay-testing = { version = "0.3.0", path = "../testing" }
 tokio = { workspace = true, features = ["test-util"] }
 testcontainers-modules.workspace = true

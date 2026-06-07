@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "admin"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "dioxus",
  "dioxus-free-icons",
@@ -692,7 +692,7 @@ checksum = "3f88a43d011fc4a6876cb7344703e297c71dda42494fee094d5f7c76bf13f746"
 
 [[package]]
 name = "cokret"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "argon2",
  "base64",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-contracts"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cokret-core",
@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-core"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "bs58",
@@ -759,7 +759,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-crypto"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cokret-core",
@@ -772,7 +772,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-ffi"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-core",
  "serde",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-html"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-core",
  "serde",
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-http-client"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cokret-core",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "cokret-identifiers"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.3.4",
@@ -817,14 +817,14 @@ dependencies = [
 
 [[package]]
 name = "cokret-keystore"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "cokret-core",
 ]
 
 [[package]]
 name = "cokret-signatures"
-version = "1.0.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",
@@ -5060,7 +5060,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5425,7 +5425,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "teabay-testing"
-version = "0.1.0"
+version = "0.3.0"
 
 [[package]]
 name = "tempfile"
