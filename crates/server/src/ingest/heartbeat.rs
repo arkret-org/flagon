@@ -37,7 +37,7 @@ use crate::ingest::{DirectoryResourceKindDb, header_value};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct HeartbeatRequest {
+pub struct DirectoryAnnounceHeartbeatRequestBody {
     pub announce_id: String,
     /// Optional TTL override. When present and within the operator
     /// `max_ttl`, the directory uses this value; otherwise the row's
@@ -47,7 +47,7 @@ pub struct HeartbeatRequest {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HeartbeatResponse {
+pub struct DirectoryAnnounceHeartbeatOutcome {
     pub announce_id: String,
     pub last_refreshed_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -65,7 +65,7 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
     };
     let mut ingest_metric = state.metrics().ingest_guard("heartbeat");
 
-    let body: HeartbeatRequest = match req.parse_json().await {
+    let body: DirectoryAnnounceHeartbeatRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");
@@ -162,7 +162,7 @@ pub async fn heartbeat(req: &mut Request, depot: &mut Depot, res: &mut Response)
             )
             .await;
             ingest_metric.set_outcome("verify_ok");
-            res.render(Json(HeartbeatResponse {
+            res.render(Json(DirectoryAnnounceHeartbeatOutcome {
                 announce_id: body.announce_id,
                 last_refreshed_at: now,
                 expires_at: new_expires,

@@ -23,7 +23,7 @@ use crate::state::AppState;
 type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Debug, Deserialize)]
-pub struct SubscribeRequest {
+pub struct DirectoryPushRegisterRequestBody {
     pub subscriber_did: String,
     #[serde(default)]
     pub resource_filter: JsonValue,
@@ -35,7 +35,7 @@ pub struct SubscribeRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SubscribeResponse {
+pub struct DirectoryPushRegisterOutcome {
     pub subscription_id: String,
     pub created_at: DateTime<Utc>,
     pub effective_at: DateTime<Utc>,
@@ -68,7 +68,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     };
     let mut ingest_metric = state.metrics().ingest_guard("subscribe");
 
-    let body: SubscribeRequest = match req.parse_json().await {
+    let body: DirectoryPushRegisterRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ingest_metric.set_outcome("bad_json");
@@ -157,7 +157,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     }
 
     ingest_metric.set_outcome("verify_ok");
-    res.render(Json(SubscribeResponse {
+    res.render(Json(DirectoryPushRegisterOutcome {
         subscription_id,
         created_at,
         effective_at: created_at,
@@ -338,7 +338,7 @@ fn generate_secret(subscription_id: &str, subscriber_did: &str, endpoint: &str) 
 
 async fn persist_subscription(
     state: &AppState,
-    body: &SubscribeRequest,
+    body: &DirectoryPushRegisterRequestBody,
     subscription_id: &str,
     secret: &[u8],
     created_at: DateTime<Utc>,

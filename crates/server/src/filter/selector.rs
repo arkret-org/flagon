@@ -38,7 +38,6 @@ use serde_json::Value as JsonValue;
 ///   - `{"kind": "circle", ...}`
 ///   - `{"selector_kind": "circle", ...}`
 ///   - `{"resource_selector": {"kind": "circle", ...}}`
-///
 pub fn is_circle_selector(filter: &JsonValue) -> bool {
     let Some(map) = filter.as_object() else {
         return false;

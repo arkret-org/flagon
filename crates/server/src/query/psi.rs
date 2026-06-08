@@ -49,7 +49,7 @@ pub enum PsiPhase {
 }
 
 #[derive(Debug, Serialize)]
-pub struct BlindResponse {
+pub struct DirectoryPrivateContactDiscoveryBlindOutcome {
     pub phase: &'static str,
     pub epoch: String,
     pub key_id: String,
@@ -62,7 +62,7 @@ pub struct BlindResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MatchResponse {
+pub struct DirectoryPrivateContactDiscoveryMatchOutcome {
     pub phase: &'static str,
     pub epoch: String,
     pub key_id: String,
@@ -206,7 +206,7 @@ async fn handle_blind_phase(
 
     let query_id = random_query_id();
     let padding_count = MATCH_CARDINALITY.saturating_sub(evaluations.len());
-    res.render(Json(BlindResponse {
+    res.render(Json(DirectoryPrivateContactDiscoveryBlindOutcome {
         phase: "blind",
         epoch: key.epoch.clone(),
         key_id: key.epoch,
@@ -255,7 +255,7 @@ async fn handle_match_phase(
         .collect::<Vec<_>>();
     let padding_count = MATCH_CARDINALITY.saturating_sub(hit_bitmap.len());
     hit_bitmap.resize(MATCH_CARDINALITY, false);
-    res.render(Json(MatchResponse {
+    res.render(Json(DirectoryPrivateContactDiscoveryMatchOutcome {
         phase: "match",
         epoch: key.epoch.clone(),
         key_id: key.epoch,
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn match_response_does_not_expose_index_size() {
-        let value = serde_json::to_value(MatchResponse {
+        let value = serde_json::to_value(DirectoryPrivateContactDiscoveryMatchOutcome {
             phase: "match",
             epoch: "psi-epoch-1".to_owned(),
             key_id: "psi-epoch-1".to_owned(),

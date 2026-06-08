@@ -72,11 +72,15 @@ impl AppState {
             .check(key.into(), max_requests, window)
     }
 
-    pub fn cached_announce_replay(&self, digest: &[u8]) -> Option<CachedAnnounceResponse> {
+    pub fn cached_announce_replay(&self, digest: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
         self.inner.announce_replay_cache.get(digest)
     }
 
-    pub fn remember_announce_replay(&self, digest: Vec<u8>, response: CachedAnnounceResponse) {
+    pub fn remember_announce_replay(
+        &self,
+        digest: Vec<u8>,
+        response: CachedDirectoryAnnounceOutcome,
+    ) {
         self.inner.announce_replay_cache.put(digest, response);
     }
 
@@ -84,11 +88,15 @@ impl AppState {
     /// extended four-field key. `digest` is SHA-256 over `(request_digest
     /// || source_service_did || verification_method ||
     /// service_binding_ref || origin_key_state_digest)`.
-    pub fn cached_federation_replay(&self, key: &[u8]) -> Option<CachedAnnounceResponse> {
+    pub fn cached_federation_replay(&self, key: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
         self.inner.announce_replay_cache.get(key)
     }
 
-    pub fn remember_federation_replay(&self, key: Vec<u8>, response: CachedAnnounceResponse) {
+    pub fn remember_federation_replay(
+        &self,
+        key: Vec<u8>,
+        response: CachedDirectoryAnnounceOutcome,
+    ) {
         self.inner.announce_replay_cache.put(key, response);
     }
 
@@ -136,7 +144,7 @@ struct RateBucket {
 }
 
 #[derive(Debug, Clone)]
-pub struct CachedAnnounceResponse {
+pub struct CachedDirectoryAnnounceOutcome {
     pub announce_id: String,
     pub indexed_at: DateTime<Utc>,
     pub effective_ttl_seconds: i64,
@@ -149,7 +157,7 @@ struct AnnounceReplayCache {
 }
 
 struct CachedAnnounceCacheRow {
-    response: CachedAnnounceResponse,
+    response: CachedDirectoryAnnounceOutcome,
     inserted_at: Instant,
 }
 
@@ -247,7 +255,7 @@ fn stale_after_for(period: Option<Duration>) -> Duration {
 }
 
 impl AnnounceReplayCache {
-    fn get(&self, digest: &[u8]) -> Option<CachedAnnounceResponse> {
+    fn get(&self, digest: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
         let mut rows = self
             .rows
             .lock()
@@ -257,7 +265,7 @@ impl AnnounceReplayCache {
         rows.get(digest).map(|row| row.response.clone())
     }
 
-    fn put(&self, digest: Vec<u8>, response: CachedAnnounceResponse) {
+    fn put(&self, digest: Vec<u8>, response: CachedDirectoryAnnounceOutcome) {
         let mut rows = self
             .rows
             .lock()

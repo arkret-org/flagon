@@ -31,10 +31,10 @@ use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::VerifyContext;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb, IngestModeWire, header_value};
-use crate::state::{AppState, CachedAnnounceResponse};
+use crate::state::{AppState, CachedDirectoryAnnounceOutcome};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnnounceRequest {
+pub struct DirectoryAnnounceRequestBody {
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub principal_server_did: String,
@@ -50,7 +50,7 @@ pub struct AnnounceRequest {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AnnounceResponse {
+pub struct DirectoryAnnounceOutcome {
     pub announce_id: String,
     pub indexed_at: DateTime<Utc>,
     pub effective_ttl_seconds: i64,
@@ -108,7 +108,7 @@ pub struct FederationCacheKeyInputs {
 }
 
 impl FederationCacheKeyInputs {
-    pub fn extract(req: &Request, body: &AnnounceRequest) -> Self {
+    pub fn extract(req: &Request, body: &DirectoryAnnounceRequestBody) -> Self {
         let source_service_did = header_value(req, "source-service-did")
             .or_else(|| header_value(req, "x-source-service-did"))
             .unwrap_or_default();
@@ -305,7 +305,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("announce");
 
-    let body: AnnounceRequest = match req.parse_json().await {
+    let body: DirectoryAnnounceRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");
@@ -492,7 +492,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             ingest_metric.set_outcome("replay");
             "digest_replay_cache"
         };
-        res.render(Json(AnnounceResponse {
+        res.render(Json(DirectoryAnnounceOutcome {
             announce_id: cached.announce_id,
             indexed_at: cached.indexed_at,
             effective_ttl_seconds: cached.effective_ttl_seconds,
@@ -534,7 +534,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     .ok()
     .flatten()
     {
-        let response = AnnounceResponse {
+        let response = DirectoryAnnounceOutcome {
             announce_id: existing.announce_id,
             indexed_at: existing.indexed_at,
             effective_ttl_seconds: existing.effective_ttl_seconds as i64,
@@ -545,7 +545,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         };
         state.remember_federation_replay(
             cache_key.clone(),
-            CachedAnnounceResponse {
+            CachedDirectoryAnnounceOutcome {
                 announce_id: response.announce_id.clone(),
                 indexed_at: response.indexed_at,
                 effective_ttl_seconds: response.effective_ttl_seconds,
@@ -703,7 +703,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     state.remember_federation_replay(
         cache_key,
-        CachedAnnounceResponse {
+        CachedDirectoryAnnounceOutcome {
             announce_id: announce_id.clone(),
             indexed_at,
             effective_ttl_seconds: effective_ttl,
@@ -712,7 +712,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     );
 
     ingest_metric.set_outcome("verify_ok");
-    res.render(Json(AnnounceResponse {
+    res.render(Json(DirectoryAnnounceOutcome {
         announce_id,
         indexed_at,
         effective_ttl_seconds: effective_ttl,
@@ -756,7 +756,7 @@ pub(crate) fn derive_realm_terminal_state(
 }
 
 fn validate_request_shape(
-    req: &AnnounceRequest,
+    req: &DirectoryAnnounceRequestBody,
     max_ttl: Duration,
 ) -> Result<(), (ApiErrorCode, String)> {
     if req.resource_id.is_empty() {
@@ -1022,14 +1022,14 @@ fn normalize_member_count_projection(
     Ok(())
 }
 
-pub(crate) fn digest_request(req: &AnnounceRequest) -> Vec<u8> {
+pub(crate) fn digest_request(req: &DirectoryAnnounceRequestBody) -> Vec<u8> {
     // Cokret canonical JSON body SHA-256 — used for replay detection in
     // `ingest_announces.request_digest` and for Request-Canonical-Digest.
     let mut h = Sha256::new();
-    let value =
-        serde_json::to_value(req).expect("AnnounceRequest is serde-serializable by construction");
+    let value = serde_json::to_value(req)
+        .expect("DirectoryAnnounceRequestBody is serde-serializable by construction");
     let canonical = canonical_json_bytes(&value)
-        .expect("AnnounceRequest is canonical-json serializable by construction");
+        .expect("DirectoryAnnounceRequestBody is canonical-json serializable by construction");
     h.update(&canonical);
     h.finalize().to_vec()
 }
@@ -1112,7 +1112,7 @@ pub struct FederationCachePersist {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upsert_resource_and_audit(
     db: &Db,
-    body: &AnnounceRequest,
+    body: &DirectoryAnnounceRequestBody,
     verified: &super::verify::VerifyOutcome,
     ingest_mode: IngestModeWire,
     announce_id: &str,
@@ -1559,7 +1559,7 @@ mod tests {
         second_state.insert("discoverability".to_owned(), json!("public"));
         second_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
 
-        let first = AnnounceRequest {
+        let first = DirectoryAnnounceRequestBody {
             resource_kind: DirectoryResourceKindDb::Realm,
             resource_id: "ck:realm:tea".to_owned(),
             principal_server_did: "did:web:principal.test".to_owned(),
@@ -1570,7 +1570,7 @@ mod tests {
             supersedes_announce_id: None,
             trust_root_attestation: None,
         };
-        let second = AnnounceRequest {
+        let second = DirectoryAnnounceRequestBody {
             discovery_state: JsonValue::Object(second_state),
             ..first.clone()
         };

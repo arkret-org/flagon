@@ -29,7 +29,7 @@ use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_ra
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
-pub struct ResolveHandleRequest {
+pub struct DirectoryResolveHandleRequestBody {
     pub handle: String,
     #[serde(default)]
     pub expected_did: Option<String>,
@@ -195,7 +195,7 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
-    let body = ResolveHandleRequest {
+    let body = DirectoryResolveHandleRequestBody {
         handle: handle.clone(),
         expected_did: None,
         proof_challenge: None,
@@ -254,7 +254,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-handle");
-    let body: ResolveHandleRequest = match req.parse_json().await {
+    let body: DirectoryResolveHandleRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ApiErrorCode::BadJson.render(res, format!("malformed body: {e}"));
@@ -473,7 +473,7 @@ pub(crate) struct RealmDeliveryBindingPolicy {
 
 async fn member_add_policy_for(
     state: &AppState,
-    body: &ResolveHandleRequest,
+    body: &DirectoryResolveHandleRequestBody,
 ) -> anyhow::Result<Option<RealmDeliveryBindingPolicy>> {
     if !is_member_add_intent(body.intent.as_deref()) {
         return Ok(None);
@@ -598,7 +598,7 @@ fn string_array_at(root: &JsonValue, flat_key: &str, nested: Option<&JsonValue>)
 /// exercise the policy without a Postgres dependency.
 fn evaluate_handle_disclosure(
     row: HandleRow,
-    body: &ResolveHandleRequest,
+    body: &DirectoryResolveHandleRequestBody,
     verified_claims: &VerifiedRestrictedClaims,
     policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
@@ -803,8 +803,8 @@ mod tests {
         }
     }
 
-    fn member_add_request(realm_id: &str, requester: &str) -> ResolveHandleRequest {
-        ResolveHandleRequest {
+    fn member_add_request(realm_id: &str, requester: &str) -> DirectoryResolveHandleRequestBody {
+        DirectoryResolveHandleRequestBody {
             handle: "alice.example".to_string(),
             expected_did: None,
             proof_challenge: None,
@@ -1080,7 +1080,7 @@ mod tests {
             );
         }
 
-        let measure = |body: &ResolveHandleRequest, row: &HandleRow| -> Duration {
+        let measure = |body: &DirectoryResolveHandleRequestBody, row: &HandleRow| -> Duration {
             let start = Instant::now();
             for _ in 0..iters {
                 let _ = evaluate_handle_disclosure(

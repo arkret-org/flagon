@@ -61,7 +61,7 @@ struct AllowlistQuery {
 }
 
 #[derive(Debug, Deserialize)]
-struct AllowlistUpsertRequest {
+struct DirectoryAdminAllowlistUpsertRequestBody {
     resource_did: String,
     #[serde(default)]
     added_by: Option<String>,
@@ -107,7 +107,7 @@ struct ResourcesQuery {
 }
 
 #[derive(Debug, Deserialize)]
-struct ResourceUpsertRequest {
+struct DirectoryAdminResourceUpsertRequestBody {
     resource_kind: DirectoryResourceKindDb,
     resource_id: String,
     principal_server_did: String,
@@ -268,7 +268,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
         Some(state) => state,
         None => return,
     };
-    let body: AllowlistUpsertRequest = match req.parse_json().await {
+    let body: DirectoryAdminAllowlistUpsertRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed allowlist body: {error}"));
@@ -379,7 +379,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         Some(state) => state,
         None => return,
     };
-    let body: ResourceUpsertRequest = match req.parse_json().await {
+    let body: DirectoryAdminResourceUpsertRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed resource body: {error}"));
@@ -537,7 +537,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
 /// fires on a best-effort basis through the same fanout path the
 /// announce handler uses.
 #[derive(Debug, Deserialize)]
-struct ConsentRevokeRequest {
+struct DirectoryAdminConsentRevokeRequestBody {
     /// Affected actor DID. Required.
     actor_id: String,
     /// Subject scope — MUST be `"any"` per spec; other values are
@@ -558,7 +558,7 @@ struct ConsentRevokeRequest {
 }
 
 #[derive(Debug, Serialize)]
-struct ConsentRevokeResponse {
+struct DirectoryAdminConsentRevokeOutcome {
     invalidated_rows: i64,
     revoked_at: DateTime<Utc>,
     tombstoned_subscriptions: usize,
@@ -570,7 +570,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         Some(state) => state,
         None => return,
     };
-    let body: ConsentRevokeRequest = match req.parse_json().await {
+    let body: DirectoryAdminConsentRevokeRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed consent revoke body: {error}"));
@@ -626,7 +626,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
     let tombstoned_subscriptions =
         crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &affected).await;
 
-    res.render(Json(ConsentRevokeResponse {
+    res.render(Json(DirectoryAdminConsentRevokeOutcome {
         invalidated_rows,
         revoked_at,
         tombstoned_subscriptions,
@@ -670,7 +670,7 @@ impl TombstoneKind {
 
 async fn invalidate_reachability(
     state: &AppState,
-    body: &ConsentRevokeRequest,
+    body: &DirectoryAdminConsentRevokeRequestBody,
     revoked_at: DateTime<Utc>,
     reason: &str,
 ) -> anyhow::Result<(i64, Vec<ReachabilityTombstone>)> {
@@ -794,7 +794,7 @@ async fn load_allowlist(state: &AppState, limit: i64) -> anyhow::Result<Vec<Allo
 
 async fn upsert_allowlist(
     state: &AppState,
-    body: &AllowlistUpsertRequest,
+    body: &DirectoryAdminAllowlistUpsertRequestBody,
     actor: &str,
 ) -> anyhow::Result<AllowlistItem> {
     use crate::schema::accept_allowlist::dsl as a;
@@ -909,7 +909,7 @@ async fn load_resources(
 #[allow(clippy::too_many_arguments)]
 async fn upsert_managed_resource(
     state: &AppState,
-    body: &ResourceUpsertRequest,
+    body: &DirectoryAdminResourceUpsertRequestBody,
     discovery_state: JsonValue,
     public_projection: JsonValue,
     source_refs: Vec<String>,
@@ -1074,7 +1074,7 @@ fn normalized_public_projection(raw: &JsonValue, discoverability: Discoverabilit
 }
 
 fn normalized_discovery_state(
-    body: &ResourceUpsertRequest,
+    body: &DirectoryAdminResourceUpsertRequestBody,
     public_projection: &JsonValue,
     via_services: &[String],
 ) -> Result<JsonValue, String> {

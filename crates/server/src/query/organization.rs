@@ -23,7 +23,7 @@ use crate::query::rate_limit::{
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct SearchOrgsRequest {
+pub struct DirectorySearchOrganizationsRequestBody {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
@@ -51,7 +51,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: SearchOrgsRequest = req.parse_json().await.unwrap_or_default();
+    let body: DirectorySearchOrganizationsRequestBody = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
@@ -156,7 +156,7 @@ fn decode_org_cursor(cursor: &str) -> Result<OrgCursor, String> {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ResolveOrgRequest {
+pub struct DirectoryResolveOrganizationRequestBody {
     #[serde(default)]
     pub organization_did: Option<String>,
     #[serde(default)]
@@ -185,7 +185,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-organization");
-    let body: ResolveOrgRequest = match req.parse_json().await {
+    let body: DirectoryResolveOrganizationRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));

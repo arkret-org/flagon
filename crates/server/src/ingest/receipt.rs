@@ -8,14 +8,14 @@ use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
 
 use crate::config::{AppConfig, ReceiptSigningKey};
-use crate::ingest::operator::OperatorTakedownRequest;
-use crate::ingest::withdraw::{WithdrawRequest, withdraw_payload_without_jws};
+use crate::ingest::operator::OperatorTakedownRequestBody;
+use crate::ingest::withdraw::{DirectoryWithdrawRequestBody, withdraw_payload_without_jws};
 
 pub(crate) const RECEIPT_VERSION: &str = "teabay.withdrawal_receipt.v1";
 
 pub(crate) fn resource_withdrawal_proof(
     config: &AppConfig,
-    body: &WithdrawRequest,
+    body: &DirectoryWithdrawRequestBody,
     withdraw_id: &str,
     acked_at: DateTime<Utc>,
     effective_at: DateTime<Utc>,
@@ -47,7 +47,7 @@ pub(crate) fn resource_withdrawal_proof(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn operator_takedown_proof(
     config: &AppConfig,
-    body: &OperatorTakedownRequest,
+    body: &OperatorTakedownRequestBody,
     withdraw_id: &str,
     operator: &str,
     acked_at: DateTime<Utc>,

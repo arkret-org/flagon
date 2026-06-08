@@ -18,7 +18,7 @@ use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
-pub struct OperatorTakedownRequest {
+pub struct OperatorTakedownRequestBody {
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub reason: String,
@@ -31,7 +31,7 @@ pub struct OperatorTakedownRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct OperatorTakedownResponse {
+pub struct OperatorTakedownOutcome {
     pub withdraw_id: String,
     pub acked_at: DateTime<Utc>,
     pub effective_at: DateTime<Utc>,
@@ -60,7 +60,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         return;
     }
 
-    let body: OperatorTakedownRequest = match req.parse_json().await {
+    let body: OperatorTakedownRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed takedown body: {error}"));
@@ -136,7 +136,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     )
     .await;
 
-    res.render(Json(OperatorTakedownResponse {
+    res.render(Json(OperatorTakedownOutcome {
         withdraw_id,
         acked_at,
         effective_at,
@@ -147,7 +147,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
 #[allow(clippy::too_many_arguments)]
 async fn persist_operator_takedown(
     state: &AppState,
-    body: &OperatorTakedownRequest,
+    body: &OperatorTakedownRequestBody,
     withdraw_id: &str,
     operator: &str,
     acked_at: DateTime<Utc>,

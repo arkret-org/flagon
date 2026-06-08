@@ -68,7 +68,7 @@ use crate::state::AppState;
 const OP: &str = "resolve-target";
 
 #[derive(Debug, Deserialize)]
-pub struct ResolveTargetRequest {
+pub struct DirectoryResolveTargetRequestBody {
     pub address: String,
     #[serde(default)]
     pub requester: Option<String>,
@@ -91,7 +91,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     };
     let _query_timer = state.metrics().query_timer(OP);
 
-    let body: ResolveTargetRequest = match req.parse_json().await {
+    let body: DirectoryResolveTargetRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             state.metrics().record_query_outcome(OP, "bad_json");

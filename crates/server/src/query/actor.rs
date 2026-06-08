@@ -22,7 +22,7 @@ use crate::query::rate_limit::enforce_query_rate_limit;
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct SearchActorsRequest {
+pub struct DirectorySearchActorsRequestBody {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
@@ -36,7 +36,7 @@ pub struct SearchActorsRequest {
 }
 
 #[derive(Debug, Default, Deserialize)]
-pub struct SearchUsersRequest {
+pub struct DirectorySearchUsersRequestBody {
     #[serde(default, alias = "q")]
     pub query: Option<String>,
     #[serde(default)]
@@ -66,7 +66,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: SearchActorsRequest = req.parse_json().await.unwrap_or_default();
+    let body: DirectorySearchActorsRequestBody = req.parse_json().await.unwrap_or_default();
     if !crate::query::rate_limit::enforce_search_needle_rate_limit(
         res,
         &state,
@@ -123,7 +123,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         return;
     }
 
-    let query: SearchUsersRequest = match req.parse_json().await {
+    let query: DirectorySearchUsersRequestBody = match req.parse_json().await {
         Ok(query) => query,
         Err(error) => {
             ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));

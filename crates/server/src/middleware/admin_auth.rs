@@ -3,10 +3,9 @@
 //! Two credential forms are accepted, but the static bearer is limited
 //! to development mode:
 //!
-//! * **Development static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`.
-//!   Existing local operator scripts and the in-process conformance harness
-//!   continue to work while `TEABAY_DEVELOPMENT_MODE=true`; production rejects
-//!   this long-lived credential shape.
+//! * **Development static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`. Existing local
+//!   operator scripts and the in-process conformance harness continue to work while
+//!   `TEABAY_DEVELOPMENT_MODE=true`; production rejects this long-lived credential shape.
 //!
 //! * **Rotating HMAC** — `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`. The shared secret
 //!   is provisioned by row in `admin_tokens`. Clients compute `mac = HMAC_SHA256(secret,

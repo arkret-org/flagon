@@ -36,7 +36,7 @@ use crate::query::rate_limit::{
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct SearchRealmsRequest {
+pub struct DirectorySearchRealmsRequestBody {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
@@ -74,7 +74,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: SearchRealmsRequest = req.parse_json().await.unwrap_or_default();
+    let body: DirectorySearchRealmsRequestBody = req.parse_json().await.unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
@@ -169,7 +169,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ResolveRealmRequest {
+pub struct DirectoryResolveRealmRequestBody {
     #[serde(default)]
     pub realm_id: Option<String>,
     #[serde(default)]
@@ -202,7 +202,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-realm");
-    let body: ResolveRealmRequest = match req.parse_json().await {
+    let body: DirectoryResolveRealmRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));

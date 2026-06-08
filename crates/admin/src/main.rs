@@ -194,7 +194,7 @@ struct AuditEvent {
 }
 
 #[derive(Clone, Default, Deserialize, PartialEq)]
-struct TakedownResponse {
+struct OperatorTakedownOutcome {
     #[serde(default)]
     withdraw_id: String,
     #[serde(default)]
@@ -206,14 +206,14 @@ struct TakedownResponse {
 }
 
 #[derive(Serialize)]
-struct AllowlistUpsertBody {
+struct DirectoryAdminAllowlistUpsertRequestBody {
     resource_did: String,
     added_by: Option<String>,
     note: Option<String>,
 }
 
 #[derive(Serialize)]
-struct TakedownBody {
+struct OperatorTakedownRequestBody {
     resource_kind: String,
     resource_id: String,
     reason: String,
@@ -234,7 +234,7 @@ struct DeleteCount {
 }
 
 #[derive(Clone, Serialize)]
-struct ResourceUpsertBody {
+struct DirectoryAdminResourceUpsertRequestBody {
     resource_kind: String,
     resource_id: String,
     principal_server_did: String,
@@ -320,7 +320,7 @@ impl ResourceEditorForm {
         }
     }
 
-    fn to_body(&self) -> Result<ResourceUpsertBody, String> {
+    fn to_body(&self) -> Result<DirectoryAdminResourceUpsertRequestBody, String> {
         let resource_id = self.resource_id.trim().to_string();
         if resource_id.is_empty() {
             return Err("resource_id is required".to_string());
@@ -338,7 +338,7 @@ impl ResourceEditorForm {
             return Err("discoverability is invalid".to_string());
         }
 
-        Ok(ResourceUpsertBody {
+        Ok(DirectoryAdminResourceUpsertRequestBody {
             resource_kind: self.resource_kind.clone(),
             resource_id,
             principal_server_did,
@@ -917,7 +917,7 @@ fn ResourcesPanel(base_url: String, token: String) -> Element {
         error.set(String::new());
         status.set("Saving resource".to_string());
         spawn(async move {
-            match post_admin::<ResourceUpsertBody, ResourceMutationEnvelope>(
+            match post_admin::<DirectoryAdminResourceUpsertRequestBody, ResourceMutationEnvelope>(
                 base_url,
                 token,
                 "resources",
@@ -1363,7 +1363,7 @@ fn AllowlistPanel(base_url: String, token: String) -> Element {
             error.set("resource_did is required".to_string());
             return;
         }
-        let body = AllowlistUpsertBody {
+        let body = DirectoryAdminAllowlistUpsertRequestBody {
             resource_did: did,
             added_by: option_string(added_by()),
             note: option_string(note()),
@@ -1376,8 +1376,13 @@ fn AllowlistPanel(base_url: String, token: String) -> Element {
         error.set(String::new());
         status.set("Saving allowlist entry".to_string());
         spawn(async move {
-            match post_admin::<AllowlistUpsertBody, JsonValue>(base_url, token, "allowlist", &body)
-                .await
+            match post_admin::<DirectoryAdminAllowlistUpsertRequestBody, JsonValue>(
+                base_url,
+                token,
+                "allowlist",
+                &body,
+            )
+            .await
             {
                 Ok(_) => {
                     status.set("Allowlist entry saved".to_string());
@@ -1558,7 +1563,7 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
     let mut error = use_signal(String::new);
-    let mut response = use_signal(Option::<TakedownResponse>::default);
+    let mut response = use_signal(Option::<OperatorTakedownOutcome>::default);
 
     let kind_value = resource_kind();
     let id_value = resource_id();
@@ -1588,7 +1593,7 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
                 return;
             }
         };
-        let body = TakedownBody {
+        let body = OperatorTakedownRequestBody {
             resource_kind: resource_kind(),
             resource_id: id,
             reason: reason_text,
@@ -1601,8 +1606,10 @@ fn TakedownPanel(base_url: String, token: String) -> Element {
         error.set(String::new());
         status.set("Submitting takedown".to_string());
         spawn(async move {
-            match post_admin::<TakedownBody, TakedownResponse>(base_url, token, "takedown", &body)
-                .await
+            match post_admin::<OperatorTakedownRequestBody, OperatorTakedownOutcome>(
+                base_url, token, "takedown", &body,
+            )
+            .await
             {
                 Ok(payload) => {
                     response.set(Some(payload));

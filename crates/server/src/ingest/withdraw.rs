@@ -24,7 +24,7 @@ use crate::ingest::{DirectoryResourceKindDb, WithdrawalKindWire, verify};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct WithdrawRequest {
+pub struct DirectoryWithdrawRequestBody {
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     /// Same proof envelope used in `ck.{kind}.discovery.proof` — must be
@@ -38,7 +38,7 @@ pub struct WithdrawRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct WithdrawResponse {
+pub struct DirectoryWithdrawOutcome {
     /// Directory-local audit reference (spec discovery-directory §9). This is
     /// *not* a registered typed ID; it is the wire name the client parses to
     /// correlate the withdrawal with the directory's audit trail. Its value is
@@ -58,7 +58,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("withdraw");
 
-    let body: WithdrawRequest = match req.parse_json().await {
+    let body: DirectoryWithdrawRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");
@@ -158,14 +158,14 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     .await;
 
     ingest_metric.set_outcome("verify_ok");
-    res.render(Json(WithdrawResponse {
+    res.render(Json(DirectoryWithdrawOutcome {
         withdrawal_ref: withdraw_id,
         acked_at,
     }));
 }
 
 pub(crate) fn withdraw_payload_without_jws(
-    body: &WithdrawRequest,
+    body: &DirectoryWithdrawRequestBody,
 ) -> Result<JsonValue, (ApiErrorCode, String)> {
     let mut payload = serde_json::to_value(body).map_err(|e| {
         (
@@ -193,7 +193,7 @@ pub(crate) fn withdraw_payload_without_jws(
 
 async fn persist_withdraw(
     state: &AppState,
-    body: &WithdrawRequest,
+    body: &DirectoryWithdrawRequestBody,
     withdraw_id: &str,
     proof: &JsonValue,
     acked_at: chrono::DateTime<Utc>,
