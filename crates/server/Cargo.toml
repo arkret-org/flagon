@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "server"
 version.workspace = true
 edition.workspace = true
@@ -13,37 +13,37 @@ categories = ["network-programming", "web-programming::http-server"]
 authors.workspace = true
 
 [dependencies]
-anyhow.workspace = true
-async-trait.workspace = true
-base64.workspace = true
-bs58.workspace = true
-chrono.workspace = true
-cokret-sdk.workspace = true
-diesel.workspace = true
-diesel-async.workspace = true
-deadpool.workspace = true
-diesel-derive-enum.workspace = true
-diesel_migrations.workspace = true
-dotenvy.workspace = true
-ed25519-dalek.workspace = true
-futures-util.workspace = true
-hmac.workspace = true
-rand.workspace = true
-reqwest.workspace = true
-salvo.workspace = true
-salvo-oapi.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-url.workspace = true
-uuid.workspace = true
-voprf.workspace = true
+anyhow = {workspace = true}
+async-trait = {workspace = true}
+base64 = {workspace = true}
+bs58 = {workspace = true}
+chrono = {workspace = true}
+cokret-sdk = {workspace = true}
+deadpool = {workspace = true}
+diesel = {workspace = true}
+diesel-async = {workspace = true}
+diesel-derive-enum = {workspace = true}
+diesel_migrations = {workspace = true}
+dotenvy = {workspace = true}
+ed25519-dalek = {workspace = true}
+futures-util = {workspace = true}
+hmac = {workspace = true}
+rand = {workspace = true}
+reqwest = {workspace = true}
+salvo = {workspace = true}
+salvo-oapi = {workspace = true}
+serde = {workspace = true}
+serde_json = {workspace = true}
+sha2 = {workspace = true}
+thiserror = {workspace = true}
+tokio = {workspace = true}
+tracing = {workspace = true}
+tracing-subscriber = {workspace = true}
+url = {workspace = true}
+uuid = {workspace = true}
+voprf = {workspace = true}
 
 [dev-dependencies]
-teabay-testing = { version = "0.3.0", path = "../testing" }
-tokio = { workspace = true, features = ["test-util"] }
-testcontainers-modules.workspace = true
+teabay-testing = {workspace = true}
+testcontainers-modules = {workspace = true}
+tokio = {workspace = true,features = ["test-util"]}
