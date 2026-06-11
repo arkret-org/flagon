@@ -3,7 +3,6 @@
 pub mod announce;
 pub mod divergence_worker;
 pub mod freshness_worker;
-pub mod heartbeat;
 pub mod operator;
 pub mod pull_worker;
 pub mod rate_limit;
@@ -16,9 +15,8 @@ use diesel_derive_enum::DbEnum;
 use salvo::Request;
 use serde::{Deserialize, Serialize};
 
-/// Read a request header as a trimmed, non-empty `String`. Shared by the
-/// ingest handlers (announce / heartbeat) so the trim+empty-filter convention
-/// lives in one place.
+/// Read a request header as a trimmed, non-empty `String`. Shared by ingest
+/// handlers so the trim+empty-filter convention lives in one place.
 pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
     req.headers()
         .get(name)

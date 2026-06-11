@@ -143,7 +143,7 @@ crates.
 ## Admin console
 
 The Dioxus web console lives in `crates/admin/` and talks to
-`/_cokret/local/admin/{resources,allowlist,takedown,audit}` with the
+`/_teabay/admin/{resources,allowlist,takedown,audit}` with the
 development-only `TEABAY_ADMIN_TOKEN` bearer token, or a production
 rotating HMAC bearer minted from an `admin_tokens` row.
 
@@ -291,7 +291,7 @@ mechanism and keep `.env` files out of source control.
 
 ### Admin token enforcement
 
-All `/_cokret/local/admin/*` handlers call the shared admin guard before touching the
+All `/_teabay/admin/*` handlers call the shared admin guard before touching the
 database. In development mode the guard can accept
 `Authorization: Bearer $TEABAY_ADMIN_TOKEN`. In production
 (`TEABAY_DEVELOPMENT_MODE=false`) that static bearer is ignored; admin callers

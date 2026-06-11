@@ -2183,7 +2183,7 @@ async fn decode_response<T: DeserializeOwned>(response: Response) -> Result<T, S
 
 fn admin_url(base_url: &str, path: &str) -> String {
     format!(
-        "{}/_cokret/local/admin/{}",
+        "{}/_teabay/admin/{}",
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     )

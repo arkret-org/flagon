@@ -2,11 +2,11 @@
 --
 -- `directory_resources.indexed_at + effective_ttl_seconds` already
 -- gives us `next_revalidation_after`, but the operator-facing TTL
--- story (heartbeats, explicit expiry) needs two more derived columns:
+-- story (announce refreshes, explicit expiry) needs two more derived columns:
 --
---   * `last_refreshed_at` — most recent successful heartbeat or
---     announce. Equals `indexed_at` on row insert; the heartbeat
---     endpoint bumps it forward without rewriting `discovery_state`.
+--   * `last_refreshed_at` — most recent successful announce or
+--     refresh. Equals `indexed_at` on row insert; each accepted announce
+--     bumps it forward.
 --   * `expires_at`        — explicit row-level expiry. Equals
 --     `last_refreshed_at + effective_ttl_seconds`. A background
 --     worker treats rows past `expires_at` as stale and ultimately

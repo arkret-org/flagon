@@ -1,7 +1,7 @@
 //! Freshness-expiry background worker — P2E.5 follow-up.
 //!
-//! The heartbeat ingest path (P2E.5) writes `expires_at` on every
-//! refresh; this worker is the other half of the contract: every
+//! Accepted announce requests write `expires_at` on every refresh; this
+//! worker is the other half of the contract: every
 //! `tick` (default 10 minutes) it sweeps `directory_resources` and
 //! marks any row whose revalidation TTL plus configured grace has elapsed
 //! as `stale = true`. Query handlers (`actor`, `realm`, `organization`,

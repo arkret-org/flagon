@@ -24,7 +24,7 @@ line unless a release owner declares a supported release branch.
 - RFC 9421 HTTP Message Signature enforcement on ingest endpoints.
 - DID method and trust-domain verification.
 - Accept policy and allowlist enforcement.
-- Admin bearer authentication for `/_cokret/local/admin/*`.
+- Admin bearer authentication for `/_teabay/admin/*`.
 - Anti-enumeration filtering and timing equalization.
 - Private Contact Discovery rate limits and epoch key retention.
 - Pull-mode revalidation and stale-row deletion.
@@ -58,8 +58,6 @@ Enforcement points (all in `crates/server/src/`):
   on the full serialized request envelope (catches smuggling via
   top-level `resource_id` / `principal_server_did` /
   `supersedes_announce_id`).
-- `ingest/heartbeat.rs` inherits the same guard via the announce
-  sub-route.
 - `ingest/subscribe.rs` calls the rejector on `resource_filter` (a
   subscribe filter that asks for Circle rows leaks Circle existence
   via the eventual fanout pattern, even if no row ever matches).
@@ -106,7 +104,7 @@ accepted.
 encoded as `keyid=BASE64URL32` pairs. The `keyid` must match the HTTP Message
 Signature `keyid` sent by the Principal Server.
 
-`TEABAY_ADMIN_TOKEN` is fail-closed for `/_cokret/local/admin/*`: unset, empty,
+`TEABAY_ADMIN_TOKEN` is fail-closed for `/_teabay/admin/*`: unset, empty,
 missing, or mismatched bearer tokens are rejected as unauthenticated. The
 hardening status reports admin auth as `production` only when development mode
 is off and this token is configured.

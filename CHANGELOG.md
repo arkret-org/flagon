@@ -55,8 +55,7 @@ one.
   deliberately low-information to preserve the anti-enumeration story
   (the rejection message does NOT echo the field name or the typed
   id). Audit row captures the violation for operator review.
-  Mirrored on `POST /api/v1/directory/announce`,
-  `POST /api/v1/directory/announce/heartbeat`, and
+  Mirrored on `POST /api/v1/directory/announce` and
   `POST /api/v1/directory/subscribe`.
 - **BREAKING** The SDK's CKP-0007 `forbidden-wire-fields` list is
   mirrored at the directory edge (`discussion_realm_ref`,
@@ -86,20 +85,15 @@ one.
   base-image pull (`debian:bookworm-slim`, `rust:1.88-bookworm`,
   `nginx:1.27-alpine`); the CI runner is authenticated and faces no
   rate limit, so P2E.4.4 is satisfied by the workflow gate.
-- **Added** TTL/heartbeat freshness story. Migration
+- **Added** TTL freshness story. Migration
   `20260526010000_add_freshness` adds
   `directory_resources.last_refreshed_at` and
   `directory_resources.expires_at`, backfilled from the existing
-  `indexed_at` + `effective_ttl_seconds` pair. New endpoint
-  `POST /api/v1/directory/announce/heartbeat` lets an owner bump
-  `last_refreshed_at` + `expires_at` forward by one TTL window
-  without re-signing the full discovery_state body. Owner check via
-  `X-Principal-Server-DID`; blinded `not_found` for unknown
-  `announce_id`. Followup: a dedicated background expiry worker that
-  sweeps on `expires_at` (vs. the existing
-  `next_revalidation_after`-driven pull worker) is tracked as
-  `TODO(circle-rollout-P2E.5)` in
-  `crates/server/src/ingest/heartbeat.rs`.
+  `indexed_at` + `effective_ttl_seconds` pair. Freshness is refreshed
+  by re-submitting `ck.find.directory.announce` for the current
+  discovery state. The background freshness worker sweeps on
+  `expires_at` instead of the pull worker's
+  `next_revalidation_after` cadence.
 - **Added** Connection-pool tuning surface. New env vars
   `TEABAY_DB_POOL_MAX_SIZE`, `TEABAY_DB_POOL_MIN_IDLE`,
   `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`,

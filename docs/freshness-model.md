@@ -83,50 +83,34 @@ The divergence worker is disabled by default
 (`TEABAY_DIVERGENCE_INTERVAL_SECONDS=0`). When enabled, it can mark rows
 `divergent=true` if peer directory checks disagree with the local view.
 
-## Heartbeat (P2E.5)
+## Freshness Refresh
 
 Migration `20260526010000_add_freshness` adds two operator-facing columns:
 
-- `last_refreshed_at`: most recent successful heartbeat or announce.
+- `last_refreshed_at`: most recent successful announce.
 - `expires_at`: `last_refreshed_at + effective_ttl_seconds`; the
   expiry sweep treats rows past this as stale.
 
-A heartbeat is the cheap "I'm still here" signal. An announcer that
-already has an up-to-date `discovery_state` in the directory does not
-need to re-sign + re-submit the full announce body; it calls
-`POST /_cokret/find/directory/announce/heartbeat` with the `announce_id` it
-received from the original announce, and the directory bumps
-`last_refreshed_at` / `expires_at` forward by one TTL window.
+An announcer refreshes freshness by submitting a new
+`ck.find.directory.announce` request for the current discovery state.
+The directory updates `last_refreshed_at` / `expires_at` from that
+accepted announce. The announce path owns TTL validation and caps
+`ttl_seconds` at `TEABAY_MAX_TTL_SECONDS`.
 
-Request shape:
-
-```json
-{
-  "announce_id": "anc_01J...",
-  "ttl_seconds": 3600
-}
-```
-
-`ttl_seconds` is optional; when omitted, the row's existing
-`effective_ttl_seconds` is reused. When present, the directory caps it
-at `TEABAY_MAX_TTL_SECONDS`.
-
-Recommended cadence: half the row's `effective_ttl_seconds` (e.g.
-30-minute heartbeats for an 1-hour TTL). The endpoint is rate-limited
-on the same per-resource and per-IP buckets as `ck.find.directory.announce`.
+Recommended cadence: re-announce at half the row's
+`effective_ttl_seconds` (for example, every 30 minutes for a 1-hour
+TTL). The refresh is rate-limited on the same per-resource and per-IP
+buckets as any other `ck.find.directory.announce`.
 
 Authorization:
 - transport: RFC 9421 HTTP Message Signature middleware
   (`crate::middleware::http_sig`).
-- content: the `X-Principal-Server-DID` header MUST match the row's
-  `principal_server_did`. A mismatch returns
-  `directory_not_authorized`. A missing or unknown `announce_id`
-  returns the blinded `not_found`.
+- content: the announce verifier checks that the signed discovery state
+  is valid for the submitting principal and resource.
 
 Behaviour after expiry: once `expires_at < now()`, the existing pull
 worker stale-marking logic flips the row to `stale=true` after the
 configured grace window and the deletion path takes over (see "Stale
 And Delete Windows" above). The expiry sweep that runs purely on
-`expires_at` (instead of on `next_revalidation_after`) is tracked by
-`TODO(circle-rollout-P2E.5)` in `crates/server/src/ingest/heartbeat.rs`.
-
+`expires_at` (instead of on `next_revalidation_after`) is implemented by
+the freshness worker in `crates/server/src/ingest/freshness_worker.rs`.

@@ -524,7 +524,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
 
 // ---- Round R2/R3 T17 — consent revoke scope=any invalidation ------------
 
-/// `POST /_cokret/local/admin/consent-revoke` — soland (or any peer service)
+/// `POST /_teabay/admin/consent-revoke` — soland (or any peer service)
 /// broadcasts a `consent_revoke{scope=any}` event for an actor; the
 /// directory then **eagerly invalidates** that actor's reachability
 /// entries in the directory ingest cache.

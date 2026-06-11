@@ -625,7 +625,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
     // Path 3: operator takedown signs a service receipt over the full
     // takedown statement and removes the indexed row.
     let operator_resource_id = "did:web:takedown-operator.example";
-    let res = TestClient::post("http://local/_cokret/local/admin/resources")
+    let res = TestClient::post("http://local/_teabay/admin/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -646,7 +646,7 @@ async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> 
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
-    let mut res = TestClient::post("http://local/_cokret/local/admin/takedown")
+    let mut res = TestClient::post("http://local/_teabay/admin/takedown")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -725,7 +725,7 @@ async fn withdrawal_proof(
 async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> {
     let managed_resource_id = "did:web:admin-managed.example";
 
-    let res = TestClient::get("http://local/_cokret/local/admin/resources?limit=5")
+    let res = TestClient::get("http://local/_teabay/admin/resources?limit=5")
         .send(service)
         .await;
     assert_eq!(
@@ -733,7 +733,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         StatusCode::UNAUTHORIZED
     );
 
-    let mut res = TestClient::get("http://local/_cokret/local/admin/resources?resource_kind=realm&divergent=false&stale=false&limit=10")
+    let mut res = TestClient::get("http://local/_teabay/admin/resources?resource_kind=realm&divergent=false&stale=false&limit=10")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
@@ -745,7 +745,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .is_some_and(|items| items.len() >= 3)
     );
 
-    let mut res = TestClient::post("http://local/_cokret/local/admin/allowlist")
+    let mut res = TestClient::post("http://local/_teabay/admin/allowlist")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_did": "did:web:principal.test",
@@ -758,7 +758,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["item"]["resource_did"], "did:web:principal.test");
 
-    let mut res = TestClient::get("http://local/_cokret/local/admin/allowlist?limit=10")
+    let mut res = TestClient::get("http://local/_teabay/admin/allowlist?limit=10")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
@@ -766,7 +766,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"][0]["resource_did"], "did:web:principal.test");
 
-    let mut res = TestClient::post("http://local/_cokret/local/admin/resources")
+    let mut res = TestClient::post("http://local/_teabay/admin/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -805,7 +805,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .any(|result| result["organization_did"] == managed_resource_id)
     );
 
-    let mut res = TestClient::post("http://local/_cokret/local/admin/takedown")
+    let mut res = TestClient::post("http://local/_teabay/admin/takedown")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "handle",
@@ -834,7 +834,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     );
 
     let mut res = TestClient::delete(
-        "http://local/_cokret/local/admin/allowlist?resource_did=did:web:principal.test",
+        "http://local/_teabay/admin/allowlist?resource_did=did:web:principal.test",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
@@ -844,7 +844,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["deleted"], 1);
 
     let mut res = TestClient::delete(
-        "http://local/_cokret/local/admin/resources?resource_kind=organization&resource_id=did:web:admin-managed.example",
+        "http://local/_teabay/admin/resources?resource_kind=organization&resource_id=did:web:admin-managed.example",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
@@ -854,7 +854,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["deleted"], 1);
 
     let mut res = TestClient::get(
-        "http://local/_cokret/local/admin/resources?resource_kind=organization&q=admin-managed&limit=10",
+        "http://local/_teabay/admin/resources?resource_kind=organization&q=admin-managed&limit=10",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
@@ -863,7 +863,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"].as_array().unwrap().len(), 0);
 
-    let mut res = TestClient::get("http://local/_cokret/local/admin/audit?limit=50")
+    let mut res = TestClient::get("http://local/_teabay/admin/audit?limit=50")
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;

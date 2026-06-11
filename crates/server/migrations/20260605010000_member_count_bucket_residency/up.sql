@@ -2,7 +2,7 @@
 -- residency for the publicly-emitted member-count bucket.
 --
 -- The real (instantaneous) bucket can oscillate across a grid boundary
--- (e.g. 10↔11) on every announce/heartbeat. Emitting it verbatim lets an
+-- (e.g. 10↔11) on every announce refresh. Emitting it verbatim lets an
 -- attacker who polls the directory watch the bucket flip and binary-search
 -- the exact member count. §3 therefore requires the emitted bucket to stay
 -- pinned for a minimum residency window (default SHOULD ≥ the entry's

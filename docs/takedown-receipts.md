@@ -39,7 +39,7 @@ Verification procedure:
 
 ## Operator Takedown
 
-`/_cokret/local/admin/takedown` persists:
+`/_teabay/admin/takedown` persists:
 
 - `kind = operator_takedown`
 - `statement`: signed service receipt facts, including `withdraw_id`,

@@ -33,7 +33,7 @@ Salvo router
     |      withdraw
     |      push/register
     |
-    +-- /_cokret/local/admin/*
+    +-- /_teabay/admin/*
     |
     +-- /health
     |

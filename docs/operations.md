@@ -124,7 +124,7 @@ entries expected for the deployment.
 
 ## Admin Console
 
-The admin SPA runs from `crates/admin/` and talks to `/_cokret/local/admin/*` using the
+The admin SPA runs from `crates/admin/` and talks to `/_teabay/admin/*` using the
 development-only `TEABAY_ADMIN_TOKEN` bearer token or a production rotating
 HMAC bearer.
 
@@ -168,7 +168,7 @@ limit 20;
 
 ## Audit Review
 
-Use the admin console or `GET /_cokret/local/admin/audit` to review:
+Use the admin console or `GET /_teabay/admin/audit` to review:
 
 - accepted or rejected ingest
 - pull revalidation success or failure

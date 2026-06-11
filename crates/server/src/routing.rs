@@ -92,7 +92,7 @@ pub fn metrics_service(state: AppState) -> Service {
 }
 
 fn admin_router() -> Router {
-    Router::with_path("_cokret/local/admin")
+    Router::with_path("_teabay/admin")
         .hoop(crate::middleware::AdminAuthHoop)
         .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
@@ -170,14 +170,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     // transport.
     let ingest_routes = Router::new()
         .hoop(http_sig_middleware)
-        .push(
-            Router::with_path("announce")
-                .post(ingest::announce::announce)
-                // P2E.5 — heartbeat sub-route refreshes an already-
-                // indexed announce in place without re-signing the
-                // full discovery_state body.
-                .push(Router::with_path("heartbeat").post(ingest::heartbeat::heartbeat)),
-        )
+        .push(Router::with_path("announce").post(ingest::announce::announce))
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
         .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
 
@@ -502,7 +495,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "PostgreSQL and background-worker readiness probe.",
         ),
         (
-            "/_cokret/local/admin/dashboard",
+            "/_teabay/admin/dashboard",
             PathItemType::Get,
             "teabay.admin.dashboard_stats",
             "admin",
@@ -510,7 +503,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
         ),
         (
-            "/_cokret/local/admin/audit",
+            "/_teabay/admin/audit",
             PathItemType::Get,
             "teabay.admin.audit_feed",
             "admin",
@@ -518,7 +511,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return the append-only directory audit feed for operator dashboards.",
         ),
         (
-            "/_cokret/local/admin/allowlist",
+            "/_teabay/admin/allowlist",
             PathItemType::Get,
             "teabay.admin.allowlist_list",
             "admin",
@@ -526,7 +519,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return operator-managed accept-policy allowlist entries.",
         ),
         (
-            "/_cokret/local/admin/allowlist",
+            "/_teabay/admin/allowlist",
             PathItemType::Post,
             "teabay.admin.allowlist_upsert",
             "admin",
@@ -534,7 +527,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Add or update an operator-managed accept-policy allowlist entry.",
         ),
         (
-            "/_cokret/local/admin/allowlist",
+            "/_teabay/admin/allowlist",
             PathItemType::Delete,
             "teabay.admin.allowlist_delete",
             "admin",
@@ -542,7 +535,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Remove an operator-managed accept-policy allowlist entry.",
         ),
         (
-            "/_cokret/local/admin/resources",
+            "/_teabay/admin/resources",
             PathItemType::Get,
             "teabay.admin.resources_browser",
             "admin",
@@ -550,7 +543,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return indexed resources with kind, stale, divergent, and text filters.",
         ),
         (
-            "/_cokret/local/admin/resources",
+            "/_teabay/admin/resources",
             PathItemType::Post,
             "teabay.admin.resource_upsert",
             "admin",
@@ -558,7 +551,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Create or update an indexed directory resource directly from the operator console.",
         ),
         (
-            "/_cokret/local/admin/resources",
+            "/_teabay/admin/resources",
             PathItemType::Delete,
             "teabay.admin.resource_delete",
             "admin",
@@ -566,7 +559,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Remove an indexed directory resource directly from the operator console.",
         ),
         (
-            "/_cokret/local/admin/takedown",
+            "/_teabay/admin/takedown",
             PathItemType::Post,
             "teabay.admin.operator_takedown",
             "admin",
@@ -574,7 +567,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Admin-only operator takedown path for §8.7 path 3.",
         ),
         (
-            "/_cokret/local/admin/takedowns",
+            "/_teabay/admin/takedowns",
             PathItemType::Get,
             "teabay.admin.takedown_audit_export",
             "admin",
@@ -700,14 +693,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed ck.{kind}.discovery state.",
-        ),
-        (
-            "/_cokret/find/directory/announce/heartbeat",
-            PathItemType::Post,
-            "ck.directory.announce.heartbeat",
-            "ingest",
-            "Heartbeat Announced Resource",
-            "Refresh an indexed announce in place without re-signing the full discovery_state body.",
         ),
         (
             "/_cokret/find/directory/withdraw",

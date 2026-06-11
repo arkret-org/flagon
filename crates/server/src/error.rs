@@ -170,7 +170,7 @@ impl ApiErrorCode {
         cokret_sdk::ERROR_CODE_POLICY_REVISION_ROLLBACK,
         StatusCode::CONFLICT,
     );
-    // §8.7 — a heartbeat / announce against a Realm that has reached the
+    // §8.7 — an announce against a Realm that has reached the
     // `ck.realm.destroy` terminal state. Distinct from
     // `policy_revision_rollback` (which means an `as_of`/`policy_revision`
     // earlier than the indexed value, §8.10).

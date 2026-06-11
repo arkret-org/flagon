@@ -36,8 +36,8 @@ fn router_builds_with_minimal_state() {
 
     let doc = routing::openapi(&salvo::prelude::Router::new());
     assert!(doc.paths.contains_key("/readyz"));
-    assert!(doc.paths.contains_key("/_cokret/local/admin/audit"));
-    assert!(doc.paths.contains_key("/_cokret/local/admin/resources"));
+    assert!(doc.paths.contains_key("/_teabay/admin/audit"));
+    assert!(doc.paths.contains_key("/_teabay/admin/resources"));
     assert!(doc.paths.contains_key("/_cokret/find/directory/describe"));
     assert!(doc.paths.contains_key("/_cokret/find/directory/announce"));
 

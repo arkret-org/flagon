@@ -99,7 +99,7 @@ Recommended production settings:
 | `TEABAY_DEVELOPMENT_MODE` | `false` or unset. |
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
-| `TEABAY_ADMIN_TOKEN` | Development-only bearer token for local `/_cokret/local/admin/*` access. Ignored when `TEABAY_DEVELOPMENT_MODE=false`; production uses rotating HMAC rows in `admin_tokens`. |
+| `TEABAY_ADMIN_TOKEN` | Development-only bearer token for local `/_teabay/admin/*` access. Ignored when `TEABAY_DEVELOPMENT_MODE=false`; production uses rotating HMAC rows in `admin_tokens`. |
 | `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. The temporary rotation-only override requires both `TEABAY_ALLOW_MISSING_CSRF=1` and `TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>`; while active the server emits an error-level warning and fails closed after expiry. |
 | `TEABAY_TRUSTED_PROXY` | Comma-separated list of IPs whose `X-Forwarded-For` the rate-limiter trusts. Unset = trust only the direct `remote_addr`. Set to your TLS-terminating reverse proxy's IPs to avoid spoofed buckets. |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
@@ -150,7 +150,7 @@ handled by the deployment platform before process start.
 ### Admin Token Enforcement
 
 The admin API requires an `Authorization: Bearer ...` credential for
-`/_cokret/local/admin/*`. In production (`TEABAY_DEVELOPMENT_MODE=false`), use
+`/_teabay/admin/*`. In production (`TEABAY_DEVELOPMENT_MODE=false`), use
 `Bearer hmac:<key_id>:<ts>:<mac_base64>` backed by an active `admin_tokens` row;
 the legacy static `TEABAY_ADMIN_TOKEN` bearer is ignored. In development mode,
 `TEABAY_ADMIN_TOKEN` remains available for local tooling. `/health.hardening.admin_auth_mode`
@@ -237,8 +237,7 @@ release owner triggers the push manually after reviewing these files.
 | `TEABAY_EXPIRY_INTERVAL_SECONDS` | `1800` | Period for the row-purge worker. 0 disables. |
 | `TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS` | `60` | Period for the pending-takedown HMAC fanout. 0 disables. |
 
-See [`docs/webhook-retry.md`](webhook-retry.md) and
-[`docs/heartbeat.md`](heartbeat.md) for the operator handbook.
+See [`docs/webhook-retry.md`](webhook-retry.md) for the operator handbook.
 
 ## Multi-DC federation + backup procedure (R3)
 

@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         let _worker = DivergenceWorker::new(state.clone(), period).spawn();
     }
     // P2E.5 follow-up — freshness sweep marks `stale=true` for rows
-    // whose heartbeat-driven `expires_at` plus revalidation grace lapsed.
+    // whose announce-driven `expires_at` plus revalidation grace lapsed.
     // Always-on with a 10-minute tick; cheap (single UPDATE, partial index).
     let _freshness_worker = FreshnessWorker::new(state.clone(), DEFAULT_FRESHNESS_TICK).spawn();
 
