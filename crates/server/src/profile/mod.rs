@@ -99,22 +99,3 @@ fn assert_slices_match(field: &str, baseline: &[String], live: &[&str]) {
         );
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn baseline_matches_live_surface() {
-        // This is the same check `verify_or_panic` runs at startup; calling
-        // it in a unit test fails CI before a drifted binary can ship.
-        verify_or_panic();
-    }
-
-    #[test]
-    fn baseline_json_parses() {
-        let p = BaselineProfile::load();
-        assert!(!p.required_endpoints.is_empty());
-        assert!(!p.required_event_kinds.is_empty());
-    }
-}

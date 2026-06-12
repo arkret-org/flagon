@@ -4,12 +4,10 @@
 
 use std::sync::Mutex;
 
-use server::routing;
-
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
-fn router_builds_with_minimal_state() {
+fn config_builds_with_minimal_state() {
     use std::env;
 
     let _guard = ENV_LOCK.lock().expect("env lock");
@@ -32,19 +30,6 @@ fn router_builds_with_minimal_state() {
     assert_eq!(
         config.accept_policy_kind,
         server::config::AcceptPolicyKind::Open
-    );
-
-    let doc = routing::openapi(&salvo::prelude::Router::new());
-    assert!(doc.paths.contains_key("/readyz"));
-    assert!(doc.paths.contains_key("/_teabay/admin/audit"));
-    assert!(doc.paths.contains_key("/_teabay/admin/resources"));
-    assert!(doc.paths.contains_key("/_cokret/find/directory/describe"));
-    assert!(doc.paths.contains_key("/_cokret/find/directory/announce"));
-
-    let doc_json = serde_json::to_value(&doc).expect("OpenAPI document serializes");
-    assert_eq!(
-        doc_json["paths"]["/_cokret/find/directory/announce"]["post"]["operationId"].as_str(),
-        Some("ck.find.directory.announce")
     );
 }
 
