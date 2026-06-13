@@ -581,7 +581,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/describe",
             PathItemType::Get,
-            "ck.find.directory.describe",
+            "ck.find.directory.query.describe",
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
@@ -589,7 +589,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/search-realms",
             PathItemType::Post,
-            "ck.find.directory.search_realms",
+            "ck.find.directory.query.search_realms",
             "query",
             "Search Realms",
             "Return listed/public Realm directory results using the §9.1 result envelope.",
@@ -597,7 +597,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/resolve-realm",
             PathItemType::Post,
-            "ck.find.directory.resolve_realm",
+            "ck.find.directory.query.resolve_realm",
             "query",
             "Resolve Realm",
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
@@ -610,7 +610,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // resolved object. Realm resolution delegates to resolve_realm.
             "/_cokret/find/directory/resolve-target",
             PathItemType::Post,
-            "ck.find.directory.resolve_target",
+            "ck.find.directory.query.resolve_target",
             "query",
             "Resolve Target",
             "Resolve a client-agnostic shareable object address (Realm / Flow / Message) to a \
@@ -621,7 +621,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/search-organizations",
             PathItemType::Post,
-            "ck.find.directory.search_organizations",
+            "ck.find.directory.query.search_organizations",
             "query",
             "Search Organizations",
             "Return public/listed Organization directory results.",
@@ -629,7 +629,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/resolve-organization",
             PathItemType::Post,
-            "ck.find.directory.resolve_organization",
+            "ck.find.directory.query.resolve_organization",
             "query",
             "Resolve Organization",
             "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
@@ -637,7 +637,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/search-actors",
             PathItemType::Post,
-            "ck.find.directory.search_actors",
+            "ck.find.directory.query.search_actors",
             "query",
             "Search Actors",
             "Return public Actor discovery records.",
@@ -645,7 +645,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/search-users",
             PathItemType::Post,
-            "ck.find.directory.search_users",
+            "ck.find.directory.query.search_users",
             "query",
             "Search Users",
             "Realm-gated user search using indexed membership hints.",
@@ -653,7 +653,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/resolve-handle",
             PathItemType::Post,
-            "ck.find.directory.resolve_handle",
+            "ck.find.directory.query.resolve_handle",
             "query",
             "Resolve Handle",
             "Resolve handle discovery resources with the Directory result envelope.",
@@ -675,7 +675,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // lookup. Response shape `ck.schema.list_handles_for_subject_response.v1`.
             "/_cokret/find/directory/list-handles-for-subject",
             PathItemType::Post,
-            "ck.find.directory.list_handles_for_subject",
+            "ck.find.directory.query.list_handles_for_subject",
             "query",
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
@@ -685,7 +685,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/private-contact-discovery",
             PathItemType::Post,
-            "ck.find.directory.private_contact_discovery",
+            "ck.find.directory.query.private_contact_discovery",
             "query",
             "Private Contact Discovery",
             "RFC 9497 VOPRF two-phase private contact discovery.",
@@ -693,7 +693,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/announce",
             PathItemType::Post,
-            "ck.find.directory.announce",
+            "ck.find.directory.command.announce",
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed ck.{kind}.discovery state.",
@@ -701,7 +701,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/withdraw",
             PathItemType::Post,
-            "ck.find.directory.withdraw",
+            "ck.find.directory.command.withdraw",
             "ingest",
             "Withdraw Discovery State",
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
@@ -709,7 +709,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_cokret/find/directory/push/register",
             PathItemType::Post,
-            "ck.find.directory.push.register",
+            "ck.find.directory.push.command.register",
             "ingest",
             "Subscribe To Directory Updates",
             "Register an HMAC-signed webhook subscription for accepted ingest updates.",
@@ -753,7 +753,7 @@ fn operation(
 
 fn success_response(operation_id: &str, components: &mut Components) -> OapiResponse {
     match operation_id {
-        "ck.find.directory.search_realms" => OapiResponse::new("Authorized Realm search")
+        "ck.find.directory.query.search_realms" => OapiResponse::new("Authorized Realm search")
             .add_content(
                 "application/json",
                 Content::new(DirectoryRealmSearchOutcome::to_schema(components)),

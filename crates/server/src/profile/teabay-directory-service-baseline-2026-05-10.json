@@ -4,17 +4,17 @@
   "source": "cokret-spec sync cab459d (conformance-profiles.json#/profile_requirements/ck.profile.directory_service.v1)",
   "description": "Cokret v1 Directory Service profile baseline. Directory Services index resource-signed discovery state, expose blinded search/resolve endpoints, and support at least one §8 ingest mode without becoming a source of truth.",
   "required_endpoints": [
-    "ck.find.directory.describe",
-    "ck.find.directory.search_realms",
-    "ck.find.directory.resolve_realm",
-    "ck.find.directory.search_organizations",
-    "ck.find.directory.resolve_organization",
-    "ck.find.directory.search_actors",
-    "ck.find.directory.search_users",
-    "ck.find.directory.resolve_handle",
-    "ck.find.directory.announce",
-    "ck.find.directory.withdraw",
-    "ck.find.directory.push.register"
+    "ck.find.directory.query.describe",
+    "ck.find.directory.query.search_realms",
+    "ck.find.directory.query.resolve_realm",
+    "ck.find.directory.query.search_organizations",
+    "ck.find.directory.query.resolve_organization",
+    "ck.find.directory.query.search_actors",
+    "ck.find.directory.query.search_users",
+    "ck.find.directory.query.resolve_handle",
+    "ck.find.directory.command.announce",
+    "ck.find.directory.command.withdraw",
+    "ck.find.directory.push.command.register"
   ],
   "required_event_kinds": [
     "ck.realm.discovery",

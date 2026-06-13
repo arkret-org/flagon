@@ -1,4 +1,4 @@
-//! `ck.find.directory.withdraw` handler — resource-initiated path 2 from §8.7.
+//! `ck.find.directory.command.withdraw` handler — resource-initiated path 2 from §8.7.
 //!
 //! On accept:
 //!   * insert a `withdrawals` row with `kind=resource_withdraw`

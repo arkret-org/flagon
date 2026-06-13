@@ -1,7 +1,7 @@
-//! Handle resolution. Spec §9 (`ck.find.directory.resolve_handle`).
+//! Handle resolution. Spec §9 (`ck.find.directory.query.resolve_handle`).
 //!
 //! Spec sync 0a5ab85 / governance/join-policy §5.1.3:
-//! `ck.find.directory.resolve_handle` MUST gate `intent=member_add | invite`
+//! `ck.find.directory.query.resolve_handle` MUST gate `intent=member_add | invite`
 //! requests on the target **Realm**'s `delivery_binding_policy`
 //! (`allowed_recipient_services`, `allow_binding_sources`) and on the
 //! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
@@ -223,7 +223,7 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.resolve_handle",
+        "ck.find.directory.query.resolve_handle",
         &privacy_key,
         |target| {
             state
@@ -362,7 +362,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.resolve_handle",
+        "ck.find.directory.query.resolve_handle",
         &privacy_key,
         |target| {
             state

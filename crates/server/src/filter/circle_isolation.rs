@@ -5,7 +5,7 @@
 //! routing metadata MUST NEVER appear in the public directory. teabay's
 //! anti-enumeration story is built on the directory only ever indexing
 //! Realm-level discovery state; Circle metadata leaking through
-//! `ck.find.directory.announce` or a `ck.find.directory.push.register` filter would
+//! `ck.find.directory.command.announce` or a `ck.find.directory.push.command.register` filter would
 //! immediately defeat that.
 //!
 //! This module is the single hard-reject point. Both ingest paths

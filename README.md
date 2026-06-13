@@ -50,7 +50,7 @@ wire-breaking list.
 ## Round R2/R3 operator notes
 
 Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
-key on `ck.find.directory.announce`. The cache key now includes
+key on `ck.find.directory.command.announce`. The cache key now includes
 `Source-Service-DID` / `verification_method` / `service_binding_ref` /
 `origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and
@@ -88,7 +88,7 @@ filters and membership hints where the Directory profile needs them.
 honesty. Current limitations are: pull-mode ingest is declared disabled when
 `TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown webhook fanout is
 HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
-from `ck.find.directory.push.register` is HMAC-signed best-effort delivery without a
+from `ck.find.directory.push.command.register` is HMAC-signed best-effort delivery without a
 durable retry queue; PSI match indexing is capped at 10,000 eligible public or
 listed contact rows and returns `limited=true` when capped.
 
@@ -196,7 +196,7 @@ scripts/local-artifacts.sh
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
-behavior, `ck.find.directory.push.register`, signed push announce against a mock
+behavior, `ck.find.directory.push.command.register`, signed push announce against a mock
 Principal Server, pull-mode revalidation, freshness flags, PSI blind / match,
 and takedown audit through the admin operator surface.
 

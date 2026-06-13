@@ -1,6 +1,6 @@
 //! Realm search and resolve. Spec §9.
 //!
-//! `ck.find.directory.search_realms` and `ck.find.directory.resolve_realm`. Both
+//! `ck.find.directory.query.search_realms` and `ck.find.directory.query.resolve_realm`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
@@ -101,7 +101,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.search_realms",
+        "ck.find.directory.query.search_realms",
         &privacy_key,
         |target| {
             state
@@ -217,7 +217,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let row = pad_to_budget_observed(
         budget,
-        "ck.find.directory.resolve_realm",
+        "ck.find.directory.query.resolve_realm",
         &key,
         |target| {
             state
@@ -265,7 +265,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
 // ---- shared resolution helper (CKP-0011 reuse) --------------------------
 
 /// The canonical realm-resolution outcome, extracted so the object-level
-/// `ck.find.directory.resolve_target` handler (CKP-0011,
+/// `ck.find.directory.query.resolve_target` handler (CKP-0011,
 /// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
 /// semantics — same key load, same visibility / blinding rules, same
 /// `via_services` and §9.1 common fields — instead of reinventing them.
@@ -592,7 +592,7 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
                     RealmJoinCandidateRole::Mirror
                 },
                 endpoint: None,
-                operations: vec!["ck.self.events.submit".to_owned()],
+                operations: vec!["ck.self.events.command.submit".to_owned()],
                 join_methods: vec![
                     RealmJoinMethod::InviteAccept,
                     RealmJoinMethod::MemberJoin,

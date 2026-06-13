@@ -101,7 +101,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.search_organizations",
+        "ck.find.directory.query.search_organizations",
         &privacy_key,
         |target| {
             state
@@ -247,7 +247,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let row = pad_to_budget_observed(
         budget,
-        "ck.find.directory.resolve_organization",
+        "ck.find.directory.query.resolve_organization",
         &key,
         |target| {
             state
@@ -272,14 +272,14 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
 
     match row {
         Ok(Some(r)) if is_org_visible(&r, body.requester.as_deref(), &verified_claims) => {
-            let organization_preview = match organization_preview_from_envelope(envelope_from_row(r))
-            {
-                Ok(organization_preview) => organization_preview,
-                Err(message) => {
-                    ApiErrorCode::InternalError.render(res, message);
-                    return;
-                }
-            };
+            let organization_preview =
+                match organization_preview_from_envelope(envelope_from_row(r)) {
+                    Ok(organization_preview) => organization_preview,
+                    Err(message) => {
+                        ApiErrorCode::InternalError.render(res, message);
+                        return;
+                    }
+                };
             res.render(Json(DirectoryOrganizationResolutionOutcome {
                 organization_preview,
                 did_document_ref: None,

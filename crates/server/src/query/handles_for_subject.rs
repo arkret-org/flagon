@@ -1,5 +1,5 @@
 //! Reverse handle lookup — R3.2 (cokret-spec @ b56cab1),
-//! `ck.find.directory.list_handles_for_subject`.
+//! `ck.find.directory.query.list_handles_for_subject`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
 //! known holder/principal DID (the `subject`) plus disclosure context, return
@@ -163,7 +163,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let metrics = state.metrics().clone();
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.list_handles_for_subject",
+        "ck.find.directory.query.list_handles_for_subject",
         &privacy_key,
         |target| {
             state

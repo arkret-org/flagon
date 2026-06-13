@@ -1,7 +1,7 @@
 //! T8.2 — wall-clock variance smoke for teabay's
 //! `pad_to_budget` latency floor.
 //!
-//! `ck.find.directory.resolve_handle` (Spec §10) requires that the three
+//! `ck.find.directory.query.resolve_handle` (Spec §10) requires that the three
 //! policy outcomes — `found`, `not_found` (genuine miss), and
 //! `unauthorized` (collapsed to `not_found`) — share the same visible
 //! latency tier on the wire so a remote observer cannot enumerate
@@ -96,7 +96,7 @@ where
         let start = Instant::now();
         pad_to_budget(
             *budget,
-            "ck.find.directory.resolve_handle",
+            "ck.find.directory.query.resolve_handle",
             privacy_key,
             f(),
         )

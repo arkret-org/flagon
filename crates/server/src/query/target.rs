@@ -1,5 +1,5 @@
 //! Object-address resolve — R3.3 (CKP-0011, cokret-spec @ cced4b8),
-//! `ck.find.directory.resolve_target`.
+//! `ck.find.directory.query.resolve_target`.
 //!
 //! This is the object-level generalization of
 //! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
@@ -107,10 +107,8 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
             Ok(body) => body,
             Err(e) => {
                 state.metrics().record_query_outcome(OP, "bad_json");
-                ApiErrorCode::BadJson.render(
-                    res,
-                    format!("malformed resolve-target SDK body: {e}"),
-                );
+                ApiErrorCode::BadJson
+                    .render(res, format!("malformed resolve-target SDK body: {e}"));
                 return;
             }
         };
@@ -166,7 +164,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.resolve_target",
+        "ck.find.directory.query.resolve_target",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad(OP, target),
         resolve(

@@ -1,6 +1,6 @@
 //! Actor / user search. Spec §9.
 //!
-//! `ck.find.directory.search_actors` and `ck.find.directory.search_users` (mention
+//! `ck.find.directory.query.search_actors` and `ck.find.directory.query.search_users` (mention
 //! autocomplete).
 //!
 //! `realm_id` scopes `search_users` / `search_actors` to the security
@@ -52,7 +52,7 @@ pub struct TeabaySearchUsersRequest {
     #[serde(default)]
     pub limit: Option<u32>,
     /// Why the requester wants to enumerate users. Spec 0a5ab85:
-    /// `ck.find.directory.search_users` adds `intent`. Implementations MUST
+    /// `ck.find.directory.query.search_users` adds `intent`. Implementations MUST
     /// pipe this into anti-enumeration filtering and Realm
     /// `allowed_recipient_services` policy checks.
     #[serde(default)]
@@ -101,7 +101,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.search_actors",
+        "ck.find.directory.query.search_actors",
         &privacy_key,
         |target| {
             state
@@ -201,7 +201,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     let privacy_key = format!("q={needle};requester={requester};realm={realm_id};limit={limit}");
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.search_users",
+        "ck.find.directory.query.search_users",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad("search-users", target),
         async { run_user_search(&state, &needle, requester, realm_id, limit + 1).await },
@@ -356,7 +356,9 @@ fn actor_preview_from_envelope(envelope: ResultEnvelope) -> Result<ActorPreview,
         .map_err(|error| format!("actor preview is not SDK-compatible: {error}"))
 }
 
-fn user_search_outcome_from_envelope(envelope: ResultEnvelope) -> Result<UserSearchOutcome, String> {
+fn user_search_outcome_from_envelope(
+    envelope: ResultEnvelope,
+) -> Result<UserSearchOutcome, String> {
     let value = serde_json::to_value(envelope)
         .map_err(|error| format!("user envelope serialization failed: {error}"))?;
     serde_json::from_value(value)
