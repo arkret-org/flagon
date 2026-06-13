@@ -11,6 +11,10 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
+use cokret_sdk::{
+    DirectoryHandleResolutionOutcome,
+    DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody,
+};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -29,7 +33,7 @@ use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_ra
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
-pub struct DirectoryResolveHandleRequestBody {
+pub struct TeabayResolveHandleRequest {
     pub handle: String,
     #[serde(default)]
     pub expected_did: Option<String>,
@@ -195,7 +199,7 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
-    let body = DirectoryResolveHandleRequestBody {
+    let body = TeabayResolveHandleRequest {
         handle: handle.clone(),
         expected_did: None,
         proof_challenge: None,
@@ -239,7 +243,10 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
     apply_resolve_response_jitter().await;
 
     match outcome {
-        ResolveOutcome::Found(envelope) => res.render(Json(envelope)),
+        ResolveOutcome::Found(envelope) => match handle_resolution_from_envelope(envelope) {
+            Ok(outcome) => res.render(Json(outcome)),
+            Err(message) => ApiErrorCode::InternalError.render(res, message),
+        },
         ResolveOutcome::NotFound => ApiErrorCode::NotFound.render(res, "not found"),
     }
 }
@@ -254,10 +261,23 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-handle");
-    let body: DirectoryResolveHandleRequestBody = match req.parse_json().await {
-        Ok(b) => b,
-        Err(e) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed body: {e}"));
+    let raw_body: JsonValue = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadJson.render(res, format!("malformed body: {error}"));
+            return;
+        }
+    };
+    if let Err(error) =
+        serde_json::from_value::<SdkDirectoryResolveHandleRequestBody>(raw_body.clone())
+    {
+        ApiErrorCode::BadJson.render(res, format!("malformed SDK body: {error}"));
+        return;
+    }
+    let body: TeabayResolveHandleRequest = match serde_json::from_value(raw_body) {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadJson.render(res, format!("malformed body: {error}"));
             return;
         }
     };
@@ -376,7 +396,10 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ResolveOutcome::Found(envelope) => {
             // METRICS-TBY-1 — directory query outcome counter.
             state.metrics().record_query_outcome("resolve-handle", "ok");
-            res.render(Json(envelope))
+            match handle_resolution_from_envelope(envelope) {
+                Ok(outcome) => res.render(Json(outcome)),
+                Err(message) => ApiErrorCode::InternalError.render(res, message),
+            }
         }
         // `not_found` covers genuine miss, unauthorized requester, and "all
         // candidates filtered out" — these MUST be indistinguishable on the
@@ -473,7 +496,7 @@ pub(crate) struct RealmDeliveryBindingPolicy {
 
 async fn member_add_policy_for(
     state: &AppState,
-    body: &DirectoryResolveHandleRequestBody,
+    body: &TeabayResolveHandleRequest,
 ) -> anyhow::Result<Option<RealmDeliveryBindingPolicy>> {
     if !is_member_add_intent(body.intent.as_deref()) {
         return Ok(None);
@@ -598,7 +621,7 @@ fn string_array_at(root: &JsonValue, flat_key: &str, nested: Option<&JsonValue>)
 /// exercise the policy without a Postgres dependency.
 fn evaluate_handle_disclosure(
     row: HandleRow,
-    body: &DirectoryResolveHandleRequestBody,
+    body: &TeabayResolveHandleRequest,
     verified_claims: &VerifiedRestrictedClaims,
     policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
@@ -781,6 +804,15 @@ fn envelope_from_projection(
     )
 }
 
+fn handle_resolution_from_envelope(
+    envelope: ResultEnvelope,
+) -> Result<DirectoryHandleResolutionOutcome, String> {
+    let value = serde_json::to_value(envelope)
+        .map_err(|error| format!("handle envelope serialization failed: {error}"))?;
+    serde_json::from_value(value)
+        .map_err(|error| format!("handle outcome is not SDK-compatible: {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
@@ -803,8 +835,8 @@ mod tests {
         }
     }
 
-    fn member_add_request(realm_id: &str, requester: &str) -> DirectoryResolveHandleRequestBody {
-        DirectoryResolveHandleRequestBody {
+    fn member_add_request(realm_id: &str, requester: &str) -> TeabayResolveHandleRequest {
+        TeabayResolveHandleRequest {
             handle: "alice.example".to_string(),
             expected_did: None,
             proof_challenge: None,
@@ -1080,7 +1112,7 @@ mod tests {
             );
         }
 
-        let measure = |body: &DirectoryResolveHandleRequestBody, row: &HandleRow| -> Duration {
+        let measure = |body: &TeabayResolveHandleRequest, row: &HandleRow| -> Duration {
             let start = Instant::now();
             for _ in 0..iters {
                 let _ = evaluate_handle_disclosure(

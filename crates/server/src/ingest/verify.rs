@@ -35,7 +35,7 @@ use crate::db::Db;
 use crate::did_resolver::did_resolver_chain;
 use crate::error::ApiErrorCode;
 use crate::ingest::DirectoryResourceKindDb;
-use crate::ingest::announce::DirectoryAnnounceRequestBody;
+use crate::ingest::announce::DirectoryAnnounceIngest;
 
 const MAX_VIA_SERVICES: usize = 8;
 
@@ -70,7 +70,7 @@ impl<'a> VerifyContext<'a> {
     /// acceptance with the derived facts the announce handler needs.
     pub async fn verify(
         &self,
-        req: &DirectoryAnnounceRequestBody,
+        req: &DirectoryAnnounceIngest,
     ) -> Result<VerifyOutcome, (ApiErrorCode, String)> {
         // --- Step 1: transport — enforced by `crate::middleware::http_sig`.
         // That middleware verifies the RFC 9421 `Signature-Input` /
@@ -213,7 +213,7 @@ impl<'a> VerifyContext<'a> {
 
     async fn enforce_accept_policy(
         &self,
-        req: &DirectoryAnnounceRequestBody,
+        req: &DirectoryAnnounceIngest,
     ) -> Result<(), (ApiErrorCode, String)> {
         // DID method allowlist (applies regardless of accept policy kind).
         if matches!(
@@ -270,7 +270,7 @@ impl<'a> VerifyContext<'a> {
 }
 
 fn verify_trust_root_attestation(
-    req: &DirectoryAnnounceRequestBody,
+    req: &DirectoryAnnounceIngest,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
     let attestation = req.trust_root_attestation.as_ref().ok_or_else(|| {
@@ -543,7 +543,7 @@ async fn resource_already_indexed(
 }
 
 async fn verify_first_source_ref_resolves(
-    req: &DirectoryAnnounceRequestBody,
+    req: &DirectoryAnnounceIngest,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
     let source_ref = req

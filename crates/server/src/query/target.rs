@@ -45,7 +45,10 @@ use cokret_sdk::model::{
     LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
     verify_token_target,
 };
-use cokret_sdk::{DirectoryTargetResolutionOutcome, TargetKind, canonical};
+use cokret_sdk::{
+    DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
+    DirectoryTargetResolutionOutcome, TargetKind, canonical,
+};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -68,7 +71,7 @@ use crate::state::AppState;
 const OP: &str = "resolve-target";
 
 #[derive(Debug, Deserialize)]
-pub struct DirectoryResolveTargetRequestBody {
+pub struct TeabayResolveTargetRequest {
     pub address: String,
     #[serde(default)]
     pub requester: Option<String>,
@@ -91,7 +94,27 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     };
     let _query_timer = state.metrics().query_timer(OP);
 
-    let body: DirectoryResolveTargetRequestBody = match req.parse_json().await {
+    let raw_body: JsonValue = match req.parse_json().await {
+        Ok(body) => body,
+        Err(e) => {
+            state.metrics().record_query_outcome(OP, "bad_json");
+            ApiErrorCode::BadJson.render(res, format!("malformed resolve-target body: {e}"));
+            return;
+        }
+    };
+    let _wire_body: SdkDirectoryResolveTargetRequestBody =
+        match serde_json::from_value(raw_body.clone()) {
+            Ok(body) => body,
+            Err(e) => {
+                state.metrics().record_query_outcome(OP, "bad_json");
+                ApiErrorCode::BadJson.render(
+                    res,
+                    format!("malformed resolve-target SDK body: {e}"),
+                );
+                return;
+            }
+        };
+    let body: TeabayResolveTargetRequest = match serde_json::from_value(raw_body) {
         Ok(b) => b,
         Err(e) => {
             state.metrics().record_query_outcome(OP, "bad_json");

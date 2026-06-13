@@ -3,6 +3,12 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
+use cokret_sdk::{
+    DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
+    DirectoryResolveOrganizationRequestBody as SdkDirectoryResolveOrganizationRequestBody,
+    DirectorySearchOrganizationsRequestBody as SdkDirectorySearchOrganizationsRequestBody,
+    OrganizationPreview,
+};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -23,7 +29,7 @@ use crate::query::rate_limit::{
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct DirectorySearchOrganizationsRequestBody {
+pub struct TeabaySearchOrganizationsRequest {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
@@ -51,7 +57,15 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: DirectorySearchOrganizationsRequestBody = req.parse_json().await.unwrap_or_default();
+    let raw_body: JsonValue = req.parse_json().await.unwrap_or_else(|_| json!({}));
+    if let Err(error) =
+        serde_json::from_value::<SdkDirectorySearchOrganizationsRequestBody>(raw_body.clone())
+    {
+        ApiErrorCode::BadJson.render(res, format!("malformed search body: {error}"));
+        return;
+    }
+    let body: TeabaySearchOrganizationsRequest =
+        serde_json::from_value(raw_body).unwrap_or_default();
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
@@ -119,12 +133,22 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
             } else {
                 None
             };
-            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(json!({
-                "organizations": envelopes,
-                "next_cursor": next_cursor,
-                "has_more": has_more,
-            })));
+            let organizations = match rows
+                .into_iter()
+                .map(|row| organization_preview_from_envelope(envelope_from_row(row)))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(organizations) => organizations,
+                Err(message) => {
+                    ApiErrorCode::InternalError.render(res, message);
+                    return;
+                }
+            };
+            res.render(Json(DirectoryOrganizationSearchOutcome {
+                organizations,
+                next_cursor,
+                has_more,
+            }));
         }
         Err(e) => ApiErrorCode::InternalError.render(res, format!("org search: {e}")),
     }
@@ -156,7 +180,7 @@ fn decode_org_cursor(cursor: &str) -> Result<OrgCursor, String> {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DirectoryResolveOrganizationRequestBody {
+pub struct TeabayResolveOrganizationRequest {
     #[serde(default)]
     pub organization_did: Option<String>,
     #[serde(default)]
@@ -185,10 +209,23 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-organization");
-    let body: DirectoryResolveOrganizationRequestBody = match req.parse_json().await {
-        Ok(b) => b,
-        Err(e) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
+    let raw_body: JsonValue = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {error}"));
+            return;
+        }
+    };
+    if let Err(error) =
+        serde_json::from_value::<SdkDirectoryResolveOrganizationRequestBody>(raw_body.clone())
+    {
+        ApiErrorCode::BadJson.render(res, format!("malformed resolve SDK body: {error}"));
+        return;
+    }
+    let body: TeabayResolveOrganizationRequest = match serde_json::from_value(raw_body) {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {error}"));
             return;
         }
     };
@@ -235,7 +272,19 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
 
     match row {
         Ok(Some(r)) if is_org_visible(&r, body.requester.as_deref(), &verified_claims) => {
-            res.render(Json(envelope_from_row(r)));
+            let organization_preview = match organization_preview_from_envelope(envelope_from_row(r))
+            {
+                Ok(organization_preview) => organization_preview,
+                Err(message) => {
+                    ApiErrorCode::InternalError.render(res, message);
+                    return;
+                }
+            };
+            res.render(Json(DirectoryOrganizationResolutionOutcome {
+                organization_preview,
+                did_document_ref: None,
+                endorsements: Vec::new(),
+            }));
         }
         _ => ApiErrorCode::NotFound.render(res, "not found"),
     }
@@ -416,6 +465,15 @@ fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
         row.divergent,
         row.via_services,
     )
+}
+
+fn organization_preview_from_envelope(
+    envelope: ResultEnvelope,
+) -> Result<OrganizationPreview, String> {
+    let value = serde_json::to_value(envelope)
+        .map_err(|error| format!("organization envelope serialization failed: {error}"))?;
+    serde_json::from_value(value)
+        .map_err(|error| format!("organization preview is not SDK-compatible: {error}"))
 }
 
 fn org_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {

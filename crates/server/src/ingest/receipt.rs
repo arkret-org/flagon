@@ -9,13 +9,13 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::config::{AppConfig, ReceiptSigningKey};
 use crate::ingest::operator::OperatorTakedownRequestBody;
-use crate::ingest::withdraw::{DirectoryWithdrawRequestBody, withdraw_payload_without_jws};
+use crate::ingest::withdraw::{DirectoryWithdrawInput, withdraw_payload_without_jws};
 
 pub(crate) const RECEIPT_VERSION: &str = "teabay.withdrawal_receipt.v1";
 
 pub(crate) fn resource_withdrawal_proof(
     config: &AppConfig,
-    body: &DirectoryWithdrawRequestBody,
+    body: &DirectoryWithdrawInput,
     withdraw_id: &str,
     acked_at: DateTime<Utc>,
     effective_at: DateTime<Utc>,

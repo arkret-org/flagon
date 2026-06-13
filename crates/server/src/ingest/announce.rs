@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use cokret_sdk::{
+    DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome,
+    DirectoryAnnounceRequestBody as SdkDirectoryAnnounceRequestBody, DirectoryResourceKind,
     HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_DIGEST, HEADER_SOURCE_TRUST_DOMAIN,
     canonical, federation_trust_domain_transcript_fragment,
 };
@@ -34,7 +36,7 @@ use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb, IngestModeWire, 
 use crate::state::{AppState, CachedDirectoryAnnounceOutcome};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DirectoryAnnounceRequestBody {
+pub struct DirectoryAnnounceIngest {
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     pub principal_server_did: String,
@@ -49,25 +51,48 @@ pub struct DirectoryAnnounceRequestBody {
     pub trust_root_attestation: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct DirectoryAnnounceOutcome {
-    pub announce_id: String,
-    pub indexed_at: DateTime<Utc>,
-    pub effective_ttl_seconds: i64,
-    pub next_revalidation_after: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
-    /// Round R2/R3 T14 — set when the response was served from the
-    /// federation idempotency cache *and* the current capability check
-    /// would have failed (e.g. the source service key has been
-    /// revoked). The caller MUST treat the body as advisory only and
-    /// MUST NOT trigger any new side effects.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub historical_only: bool,
+impl TryFrom<SdkDirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
+    type Error = String;
+
+    fn try_from(value: SdkDirectoryAnnounceRequestBody) -> Result<Self, Self::Error> {
+        Ok(Self {
+            resource_kind: match value.resource_kind {
+                DirectoryResourceKind::Realm => DirectoryResourceKindDb::Realm,
+                DirectoryResourceKind::Organization => DirectoryResourceKindDb::Organization,
+                DirectoryResourceKind::Actor => DirectoryResourceKindDb::Actor,
+                DirectoryResourceKind::Applet => DirectoryResourceKindDb::Applet,
+                DirectoryResourceKind::Handle => DirectoryResourceKindDb::Handle,
+            },
+            resource_id: value.resource_id,
+            principal_server_did: value.principal_server_did.to_string(),
+            discovery_state: value.discovery_state,
+            source_refs: value.source_refs,
+            as_of: value.as_of,
+            ttl_seconds: value
+                .ttl_seconds
+                .map(i64::try_from)
+                .transpose()
+                .map_err(|_| "ttl_seconds is too large".to_owned())?,
+            supersedes_announce_id: value.supersedes_announce_id,
+            trust_root_attestation: None,
+        })
+    }
 }
 
-fn is_false(value: &bool) -> bool {
-    !*value
+fn announce_outcome(
+    announce_id: String,
+    indexed_at: DateTime<Utc>,
+    effective_ttl_seconds: i64,
+    next_revalidation_after: DateTime<Utc>,
+    warnings: Vec<String>,
+) -> SdkDirectoryAnnounceOutcome {
+    SdkDirectoryAnnounceOutcome {
+        announce_id,
+        indexed_at,
+        effective_ttl_seconds: effective_ttl_seconds.max(0) as u64,
+        next_revalidation_after,
+        warnings,
+    }
 }
 
 /// Round R2/R3 T14 + Round 4 (spec a77b995, commit f9bd7eb) — extended
@@ -108,7 +133,7 @@ pub struct FederationCacheKeyInputs {
 }
 
 impl FederationCacheKeyInputs {
-    pub fn extract(req: &Request, body: &DirectoryAnnounceRequestBody) -> Self {
+    pub fn extract(req: &Request, body: &DirectoryAnnounceIngest) -> Self {
         let source_service_did = header_value(req, "source-service-did")
             .or_else(|| header_value(req, "x-source-service-did"))
             .unwrap_or_default();
@@ -305,11 +330,19 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("announce");
 
-    let body: DirectoryAnnounceRequestBody = match req.parse_json().await {
+    let wire_body: SdkDirectoryAnnounceRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");
             ApiErrorCode::BadJson.render(res, format!("malformed announce body: {e}"));
+            return;
+        }
+    };
+    let body = match DirectoryAnnounceIngest::try_from(wire_body) {
+        Ok(body) => body,
+        Err(message) => {
+            ingest_metric.set_outcome("schema_rejected");
+            ApiErrorCode::SchemaViolation.render(res, message);
             return;
         }
     };
@@ -492,14 +525,13 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             ingest_metric.set_outcome("replay");
             "digest_replay_cache"
         };
-        res.render(Json(DirectoryAnnounceOutcome {
-            announce_id: cached.announce_id,
-            indexed_at: cached.indexed_at,
-            effective_ttl_seconds: cached.effective_ttl_seconds,
-            next_revalidation_after: cached.next_revalidation_after,
-            warnings: vec![warning.into()],
-            historical_only,
-        }));
+        res.render(Json(announce_outcome(
+            cached.announce_id,
+            cached.indexed_at,
+            cached.effective_ttl_seconds,
+            cached.next_revalidation_after,
+            vec![warning.into()],
+        )));
         return;
     }
 
@@ -534,21 +566,22 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     .ok()
     .flatten()
     {
-        let response = DirectoryAnnounceOutcome {
-            announce_id: existing.announce_id,
-            indexed_at: existing.indexed_at,
-            effective_ttl_seconds: existing.effective_ttl_seconds as i64,
-            next_revalidation_after: existing.indexed_at
-                + chrono::Duration::seconds(existing.effective_ttl_seconds as i64),
-            warnings: vec!["idempotent_replay".into()],
-            historical_only: false,
-        };
+        let effective_ttl_seconds = existing.effective_ttl_seconds as i64;
+        let next_revalidation_after =
+            existing.indexed_at + chrono::Duration::seconds(effective_ttl_seconds);
+        let response = announce_outcome(
+            existing.announce_id,
+            existing.indexed_at,
+            effective_ttl_seconds,
+            next_revalidation_after,
+            vec!["idempotent_replay".into()],
+        );
         state.remember_federation_replay(
             cache_key.clone(),
             CachedDirectoryAnnounceOutcome {
                 announce_id: response.announce_id.clone(),
                 indexed_at: response.indexed_at,
-                effective_ttl_seconds: response.effective_ttl_seconds,
+                effective_ttl_seconds,
                 next_revalidation_after: response.next_revalidation_after,
             },
         );
@@ -712,14 +745,13 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     );
 
     ingest_metric.set_outcome("verify_ok");
-    res.render(Json(DirectoryAnnounceOutcome {
+    res.render(Json(announce_outcome(
         announce_id,
         indexed_at,
-        effective_ttl_seconds: effective_ttl,
-        next_revalidation_after: next_revalidation,
-        warnings: vec![],
-        historical_only: false,
-    }));
+        effective_ttl,
+        next_revalidation,
+        vec![],
+    )));
 }
 
 /// Round R2/R3 T07 — detect a realm terminal state from the verified
@@ -756,7 +788,7 @@ pub(crate) fn derive_realm_terminal_state(
 }
 
 fn validate_request_shape(
-    req: &DirectoryAnnounceRequestBody,
+    req: &DirectoryAnnounceIngest,
     max_ttl: Duration,
 ) -> Result<(), (ApiErrorCode, String)> {
     if req.resource_id.is_empty() {
@@ -1022,14 +1054,14 @@ fn normalize_member_count_projection(
     Ok(())
 }
 
-pub(crate) fn digest_request(req: &DirectoryAnnounceRequestBody) -> Vec<u8> {
+pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Vec<u8> {
     // Cokret canonical JSON body SHA-256 — used for replay detection in
     // `ingest_announces.request_digest` and for Request-Canonical-Digest.
     let mut h = Sha256::new();
     let value = serde_json::to_value(req)
-        .expect("DirectoryAnnounceRequestBody is serde-serializable by construction");
+        .expect("DirectoryAnnounceIngest is serde-serializable by construction");
     let canonical = canonical_json_bytes(&value)
-        .expect("DirectoryAnnounceRequestBody is canonical-json serializable by construction");
+        .expect("DirectoryAnnounceIngest is canonical-json serializable by construction");
     h.update(&canonical);
     h.finalize().to_vec()
 }
@@ -1112,7 +1144,7 @@ pub struct FederationCachePersist {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn upsert_resource_and_audit(
     db: &Db,
-    body: &DirectoryAnnounceRequestBody,
+    body: &DirectoryAnnounceIngest,
     verified: &super::verify::VerifyOutcome,
     ingest_mode: IngestModeWire,
     announce_id: &str,
@@ -1559,7 +1591,7 @@ mod tests {
         second_state.insert("discoverability".to_owned(), json!("public"));
         second_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
 
-        let first = DirectoryAnnounceRequestBody {
+        let first = DirectoryAnnounceIngest {
             resource_kind: DirectoryResourceKindDb::Realm,
             resource_id: "ck:realm:tea".to_owned(),
             principal_server_did: "did:web:principal.test".to_owned(),
@@ -1570,7 +1602,7 @@ mod tests {
             supersedes_announce_id: None,
             trust_root_attestation: None,
         };
-        let second = DirectoryAnnounceRequestBody {
+        let second = DirectoryAnnounceIngest {
             discovery_state: JsonValue::Object(second_state),
             ..first.clone()
         };

@@ -36,7 +36,7 @@ use tracing::{info, warn};
 use crate::audit::{self, AuditEventKind};
 use crate::ids::{IdClass, new_id};
 use crate::ingest::announce::{
-    DirectoryAnnounceRequestBody, FederationCachePersist, canonical_json_string,
+    DirectoryAnnounceIngest, FederationCachePersist, canonical_json_string,
     derive_public_projection, derive_realm_terminal_state, digest_request, effective_ttl_seconds,
     latest_as_of_for, upsert_resource_and_audit,
 };
@@ -193,7 +193,7 @@ impl PullWorker {
 
         let federation_cache = FederationCachePersist::from_pull_event(&entry, &pulled);
 
-        let announce = DirectoryAnnounceRequestBody {
+        let announce = DirectoryAnnounceIngest {
             resource_kind: entry.resource_kind,
             resource_id: entry.resource_id.clone(),
             principal_server_did: entry.principal_server_did.clone(),

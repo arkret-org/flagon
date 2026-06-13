@@ -8,6 +8,12 @@
 //! used for audience gating here.
 
 use chrono::{DateTime, Utc};
+use cokret_sdk::{
+    ActorPreview, DirectoryActorSearchOutcome,
+    DirectorySearchActorsRequestBody as SdkDirectorySearchActorsRequestBody,
+    DirectorySearchUsersRequestBody as SdkDirectorySearchUsersRequestBody,
+    DirectoryUserSearchOutcome, UserSearchOutcome,
+};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -22,7 +28,7 @@ use crate::query::rate_limit::enforce_query_rate_limit;
 use crate::state::AppState;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct DirectorySearchActorsRequestBody {
+pub struct TeabaySearchActorsRequest {
     #[serde(default)]
     pub query: Option<String>,
     #[serde(default)]
@@ -36,7 +42,7 @@ pub struct DirectorySearchActorsRequestBody {
 }
 
 #[derive(Debug, Default, Deserialize)]
-pub struct DirectorySearchUsersRequestBody {
+pub struct TeabaySearchUsersRequest {
     #[serde(default, alias = "q")]
     pub query: Option<String>,
     #[serde(default)]
@@ -66,7 +72,14 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: DirectorySearchActorsRequestBody = req.parse_json().await.unwrap_or_default();
+    let raw_body: JsonValue = req.parse_json().await.unwrap_or_else(|_| json!({}));
+    if let Err(error) =
+        serde_json::from_value::<SdkDirectorySearchActorsRequestBody>(raw_body.clone())
+    {
+        ApiErrorCode::BadQuery.render(res, format!("malformed search_actors body: {error}"));
+        return;
+    }
+    let body: TeabaySearchActorsRequest = serde_json::from_value(raw_body).unwrap_or_default();
     if !crate::query::rate_limit::enforce_search_needle_rate_limit(
         res,
         &state,
@@ -106,12 +119,22 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
             if has_more {
                 rows.truncate(limit as usize);
             }
-            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(json!({
-                "actors": envelopes,
-                "next_cursor": JsonValue::Null,
-                "has_more": has_more,
-            })));
+            let actors = match rows
+                .into_iter()
+                .map(|row| actor_preview_from_envelope(envelope_from_row(row)))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(actors) => actors,
+                Err(message) => {
+                    ApiErrorCode::InternalError.render(res, message);
+                    return;
+                }
+            };
+            res.render(Json(DirectoryActorSearchOutcome {
+                actors,
+                next_cursor: None,
+                has_more,
+            }));
         }
         Err(e) => ApiErrorCode::InternalError.render(res, format!("actor search: {e}")),
     }
@@ -131,7 +154,20 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         return;
     }
 
-    let query: DirectorySearchUsersRequestBody = match req.parse_json().await {
+    let raw_body: JsonValue = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
+            return;
+        }
+    };
+    if let Err(error) =
+        serde_json::from_value::<SdkDirectorySearchUsersRequestBody>(raw_body.clone())
+    {
+        ApiErrorCode::BadQuery.render(res, format!("malformed search_users SDK body: {error}"));
+        return;
+    }
+    let query: TeabaySearchUsersRequest = match serde_json::from_value(raw_body) {
         Ok(query) => query,
         Err(error) => {
             ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
@@ -178,12 +214,22 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
             if has_more {
                 rows.truncate(limit as usize);
             }
-            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(json!({
-                "users": envelopes,
-                "next_cursor": JsonValue::Null,
-                "has_more": has_more,
-            })));
+            let users = match rows
+                .into_iter()
+                .map(|row| user_search_outcome_from_envelope(envelope_from_row(row)))
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(users) => users,
+                Err(message) => {
+                    ApiErrorCode::InternalError.render(res, message);
+                    return;
+                }
+            };
+            res.render(Json(DirectoryUserSearchOutcome {
+                users,
+                next_cursor: None,
+                has_more,
+            }));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("user search: {error}")),
     }
@@ -301,6 +347,20 @@ fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
         row.divergent,
         row.via_services,
     )
+}
+
+fn actor_preview_from_envelope(envelope: ResultEnvelope) -> Result<ActorPreview, String> {
+    let value = serde_json::to_value(envelope)
+        .map_err(|error| format!("actor envelope serialization failed: {error}"))?;
+    serde_json::from_value(value)
+        .map_err(|error| format!("actor preview is not SDK-compatible: {error}"))
+}
+
+fn user_search_outcome_from_envelope(envelope: ResultEnvelope) -> Result<UserSearchOutcome, String> {
+    let value = serde_json::to_value(envelope)
+        .map_err(|error| format!("user envelope serialization failed: {error}"))?;
+    serde_json::from_value(value)
+        .map_err(|error| format!("user search outcome is not SDK-compatible: {error}"))
 }
 
 fn actor_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {

@@ -8,11 +8,15 @@
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
 use chrono::Utc;
+use cokret_sdk::{
+    DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome,
+    DirectoryWithdrawRequestBody as SdkDirectoryWithdrawRequestBody,
+};
 use diesel::prelude::*;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Value as JsonValue, json};
 
 use crate::audit::{self, AuditEventKind};
@@ -23,8 +27,9 @@ use crate::ingest::receipt::resource_withdrawal_proof;
 use crate::ingest::{DirectoryResourceKindDb, WithdrawalKindWire, verify};
 use crate::state::AppState;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DirectoryWithdrawRequestBody {
+#[derive(Debug, Serialize)]
+pub struct DirectoryWithdrawInput {
+    #[serde(skip)]
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
     /// Same proof envelope used in `ck.{kind}.discovery.proof` — must be
@@ -35,16 +40,6 @@ pub struct DirectoryWithdrawRequestBody {
     /// If absent the directory uses `now()`.
     #[serde(default)]
     pub effective_at: Option<chrono::DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DirectoryWithdrawOutcome {
-    /// Directory-local audit reference (spec discovery-directory §9). This is
-    /// *not* a registered typed ID; it is the wire name the client parses to
-    /// correlate the withdrawal with the directory's audit trail. Its value is
-    /// the internal typed withdraw id.
-    pub withdrawal_ref: String,
-    pub acked_at: chrono::DateTime<Utc>,
 }
 
 #[handler]
@@ -58,7 +53,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("withdraw");
 
-    let body: DirectoryWithdrawRequestBody = match req.parse_json().await {
+    let wire_body: SdkDirectoryWithdrawRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");
@@ -67,25 +62,40 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    if body.resource_id.is_empty() {
+    if wire_body.resource_id.is_empty() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+    if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
-    if body.reason.trim().is_empty() {
+    if wire_body.reason.trim().is_empty() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::MissingParam.render(res, "reason is required");
         return;
     }
-    if !body.governance_proof.is_object() {
+    if !wire_body.governance_proof.is_object() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "governance_proof must be an object");
         return;
     }
+    let resource_kind = match resolve_withdraw_resource_kind(&state, &wire_body.resource_id).await {
+        Ok(resource_kind) => resource_kind,
+        Err(message) => {
+            ingest_metric.set_outcome("schema_rejected");
+            ApiErrorCode::SchemaViolation.render(res, message);
+            return;
+        }
+    };
+    let body = DirectoryWithdrawInput {
+        resource_kind,
+        resource_id: wire_body.resource_id,
+        governance_proof: wire_body.governance_proof,
+        reason: wire_body.reason,
+        effective_at: wire_body.effective_at,
+    };
 
     let canonical_payload = match withdraw_payload_without_jws(&body) {
         Ok(payload) => payload,
@@ -158,14 +168,14 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     .await;
 
     ingest_metric.set_outcome("verify_ok");
-    res.render(Json(DirectoryWithdrawOutcome {
+    res.render(Json(SdkDirectoryWithdrawOutcome {
         withdrawal_ref: withdraw_id,
         acked_at,
     }));
 }
 
 pub(crate) fn withdraw_payload_without_jws(
-    body: &DirectoryWithdrawRequestBody,
+    body: &DirectoryWithdrawInput,
 ) -> Result<JsonValue, (ApiErrorCode, String)> {
     let mut payload = serde_json::to_value(body).map_err(|e| {
         (
@@ -193,7 +203,7 @@ pub(crate) fn withdraw_payload_without_jws(
 
 async fn persist_withdraw(
     state: &AppState,
-    body: &DirectoryWithdrawRequestBody,
+    body: &DirectoryWithdrawInput,
     withdraw_id: &str,
     proof: &JsonValue,
     acked_at: chrono::DateTime<Utc>,
@@ -235,4 +245,42 @@ async fn persist_withdraw(
     crate::psi_index::delete_resource_tokens(state.db(), body.resource_kind, &body.resource_id)
         .await?;
     Ok(())
+}
+
+async fn resolve_withdraw_resource_kind(
+    state: &AppState,
+    resource_id: &str,
+) -> Result<DirectoryResourceKindDb, String> {
+    use crate::schema::directory_resources::dsl as r;
+
+    let mut conn = state
+        .db()
+        .get()
+        .await
+        .map_err(|error| format!("directory lookup failed: {error}"))?;
+    let rows: Vec<DirectoryResourceKindDb> = r::directory_resources
+        .filter(r::resource_id.eq(resource_id))
+        .select(r::resource_kind)
+        .limit(2)
+        .load(&mut conn)
+        .await
+        .map_err(|error| format!("directory lookup failed: {error}"))?;
+    match rows.as_slice() {
+        [resource_kind] => Ok(*resource_kind),
+        [] => infer_resource_kind(resource_id)
+            .ok_or_else(|| "resource_id does not identify a known directory resource".to_owned()),
+        _ => Err("resource_id is ambiguous across directory resource kinds".to_owned()),
+    }
+}
+
+fn infer_resource_kind(resource_id: &str) -> Option<DirectoryResourceKindDb> {
+    if resource_id.starts_with("ck:realm:") {
+        Some(DirectoryResourceKindDb::Realm)
+    } else if resource_id.starts_with("ck:applet:") {
+        Some(DirectoryResourceKindDb::Applet)
+    } else if resource_id.starts_with("ck:handle:") {
+        Some(DirectoryResourceKindDb::Handle)
+    } else {
+        None
+    }
 }

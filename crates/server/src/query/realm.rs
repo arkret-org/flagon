@@ -13,9 +13,10 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Duration, Utc};
 use cokret_sdk::{
-    Did, DirectoryRealmSearchOutcome, DirectoryResolveRealmRequestBody,
-    DirectorySearchRealmsRequestBody, EventId, RealmId, RealmJoinCandidate, RealmJoinCandidateRole,
-    RealmJoinCandidateServiceType, RealmJoinCandidateSource, RealmJoinMethod, RealmPreview,
+    Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
+    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, RealmId,
+    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
+    RealmJoinCandidateSource, RealmJoinMethod, RealmPreview,
 };
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -239,7 +240,20 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 &verified_claims,
             ) =>
         {
-            res.render(Json(envelope_from_row(r)));
+            let join_candidates = join_candidates_for_row(&r);
+            let realm_preview = match realm_preview_from_row(r) {
+                Ok(realm_preview) => realm_preview,
+                Err(message) => {
+                    ApiErrorCode::InternalError.render(res, message);
+                    return;
+                }
+            };
+            res.render(Json(DirectoryRealmResolutionOutcome {
+                realm_preview,
+                stripped_state: Vec::new(),
+                join_rule: None,
+                join_candidates,
+            }));
         }
         // Hidden, withdrawn, or unknown — all collapse to blinded not_found.
         _ => {
