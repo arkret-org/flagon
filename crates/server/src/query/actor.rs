@@ -95,15 +95,23 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 .metrics()
                 .record_anti_enum_pad("search-actors", target)
         },
-        async { run_actor_search(&state, body.query.as_deref().unwrap_or_default(), limit).await },
+        async {
+            run_actor_search(&state, body.query.as_deref().unwrap_or_default(), limit + 1).await
+        },
     )
     .await;
     match result {
-        Ok(rows) => {
+        Ok(mut rows) => {
+            let has_more = rows.len() > limit as usize;
+            if has_more {
+                rows.truncate(limit as usize);
+            }
             let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(
-                json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
-            ));
+            res.render(Json(json!({
+                "actors": envelopes,
+                "next_cursor": JsonValue::Null,
+                "has_more": has_more,
+            })));
         }
         Err(e) => ApiErrorCode::InternalError.render(res, format!("actor search: {e}")),
     }
@@ -160,16 +168,22 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         "ck.find.directory.search_users",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad("search-users", target),
-        async { run_user_search(&state, &needle, requester, realm_id, limit).await },
+        async { run_user_search(&state, &needle, requester, realm_id, limit + 1).await },
     )
     .await;
 
     match result {
-        Ok(rows) => {
+        Ok(mut rows) => {
+            let has_more = rows.len() > limit as usize;
+            if has_more {
+                rows.truncate(limit as usize);
+            }
             let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(
-                json!({ "results": envelopes, "next_cursor": JsonValue::Null }),
-            ));
+            res.render(Json(json!({
+                "users": envelopes,
+                "next_cursor": JsonValue::Null,
+                "has_more": has_more,
+            })));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("user search: {error}")),
     }

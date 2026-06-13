@@ -13,16 +13,16 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Duration, Utc};
 use cokret_sdk::{
-    Did, DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, RealmId,
-    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
-    RealmJoinCandidateSource, RealmJoinMethod,
+    Did, DirectoryRealmSearchOutcome, DirectoryResolveRealmRequestBody,
+    DirectorySearchRealmsRequestBody, EventId, RealmId, RealmJoinCandidate, RealmJoinCandidateRole,
+    RealmJoinCandidateServiceType, RealmJoinCandidateSource, RealmJoinMethod, RealmPreview,
 };
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
+use serde_json::Value as JsonValue;
 
 use crate::error::ApiErrorCode;
 use crate::filter::discoverers::VerifiedRestrictedClaims;
@@ -142,12 +142,22 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                     return;
                 }
             };
-            let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
-            res.render(Json(json!({
-                "results": envelopes,
-                "next_cursor": next_cursor,
-                "has_more": has_more,
-            })));
+            let results = match rows
+                .into_iter()
+                .map(realm_preview_from_row)
+                .collect::<Result<Vec<_>, _>>()
+            {
+                Ok(results) => results,
+                Err(e) => {
+                    ApiErrorCode::InternalError.render(res, e);
+                    return;
+                }
+            };
+            res.render(Json(DirectoryRealmSearchOutcome {
+                realms: results,
+                next_cursor,
+                has_more,
+            }));
         }
         Err(e) => {
             ApiErrorCode::InternalError.render(res, format!("realm search: {e}"));
@@ -522,6 +532,28 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
     .with_join_candidates(join_candidates)
 }
 
+pub(crate) fn realm_preview_from_envelope(
+    realm_id: &str,
+    envelope: &ResultEnvelope,
+) -> Result<RealmPreview, String> {
+    let mut value = serde_json::to_value(envelope)
+        .map_err(|e| format!("realm preview envelope serialization failed: {e}"))?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "realm preview envelope did not serialize as an object".to_owned())?;
+    object.insert(
+        "realm_id".to_owned(),
+        JsonValue::String(realm_id.to_owned()),
+    );
+    serde_json::from_value(value).map_err(|e| format!("realm preview is not SDK-compatible: {e}"))
+}
+
+fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
+    let realm_id = row.resource_id.clone();
+    let envelope = envelope_from_row(row);
+    realm_preview_from_envelope(&realm_id, &envelope)
+}
+
 fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
     let Ok(realm_id) = RealmId::new(row.resource_id.clone()) else {
         return Vec::new();
@@ -732,6 +764,8 @@ LIMIT $7
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[test]

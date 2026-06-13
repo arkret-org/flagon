@@ -153,7 +153,7 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert!(
-        body["results"]
+        body["realms"]
             .as_array()
             .unwrap()
             .iter()
@@ -173,8 +173,8 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         panic!("search-realms first page failed with {status}: {body}");
     }
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["results"].as_array().unwrap().len(), 1);
-    let first = &body["results"][0];
+    assert_eq!(body["realms"].as_array().unwrap().len(), 1);
+    let first = &body["realms"][0];
     assert!(first.get("as_of").is_some());
     assert!(
         first["source_refs"]
@@ -196,7 +196,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["results"].as_array().unwrap().len(), 1);
+    assert_eq!(body["realms"].as_array().unwrap().len(), 1);
 
     let res = TestClient::post("http://local/_cokret/find/directory/search-realms")
         .json(&json!({ "cursor": "not-base64" }))
@@ -232,7 +232,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
-        body["results"][0]["organization_did"],
+        body["organizations"][0]["organization_did"],
         "did:web:tea-org.example"
     );
 
@@ -250,11 +250,11 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["results"][0]["actor_id"], "did:web:alice.example");
+    assert_eq!(body["actors"][0]["actor_id"], "did:web:alice.example");
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/search-users")
         .json(&json!({
-            "q": "alice",
+            "query": "alice",
             "requester": "did:web:alice.example",
             "realm_id": "ck:realm:tea",
             "limit": 10
@@ -263,7 +263,7 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["results"][0]["actor_id"], "did:web:alice.example");
+    assert_eq!(body["users"][0]["actor_id"], "did:web:alice.example");
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-handle")
         .json(&json!({ "handle": "alice.example" }))
@@ -798,7 +798,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert!(
-        body["results"]
+        body["organizations"]
             .as_array()
             .unwrap()
             .iter()

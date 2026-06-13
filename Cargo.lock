@@ -713,6 +713,7 @@ dependencies = [
  "cokret-html",
  "cokret-http-client",
  "cokret-keystore",
+ "cokret-server",
  "cokret-signatures",
  "ed25519-dalek",
  "getrandom 0.4.2",
@@ -721,6 +722,7 @@ dependencies = [
  "parking_lot",
  "regex",
  "reqwest 0.13.4",
+ "salvo",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -743,6 +745,8 @@ dependencies = [
  "getrandom 0.4.2",
  "hex",
  "regex",
+ "salvo",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -805,6 +809,8 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.4.2",
  "hex",
+ "salvo",
+ "salvo-oapi",
  "serde",
  "sha2 0.11.0",
  "thiserror 2.0.18",
@@ -816,6 +822,16 @@ name = "cokret-keystore"
 version = "0.3.0"
 dependencies = [
  "cokret-core",
+]
+
+[[package]]
+name = "cokret-server"
+version = "0.3.0"
+dependencies = [
+ "cokret-core",
+ "cokret-signatures",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

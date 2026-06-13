@@ -3,11 +3,15 @@
 
 use std::sync::Arc;
 
+use cokret_sdk::DirectoryRealmSearchOutcome;
 use diesel_async::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
-use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiResponse};
+use salvo::oapi::{
+    Components, Content, OpenApi, Operation, PathItem, PathItemType, Response as OapiResponse,
+    ToSchema,
+};
 use salvo::prelude::*;
 use serde_json::json;
 
@@ -715,18 +719,27 @@ fn register_teabay_operations(doc: &mut OpenApi) {
     for (path, method, operation_id, tag, summary, description) in routes {
         doc.paths.insert(
             path,
-            PathItem::new(method, operation(operation_id, tag, summary, description)),
+            PathItem::new(
+                method,
+                operation(operation_id, tag, summary, description, &mut doc.components),
+            ),
         );
     }
 }
 
-fn operation(operation_id: &str, tag: &str, summary: &str, description: &str) -> Operation {
+fn operation(
+    operation_id: &str,
+    tag: &str,
+    summary: &str,
+    description: &str,
+    components: &mut Components,
+) -> Operation {
     Operation::new()
         .operation_id(operation_id)
         .tags([tag])
         .summary(summary)
         .description(description)
-        .add_response("200", OapiResponse::new("Successful response"))
+        .add_response("200", success_response(operation_id, components))
         .add_response(
             "400",
             OapiResponse::new("Request rejected by directory policy or validation"),
@@ -736,4 +749,15 @@ fn operation(operation_id: &str, tag: &str, summary: &str, description: &str) ->
             OapiResponse::new("Resource not found or intentionally blinded"),
         )
         .add_response("500", OapiResponse::new("Internal service error"))
+}
+
+fn success_response(operation_id: &str, components: &mut Components) -> OapiResponse {
+    match operation_id {
+        "ck.find.directory.search_realms" => OapiResponse::new("Authorized Realm search")
+            .add_content(
+                "application/json",
+                Content::new(DirectoryRealmSearchOutcome::to_schema(components)),
+            ),
+        _ => OapiResponse::new("Successful response"),
+    }
 }

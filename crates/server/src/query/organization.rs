@@ -121,7 +121,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
             };
             let envelopes: Vec<ResultEnvelope> = rows.into_iter().map(envelope_from_row).collect();
             res.render(Json(json!({
-                "results": envelopes,
+                "organizations": envelopes,
                 "next_cursor": next_cursor,
                 "has_more": has_more,
             })));

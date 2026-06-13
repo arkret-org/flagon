@@ -19,7 +19,7 @@ async-trait = "0.1.89"
 base64 = "0.22.1"
 bs58 = "0.5.1"
 chrono = {version = "0.4.45",features = ["serde"]}
-cokret-sdk = {package = "cokret",version = "0.3.0",path = "../cokret-rust-sdk/crates/sdk",default-features = false,features = ["full-surface", "client"]}
+cokret-sdk = {package = "cokret",version = "0.3.0",path = "../cokret-rust-sdk/crates/sdk",default-features = false,features = ["full-surface", "client", "salvo"]}
 deadpool = {version = "0.13",features = ["rt_tokio_1"]}
 diesel = {version = "2.3.10",features = ["postgres", "r2d2", "serde_json", "chrono", "uuid", "pq-src"]}
 diesel-async = {version = "0.9",features = ["postgres", "deadpool", "async-connection-wrapper"]}

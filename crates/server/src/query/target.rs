@@ -45,7 +45,7 @@ use cokret_sdk::model::{
     LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
     verify_token_target,
 };
-use cokret_sdk::{DirectoryTargetResolutionOutcome, RealmId, RealmPreview, TargetKind, canonical};
+use cokret_sdk::{DirectoryTargetResolutionOutcome, TargetKind, canonical};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -584,22 +584,8 @@ fn detach_jws(value: &mut JsonValue) -> Option<String> {
 fn build_realm_response(
     resolved: crate::query::realm::ResolvedRealm,
 ) -> Result<DirectoryTargetResolutionOutcome, String> {
-    let realm_id = RealmId::new(resolved.realm_id.clone())
-        .map_err(|e| format!("resolved realm_id not canonical: {e}"))?;
-    // Realm display name is canonically `title` (Realm schema); `name` is
-    // reserved for external protocol/algorithm/service labels and is not a
-    // Realm projection field.
-    let title = resolved
-        .envelope
-        .payload
-        .get("title")
-        .and_then(JsonValue::as_str)
-        .map(str::to_owned);
-    let realm_preview = RealmPreview {
-        realm_id,
-        title,
-        preview: resolved.envelope.payload.clone(),
-    };
+    let realm_preview =
+        crate::query::realm::realm_preview_from_envelope(&resolved.realm_id, &resolved.envelope)?;
 
     Ok(DirectoryTargetResolutionOutcome {
         target_kind: TargetKind::Realm,
