@@ -14,7 +14,6 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use diesel_derive_enum::DbEnum;
 use serde_json::{Value as JsonValue, json};
@@ -144,47 +143,44 @@ pub async fn record_with_identity(
     identity: ActorIdentity<'_>,
 ) -> anyhow::Result<()> {
     let mut conn = db.get().await?;
-    conn.transaction::<_, anyhow::Error, _>(|conn| {
-        async move {
-            let prev_digest: Option<Vec<u8>> = directory_audit::table
-                .order(directory_audit::audit_id.desc())
-                .select(directory_audit::audit_digest)
-                .first::<Option<Vec<u8>>>(&mut *conn)
-                .await
-                .optional()?
-                .flatten();
+    conn.transaction::<_, anyhow::Error, _>(async move |conn| {
+        let prev_digest: Option<Vec<u8>> = directory_audit::table
+            .order(directory_audit::audit_id.desc())
+            .select(directory_audit::audit_digest)
+            .first::<Option<Vec<u8>>>(&mut *conn)
+            .await
+            .optional()?
+            .flatten();
 
-            let occurred_at = Utc::now();
-            let row_digest = compute_row_digest(
+        let occurred_at = Utc::now();
+        let row_digest = compute_row_digest(
+            occurred_at,
+            kind,
+            resource_kind,
+            resource_id,
+            actor,
+            &detail,
+            &identity,
+            prev_digest.as_deref(),
+        )?;
+
+        diesel::insert_into(directory_audit::table)
+            .values(NewAuditRow {
                 occurred_at,
                 kind,
                 resource_kind,
                 resource_id,
                 actor,
-                &detail,
-                &identity,
-                prev_digest.as_deref(),
-            )?;
-
-            diesel::insert_into(directory_audit::table)
-                .values(NewAuditRow {
-                    occurred_at,
-                    kind,
-                    resource_kind,
-                    resource_id,
-                    actor,
-                    detail,
-                    authentication_method: identity.authentication_method,
-                    authenticated_actor: identity.authenticated_actor.or(actor),
-                    asserted_operator: identity.asserted_operator.or(actor),
-                    prev_digest,
-                    audit_digest: Some(row_digest),
-                })
-                .execute(&mut *conn)
-                .await?;
-            Ok(())
-        }
-        .scope_boxed()
+                detail,
+                authentication_method: identity.authentication_method,
+                authenticated_actor: identity.authenticated_actor.or(actor),
+                asserted_operator: identity.asserted_operator.or(actor),
+                prev_digest,
+                audit_digest: Some(row_digest),
+            })
+            .execute(&mut *conn)
+            .await?;
+        Ok(())
     })
     .await
 }

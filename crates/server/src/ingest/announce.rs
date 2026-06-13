@@ -13,7 +13,6 @@ use cokret_sdk::{
     canonical, federation_trust_domain_transcript_fragment,
 };
 use diesel::prelude::*;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -1161,115 +1160,111 @@ pub(crate) async fn upsert_resource_and_audit(
 
     let mut conn = db.get().await?;
     let emitted_projection = conn
-        .transaction::<JsonValue, anyhow::Error, _>(|conn| {
-            async move {
-                let inserted = diesel::insert_into(a::ingest_announces)
-                    .values((
-                        a::announce_id.eq(announce_id),
-                        a::resource_kind.eq(body.resource_kind),
-                        a::resource_id.eq(&body.resource_id),
-                        a::principal_server_did.eq(&body.principal_server_did),
-                        a::ingest_mode.eq(ingest_mode),
-                        a::discovery_state.eq(&body.discovery_state),
-                        a::source_refs.eq(&body.source_refs),
-                        a::as_of.eq(body.as_of),
-                        a::indexed_at.eq(indexed_at),
-                        a::effective_ttl_seconds.eq(effective_ttl as i32),
-                        a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
-                        a::request_digest.eq(&request_digest),
-                        a::source_service_did.eq(&federation_cache.source_service_did),
-                        a::verification_method.eq(&federation_cache.verification_method),
-                        a::service_binding_ref.eq(&federation_cache.service_binding_ref),
-                        a::origin_key_state_digest.eq(&federation_cache.origin_key_state_digest),
-                        a::historical_only.eq(federation_cache.historical_only),
-                    ))
-                    .on_conflict((a::resource_kind, a::resource_id, a::as_of))
-                    .do_nothing()
-                    .execute(&mut *conn)
+        .transaction::<JsonValue, anyhow::Error, _>(async move |conn| {
+            let inserted = diesel::insert_into(a::ingest_announces)
+                .values((
+                    a::announce_id.eq(announce_id),
+                    a::resource_kind.eq(body.resource_kind),
+                    a::resource_id.eq(&body.resource_id),
+                    a::principal_server_did.eq(&body.principal_server_did),
+                    a::ingest_mode.eq(ingest_mode),
+                    a::discovery_state.eq(&body.discovery_state),
+                    a::source_refs.eq(&body.source_refs),
+                    a::as_of.eq(body.as_of),
+                    a::indexed_at.eq(indexed_at),
+                    a::effective_ttl_seconds.eq(effective_ttl as i32),
+                    a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
+                    a::request_digest.eq(&request_digest),
+                    a::source_service_did.eq(&federation_cache.source_service_did),
+                    a::verification_method.eq(&federation_cache.verification_method),
+                    a::service_binding_ref.eq(&federation_cache.service_binding_ref),
+                    a::origin_key_state_digest.eq(&federation_cache.origin_key_state_digest),
+                    a::historical_only.eq(federation_cache.historical_only),
+                ))
+                .on_conflict((a::resource_kind, a::resource_id, a::as_of))
+                .do_nothing()
+                .execute(&mut *conn)
+                .await?;
+
+            let stored_announce_id = if inserted == 0 {
+                let (stored_announce_id, stored_state, stored_source_refs) = a::ingest_announces
+                    .filter(a::resource_kind.eq(body.resource_kind))
+                    .filter(a::resource_id.eq(&body.resource_id))
+                    .filter(a::as_of.eq(body.as_of))
+                    .select((a::announce_id, a::discovery_state, a::source_refs))
+                    .first::<(String, JsonValue, Vec<String>)>(&mut *conn)
                     .await?;
-
-                let stored_announce_id = if inserted == 0 {
-                    let (stored_announce_id, stored_state, stored_source_refs) =
-                        a::ingest_announces
-                            .filter(a::resource_kind.eq(body.resource_kind))
-                            .filter(a::resource_id.eq(&body.resource_id))
-                            .filter(a::as_of.eq(body.as_of))
-                            .select((a::announce_id, a::discovery_state, a::source_refs))
-                            .first::<(String, JsonValue, Vec<String>)>(&mut *conn)
-                            .await?;
-                    if stored_state != body.discovery_state
-                        || stored_source_refs != body.source_refs
-                    {
-                        anyhow::bail!(
-                            "natural-key conflict for ({}, {}, {}) carries different signed state",
-                            body.resource_kind.as_pg(),
-                            body.resource_id,
-                            body.as_of
-                        );
-                    }
-                    stored_announce_id
-                } else {
-                    announce_id.to_owned()
-                };
-
-                // Spec §3 member_count bucket hysteresis / minimum residency.
-                // The projection derived above carries the *real* (instantaneous)
-                // bucket; we must pin the publicly-emitted bucket for a minimum
-                // residency window after it changes so boundary oscillation is
-                // not an enumeration side channel. Read the prior lock state +
-                // the entry's last refresh TTL (the residency lower bound) in the
-                // same transaction so the decision is race-free.
-                let real_bucket = public_projection
-                    .get("member_count_bucket")
-                    .and_then(JsonValue::as_str)
-                    .map(str::to_string);
-                let prior_residency = if real_bucket.is_some() {
-                    r::directory_resources
-                        .filter(r::resource_kind.eq(body.resource_kind))
-                        .filter(r::resource_id.eq(&body.resource_id))
-                        .select((
-                            r::member_count_bucket_locked,
-                            r::member_count_bucket_since,
-                            r::effective_ttl_seconds,
-                        ))
-                        .first::<(Option<String>, Option<DateTime<Utc>>, i32)>(&mut *conn)
-                        .await
-                        .optional()?
-                } else {
-                    None
-                };
-                let residency_window = Duration::from_secs(
-                    prior_residency
-                        .as_ref()
-                        .map(|(_, _, ttl)| (*ttl).max(0) as u64)
-                        .unwrap_or(effective_ttl.max(0) as u64),
-                );
-                let decision = apply_member_count_residency(
-                    real_bucket.as_deref(),
-                    &MemberCountResidencyPrior {
-                        locked_bucket: prior_residency
-                            .as_ref()
-                            .and_then(|(locked, ..)| locked.clone()),
-                        locked_since: prior_residency.as_ref().and_then(|(_, since, _)| *since),
-                    },
-                    residency_window,
-                    indexed_at,
-                );
-                // Rewrite the projection's member_count_bucket to the *emitted*
-                // (locked) value before it is persisted / fanned out.
-                let mut public_projection = public_projection;
-                if let (Some(emitted), Some(obj)) =
-                    (&decision.emitted_bucket, public_projection.as_object_mut())
-                {
-                    obj.insert(
-                        "member_count_bucket".into(),
-                        JsonValue::String(emitted.clone()),
+                if stored_state != body.discovery_state || stored_source_refs != body.source_refs {
+                    anyhow::bail!(
+                        "natural-key conflict for ({}, {}, {}) carries different signed state",
+                        body.resource_kind.as_pg(),
+                        body.resource_id,
+                        body.as_of
                     );
                 }
-                let locked_bucket = decision.emitted_bucket.clone();
-                let locked_since = decision.locked_since;
+                stored_announce_id
+            } else {
+                announce_id.to_owned()
+            };
 
-                diesel::insert_into(r::directory_resources)
+            // Spec §3 member_count bucket hysteresis / minimum residency.
+            // The projection derived above carries the *real* (instantaneous)
+            // bucket; we must pin the publicly-emitted bucket for a minimum
+            // residency window after it changes so boundary oscillation is
+            // not an enumeration side channel. Read the prior lock state +
+            // the entry's last refresh TTL (the residency lower bound) in the
+            // same transaction so the decision is race-free.
+            let real_bucket = public_projection
+                .get("member_count_bucket")
+                .and_then(JsonValue::as_str)
+                .map(str::to_string);
+            let prior_residency = if real_bucket.is_some() {
+                r::directory_resources
+                    .filter(r::resource_kind.eq(body.resource_kind))
+                    .filter(r::resource_id.eq(&body.resource_id))
+                    .select((
+                        r::member_count_bucket_locked,
+                        r::member_count_bucket_since,
+                        r::effective_ttl_seconds,
+                    ))
+                    .first::<(Option<String>, Option<DateTime<Utc>>, i32)>(&mut *conn)
+                    .await
+                    .optional()?
+            } else {
+                None
+            };
+            let residency_window = Duration::from_secs(
+                prior_residency
+                    .as_ref()
+                    .map(|(_, _, ttl)| (*ttl).max(0) as u64)
+                    .unwrap_or(effective_ttl.max(0) as u64),
+            );
+            let decision = apply_member_count_residency(
+                real_bucket.as_deref(),
+                &MemberCountResidencyPrior {
+                    locked_bucket: prior_residency
+                        .as_ref()
+                        .and_then(|(locked, ..)| locked.clone()),
+                    locked_since: prior_residency.as_ref().and_then(|(_, since, _)| *since),
+                },
+                residency_window,
+                indexed_at,
+            );
+            // Rewrite the projection's member_count_bucket to the *emitted*
+            // (locked) value before it is persisted / fanned out.
+            let mut public_projection = public_projection;
+            if let (Some(emitted), Some(obj)) =
+                (&decision.emitted_bucket, public_projection.as_object_mut())
+            {
+                obj.insert(
+                    "member_count_bucket".into(),
+                    JsonValue::String(emitted.clone()),
+                );
+            }
+            let locked_bucket = decision.emitted_bucket.clone();
+            let locked_since = decision.locked_since;
+
+            diesel::insert_into(r::directory_resources)
             .values((
                 r::resource_kind.eq(body.resource_kind),
                 r::resource_id.eq(&body.resource_id),
@@ -1333,9 +1328,7 @@ pub(crate) async fn upsert_resource_and_audit(
             .execute(&mut *conn)
             .await?;
 
-                Ok(public_projection)
-            }
-            .scope_boxed()
+            Ok(public_projection)
         })
         .await?;
     crate::psi_index::sync_resource_tokens(

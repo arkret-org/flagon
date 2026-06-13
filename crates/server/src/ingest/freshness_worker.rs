@@ -66,19 +66,21 @@ impl FreshnessWorker {
         let now = Utc::now();
         let grace = chrono::Duration::from_std(self.state.config().revalidation_grace)?;
         let stale_cutoff = now - grace;
+        // Atomically flip to stale and capture exactly the rows that were
+        // flipped via `RETURNING`, so the set whose PSI tokens we delete can
+        // never drift from the set the UPDATE actually mutated. A separate
+        // SELECT-then-UPDATE would race a concurrent `announce` that refreshes
+        // a row in between (pushing `expires_at` out and clearing `stale`),
+        // leaving us to delete the tokens of a row that was *not* flipped.
         let stale_resources: Vec<(crate::ingest::DirectoryResourceKindDb, String)> =
-            r::directory_resources
+            diesel::update(r::directory_resources)
                 .filter(r::stale.eq(false))
                 .filter(r::expires_at.lt(stale_cutoff))
-                .select((r::resource_kind, r::resource_id))
-                .load(&mut *conn)
+                .set(r::stale.eq(true))
+                .returning((r::resource_kind, r::resource_id))
+                .get_results(&mut *conn)
                 .await?;
-        let flipped = diesel::update(r::directory_resources)
-            .filter(r::stale.eq(false))
-            .filter(r::expires_at.lt(stale_cutoff))
-            .set(r::stale.eq(true))
-            .execute(&mut *conn)
-            .await?;
+        let flipped = stale_resources.len();
         for (resource_kind, resource_id) in stale_resources {
             crate::psi_index::delete_resource_tokens_on_conn(
                 &mut conn,

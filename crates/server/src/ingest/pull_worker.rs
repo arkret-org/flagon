@@ -443,18 +443,19 @@ impl PullWorker {
         let mut conn = self.state.db().get().await?;
         let grace_seconds = self.state.config().revalidation_grace.as_secs() as i64;
         let cutoff = Utc::now() - chrono::Duration::seconds(grace_seconds);
-        let stale_resources: Vec<(DirectoryResourceKindDb, String)> = r::directory_resources
-            .filter(r::stale.eq(false))
-            .filter(r::next_revalidation_after.le(cutoff))
-            .select((r::resource_kind, r::resource_id))
-            .load(&mut *conn)
-            .await?;
-        diesel::update(r::directory_resources)
-            .filter(r::stale.eq(false))
-            .filter(r::next_revalidation_after.le(cutoff))
-            .set(r::stale.eq(true))
-            .execute(&mut *conn)
-            .await?;
+        // Flip to stale and capture exactly the flipped rows via `RETURNING`
+        // in one statement, so the PSI-token deletion set can never drift from
+        // the rows the UPDATE actually mutated (a concurrent `announce`
+        // refresh between a separate SELECT and UPDATE would otherwise cause us
+        // to delete tokens for a row that was refreshed and not flipped).
+        let stale_resources: Vec<(DirectoryResourceKindDb, String)> =
+            diesel::update(r::directory_resources)
+                .filter(r::stale.eq(false))
+                .filter(r::next_revalidation_after.le(cutoff))
+                .set(r::stale.eq(true))
+                .returning((r::resource_kind, r::resource_id))
+                .get_results(&mut *conn)
+                .await?;
         for (resource_kind, resource_id) in stale_resources {
             crate::psi_index::delete_resource_tokens_on_conn(
                 &mut conn,

@@ -32,7 +32,7 @@ ed25519-dalek = "2.2.0"
 futures-util = "0.3.32"
 gloo-net = "0.7.0"
 hmac = "0.13.0"
-rand = "0.10.1"
+rand = "0.9.4"
 reqwest = {version = "0.13.4",default-features = false,features = ["json", "rustls"]}
 salvo = {version = "0.93.0",features = ["affix-state", "cors", "oapi"]}
 salvo-oapi = {version = "0.93.0",features = ["yaml"]}

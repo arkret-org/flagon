@@ -5081,7 +5081,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hmac 0.13.0",
- "rand 0.10.1",
+ "rand 0.9.4",
  "reqwest 0.13.4",
  "salvo",
  "salvo-oapi",

@@ -3,20 +3,23 @@
 //! Kept dependency-free so the Prometheus surface can be used in local
 //! release-hygiene slices without changing the workspace lockfile.
 //!
-//! ## OTLP Exporter (P5)
+//! ## OTLP Exporter (P5) — stub
 //!
-//! `init_otlp_exporter` reads `TEABAY_OTLP_ENDPOINT` and, when set,
-//! installs a minimal OTLP HTTP push from this Prometheus surface so
-//! operators get parity with their otel collector. We intentionally
-//! avoid pulling the heavy `opentelemetry` crate stack into the
-//! workspace lockfile and instead expose `Metrics::push_to_otlp` for
-//! the deployment shim — see `docs/operations.md` for the local
-//! evidence recipe (curl loop against the metrics endpoint).
+//! `Metrics::push_to_otlp` reads `TEABAY_OTLP_ENDPOINT` and, when set,
+//! performs a single OTLP HTTP push of this Prometheus surface. It is a
+//! contract-surface stub: there is no in-process wiring (no background
+//! task, no startup hook) that calls it on a schedule, so setting
+//! `TEABAY_OTLP_ENDPOINT` alone does NOT auto-export metrics. To get
+//! parity with an otel collector today an operator must drive
+//! `push_to_otlp` externally (a curl loop against the metrics endpoint
+//! / the deployment shim) — see `docs/operations.md` for the local
+//! evidence recipe. We intentionally avoid pulling the heavy
+//! `opentelemetry` crate stack into the workspace lockfile.
 //!
-//! TODO(P5-impl): replace the curl-loop shim with the official OTLP
-//! SDK once the rest of the stack pins a compatible otel crate
-//! version. This stub is the contract surface the SDK upgrade will
-//! preserve.
+//! TODO(P5-impl): replace the external curl-loop shim with an
+//! in-process scheduled push (and/or the official OTLP SDK) once the
+//! rest of the stack pins a compatible otel crate version. This stub is
+//! the contract surface the SDK upgrade will preserve.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};

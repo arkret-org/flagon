@@ -106,6 +106,17 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         return;
     }
 
+    // Spec §6.4: the PSI face is the most enumeration-sensitive query
+    // endpoint, yet historically it was the only query handler that skipped
+    // the shared per-IP query rate limit. Apply it on *both* the `blind` and
+    // `match` rounds so the actual enumeration surface (the `match` round that
+    // returns the hit bitmap) is throttled per client, not just the `blind`
+    // opener. `resolve_client_ip` honours the trusted-proxy allowlist.
+    if !crate::query::rate_limit::enforce_query_rate_limit(req, res, &state) {
+        return;
+    }
+    let client_ip = crate::query::rate_limit::resolve_client_ip(req, &state);
+
     let body: DirectoryPrivateContactDiscoveryRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
@@ -137,8 +148,15 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         let quota_bucket = Utc::now()
             .timestamp()
             .div_euclid(state.config().psi_quota_window_seconds as i64);
+        // §6.4 requires the quota to be counted per authenticable principal /
+        // device credential; `body.requester` is an unauthenticated free-form
+        // string from the request body, so an attacker could rotate it per
+        // batch to bypass the limit. Until the query face carries a verified
+        // principal, the *mandatory* quota dimension MUST be the resolved
+        // client IP (spec permits IP as a hardening dimension); `requester` is
+        // retained only as a secondary disambiguator behind the same IP.
         if let RateLimitOutcome::Limited { retry_after } = state.check_rate_limit_window(
-            format!("psi-quota:{}:{quota_bucket}", body.requester),
+            format!("psi-quota:{client_ip}:{}:{quota_bucket}", body.requester),
             state.config().max_psi_queries_per_window,
             quota_window,
         ) {
@@ -179,6 +197,19 @@ async fn handle_blind_phase(
         ApiErrorCode::MissingParam.render(res, "blinded_inputs is required for phase=blind");
         return;
     }
+    // §6.2/§6.4: the Provider MUST enforce a fixed `batch_size` upper bound
+    // rather than evaluating an attacker-controlled number of (expensive)
+    // Ristretto255 group operations per request. Reject anything above the
+    // fixed cardinality instead of silently processing it (which was both a
+    // CPU/memory amplification DoS and, on the `match` side, a silent
+    // truncation that produced wrong results).
+    if body.blinded_inputs.len() > MATCH_CARDINALITY {
+        ApiErrorCode::InvalidParam.render(
+            res,
+            format!("blinded_inputs exceeds fixed batch size {MATCH_CARDINALITY}"),
+        );
+        return;
+    }
 
     let server = match PsiServer::deserialize(&key.server_key) {
         Ok(server) => server,
@@ -188,8 +219,8 @@ async fn handle_blind_phase(
         }
     };
 
-    let mut evaluations = Vec::with_capacity(body.blinded_inputs.len());
-    let mut proofs = Vec::with_capacity(body.blinded_inputs.len());
+    let mut evaluations = Vec::with_capacity(MATCH_CARDINALITY);
+    let mut proofs = Vec::with_capacity(MATCH_CARDINALITY);
     let mut rng = OsRng;
     for input in &body.blinded_inputs {
         let blinded = match decode_blinded_element(input) {
@@ -204,8 +235,23 @@ async fn handle_blind_phase(
         proofs.push(URL_SAFE_NO_PAD.encode(evaluated.proof.serialize()));
     }
 
+    // §6.4: the response frame MUST be rewritten to the Provider's fixed
+    // `batch_size`. Dummy-pad `evaluations`/`proofs` with real-shaped VOPRF
+    // outputs (evaluated over a constant dummy blinded element) up to
+    // MATCH_CARDINALITY so the on-wire response size is decoupled from the
+    // number of elements the client actually submitted.
+    let real_count = evaluations.len();
+    if real_count < MATCH_CARDINALITY {
+        let dummy_blinded = dummy_blinded_element();
+        for _ in real_count..MATCH_CARDINALITY {
+            let evaluated = server.blind_evaluate(&mut rng, &dummy_blinded);
+            evaluations.push(URL_SAFE_NO_PAD.encode(evaluated.message.serialize()));
+            proofs.push(URL_SAFE_NO_PAD.encode(evaluated.proof.serialize()));
+        }
+    }
+
     let query_id = random_query_id();
-    let padding_count = MATCH_CARDINALITY.saturating_sub(evaluations.len());
+    let padding_count = MATCH_CARDINALITY.saturating_sub(real_count);
     res.render(Json(DirectoryPrivateContactDiscoveryBlindOutcome {
         phase: "blind",
         epoch: key.epoch.clone(),
@@ -227,6 +273,18 @@ async fn handle_match_phase(
 ) {
     if body.match_tokens.is_empty() {
         ApiErrorCode::MissingParam.render(res, "match_tokens is required for phase=match");
+        return;
+    }
+    // §6.4: enforce the same fixed batch-size bound on the `match` round.
+    // Reject overflow explicitly instead of decoding everything and silently
+    // `take(MATCH_CARDINALITY)`-ing (which charged the decode cost for the
+    // discarded surplus and returned a hit bitmap that silently dropped the
+    // client's excess tokens).
+    if body.match_tokens.len() > MATCH_CARDINALITY {
+        ApiErrorCode::InvalidParam.render(
+            res,
+            format!("match_tokens exceeds fixed batch size {MATCH_CARDINALITY}"),
+        );
         return;
     }
 
@@ -344,6 +402,17 @@ fn current_epoch(config: &AppConfig) -> String {
 
 fn random_query_id() -> String {
     URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>())
+}
+
+/// Constant dummy blinded element used to pad the `blind` round response to
+/// the fixed `batch_size` (§6.4). Built from the group base element so it
+/// deserializes into a valid `BlindedElement`; the resulting VOPRF outputs are
+/// indistinguishable in shape from real evaluations and are discarded by the
+/// client (which only consumes the first `MATCH_CARDINALITY - padding_count`).
+fn dummy_blinded_element() -> PsiBlindedElement {
+    let serialized = Ristretto255::serialize_elem(Ristretto255::base_elem());
+    PsiBlindedElement::deserialize(serialized.as_slice())
+        .expect("base element serialization is a valid blinded element")
 }
 
 fn decode_blinded_element(input: &str) -> Result<PsiBlindedElement, String> {

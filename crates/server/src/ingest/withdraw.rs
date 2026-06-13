@@ -13,7 +13,6 @@ use cokret_sdk::{
     DirectoryWithdrawRequestBody as SdkDirectoryWithdrawRequestBody,
 };
 use diesel::prelude::*;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde::Serialize;
@@ -213,33 +212,30 @@ async fn persist_withdraw(
     use crate::schema::withdrawals::dsl as w;
 
     let mut conn = state.db().get().await?;
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
-        async move {
-            diesel::insert_into(w::withdrawals)
-                .values((
-                    w::withdraw_id.eq(withdraw_id),
-                    w::resource_kind.eq(body.resource_kind),
-                    w::resource_id.eq(&body.resource_id),
-                    w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
-                    w::reason.eq(&body.reason),
-                    w::proof.eq(proof),
-                    w::effective_at.eq(effective_at),
-                    w::acked_at.eq(acked_at),
-                    w::operator.eq::<Option<&str>>(None),
-                    w::notified_at.eq::<Option<chrono::DateTime<Utc>>>(None),
-                ))
-                .execute(&mut *conn)
-                .await?;
+    conn.transaction::<_, diesel::result::Error, _>(async move |conn| {
+        diesel::insert_into(w::withdrawals)
+            .values((
+                w::withdraw_id.eq(withdraw_id),
+                w::resource_kind.eq(body.resource_kind),
+                w::resource_id.eq(&body.resource_id),
+                w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
+                w::reason.eq(&body.reason),
+                w::proof.eq(proof),
+                w::effective_at.eq(effective_at),
+                w::acked_at.eq(acked_at),
+                w::operator.eq::<Option<&str>>(None),
+                w::notified_at.eq::<Option<chrono::DateTime<Utc>>>(None),
+            ))
+            .execute(&mut *conn)
+            .await?;
 
-            diesel::delete(r::directory_resources)
-                .filter(r::resource_kind.eq(body.resource_kind))
-                .filter(r::resource_id.eq(&body.resource_id))
-                .execute(&mut *conn)
-                .await?;
+        diesel::delete(r::directory_resources)
+            .filter(r::resource_kind.eq(body.resource_kind))
+            .filter(r::resource_id.eq(&body.resource_id))
+            .execute(&mut *conn)
+            .await?;
 
-            Ok(())
-        }
-        .scope_boxed()
+        Ok(())
     })
     .await?;
     crate::psi_index::delete_resource_tokens(state.db(), body.resource_kind, &body.resource_id)

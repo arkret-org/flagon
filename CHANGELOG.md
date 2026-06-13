@@ -13,7 +13,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## R3.3 — CKP-0011 (cokret-spec @ cced4b8)
 
-- New operation `ck.find.directory.query.resolve_target` (`POST /api/v1/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+cokret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Flow / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`, `via_services`).
+- New operation `ck.find.directory.query.resolve_target` (`POST /_cokret/find/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+cokret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Flow / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`); `via_services` is a delegation/projection field, not a §9.1 common field.
 - **Realm resolution DELEGATES** to the existing `resolve_realm` path (`crates/server/src/query/realm.rs::resolve_realm_visible`) so the canonical `realm_id`, `realm_preview`, `via_services`, and the hidden/withdrawn/unknown → blinded `not_found` collapse stay byte-for-byte identical.
 - **Token target binding** (scope-confusion defence): an `lt=invite` address carries an opaque `tok`; the token's embedded `target_descriptor` is compared against the address-derived descriptor via the SDK `verify_token_target` (`sha256:` digest over `realm_id` + `flow_id` + `message_id` + `link_type` only — `via`/`action`/`tok`/`lt` are NOT in the digest). A token minted for object A cannot be replayed onto object B; alias realms are normalized to the canonical `ck:realm:<uuid>` before comparison. Any mismatch → the SAME blinded `not_found`.
 - Anti-enumeration: routed through the SAME latency floor + deterministic jitter + 50ms stochastic resolve jitter as `resolve-realm` / `resolve-handle`; unauthorized and nonexistent are byte- and timing-indistinguishable.
@@ -24,7 +24,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## R3.2 — Spec sync 2026-05-28 (cokret-spec @ b56cab1)
 
-- New operation `ck.find.directory.query.list_handles_for_subject` (`POST /api/v1/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.
+- New operation `ck.find.directory.query.list_handles_for_subject` (`POST /_cokret/find/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.
 - Ingest validators reject `claim_type=service_handle` (`claim_type_unsupported`) and non-principal-DID subjects (`handle_claim_subject_not_principal_did`).
 - `/metrics` now exposes directory query/filter-drop/cardinality-guard counters. Anti-enumeration jitter + latency floor applied to the new endpoint. 8-case conformance suite.
 - `as_of` historical replay + full per-claim disclosure engine deferred `TODO(R3.2.1)`.
@@ -33,7 +33,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## R3 — Spec sync 2026-05-27 (cokret-spec @ b47ff6ec)
 
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
-- WK-1: `POST /api/v1/directory/resolve-handle` and the well-known proxy aligned to the new spec form `/.well-known/cokret/handle?localpart=<localpart>`.
+- WK-1: `POST /_cokret/find/directory/resolve-handle` and the well-known proxy aligned to the new spec form `/.well-known/cokret/handle?localpart=<localpart>`.
 - REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
 - SEL-1: directory query filter now accepts the `circle` selector kind (`ck:circle:<uuid>`).
 
@@ -55,8 +55,8 @@ one.
   deliberately low-information to preserve the anti-enumeration story
   (the rejection message does NOT echo the field name or the typed
   id). Audit row captures the violation for operator review.
-  Mirrored on `POST /api/v1/directory/announce` and
-  `POST /api/v1/directory/subscribe`.
+  Mirrored on `POST /_cokret/find/directory/announce` and
+  `POST /_cokret/find/directory/push/register`.
 - **BREAKING** The SDK's CKP-0007 `forbidden-wire-fields` list is
   mirrored at the directory edge (`discussion_realm_ref`,
   `discussion_space_ref`, `parent_ref`, `default_realm_ref`,

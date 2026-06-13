@@ -2,7 +2,6 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -871,36 +870,33 @@ async fn load_resources(
     // connection beyond 1 second. The transaction commits cleanly even
     // when the underlying SELECT returned a TimedOut error.
     let rows: Vec<ResourceAdminRow> = conn
-        .transaction::<_, diesel::result::Error, _>(|conn| {
-            async move {
-                diesel::sql_query("SET LOCAL statement_timeout = '1s'")
-                    .execute(&mut *conn)
-                    .await?;
-                rows_query
-                    .order(r::indexed_at.desc())
-                    .limit(limit)
-                    .select((
-                        r::resource_kind,
-                        r::resource_id,
-                        r::principal_server_did,
-                        r::discovery_state,
-                        r::public_projection,
-                        r::discoverability,
-                        r::as_of,
-                        r::source_refs,
-                        r::policy_revision,
-                        r::indexed_at,
-                        r::effective_ttl_seconds,
-                        r::next_revalidation_after,
-                        r::stale,
-                        r::divergent,
-                        r::via_services,
-                        r::last_announce_id,
-                    ))
-                    .load(&mut *conn)
-                    .await
-            }
-            .scope_boxed()
+        .transaction::<_, diesel::result::Error, _>(async move |conn| {
+            diesel::sql_query("SET LOCAL statement_timeout = '1s'")
+                .execute(&mut *conn)
+                .await?;
+            rows_query
+                .order(r::indexed_at.desc())
+                .limit(limit)
+                .select((
+                    r::resource_kind,
+                    r::resource_id,
+                    r::principal_server_did,
+                    r::discovery_state,
+                    r::public_projection,
+                    r::discoverability,
+                    r::as_of,
+                    r::source_refs,
+                    r::policy_revision,
+                    r::indexed_at,
+                    r::effective_ttl_seconds,
+                    r::next_revalidation_after,
+                    r::stale,
+                    r::divergent,
+                    r::via_services,
+                    r::last_announce_id,
+                ))
+                .load(&mut *conn)
+                .await
         })
         .await?;
     Ok(rows.into_iter().map(ResourceAdminItem::from).collect())
@@ -1017,43 +1013,40 @@ async fn delete_managed_resource(
 
     let mut conn = state.db().get().await?;
     let outcome = conn
-        .transaction::<_, anyhow::Error, _>(|conn| {
-            async move {
-                let existing = r::directory_resources
+        .transaction::<_, anyhow::Error, _>(async move |conn| {
+            let existing = r::directory_resources
+                .filter(r::resource_kind.eq(resource_kind))
+                .filter(r::resource_id.eq(resource_id))
+                .select((
+                    r::principal_server_did,
+                    r::policy_revision,
+                    r::via_services,
+                    r::last_announce_id,
+                ))
+                .first::<(String, Option<String>, Vec<String>, Option<String>)>(&mut *conn)
+                .await
+                .optional()?;
+
+            let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
+                existing
+            else {
+                return Ok(None);
+            };
+
+            diesel::delete(
+                r::directory_resources
                     .filter(r::resource_kind.eq(resource_kind))
-                    .filter(r::resource_id.eq(resource_id))
-                    .select((
-                        r::principal_server_did,
-                        r::policy_revision,
-                        r::via_services,
-                        r::last_announce_id,
-                    ))
-                    .first::<(String, Option<String>, Vec<String>, Option<String>)>(&mut *conn)
-                    .await
-                    .optional()?;
+                    .filter(r::resource_id.eq(resource_id)),
+            )
+            .execute(&mut *conn)
+            .await?;
 
-                let Some((principal_server_did, policy_revision, via_services, last_announce_id)) =
-                    existing
-                else {
-                    return Ok(None);
-                };
-
-                diesel::delete(
-                    r::directory_resources
-                        .filter(r::resource_kind.eq(resource_kind))
-                        .filter(r::resource_id.eq(resource_id)),
-                )
-                .execute(&mut *conn)
-                .await?;
-
-                Ok(Some(ResourceDeleteAudit {
-                    principal_server_did,
-                    policy_revision,
-                    via_services,
-                    last_announce_id,
-                }))
-            }
-            .scope_boxed()
+            Ok(Some(ResourceDeleteAudit {
+                principal_server_did,
+                policy_revision,
+                via_services,
+                last_announce_id,
+            }))
         })
         .await?;
     if outcome.is_some() {

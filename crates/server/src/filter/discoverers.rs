@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use cokret_sdk::identity::DidKeyResolver;
 use cokret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use cokret_sdk::{
-    ClaimDisclosureRequirement, Did, DisclosurePolicy, PresentationReqBody, PresentedClaim,
-    canonical, validate_presentation,
+    ClaimDisclosurePolicy, ClaimDisclosureRequirement, Did, PresentationRequestBody,
+    PresentedClaim, canonical, validate_presentation,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -295,12 +295,12 @@ fn claim_satisfies_selector(
         return false;
     }
 
-    let request = PresentationReqBody {
+    let request = PresentationRequestBody {
         request_id: "teabay.restricted_discovery".to_owned(),
         subject: subject.clone(),
         audience: "teabay.restricted_discovery".to_owned(),
         nonce: "verified-by-teabay-jws".to_owned(),
-        policy: DisclosurePolicy {
+        policy: ClaimDisclosurePolicy {
             policy_id: "teabay.restricted_discovery".to_owned(),
             requirements: vec![ClaimDisclosureRequirement {
                 claim_kind: claim_type.to_owned(),

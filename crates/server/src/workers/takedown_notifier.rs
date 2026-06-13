@@ -23,7 +23,7 @@ use std::time::Duration;
 use chrono::Utc;
 use diesel::sql_types::{Int4, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use reqwest::redirect::Policy;
 use serde_json::json;
@@ -173,7 +173,7 @@ impl TakedownNotifier {
         let rows = diesel::sql_query(
             "SELECT pending_id, resource_kind::TEXT AS resource_kind, resource_id, reason, \
                     proposed_by, proposed_at, \
-                    (regexp_match(coalesce(notification_status, ''), '^attempt:(\\d+)'))[1]::INT AS attempts \
+                    (regexp_match(coalesce(notification_status, ''), 'attempt:(\\d+)'))[1]::INT AS attempts \
              FROM pending_takedowns \
              WHERE notification_status IS NULL \
                 OR notification_status = 'pending' \
