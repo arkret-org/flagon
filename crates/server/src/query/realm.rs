@@ -13,8 +13,9 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Duration, Utc};
 use cokret_sdk::{
-    Did, EventId, RealmId, RealmJoinCandidate, RealmJoinCandidateRole,
-    RealmJoinCandidateServiceType, RealmJoinCandidateSource, RealmJoinMethod,
+    Did, DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, RealmId,
+    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
+    RealmJoinCandidateSource, RealmJoinMethod,
 };
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -24,9 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{
-    RestrictedClaimPresentation, VerifiedRestrictedClaims, verify_restricted_claim_presentations,
-};
+use crate::filter::discoverers::VerifiedRestrictedClaims;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
@@ -35,30 +34,10 @@ use crate::query::rate_limit::{
 };
 use crate::state::AppState;
 
-#[derive(Debug, Default, Deserialize)]
-pub struct DirectorySearchRealmsRequestBody {
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub scope: Option<SearchScope>,
-    #[serde(default)]
-    pub requester: Option<String>,
-    #[serde(default)]
-    pub proof_challenge: Option<String>,
-    #[serde(default)]
-    pub proofs: Vec<RestrictedClaimPresentation>,
-    #[serde(default)]
-    pub cursor: Option<String>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct SearchScope {
-    #[serde(default)]
-    pub organization_did: Option<String>,
-    #[serde(default)]
-    pub source_realm_id: Option<String>,
+#[derive(Debug, Default)]
+struct SearchScope {
+    organization_did: Option<Did>,
+    source_realm_id: Option<RealmId>,
 }
 
 #[handler]
@@ -74,22 +53,22 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: DirectorySearchRealmsRequestBody = req.parse_json().await.unwrap_or_default();
+    let body: DirectorySearchRealmsRequestBody = match req.parse_json().await {
+        Ok(body) => body,
+        Err(e) => {
+            ApiErrorCode::BadJson.render(res, format!("malformed search body: {e}"));
+            return;
+        }
+    };
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
-    let scope = body.scope.unwrap_or_default();
+    let scope = SearchScope {
+        organization_did: body.organization_did,
+        source_realm_id: body.source_realm_id,
+    };
     let requester = body.requester;
-    let proof_challenge = body.proof_challenge;
-    let verified_claims = verify_restricted_claim_presentations(
-        &body.proofs,
-        requester.as_deref(),
-        proof_challenge.as_deref(),
-        &state.config().service_did,
-        &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
-    )
-    .unwrap_or_default();
+    let verified_claims = VerifiedRestrictedClaims::default();
     let cursor = match body.cursor.as_deref().map(decode_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
@@ -104,8 +83,16 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let privacy_key = format!(
         "q={needle};org={};source={};cursor={};limit={limit}",
-        scope.organization_did.as_deref().unwrap_or_default(),
-        scope.source_realm_id.as_deref().unwrap_or_default(),
+        scope
+            .organization_did
+            .as_ref()
+            .map(Did::as_str)
+            .unwrap_or_default(),
+        scope
+            .source_realm_id
+            .as_ref()
+            .map(RealmId::as_str)
+            .unwrap_or_default(),
         cursor
             .as_ref()
             .map(|cursor| cursor.resource_id.as_str())
@@ -126,7 +113,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 &needle,
                 &scope,
                 cursor.as_ref(),
-                requester.as_deref(),
+                requester.as_ref().map(Did::as_str),
                 &verified_claims,
                 limit + 1,
             )
@@ -168,24 +155,6 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct DirectoryResolveRealmRequestBody {
-    #[serde(default)]
-    pub realm_id: Option<String>,
-    #[serde(default)]
-    pub alias: Option<String>,
-    #[serde(default)]
-    pub invite_token: Option<String>,
-    #[serde(default)]
-    pub signed_link: Option<String>,
-    #[serde(default)]
-    pub requester: Option<String>,
-    #[serde(default)]
-    pub proof_challenge: Option<String>,
-    #[serde(default)]
-    pub proofs: Vec<RestrictedClaimPresentation>,
-}
-
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
 // Spec sync 37ce729 (B-E) — identity-handles §6: `resolve_realm` accepts
 // `realm_id`, `alias`, `invite_token`, `signed_link` — all explicit
@@ -212,7 +181,8 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
 
     let key = body
         .realm_id
-        .clone()
+        .as_ref()
+        .map(|realm_id| realm_id.as_str().to_owned())
         .or(body.alias)
         .or(body.invite_token)
         .or(body.signed_link);
@@ -246,21 +216,19 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         async { load_realm_row(&state, &key).await },
     )
     .await;
-    let verified_claims = verify_restricted_claim_presentations(
-        &body.proofs,
-        body.requester.as_deref(),
-        body.proof_challenge.as_deref(),
-        &state.config().service_did,
-        &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
-    )
-    .unwrap_or_default();
+    let verified_claims = VerifiedRestrictedClaims::default();
 
     // P5 — stochastic anti-enumeration jitter on resolve responses.
     apply_resolve_response_jitter().await;
 
     match row {
-        Ok(Some(r)) if is_result_visible(&r, body.requester.as_deref(), &verified_claims) => {
+        Ok(Some(r))
+            if is_result_visible(
+                &r,
+                body.requester.as_ref().map(Did::as_str),
+                &verified_claims,
+            ) =>
+        {
             res.render(Json(envelope_from_row(r)));
         }
         // Hidden, withdrawn, or unknown — all collapse to blinded not_found.
@@ -411,8 +379,8 @@ async fn run_realm_search(
     let mut conn = state.db().get().await?;
 
     let needle = needle.trim();
-    let organization_did = scope.organization_did.as_deref();
-    let source_realm_id = scope.source_realm_id.as_deref();
+    let organization_did = scope.organization_did.as_ref().map(Did::as_str);
+    let source_realm_id = scope.source_realm_id.as_ref().map(RealmId::as_str);
     let cursor_score = cursor.map(|c| c.score);
     let cursor_indexed_at = cursor.map(|c| c.indexed_at);
     let cursor_resource_id = cursor.map(|c| c.resource_id.as_str());
