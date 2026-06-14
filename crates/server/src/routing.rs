@@ -663,7 +663,12 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // handle endpoint. Query-string keyed (`?localpart=<localpart>`).
             "/.well-known/cokret/handle",
             PathItemType::Get,
-            "ck.directory.well_known_handle",
+            // Local (non-protocol) operation id. The spec defines the endpoint
+            // path (identity-handles §17) but assigns no `ck.` operation id; the
+            // `ck.` prefix is reserved for spec-pinned, registry-listed operations
+            // (operation-registry.json). Use a reverse-domain local identifier so
+            // we don't squat the protocol namespace with an unregistered id.
+            "org.cokret.teabay.well_known_handle",
             "query",
             "Well-Known Handle Resolve",
             "Resolve a handle by `?localpart=<localpart>` (identity-handles §17). \
