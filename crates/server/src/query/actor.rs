@@ -216,7 +216,28 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
             }
             let users = match rows
                 .into_iter()
-                .map(|row| user_search_outcome_from_envelope(envelope_from_row(row)))
+                .map(|scored| {
+                    // spec discovery-directory.md §9 search_users：`results[].did`
+                    // 是 conditional。共同 Realm membership 不得单独授权披露 did。
+                    // 仅当结果来自调用方本地持有的联系人索引（resource_id ==
+                    // requester），或已通过 resolve_handle 所需的 claim /
+                    // presentation / audience / Realm intent 验证时才回 did。
+                    // 当前 search_users wire body 不携带 proofs / proof_challenge
+                    // （SDK `DirectorySearchUsersRequestBody` 无该字段），故
+                    // presentation 路径无可验证输入；唯一可成立的授权途径是
+                    // local-contact（resource_id == requester）。fail-closed：
+                    // 判不准授权即省略 did，未授权分支只回 handle / display
+                    // preview（SDK `UserSearchOutcome.did` 已为 Option，可省略）。
+                    let did_authorized = scored.did_authorized;
+                    user_search_outcome_from_envelope(envelope_from_row(scored.row)).map(
+                        |mut outcome| {
+                            if !did_authorized {
+                                outcome.did = None;
+                            }
+                            outcome
+                        },
+                    )
+                })
                 .collect::<Result<Vec<_>, _>>()
             {
                 Ok(users) => users,
@@ -288,13 +309,22 @@ async fn run_actor_search(
         .collect())
 }
 
+/// A matched actor row plus whether the requester is authorized to learn the
+/// subject `did` for this result. §9 conditional-did: only local-contact
+/// (`resource_id == requester`) authorizes did disclosure on this face;
+/// common-Realm membership alone does NOT.
+struct ScoredUserRow {
+    row: ActorRow,
+    did_authorized: bool,
+}
+
 async fn run_user_search(
     state: &AppState,
     needle: &str,
     requester: &str,
     realm_id: &str,
     limit: i64,
-) -> anyhow::Result<Vec<ActorRow>> {
+) -> anyhow::Result<Vec<ScoredUserRow>> {
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
     let rows: Vec<ActorRow> = r::directory_resources
@@ -324,6 +354,16 @@ async fn run_user_search(
         })
         .filter(|row| {
             needle.is_empty() || actor_matches(&row.public_projection, &row.resource_id, &needle)
+        })
+        .map(|row| {
+            // local-contact path is the only did-disclosure authorization
+            // available on this wire (no presentation proofs in the body).
+            // Rows matched solely via actor_lists_realm are NOT authorized.
+            let did_authorized = row.resource_id == requester;
+            ScoredUserRow {
+                row,
+                did_authorized,
+            }
         })
         .take(limit as usize)
         .collect())
