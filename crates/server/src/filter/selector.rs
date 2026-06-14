@@ -28,6 +28,7 @@
 //! or include the typed id at top level; discriminator values remain
 //! strict lowercase per the protocol registry.
 
+use cokret_sdk::CircleId;
 use serde_json::Value as JsonValue;
 
 /// True iff the given filter JSON identifies the `circle` selector
@@ -65,13 +66,8 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
 /// thinner check than [`is_circle_selector`]: it answers "does the
 /// caller want to point at a Circle?" regardless of which surrounding
 /// envelope field carries the id.
-///
-/// TODO(R3.1): once `cokret_sdk::CircleId` exposes a public
-/// `wire_form()` constructor accepting bare strings, swap this for
-/// the SDK typed parse so we share the validator with the engine
-/// selector parser in `crates/sdk/src/authz/selectors.rs`.
 pub fn looks_like_circle_id(value: &str) -> bool {
-    value.starts_with(crate::filter::circle_isolation::CIRCLE_TYPED_ID_PREFIX)
+    CircleId::new(value.to_owned()).is_ok()
 }
 
 #[cfg(test)]
