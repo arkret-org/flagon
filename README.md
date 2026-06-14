@@ -81,7 +81,7 @@ defined by the Cokret v1 spec — concretely:
 - **§12** Conformance test matrix (query face + ingest face)
 
 Section 6 (Private Contact Discovery) is implemented with RFC 9497 VOPRF
-blind / match flows. Parent Space semantics are represented through scope
+blind / match strands. Parent Space semantics are represented through scope
 filters and membership hints where the Directory profile needs them.
 
 `ck.directory.describe.limitations` is populated at runtime for conformance

@@ -165,10 +165,10 @@ diesel::table! {
 }
 
 diesel::table! {
-    directory_object_access (realm_id, object_kind, flow_id, message_id) {
+    directory_object_access (realm_id, object_kind, strand_id, message_id) {
         realm_id -> Text,
         object_kind -> Text,
-        flow_id -> Text,
+        strand_id -> Text,
         message_id -> Text,
         public_projection -> Jsonb,
         allowed_requesters -> Array<Text>,

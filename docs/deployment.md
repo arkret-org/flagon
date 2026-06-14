@@ -130,7 +130,7 @@ The request signature `keyid` must match the configured key id exactly. With
 key, or invalid signature is rejected before the announce, withdraw, or
 subscribe handler runs.
 
-Provisioning flow:
+Provisioning strand:
 
 1. Generate or select the Principal Server's Ed25519 signing key outside the
    teabay repository.

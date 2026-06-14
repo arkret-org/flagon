@@ -33,7 +33,7 @@ use serde_json::Value as JsonValue;
 /// appearing at any nesting depth inside an ingest payload is an
 /// immediate hard reject.
 ///
-/// `scope_circle_id` is the canonical CKP-0007 field on Flow/Space/
+/// `scope_circle_id` is the canonical CKP-0007 field on Strand/Space/
 /// Morph; it MUST stay strictly inside a Realm (soland) and never
 /// project into the directory. `circle_id` / `circle_members` /
 /// `member_circle_ids` cover legacy/short names that downstream

@@ -231,8 +231,8 @@ CREATE INDEX psi_contact_tokens_resource_idx
 CREATE TABLE directory_object_access (
     realm_id        TEXT        NOT NULL,
     object_kind     TEXT        NOT NULL
-        CHECK (object_kind IN ('flow', 'message')),
-    flow_id         TEXT        NOT NULL,
+        CHECK (object_kind IN ('strand', 'message')),
+    strand_id         TEXT        NOT NULL,
     message_id      TEXT        NOT NULL DEFAULT '',
     public_projection JSONB     NOT NULL,
     allowed_requesters TEXT[]   NOT NULL DEFAULT '{}',
@@ -244,14 +244,14 @@ CREATE TABLE directory_object_access (
     stale           BOOLEAN     NOT NULL DEFAULT false,
     divergent       BOOLEAN     NOT NULL DEFAULT false,
     CHECK (
-        (object_kind = 'flow' AND message_id = '')
+        (object_kind = 'strand' AND message_id = '')
         OR (object_kind = 'message' AND message_id <> '')
     ),
-    PRIMARY KEY (realm_id, object_kind, flow_id, message_id)
+    PRIMARY KEY (realm_id, object_kind, strand_id, message_id)
 );
 
 CREATE INDEX directory_object_access_lookup_idx
-    ON directory_object_access (realm_id, object_kind, flow_id, message_id)
+    ON directory_object_access (realm_id, object_kind, strand_id, message_id)
     WHERE stale = false;
 
 CREATE INDEX directory_object_access_requesters_gin_idx

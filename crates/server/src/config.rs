@@ -39,7 +39,7 @@ pub struct AppConfig {
     /// matching this configured value on every state-changing admin
     /// call. Disabled by default for backwards compatibility; enable
     /// via `TEABAY_ADMIN_CSRF_TOKEN`. When set, Set-Cookie is also
-    /// emitted with `SameSite=Strict` so cookie-bearing flows are
+    /// emitted with `SameSite=Strict` so cookie-bearing strands are
     /// additionally CSRF-hardened.
     pub admin_csrf_token: Option<String>,
     pub admin_token: Option<String>,

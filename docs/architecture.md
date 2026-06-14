@@ -82,7 +82,7 @@ PostgreSQL is the system of record for the directory index.
 Diesel migrations live in `crates/server/migrations/` and are auto-applied at
 server startup by the server crate.
 
-## Request Flow
+## Request Strand
 
 Push announce:
 

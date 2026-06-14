@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS pending_takedown_approvals (
 -- Webhook subscribers that want to be pinged on every proposal /
 -- approval transition. Distinct from the resource-discovery webhook
 -- channel (`webhook_subscriptions`) so a takedown reviewer can opt
--- into the approval flow without subscribing to ingest events.
+-- into the approval strand without subscribing to ingest events.
 CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
     webhook_id TEXT PRIMARY KEY,
     endpoint TEXT NOT NULL,

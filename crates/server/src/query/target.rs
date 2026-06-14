@@ -4,7 +4,7 @@
 //! This is the object-level generalization of
 //! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
 //! address (`web+cokret:` URI form OR HTTPS-landing fragment form) points at a
-//! Realm, a Flow inside a Realm, or a Message inside a Flow; this endpoint
+//! Realm, a Strand inside a Realm, or a Message inside a Strand; this endpoint
 //! parses the address, resolves the target, and returns a `target_kind` +
 //! (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields.
 //!
@@ -223,7 +223,7 @@ async fn resolve(
     token: Option<&str>,
 ) -> ResolveOutcome {
     // 1. Parse the address. A fail-closed parse (unknown keyword, wrong order, missing intermediate
-    //    level, non-uuid segment, flow/message missing `via`) collapses to a blinded not_found —
+    //    level, non-uuid segment, strand/message missing `via`) collapses to a blinded not_found —
     //    indistinguishable from a nonexistent resource.
     let parsed = match parse_address(address) {
         Ok(p) => p,
@@ -291,7 +291,7 @@ async fn resolve(
     let target_kind = if parsed.is_message() {
         TargetKind::Message
     } else {
-        TargetKind::Flow
+        TargetKind::Strand
     };
     let invite_authorized =
         effective_link_type == LinkType::Invite && verified_invite_token.is_some();
@@ -425,7 +425,7 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
         .to_owned();
     ParsedAddress {
         realm: RealmRef::RealmId(bare_uuid),
-        flow: parsed.flow.clone(),
+        strand: parsed.strand.clone(),
         message: parsed.message.clone(),
         action: parsed.action,
         link_type: parsed.link_type,
@@ -643,7 +643,7 @@ async fn build_object_response(
     verified_claims: &VerifiedRestrictedClaims,
     invite_authorized: bool,
 ) -> anyhow::Result<Option<DirectoryTargetResolutionOutcome>> {
-    let Some(flow_id) = parsed.flow.as_deref().map(|f| format!("ck:flow:{f}")) else {
+    let Some(strand_id) = parsed.strand.as_deref().map(|f| format!("ck:strand:{f}")) else {
         return Ok(None);
     };
     let message_id = parsed
@@ -652,7 +652,7 @@ async fn build_object_response(
         .map(|m| format!("ck:message:{m}"))
         .unwrap_or_default();
     let object_kind = match target_kind {
-        TargetKind::Flow => "flow",
+        TargetKind::Strand => "strand",
         TargetKind::Message => "message",
         TargetKind::Realm => return Ok(None),
     };
@@ -661,7 +661,7 @@ async fn build_object_response(
         state,
         canonical_realm_id,
         object_kind,
-        &flow_id,
+        &strand_id,
         &message_id,
     )
     .await?
@@ -678,7 +678,7 @@ async fn build_object_response(
             "realm_id".to_owned(),
             JsonValue::String(canonical_realm_id.to_owned()),
         );
-        obj.insert("flow_id".to_owned(), JsonValue::String(flow_id));
+        obj.insert("strand_id".to_owned(), JsonValue::String(strand_id));
         if !message_id.is_empty() {
             obj.insert("message_id".to_owned(), JsonValue::String(message_id));
         }
@@ -703,7 +703,7 @@ async fn load_object_access_row(
     state: &AppState,
     realm_id: &str,
     object_kind: &str,
-    flow_id: &str,
+    strand_id: &str,
     message_id: &str,
 ) -> anyhow::Result<Option<ObjectAccessRow>> {
     use crate::schema::directory_object_access::dsl as o;
@@ -712,7 +712,7 @@ async fn load_object_access_row(
     let row = o::directory_object_access
         .filter(o::realm_id.eq(realm_id))
         .filter(o::object_kind.eq(object_kind))
-        .filter(o::flow_id.eq(flow_id))
+        .filter(o::strand_id.eq(strand_id))
         .filter(o::message_id.eq(message_id))
         .filter(o::stale.eq(false))
         .select((
@@ -850,7 +850,7 @@ mod tests {
     #[test]
     fn token_binds_to_matching_object() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
@@ -863,17 +863,17 @@ mod tests {
 
     #[test]
     fn token_replayed_onto_other_object_is_rejected() {
-        // Token minted for flow A.
+        // Token minted for strand A.
         let addr_a = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
         let token = mint_token(&addr_a, &canonical);
 
-        // Replayed onto flow B (same realm, different flow).
+        // Replayed onto strand B (same realm, different strand).
         let addr_b = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F2}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F2}?via={VIA}&lt=invite"
         ))
         .unwrap();
         assert_eq!(
@@ -885,7 +885,7 @@ mod tests {
     #[test]
     fn invite_link_without_token_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
@@ -898,7 +898,7 @@ mod tests {
     #[test]
     fn expired_token_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
@@ -933,7 +933,7 @@ mod tests {
     #[test]
     fn unsigned_token_with_matching_descriptor_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
@@ -955,13 +955,13 @@ mod tests {
     #[test]
     fn tampered_signed_token_payload_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
         let token = mint_token(&addr, &canonical);
         let mut value: JsonValue = serde_json::from_str(&token).unwrap();
-        value["target_descriptor"]["flow_id"] = json!(format!("ck:flow:{F2}"));
+        value["target_descriptor"]["strand_id"] = json!(format!("ck:strand:{F2}"));
         let tampered = value.to_string();
         assert_eq!(
             verify_address_token(&addr, Some(&tampered), &canonical, LinkType::Invite),
@@ -975,7 +975,7 @@ mod tests {
         // canonical id injected. Verification must succeed because the server
         // resolved the alias to the same canonical id.
         let alias_addr = parse_address(&format!(
-            "web+cokret:realm/team.example.com/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/team.example.com/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let canonical = format!("ck:realm:{R}");
@@ -989,7 +989,7 @@ mod tests {
     #[test]
     fn token_for_different_realm_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&lt=invite"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let other_realm = "01904100-0000-7000-8000-0000000000ff";
@@ -1032,7 +1032,7 @@ mod tests {
     #[test]
     fn object_access_gate_requires_policy_or_invite() {
         let row = ObjectAccessRow {
-            public_projection: json!({ "title": "Flow" }),
+            public_projection: json!({ "title": "Strand" }),
             allowed_requesters: vec!["did:web:alice.example".to_owned()],
             required_claims: json!([]),
             as_of: sample_time(),
@@ -1065,10 +1065,10 @@ mod tests {
     #[test]
     fn retired_via_hint_is_ignored_by_parser() {
         let parsed = parse_address(&format!(
-            "web+cokret:realm/{R}/flow/{F}?via={VIA}&via=did:web:extra.example"
+            "web+cokret:realm/{R}/strand/{F}?via={VIA}&via=did:web:extra.example"
         ))
         .unwrap();
-        assert!(parsed.is_flow());
+        assert!(parsed.is_strand());
     }
 
     #[test]
@@ -1076,7 +1076,7 @@ mod tests {
         // Sanity: the SDK address builder is reachable from this module.
         let parsed = ParsedAddress {
             realm: RealmRef::RealmId(R.to_owned()),
-            flow: None,
+            strand: None,
             message: None,
             action: AddressAction::View,
             link_type: LinkType::Reference,

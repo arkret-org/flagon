@@ -94,7 +94,7 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
     assert_freshness_flags_are_exposed(&db, &service).await?;
     assert_psi_blind_and_match_finds_seeded_handle(&service).await?;
-    assert_three_path_takedown_flow(&db, &service).await?;
+    assert_three_path_takedown_strand(&db, &service).await?;
     assert_admin_operator_surface(&service).await?;
     Ok(())
 }
@@ -511,7 +511,7 @@ async fn assert_freshness_flags_are_exposed(
     Ok(())
 }
 
-async fn assert_three_path_takedown_flow(db: &server::Db, service: &Service) -> anyhow::Result<()> {
+async fn assert_three_path_takedown_strand(db: &server::Db, service: &Service) -> anyhow::Result<()> {
     let signing_key = SigningKey::from_bytes(&[14; 32]);
     let public_key = did_key_multibase(&signing_key);
     let signer_did = format!("did:key:{public_key}");
