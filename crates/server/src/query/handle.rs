@@ -81,11 +81,10 @@ pub struct TeabayResolveHandleRequest {
 /// confusable skeleton + script-mixed reject).
 ///
 /// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
-/// (cokret-spec @ 7157ee8 — 2026-05-27). The legacy
-/// `cokret://<domain>/users/<localpart>` URI form was retired in R3.1
-/// and is no longer parsed here. The directory's own dot-separated index
-/// key `<localpart>.<domain>` is still accepted because it remains the
-/// row's `resource_id` shape in storage.
+/// (cokret-spec @ 7157ee8 — 2026-05-27).
+/// The directory's own dot-separated index key `<localpart>.<domain>`
+/// is still accepted because it remains the row's `resource_id` shape
+/// in storage.
 ///
 /// Returns the rejection reason string for the wire response when the
 /// localpart fails any rule; the message intentionally does NOT echo
@@ -125,7 +124,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
     if let Some((local, _)) = handle.split_once(':') {
         return local;
     }
-    // Back-compat: teabay's stored `resource_id` uses `<localpart>.<domain>`.
+    // teabay's stored `resource_id` uses `<localpart>.<domain>`.
     handle.split('.').next().unwrap_or(handle)
 }
 
@@ -536,28 +535,16 @@ async fn load_realm_policy(
 
 impl RealmDeliveryBindingPolicy {
     /// Extract the `delivery_binding_policy` baseline from a Realm's
-    /// `public_projection`. Tolerates both flat (legacy) and nested
-    /// (`delivery_binding_policy`) shapes so cached projections from older
-    /// announces still load.
+    /// `public_projection`.
     pub(crate) fn from_projection(projection: JsonValue) -> Self {
         let nested = projection
             .get("delivery_binding_policy")
             .or_else(|| projection.pointer("/payload/delivery_binding_policy"));
-        let allowed_recipient_services = string_array_at(
-            &projection,
-            "allowed_recipient_services",
-            nested.and_then(|v| v.get("allowed_recipient_services")),
-        );
-        let allow_binding_sources = string_array_at(
-            &projection,
-            "allow_binding_sources",
-            nested.and_then(|v| v.get("allow_binding_sources")),
-        );
-        let trusted_audiences = string_array_at(
-            &projection,
-            "trusted_audiences",
-            nested.and_then(|v| v.get("trusted_audiences")),
-        );
+        let allowed_recipient_services =
+            string_array_at(nested.and_then(|v| v.get("allowed_recipient_services")));
+        let allow_binding_sources =
+            string_array_at(nested.and_then(|v| v.get("allow_binding_sources")));
+        let trusted_audiences = string_array_at(nested.and_then(|v| v.get("trusted_audiences")));
         Self {
             allowed_recipient_services,
             allow_binding_sources,
@@ -596,15 +583,8 @@ impl RealmDeliveryBindingPolicy {
     }
 }
 
-fn string_array_at(root: &JsonValue, flat_key: &str, nested: Option<&JsonValue>) -> Vec<String> {
-    if let Some(arr) = nested.and_then(JsonValue::as_array) {
-        return arr
-            .iter()
-            .filter_map(JsonValue::as_str)
-            .map(str::to_string)
-            .collect();
-    }
-    root.get(flat_key)
+fn string_array_at(value: Option<&JsonValue>) -> Vec<String> {
+    value
         .and_then(JsonValue::as_array)
         .map(|arr| {
             arr.iter()
@@ -726,7 +706,7 @@ fn binding_passes(
     let recipient_ok = match obj.get("recipient_service_did").and_then(JsonValue::as_str) {
         // Round 4 (spec a77b995, commit f9bd7eb) — the DID regex was
         // tightened to `^did:[a-z0-9]+:[^\s]+$`. The SDK `Did::new`
-        // newtype enforces it; legacy projections whose
+        // newtype enforces it; projections whose
         // `recipient_service_did` uses dot/dash/underscore/colon in
         // the method segment MUST be dropped as if absent, not allowed
         // through unconditionally.
@@ -745,8 +725,8 @@ fn binding_passes(
     recipient_ok && source_ok
 }
 
-/// Round 4 — drop legacy candidates whose `recipient_service_did`
-/// fails the tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
+/// Round 4 — drop candidates whose `recipient_service_did` fails the
+/// tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
 fn is_round4_tight_did(did: &str) -> bool {
     cokret_sdk::Did::new(did.to_owned()).is_ok()
 }
@@ -854,8 +834,10 @@ mod tests {
         trusted_audiences: &[&str],
     ) -> RealmDeliveryBindingPolicy {
         let projection = json!({
-            "allowed_recipient_services": allowed_recipient_services,
-            "trusted_audiences": trusted_audiences,
+            "delivery_binding_policy": {
+                "allowed_recipient_services": allowed_recipient_services,
+                "trusted_audiences": trusted_audiences,
+            },
         });
         RealmDeliveryBindingPolicy::from_projection(projection)
     }
@@ -904,8 +886,8 @@ mod tests {
     }
 
     #[test]
-    fn policy_from_projection_reads_nested_and_flat_shapes() {
-        let nested = RealmDeliveryBindingPolicy::from_projection(json!({
+    fn policy_from_projection_reads_nested_shape() {
+        let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "delivery_binding_policy": {
                 "allowed_recipient_services": ["did:web:principal.tea"],
                 "allow_binding_sources": ["join_policy"],
@@ -913,26 +895,17 @@ mod tests {
             },
         }));
         assert_eq!(
-            nested.allowed_recipient_services,
+            policy.allowed_recipient_services,
             vec!["did:web:principal.tea".to_string()]
         );
         assert_eq!(
-            nested.allow_binding_sources,
+            policy.allow_binding_sources,
             vec!["join_policy".to_string()]
         );
         assert_eq!(
-            nested.trusted_audiences,
+            policy.trusted_audiences,
             vec!["did:web:tea-org.example".to_string()]
         );
-
-        let flat = RealmDeliveryBindingPolicy::from_projection(json!({
-            "allowed_recipient_services": ["did:web:principal.tea"],
-        }));
-        assert_eq!(
-            flat.allowed_recipient_services,
-            vec!["did:web:principal.tea".to_string()]
-        );
-        assert!(flat.allow_binding_sources.is_empty());
     }
 
     /// `resolve_handle_filters_recipient_service`: handle exists but the
@@ -1176,7 +1149,9 @@ mod tests {
         // SHOULD treat the Realm as unrestricted (per §9 default for
         // Public/Listed Realms).
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "allowed_recipient_services": ["did:web:principal.tea"],
+            "delivery_binding_policy": {
+                "allowed_recipient_services": ["did:web:principal.tea"],
+            },
         }));
         assert!(policy.audience_authorized(
             Some("did:web:anybody.example"),
@@ -1195,9 +1170,11 @@ mod tests {
             }
         }));
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "allowed_recipient_services": ["did:web:principal.tea"],
-            "allow_binding_sources": ["join_policy"],
-            "trusted_audiences": ["did:web:tea-org.example"],
+            "delivery_binding_policy": {
+                "allowed_recipient_services": ["did:web:principal.tea"],
+                "allow_binding_sources": ["join_policy"],
+                "trusted_audiences": ["did:web:tea-org.example"],
+            },
         }));
         let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
 

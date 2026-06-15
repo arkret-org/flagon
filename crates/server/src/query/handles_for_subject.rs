@@ -41,8 +41,8 @@ use chrono::{DateTime, Utc};
 // NOTE: `cokret_sdk::HandleClaim` resolves to the SDK identity-layer claim
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
 // the crate root. The `ck.schema.list_handles_for_subject_response.v1` body
-// is built from the wire-schema `model::HandleClaim`, so import it explicitly.
-use cokret_sdk::model::HandleClaim;
+// is built from the wire-schema `models::HandleClaim`, so import it explicitly.
+use cokret_sdk::models::HandleClaim;
 use cokret_sdk::{
     DirectoryListHandlesForSubjectRequestBody, DirectorySubjectHandleList, Handle,
     validate_handle_claim_subject,

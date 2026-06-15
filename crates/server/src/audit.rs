@@ -101,8 +101,8 @@ pub struct ActorIdentity<'a> {
     pub asserted_operator: Option<&'a str>,
 }
 
-/// Legacy `record` — kept for callers that don't yet thread the
-/// authentication metadata. The new chained-digest write goes through
+/// Convenience wrapper for callers that do not have separate
+/// authentication metadata. The chained-digest write goes through
 /// `record_with_identity`.
 pub async fn record(
     db: &Db,

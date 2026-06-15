@@ -13,9 +13,8 @@
 --     evicts them (`crate::ingest::pull_worker` already runs on a
 --     timer; the eviction job is layered on top).
 --
--- Both columns are populated retroactively from the existing
--- `indexed_at` + `effective_ttl_seconds` pair so legacy rows roll
--- forward without manual intervention.
+-- Both columns are populated from the existing
+-- `indexed_at` + `effective_ttl_seconds` pair.
 
 ALTER TABLE directory_resources
     ADD COLUMN last_refreshed_at TIMESTAMPTZ,

@@ -57,12 +57,6 @@ one.
   id). Audit row captures the violation for operator review.
   Mirrored on `POST /_cokret/find/directory/announce` and
   `POST /_cokret/find/directory/push/register`.
-- **BREAKING** The SDK's CKP-0007 `forbidden-wire-fields` list is
-  mirrored at the directory edge (`discussion_realm_ref`,
-  `discussion_space_ref`, `parent_ref`, `default_realm_ref`,
-  `scope_ref`, `default_scope_ref`, `retention_policy_ref`,
-  `disclosure_policy_ref`, `rate_limit_policy_ref` are hard-rejected
-  on ingest).
 - **Added** `crates/admin/` is now an actual source tree (the prior
   state shipped only `teabay-admin/` build artifacts). Dioxus SPA with
   six tabs: Dashboard / Resources / Allowlist / Takedown / Audit /
@@ -194,8 +188,8 @@ Closed in the Phase 2 `§1`-`§3` slice:
 
 - `round4-fed-canonical` — announce replay digests now use the canonical
   JSON body hash, matching `Request-Canonical-Digest`.
-- `round23-T07` — new Realm discovery rows use the dedicated `realm`
-  `resource_kind`; the legacy `space` variant remains readable for old rows.
+- `round23-T07` — Realm discovery rows use the dedicated `realm`
+  `resource_kind`; `space` is rejected at the wire boundary.
 - `round23-T14` — the pull worker records `Source-Service-DID` and
   origin key state digest inputs so pull-mode replays align with push-mode
   cache keys.

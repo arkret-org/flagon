@@ -6,7 +6,7 @@
 //! `circle_isolation.rs` enforces this on the ingest face). However,
 //! upstream callers — SDK clients running a unified resource-selector
 //! evaluator, capability engines, governance bridges — now legitimately
-//! emit selector envelopes that include `selector_kind="circle"` and a
+//! emit selector envelopes that include `kind="circle"` and a
 //! `ck:circle:<uuid>` target. The directory's job on the query face is
 //! to **recognise** the selector (so the request validates, doesn't
 //! crash) and then respond with the same privacy-preserving `not_found`
@@ -24,9 +24,7 @@
 //! { "kind": "circle", "circle_id": "ck:circle:<uuid>" }
 //! ```
 //!
-//! Legacy callers may also send `{ "selector_kind": "circle", ... }`
-//! or include the typed id at top level; discriminator values remain
-//! strict lowercase per the protocol registry.
+//! Discriminator values remain strict lowercase per the protocol registry.
 
 use cokret_sdk::CircleId;
 use serde_json::Value as JsonValue;
@@ -37,18 +35,15 @@ use serde_json::Value as JsonValue;
 ///
 /// Recognises any of:
 ///   - `{"kind": "circle", ...}`
-///   - `{"selector_kind": "circle", ...}`
 ///   - `{"resource_selector": {"kind": "circle", ...}}`
 pub fn is_circle_selector(filter: &JsonValue) -> bool {
     let Some(map) = filter.as_object() else {
         return false;
     };
-    for key in ["kind", "selector_kind"] {
-        if let Some(value) = map.get(key).and_then(JsonValue::as_str)
-            && value == "circle"
-        {
-            return true;
-        }
+    if let Some(value) = map.get("kind").and_then(JsonValue::as_str)
+        && value == "circle"
+    {
+        return true;
     }
     if let Some(nested) = map
         .get("resource_selector")
@@ -82,11 +77,6 @@ mod tests {
         assert!(is_circle_selector(
             &json!({"kind": "circle", "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"})
         ));
-    }
-
-    #[test]
-    fn recognises_selector_kind_alias() {
-        assert!(is_circle_selector(&json!({"selector_kind": "circle"})));
     }
 
     #[test]

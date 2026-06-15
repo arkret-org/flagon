@@ -152,7 +152,7 @@ handled by the deployment platform before process start.
 The admin API requires an `Authorization: Bearer ...` credential for
 `/_teabay/admin/*`. In production (`TEABAY_DEVELOPMENT_MODE=false`), use
 `Bearer hmac:<key_id>:<ts>:<mac_base64>` backed by an active `admin_tokens` row;
-the legacy static `TEABAY_ADMIN_TOKEN` bearer is ignored. In development mode,
+the static `TEABAY_ADMIN_TOKEN` bearer is ignored. In development mode,
 `TEABAY_ADMIN_TOKEN` remains available for local tooling. `/health.hardening.admin_auth_mode`
 reports `rotating_hmac` on the production path.
 

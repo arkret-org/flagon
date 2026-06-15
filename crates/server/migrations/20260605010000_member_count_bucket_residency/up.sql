@@ -15,7 +15,7 @@
 --   * `member_count_bucket_since`   — when `member_count_bucket_locked`
 --     last changed; residency is measured from here.
 --
--- Backfill: legacy rows adopt their current projection bucket as both the
+-- Backfill: existing rows adopt their current projection bucket as both the
 -- real and locked value, pinned since `last_refreshed_at`.
 
 ALTER TABLE directory_resources

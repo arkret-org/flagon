@@ -127,8 +127,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         Ok(mut rows) => {
             // We over-fetched `limit + 1` rows; a full extra row means the
             // result set is truncated and more pages exist (spec §9.1 /
-            // profiles-presence §4.1 unified `has_more` convention, which
-            // supersedes the legacy `limited` flag).
+            // profiles-presence §4.1 unified `has_more` convention.
             let has_more = rows.len() > limit as usize;
             let next_cursor = if has_more {
                 rows.truncate(limit as usize);

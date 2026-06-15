@@ -88,7 +88,7 @@ impl<'a> VerifyContext<'a> {
         // teabay directory and the rest of the Cokret stack share one
         // normative parser. Non-conforming inputs short-circuit with a
         // structured rejection BEFORE any signature / accept-policy work,
-        // which keeps audit logs clean and rules out legacy actor_id /
+        // which keeps audit logs clean and rules out removed actor_id /
         // controller DID shapes at the ingest boundary.
         if matches!(
             req.resource_kind,

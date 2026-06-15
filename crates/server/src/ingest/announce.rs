@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 use crate::audit::{self, AuditEventKind};
 use crate::db::Db;
 use crate::error::ApiErrorCode;
-use crate::filter::circle_isolation::{self, CircleRejection};
+use crate::filter::circle_isolation;
 use crate::filter::enumeration::{
     MemberCountResidencyPrior, apply_member_count_residency, bucket_member_count,
     is_valid_member_count_bucket,
@@ -212,8 +212,8 @@ impl FederationCacheKeyInputs {
 /// - `Source-Trust-Domain` is malformed (not a `ck:trust_domain:` identifier).
 ///
 /// Non-federation announces (no headers present) short-circuit OK —
-/// the legacy `directory_not_authorized` / `signature_invalid` chain
-/// downstream handles the unsigned path.
+/// unsigned announces continue through the downstream authorization
+/// and signature checks.
 ///
 /// Returns a writable signing-transcript fragment when the triad
 /// validates, so the caller can append it to the RFC 9421 signature
@@ -377,7 +377,6 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // sentinel over the whole request envelope.
     if let Ok(envelope) = serde_json::to_value(&body)
         && let Err(rejection) = circle_isolation::reject_circle_payload(&envelope)
-        && !matches!(rejection, CircleRejection::ForbiddenLegacyWireField(_))
     {
         ingest_metric.set_outcome("circle_isolation_violation");
         let _ = audit::record(

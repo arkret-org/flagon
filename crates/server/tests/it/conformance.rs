@@ -511,7 +511,10 @@ async fn assert_freshness_flags_are_exposed(
     Ok(())
 }
 
-async fn assert_three_path_takedown_strand(db: &server::Db, service: &Service) -> anyhow::Result<()> {
+async fn assert_three_path_takedown_strand(
+    db: &server::Db,
+    service: &Service,
+) -> anyhow::Result<()> {
     let signing_key = SigningKey::from_bytes(&[14; 32]);
     let public_key = did_key_multibase(&signing_key);
     let signer_did = format!("did:key:{public_key}");

@@ -52,8 +52,6 @@ Enforcement points (all in `crates/server/src/`):
     nesting depth → reject.
   - Any string value containing `ck:circle:` (case-insensitive,
     anywhere — not only as a prefix) → reject.
-  - Mirrors the SDK's `forbidden_wire_fields` list for the
-    pre-CKP-0007 legacy names (`discussion_realm_ref`, etc.).
 - `ingest/announce.rs` calls the rejector on `discovery_state` AND
   on the full serialized request envelope (catches smuggling via
   top-level `resource_id` / `principal_server_did` /

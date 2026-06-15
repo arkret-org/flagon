@@ -7,26 +7,23 @@
 -- diagnostic CHECK constraint that mirrors the SDK `Did::new` parser
 -- so any future direct INSERT into `directory_resources` (e.g. a
 -- replay tool, an admin-side data load) also fails closed against
--- legacy DID shapes. The constraint is intentionally a superset of
+-- malformed DID shapes. The constraint is intentionally a superset of
 -- what the application enforces — application-layer validation runs
 -- first and is more precise; this is a last-resort DB safety net.
 --
--- Round-trip clean: the constraint is NOT VALID'd against historical
--- rows on purpose. Aggressive-mode policy is "fail-closed on new
--- inserts"; operators clean up legacy rows via the existing audit
--- chain and admin tooling.
+-- Round-trip clean: the constraint is enforced immediately. Aggressive-mode
+-- policy is fail-closed on both existing rows and new inserts.
 
 ALTER TABLE directory_resources
     ADD CONSTRAINT directory_resources_resource_id_did_shape_chk
         CHECK (
             resource_kind NOT IN ('organization', 'actor', 'applet')
             OR resource_id ~ '^did:[a-z0-9]+:[^[:space:]]+$'
-        ) NOT VALID;
+        );
 
 ALTER TABLE directory_resources
     ADD CONSTRAINT directory_resources_principal_server_did_shape_chk
-        CHECK (principal_server_did ~ '^did:[a-z0-9]+:[^[:space:]]+$')
-        NOT VALID;
+        CHECK (principal_server_did ~ '^did:[a-z0-9]+:[^[:space:]]+$');
 
 -- Mirror on ingest_announces so the announce ledger and the
 -- projected table agree on DID shape.
@@ -35,12 +32,11 @@ ALTER TABLE ingest_announces
         CHECK (
             resource_kind NOT IN ('organization', 'actor', 'applet')
             OR resource_id ~ '^did:[a-z0-9]+:[^[:space:]]+$'
-        ) NOT VALID;
+        );
 
 ALTER TABLE ingest_announces
     ADD CONSTRAINT ingest_announces_principal_server_did_shape_chk
-        CHECK (principal_server_did ~ '^did:[a-z0-9]+:[^[:space:]]+$')
-        NOT VALID;
+        CHECK (principal_server_did ~ '^did:[a-z0-9]+:[^[:space:]]+$');
 
 COMMENT ON CONSTRAINT directory_resources_resource_id_did_shape_chk
     ON directory_resources IS

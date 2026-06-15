@@ -20,12 +20,10 @@
 //! which Circle id triggered the reject — the rejection message names
 //! only that a Circle reference was found.
 //!
-//! The walker is intentionally pessimistic:
+//! The walker is intentionally scoped to Circle leakage:
 //!  - any object key in [`CIRCLE_FORBIDDEN_KEYS`] is a hard reject
 //!  - any string value starting with `ck:circle:` is a hard reject (so a `circle_id` smuggled under
 //!    a free-form `description` field is still caught)
-//!  - any forbidden top-level wire field per SDK [`cokret_sdk::is_forbidden_wire_field`] (e.g.
-//!    `discussion_realm_ref`) is a hard reject — this is the CKP-0007 anti-rollback floor.
 
 use serde_json::Value as JsonValue;
 
@@ -36,8 +34,8 @@ use serde_json::Value as JsonValue;
 /// `scope_circle_id` is the canonical CKP-0007 field on Strand/Space/
 /// Morph; it MUST stay strictly inside a Realm (soland) and never
 /// project into the directory. `circle_id` / `circle_members` /
-/// `member_circle_ids` cover legacy/short names that downstream
-/// services might be tempted to emit. `ck.circle.*` event-kind echoes
+/// `member_circle_ids` cover short names that downstream services
+/// might be tempted to emit. `ck.circle.*` event-kind echoes
 /// (e.g. `event_kind: "ck.circle.member.add"`) are independently
 /// rejected via the `ck:circle:` value sentinel.
 pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
@@ -47,11 +45,6 @@ pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
     "member_circle_ids",
     "scope_circle_id",
     "default_scope_circle_id",
-    // Pre-CKP-0007 names that the SDK forbidden-wire-fields list
-    // already hard-rejects on Event payloads; we mirror them here so
-    // they fail at the directory edge too.
-    "discussion_realm_ref",
-    "discussion_space_ref",
 ];
 
 /// Canonical typed-id prefix for a Circle (`ck:circle:<uuid>`). Any
@@ -61,10 +54,8 @@ pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
 pub const CIRCLE_TYPED_ID_PREFIX: &str = "ck:circle:";
 
 /// Outcome of [`reject_circle_payload`]. The caller maps each variant
-/// to its preferred `ApiErrorCode` — typically `SchemaViolation` for
-/// Circle field/value violations and (where the SDK already names a
-/// code) the matching forbidden-wire-field reject for the legacy
-/// names.
+/// to its preferred `ApiErrorCode`, typically `SchemaViolation` for
+/// Circle field/value violations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircleRejection {
     /// A forbidden Circle-scoped object key was found. Field name is
@@ -77,10 +68,6 @@ pub enum CircleRejection {
     /// returned tuple is `(json_pointer, prefix)` where `prefix` is
     /// always [`CIRCLE_TYPED_ID_PREFIX`].
     ForbiddenTypedId(String),
-    /// A spec-registered legacy forbidden-wire-field (per SDK
-    /// `is_forbidden_wire_field`) was found. We mirror the SDK
-    /// hard-reject list at the directory edge.
-    ForbiddenLegacyWireField(String),
 }
 
 impl CircleRejection {
@@ -97,9 +84,6 @@ impl CircleRejection {
             Self::ForbiddenTypedId(_) => {
                 "ingest payload references a Circle typed identifier; Circle is intra-Realm only"
             }
-            Self::ForbiddenLegacyWireField(_) => {
-                "ingest payload carries a forbidden legacy wire field (CKP-0007)"
-            }
         }
     }
 
@@ -110,7 +94,6 @@ impl CircleRejection {
         match self {
             Self::ForbiddenKey(key) => key,
             Self::ForbiddenTypedId(pointer) => pointer.as_str(),
-            Self::ForbiddenLegacyWireField(key) => key.as_str(),
         }
     }
 }
@@ -129,17 +112,6 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
     match value {
         JsonValue::Object(map) => {
             for (key, child) in map {
-                // Order matters: the SDK forbidden-wire-fields list
-                // takes priority for spec-registered legacy names
-                // (e.g. `discussion_realm_ref`) so the caller can
-                // distinguish a CKP-0007 anti-rollback reject from a
-                // generic Circle-key reject in audit. The Circle-only
-                // names (`circle_id`, `scope_circle_id`, etc.) are
-                // not in the SDK list and fall through to
-                // `ForbiddenKey`.
-                if cokret_sdk::is_forbidden_wire_field(key) {
-                    return Err(CircleRejection::ForbiddenLegacyWireField(key.clone()));
-                }
                 if let Some(forbidden) = CIRCLE_FORBIDDEN_KEYS
                     .iter()
                     .find(|name| name.eq_ignore_ascii_case(key))
