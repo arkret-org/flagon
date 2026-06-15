@@ -346,10 +346,10 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    // CKP-0007 / P2E.2 — hard reject any Circle-scoped metadata BEFORE
+    // CKP-0007 / P2E.2 — hard reject explicit Circle typed ids BEFORE
     // anything else looks at the body. Circle is an intra-Realm
     // sub-boundary; the directory's anti-enumeration guarantees rely
-    // on Circle membership/existence NEVER reaching teabay's index.
+    // on Circle identifiers NEVER reaching teabay's index.
     // The wire message is deliberately low-information so an attacker
     // can't probe directory state by injecting a `ck:circle:` id.
     if let Err(rejection) = circle_isolation::reject_circle_payload(&body.discovery_state) {

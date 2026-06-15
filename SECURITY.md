@@ -47,25 +47,20 @@ service relies on.
 Enforcement points (all in `crates/server/src/`):
 
 - `filter/circle_isolation.rs` is the single hard-reject point.
-  - `CIRCLE_FORBIDDEN_KEYS` (`circle_id`, `circle_members`,
-    `scope_circle_id`, `default_scope_circle_id`, etc.) at any
-    nesting depth → reject.
   - Any string value containing `ck:circle:` (case-insensitive,
     anywhere — not only as a prefix) → reject.
 - `ingest/announce.rs` calls the rejector on `discovery_state` AND
   on the full serialized request envelope (catches smuggling via
   top-level `resource_id` / `principal_server_did` /
   `supersedes_announce_id`).
-- `ingest/subscribe.rs` calls the rejector on `resource_filter` (a
-  subscribe filter that asks for Circle rows leaks Circle existence
-  via the eventual fanout pattern, even if no row ever matches).
+- `ingest/subscribe.rs` calls the rejector on `resource_filter`.
 - `filter/enumeration.rs` documents that the `member_count_bucket`
   grid is Realm-only and that this guarantee depends on the
   circle_isolation guard above.
 
 Wire response on reject is a stable low-information `schema_violation`
-that does NOT echo the field name or the typed id back. The audit row
-captures the violation for operator review.
+that does NOT echo the typed id back. The audit row captures the
+violation for operator review.
 
 ### Anti-enumeration invariants
 

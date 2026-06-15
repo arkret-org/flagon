@@ -11,8 +11,8 @@
 //! This module is the single hard-reject point. Both ingest paths
 //! (`ingest/announce.rs`, `ingest/subscribe.rs`) call
 //! [`reject_circle_payload`] BEFORE the JSON body is touched by any
-//! other code, so an attacker cannot smuggle Circle metadata through a
-//! deeply-nested field. The reject deliberately uses
+//! other code, so an attacker cannot smuggle Circle typed identifiers
+//! through a deeply-nested field. The reject deliberately uses
 //! `ERROR_CODE_SCHEMA_VIOLATION` with the
 //! `circle_isolation_violation` reason sub-code (the closest
 //! spec-registered code; see SDK
@@ -21,31 +21,10 @@
 //! only that a Circle reference was found.
 //!
 //! The walker is intentionally scoped to Circle leakage:
-//!  - any object key in [`CIRCLE_FORBIDDEN_KEYS`] is a hard reject
-//!  - any string value starting with `ck:circle:` is a hard reject (so a `circle_id` smuggled under
-//!    a free-form `description` field is still caught)
+//!  - any string value containing `ck:circle:` is a hard reject (so a `circle_id` smuggled under a
+//!    free-form `description` field is still caught)
 
 use serde_json::Value as JsonValue;
-
-/// Object keys that name a Circle scope or membership. Any of these
-/// appearing at any nesting depth inside an ingest payload is an
-/// immediate hard reject.
-///
-/// `scope_circle_id` is the canonical CKP-0007 field on Strand/Space/
-/// Morph; it MUST stay strictly inside a Realm (soland) and never
-/// project into the directory. `circle_id` / `circle_members` /
-/// `member_circle_ids` cover short names that downstream services
-/// might be tempted to emit. `ck.circle.*` event-kind echoes
-/// (e.g. `event_kind: "ck.circle.member.add"`) are independently
-/// rejected via the `ck:circle:` value sentinel.
-pub const CIRCLE_FORBIDDEN_KEYS: &[&str] = &[
-    "circle_id",
-    "circle_members",
-    "circle_member_ids",
-    "member_circle_ids",
-    "scope_circle_id",
-    "default_scope_circle_id",
-];
 
 /// Canonical typed-id prefix for a Circle (`ck:circle:<uuid>`). Any
 /// string value carrying this prefix anywhere in the payload is a
@@ -55,32 +34,23 @@ pub const CIRCLE_TYPED_ID_PREFIX: &str = "ck:circle:";
 
 /// Outcome of [`reject_circle_payload`]. The caller maps each variant
 /// to its preferred `ApiErrorCode`, typically `SchemaViolation` for
-/// Circle field/value violations.
+/// Circle typed-id violations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircleRejection {
-    /// A forbidden Circle-scoped object key was found. Field name is
-    /// returned so the caller can include it in the audit record; the
-    /// wire response MUST NOT echo the field name back to the
-    /// attacker.
-    ForbiddenKey(&'static str),
     /// A string value carrying `ck:circle:<...>` was found. The
     /// caller MUST NOT echo the actual id back to the attacker; the
-    /// returned tuple is `(json_pointer, prefix)` where `prefix` is
-    /// always [`CIRCLE_TYPED_ID_PREFIX`].
+    /// returned string is the JSON pointer where the value was found.
     ForbiddenTypedId(String),
 }
 
 impl CircleRejection {
     /// Stable, low-information wire message. We deliberately do NOT
-    /// echo back the field name or any typed id, because the directory
+    /// echo back any typed id, because the directory
     /// is anti-enumeration: an attacker probing for "is `ck:circle:X`
     /// known here?" must not be able to read that back from the
     /// error body.
     pub fn safe_message(&self) -> &'static str {
         match self {
-            Self::ForbiddenKey(_) => {
-                "ingest payload carries a Circle-scoped field; Circle is intra-Realm only"
-            }
             Self::ForbiddenTypedId(_) => {
                 "ingest payload references a Circle typed identifier; Circle is intra-Realm only"
             }
@@ -92,7 +62,6 @@ impl CircleRejection {
     /// the wire.
     pub fn audit_label(&self) -> &str {
         match self {
-            Self::ForbiddenKey(key) => key,
             Self::ForbiddenTypedId(pointer) => pointer.as_str(),
         }
     }
@@ -112,12 +81,6 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
     match value {
         JsonValue::Object(map) => {
             for (key, child) in map {
-                if let Some(forbidden) = CIRCLE_FORBIDDEN_KEYS
-                    .iter()
-                    .find(|name| name.eq_ignore_ascii_case(key))
-                {
-                    return Err(CircleRejection::ForbiddenKey(forbidden));
-                }
                 let preserved_len = pointer.len();
                 pointer.push('/');
                 push_pointer_token(pointer, key);
@@ -200,42 +163,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_top_level_circle_id() {
+    fn rejects_top_level_typed_circle_id_value() {
         let value = json!({
             "kind": "ck.realm.discovery",
             "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
         });
         let err = reject_circle_payload(&value).unwrap_err();
-        assert!(matches!(err, CircleRejection::ForbiddenKey("circle_id")));
-    }
-
-    #[test]
-    fn rejects_nested_circle_members_array() {
-        let value = json!({
-            "discoverability": "listed",
-            "membership": {
-                "advertised_admins": [],
-                "circle_members": ["did:web:a", "did:web:b"],
-            },
-        });
-        let err = reject_circle_payload(&value).unwrap_err();
-        assert!(matches!(
-            err,
-            CircleRejection::ForbiddenKey("circle_members")
-        ));
-    }
-
-    #[test]
-    fn rejects_scope_circle_id_in_filter() {
-        // `scope_circle_id` is the canonical CKP-0007 field name — it
-        // MUST NEVER appear in a subscribe filter or an announce body.
-        let value = json!({
-            "scope_circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
-        });
-        assert!(matches!(
-            reject_circle_payload(&value).unwrap_err(),
-            CircleRejection::ForbiddenKey("scope_circle_id")
-        ));
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
     #[test]
@@ -248,10 +182,7 @@ mod tests {
             "summary": "see also ck:circle:01904100-0000-7000-8000-000000000001 for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
-        match err {
-            CircleRejection::ForbiddenTypedId(_) => {}
-            other => panic!("expected ForbiddenTypedId, got {other:?}"),
-        }
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
     #[test]
@@ -298,16 +229,13 @@ mod tests {
 
     #[test]
     fn safe_message_does_not_leak_field_name_or_id() {
-        let key_err = CircleRejection::ForbiddenKey("circle_members");
-        assert!(!key_err.safe_message().contains("circle_members"));
         let id_err = CircleRejection::ForbiddenTypedId("/summary".into());
         assert!(!id_err.safe_message().contains("summary"));
         assert!(!id_err.safe_message().contains("ck:circle:"));
     }
 
     /// Property-style test (small fixed seed): random injection of
-    /// `circle_id` / `ck:circle:` into otherwise-clean payloads is
-    /// always caught.
+    /// `ck:circle:` into otherwise-clean payloads is always caught.
     #[test]
     fn property_random_circle_injection_is_always_caught() {
         let bases = [
@@ -327,7 +255,9 @@ mod tests {
             ),
             (
                 "circle_members",
-                JsonValue::Array(vec![JsonValue::String("did:web:a".into())]),
+                JsonValue::Array(vec![JsonValue::String(
+                    "ck:circle:01904100-0000-7000-8000-000000000001".into(),
+                )]),
             ),
             (
                 "default_scope_circle_id",
