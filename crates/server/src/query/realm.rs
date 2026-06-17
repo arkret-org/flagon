@@ -602,6 +602,9 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
                 source: RealmJoinCandidateSource::DirectoryIngest,
                 source_refs: source_refs.clone(),
                 frontier_ref: None,
+                // The directory service holds no Realm Seal; the seal head is
+                // disclosed by the Realm's principal server on resolve-realm.
+                seal_head_ref: None,
                 as_of: row.as_of,
                 expires_at: row.as_of + Duration::minutes(15),
                 proofs: Vec::new(),
