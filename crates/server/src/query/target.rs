@@ -785,7 +785,7 @@ fn opt_bool(value: bool) -> Option<bool> {
 mod tests {
     use chrono::DateTime;
     use cokret_sdk::jws::sign_jws_ed25519;
-    use cokret_sdk::model::{AddressAction, build_address};
+    use cokret_sdk::models::{AddressAction, build_address};
     use ed25519_dalek::SigningKey;
 
     use super::*;
