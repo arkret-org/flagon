@@ -12,8 +12,9 @@
 //! `discovery-directory.md` §9 surface stays intact.
 
 use cokret_sdk::{
-    ClaimedProfileEntry, CompatSurfaceEntry, Did, EgressNetworkPolicy, ServerDescription,
-    TypedTrustDomainId, VerifiedProfileEntry,
+    AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, EgressNetworkPolicy,
+    PlaintextVisibility, RateLimitPolicy, ServerDescription, SupportedBinding, TypedTrustDomainId,
+    VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -74,12 +75,19 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         supported_operations.push("ck.find.directory.query.private_contact_discovery".to_owned());
     }
 
-    // Transport / encoding bindings this service speaks.
-    let supported_bindings = vec![json!({
-        "kind": "http_json",
-        "media_type": "application/json",
-        "transport": "rfc9421_http_message_signature",
-    })];
+    // Transport / encoding bindings this service speaks. Strongly typed
+    // (`SupportedBinding`); the transport-specific keys ride in `extra`.
+    let supported_bindings = vec![
+        SupportedBinding::new("http_json")
+            .with_extra(
+                "media_type",
+                JsonValue::String("application/json".to_owned()),
+            )
+            .with_extra(
+                "transport",
+                JsonValue::String("rfc9421_http_message_signature".to_owned()),
+            ),
+    ];
 
     let supported_features: Vec<String> = vec![
         "directory.search",
@@ -98,19 +106,27 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     // `auth_metadata` advertises the transport-layer auth that ingest
     // mounts (RFC 9421 HTTP Message Signature) and the admin HMAC
-    // surface. Static bearer auth is development-only.
-    let auth_metadata = json!({
-        "ingest": {
+    // surface. Static bearer auth is development-only. The directory has
+    // no end-user account surface, so `mode` is `service_transport`; the
+    // ingest/admin descriptors ride in `x_teabay_*` extension keys
+    // (`auth_metadata` is `additionalProperties: true`).
+    let mut auth_metadata = AuthMetadata::minimal("service_transport");
+    auth_metadata.extra.insert(
+        "x_teabay_ingest".to_owned(),
+        json!({
             "kind": "rfc9421_http_message_signature",
             "required": cfg.require_http_sig,
             "algorithms": ["ed25519"],
-        },
-        "admin": {
+        }),
+    );
+    auth_metadata.extra.insert(
+        "x_teabay_admin".to_owned(),
+        json!({
             "kind": "rotating_hmac",
             "required": true,
             "development_static_bearer": cfg.development_mode && cfg.admin_token.is_some(),
-        },
-    });
+        }),
+    );
 
     let limits = json!({
         "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
@@ -128,11 +144,16 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // `plaintext_visibility` advertises that the directory does NOT
     // surface plaintext message bodies — directory entries are
     // resource-authored projections. Receivers MUST treat a missing
-    // value as `untrusted` (round-4 spec); we declare `none` explicitly.
-    let plaintext_visibility = json!({
-        "kind": "none",
-        "scope": "directory_resources_only",
-    });
+    // value as `untrusted` (round-4 spec); we declare `none` explicitly
+    // via the strongly typed (closed) `PlaintextVisibility`. The
+    // directory-scope note rides in an `x_teabay_*` extension key since
+    // the object is `additionalProperties: false` apart from `x_*`.
+    let mut plaintext_visibility = PlaintextVisibility::none();
+    plaintext_visibility.max_visibility = Some(cokret_sdk::PlaintextMaxVisibility::None);
+    plaintext_visibility.extra.insert(
+        "x_teabay_scope".to_owned(),
+        JsonValue::String("directory_resources_only".to_owned()),
+    );
 
     let implemented_features: Vec<String> = vec![
         "directory.search",
@@ -194,10 +215,15 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         compat_surfaces,
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
-        rate_limit: json!({
-            "kind": "windowed",
-            "per_resource_per_minute": cfg.rate_limit_per_resource_per_min,
-        }),
+        // Canonical inline rate-limit policy (replaces the legacy
+        // top-level `rate_limit`). The directory enforces a per-resource
+        // windowed limit; expressed as a windowed policy entry. The
+        // ServiceDescribe `anyOf` requires `rate_limit_policy` or
+        // `rate_limit_policy_id`.
+        rate_limit_policy: Some(RateLimitPolicy::windowed_per_minute(
+            cfg.rate_limit_per_resource_per_min,
+        )),
+        rate_limit_policy_id: None,
         supported_reducer_profiles: Vec::new(),
         supported_schema_profiles: Vec::new(),
         frontier: Vec::new(),
@@ -215,21 +241,26 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .as_object_mut()
         .ok_or_else(|| "ServiceDescribe must serialise as a JSON object".to_owned())?;
 
-    // Directory-specific extension fields (non-required, ride alongside
-    // the canonical 17). The directory surface specification
-    // (discovery-directory.md §9) requires these; ServiceDescribe only
-    // tightens the *shared* required surface.
+    // Directory-specific extension fields. ServiceDescribe is
+    // `additionalProperties: false` apart from the `^x_[a-z][a-z0-9_]{0,63}$`
+    // extension pattern, so every directory-private field MUST be
+    // namespaced under `x_teabay_*`. The directory surface specification
+    // (discovery-directory.md §9) expects these; they now ride strictly
+    // as namespaced extensions rather than bare top-level keys.
     object.insert(
-        "public_base_url".to_owned(),
+        "x_teabay_public_base_url".to_owned(),
         JsonValue::String(cfg.public_base_url.clone()),
     );
     object.insert(
-        "resource_types".to_owned(),
+        "x_teabay_resource_types".to_owned(),
         json!(["realm", "organization", "actor", "applet", "handle"]),
     );
-    object.insert("restricted_query_proof".to_owned(), JsonValue::Bool(true));
     object.insert(
-        "ingest_modes".to_owned(),
+        "x_teabay_restricted_query_proof".to_owned(),
+        JsonValue::Bool(true),
+    );
+    object.insert(
+        "x_teabay_ingest_modes".to_owned(),
         JsonValue::Array(
             cfg.ingest_modes
                 .iter()
@@ -238,27 +269,30 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         ),
     );
     object.insert(
-        "accept_policy_kind".to_owned(),
+        "x_teabay_accept_policy_kind".to_owned(),
         JsonValue::String(accept_policy_str(cfg).to_owned()),
     );
     object.insert(
-        "accept_policy_ref".to_owned(),
+        "x_teabay_accept_policy_ref".to_owned(),
         cfg.accept_policy_ref
             .as_ref()
             .map(|s| JsonValue::String(s.clone()))
             .unwrap_or(JsonValue::Null),
     );
     object.insert(
-        "default_ttl_seconds".to_owned(),
+        "x_teabay_default_ttl_seconds".to_owned(),
         json!(cfg.default_ttl.as_secs()),
     );
-    object.insert("max_ttl_seconds".to_owned(), json!(cfg.max_ttl.as_secs()));
     object.insert(
-        "revalidation_grace_seconds".to_owned(),
+        "x_teabay_max_ttl_seconds".to_owned(),
+        json!(cfg.max_ttl.as_secs()),
+    );
+    object.insert(
+        "x_teabay_revalidation_grace_seconds".to_owned(),
         json!(cfg.revalidation_grace.as_secs()),
     );
     object.insert(
-        "accepted_resource_kinds".to_owned(),
+        "x_teabay_accepted_resource_kinds".to_owned(),
         JsonValue::Array(
             cfg.accepted_resource_kinds
                 .iter()
@@ -267,7 +301,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         ),
     );
     object.insert(
-        "accepted_did_methods".to_owned(),
+        "x_teabay_accepted_did_methods".to_owned(),
         JsonValue::Array(
             cfg.accepted_did_methods
                 .iter()
@@ -276,14 +310,18 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         ),
     );
     object.insert(
-        "takedown_contact".to_owned(),
+        "x_teabay_takedown_contact".to_owned(),
         cfg.takedown_contact
             .as_ref()
             .map(|s| JsonValue::String(s.clone()))
             .unwrap_or(JsonValue::Null),
     );
+    // PSI / latency-shaping knobs that don't map onto the canonical
+    // windowed `rate_limit_policy`. The headline per-resource limit is
+    // already carried canonically by `rate_limit_policy`; these are
+    // directory-private operational details.
     object.insert(
-        "rate_limits".to_owned(),
+        "x_teabay_rate_limits".to_owned(),
         json!({
             "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
             "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
@@ -295,7 +333,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         }),
     );
     object.insert(
-        "limitations".to_owned(),
+        "x_teabay_limitations".to_owned(),
         JsonValue::Array(describe_limitations(cfg)),
     );
 
@@ -445,12 +483,12 @@ mod tests {
     #[test]
     fn describe_carries_directory_extensions() {
         let value = build_describe_response_value(&cfg(false, true)).expect("describe builds");
-        assert!(value.get("accepted_resource_kinds").is_some());
-        assert!(value.get("ingest_modes").is_some());
-        assert!(value.get("rate_limits").is_some());
-        assert!(value.get("accept_policy_kind").is_some());
-        assert_eq!(value["accept_policy_kind"], "open");
-        assert_eq!(value["public_base_url"], "http://directory.test");
+        assert!(value.get("x_teabay_accepted_resource_kinds").is_some());
+        assert!(value.get("x_teabay_ingest_modes").is_some());
+        assert!(value.get("x_teabay_rate_limits").is_some());
+        assert!(value.get("x_teabay_accept_policy_kind").is_some());
+        assert_eq!(value["x_teabay_accept_policy_kind"], "open");
+        assert_eq!(value["x_teabay_public_base_url"], "http://directory.test");
         assert!(
             value["supported_operations"]
                 .as_array()
@@ -458,7 +496,7 @@ mod tests {
                 .iter()
                 .any(|op| op == "ck.find.directory.query.describe")
         );
-        let limitation_features: std::collections::BTreeSet<_> = value["limitations"]
+        let limitation_features: std::collections::BTreeSet<_> = value["x_teabay_limitations"]
             .as_array()
             .unwrap()
             .iter()
@@ -482,10 +520,10 @@ mod tests {
             supported_operations: Vec::new(),
             supported_bindings: Vec::new(),
             supported_features: Vec::new(),
-            auth_metadata: json!({}),
+            auth_metadata: AuthMetadata::minimal("service_transport"),
             limits: json!({}),
             egress_network_policy: None,
-            plaintext_visibility: json!({"kind": "none"}),
+            plaintext_visibility: PlaintextVisibility::none(),
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
@@ -505,7 +543,8 @@ mod tests {
             experimental_features: Vec::new(),
             compat_surfaces: Vec::new(),
             development_mode: true,
-            rate_limit: JsonValue::Null,
+            rate_limit_policy: Some(RateLimitPolicy::unspecified()),
+            rate_limit_policy_id: None,
             supported_reducer_profiles: Vec::new(),
             supported_schema_profiles: Vec::new(),
             frontier: Vec::new(),
@@ -514,6 +553,109 @@ mod tests {
             last_materialized_at: None,
         };
         assert!(describe_body.validate().is_err());
+    }
+
+    /// TEABAY-01 regression — the describe response MUST conform to the
+    /// `service-describe.schema.json` top-level shape: `additionalProperties:
+    /// false` apart from the `^x_[a-z][a-z0-9_]{0,63}$` extension pattern.
+    /// So every top-level key is either one of the canonical ServiceDescribe
+    /// properties or a namespaced `x_teabay_*` extension. The legacy
+    /// `rate_limit` field MUST be gone, replaced by `rate_limit_policy`.
+    #[test]
+    fn describe_top_level_keys_are_canonical_or_x_namespaced() {
+        // Canonical ServiceDescribe top-level properties (required + optional).
+        const CANONICAL: &[&str] = &[
+            "service_did",
+            "trust_domain",
+            "service_type",
+            "protocol_version",
+            "supported_profiles",
+            "supported_operations",
+            "supported_bindings",
+            "supported_features",
+            "auth_metadata",
+            "limits",
+            "plaintext_visibility",
+            "implemented_features",
+            "claimed_profiles",
+            "verified_profiles",
+            "experimental_features",
+            "compat_surfaces",
+            "development_mode",
+            "rate_limit_policy",
+            "rate_limit_policy_id",
+            "egress_network_policy",
+            "supported_reducer_profiles",
+            "supported_schema_profiles",
+            "frontier",
+            "snapshot_frontier",
+            "reducer_profile",
+            "last_materialized_at",
+        ];
+
+        let x_ext = regex_lite_matcher();
+
+        for development_mode in [false, true] {
+            let value = build_describe_response_value(&cfg(development_mode, true))
+                .expect("describe builds");
+            let object = value.as_object().expect("describe is an object");
+
+            // No legacy `rate_limit`; canonical `rate_limit_policy` present.
+            assert!(
+                !object.contains_key("rate_limit"),
+                "legacy top-level `rate_limit` must not be emitted"
+            );
+            assert!(
+                object.contains_key("rate_limit_policy"),
+                "canonical `rate_limit_policy` must be emitted"
+            );
+
+            for key in object.keys() {
+                let ok = CANONICAL.contains(&key.as_str()) || x_ext(key);
+                assert!(
+                    ok,
+                    "top-level key `{key}` is neither a canonical ServiceDescribe \
+                     property nor an `x_teabay_*` extension; ServiceDescribe is \
+                     additionalProperties:false apart from `^x_[a-z][a-z0-9_]{{0,63}}$`"
+                );
+            }
+
+            // The directory-private fields are all present under `x_teabay_*`.
+            for ext in [
+                "x_teabay_public_base_url",
+                "x_teabay_resource_types",
+                "x_teabay_ingest_modes",
+                "x_teabay_accept_policy_kind",
+                "x_teabay_rate_limits",
+                "x_teabay_limitations",
+            ] {
+                assert!(
+                    object.contains_key(ext),
+                    "directory extension `{ext}` must ride as an x_teabay_* key"
+                );
+            }
+        }
+    }
+
+    /// Minimal `^x_[a-z][a-z0-9_]{0,63}$` matcher (no regex dependency in
+    /// this crate's test surface).
+    fn regex_lite_matcher() -> impl Fn(&str) -> bool {
+        |key: &str| {
+            let rest = match key.strip_prefix("x_") {
+                Some(rest) => rest,
+                None => return false,
+            };
+            let mut chars = rest.chars();
+            match chars.next() {
+                Some(c) if c.is_ascii_lowercase() => {}
+                _ => return false,
+            }
+            let body_len = rest.len() - 1;
+            if body_len > 63 {
+                return false;
+            }
+            chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        }
     }
 
     /// Round R2/R3 carry-forward — when private contact discovery is
