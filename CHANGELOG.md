@@ -33,7 +33,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## R3 — Spec sync 2026-05-27 (cokret-spec @ b47ff6ec)
 
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
-- WK-1: `POST /_cokret/find/directory/resolve-handle` and the well-known proxy aligned to the new spec form `/.well-known/cokret/handle?localpart=<localpart>`.
+- WK-1: `POST /_cokret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/cokret/handle` to product-private `GET /_teabay/handle/probe?localpart=<localpart>`.
 - REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
 - SEL-1: directory query filter now accepts the `circle` selector kind (`ck:circle:<uuid>`).
 

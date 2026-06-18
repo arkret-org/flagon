@@ -128,20 +128,21 @@ pub fn extract_localpart_public(handle: &str) -> &str {
     handle.split('.').next().unwrap_or(handle)
 }
 
-/// CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles §17 —
-/// well-known handle endpoint. The spec migrated the well-known shape
-/// from a path-style identifier to a query-string-keyed form:
+/// Product-private handle probe for teabay's resolver/index view:
 ///
 /// ```text
-/// GET https://<domain>/.well-known/cokret/handle?localpart=<localpart>
+/// GET /_teabay/handle/probe?localpart=<localpart>&domain=<domain>
 /// ```
 ///
 /// We resolve against the directory's indexed Handle rows and return
 /// the same `ResultEnvelope` shape that the POST `resolve-handle` face
-/// emits. Wire-level homograph normalization runs on the localpart
-/// before any DB lookup so a malformed query is `403
-/// handle_homograph_forbidden` rather than the privacy-preserving
-/// `404 not_found` returned for genuine misses.
+/// emits. This deliberately lives outside `/.well-known/cokret/handle`:
+/// the spec reserves that well-known path for signed issuer claims, while
+/// teabay is a resolver/index and cannot answer as the handle issuer.
+///
+/// Wire-level homograph normalization runs on the localpart before any DB
+/// lookup so a malformed query is `403 handle_homograph_forbidden` rather
+/// than the privacy-preserving `404 not_found` returned for genuine misses.
 ///
 /// The Host header (or the `?domain=<domain>` override) is concatenated
 /// with the localpart to form the directory's stored `resource_id` —
@@ -150,7 +151,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
 /// or no `?domain=` is supplied we still service the request against
 /// the bare localpart so an operator-issued curl probe works.
 #[handler]
-pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
@@ -158,7 +159,7 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
             return;
         }
     };
-    let _query_timer = state.metrics().query_timer("well-known-handle");
+    let _query_timer = state.metrics().query_timer("handle-probe");
 
     let localpart = req.queries().get("localpart").cloned().unwrap_or_default();
     if localpart.is_empty() {
@@ -218,17 +219,13 @@ pub async fn well_known_resolve_handle(req: &mut Request, depot: &mut Depot, res
     let mut ip_hasher = Sha256::new();
     ip_hasher.update(requester_ip.as_bytes());
     let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
-    let privacy_key = format!("well_known_handle={handle};iph={requester_ip_hash}");
+    let privacy_key = format!("handle_probe={handle};iph={requester_ip_hash}");
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.resolve_handle",
+        "org.cokret.teabay.handle_probe",
         &privacy_key,
-        |target| {
-            state
-                .metrics()
-                .record_anti_enum_pad("well-known-handle", target)
-        },
+        |target| state.metrics().record_anti_enum_pad("handle-probe", target),
         async {
             let row = match load_handle_row(&state, &handle).await {
                 Ok(Some(row)) => row,

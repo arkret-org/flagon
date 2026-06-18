@@ -45,18 +45,11 @@ pub fn router(state: AppState) -> Router {
                 .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
-        // CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
-        // §17 — canonical well-known handle endpoint. The query takes
-        // `?localpart=<localpart>` and returns the same Directory result
-        // envelope shape that `POST /_cokret/find/directory/resolve-handle`
-        // emits. Wire-level NFC + UTS#39 + script-mixed checks run on
-        // the localpart before any DB lookup. We intentionally implement
-        // this as a *proxy* into `query::handle::resolve_handle` so the
-        // anti-enumeration latency-floor + jitter and the `not_found`
-        // collapse behaviour stay identical across the two surfaces.
         .push(
-            Router::with_path(".well-known/cokret/handle")
-                .get(query::handle::well_known_resolve_handle),
+            // Product-private resolver probe. `/.well-known/cokret/handle`
+            // is reserved by the spec for signed issuer claims, so teabay's
+            // unsigned directory index probe must stay under `/_teabay`.
+            Router::with_path("_teabay/handle/probe").get(query::handle::private_handle_probe),
         )
         .push(
             Router::with_path("{**rest}")
@@ -659,21 +652,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve handle discovery resources with the Directory result envelope.",
         ),
         (
-            // CKP R3 spec-sync 2026-05-27 (commit b47ff6e) — well-known
-            // handle endpoint. Query-string keyed (`?localpart=<localpart>`).
-            "/.well-known/cokret/handle",
+            "/_teabay/handle/probe",
             PathItemType::Get,
-            // Local (non-protocol) operation id. The spec defines the endpoint
-            // path (identity-handles §17) but assigns no `ck.` operation id; the
-            // `ck.` prefix is reserved for spec-pinned, registry-listed operations
-            // (operation-registry.json). Use a reverse-domain local identifier so
-            // we don't squat the protocol namespace with an unregistered id.
-            "org.cokret.teabay.well_known_handle",
+            "org.cokret.teabay.handle_probe",
             "query",
-            "Well-Known Handle Resolve",
-            "Resolve a handle by `?localpart=<localpart>` (identity-handles §17). \
-             Returns the standard Directory result envelope; rejects homograph / \
-             script-mixed localparts with `handle_homograph_forbidden`.",
+            "Private Handle Probe",
+            "Product-private resolver/index probe by `?localpart=<localpart>` and optional \
+             `?domain=<domain>`. This endpoint returns the Directory result envelope and is \
+             not the spec-pinned signed issuer channel `/.well-known/cokret/handle`.",
         ),
         (
             // R3.2 (DIR-TBY-1, cokret-spec @ b56cab1) — reverse handle
@@ -764,5 +750,21 @@ fn success_response(operation_id: &str, components: &mut Components) -> OapiResp
                 Content::new(DirectoryRealmSearchOutcome::to_schema(components)),
             ),
         _ => OapiResponse::new("Successful response"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openapi_keeps_unsigned_handle_probe_off_well_known_surface() {
+        let doc = openapi(&Router::new());
+        let yaml = doc.to_yaml().expect("OpenAPI serializes");
+
+        assert!(yaml.contains("/_teabay/handle/probe:"));
+        assert!(yaml.contains("org.cokret.teabay.handle_probe"));
+        assert!(!yaml.contains("/.well-known/cokret/handle:"));
+        assert!(!yaml.contains("org.cokret.teabay.well_known_handle"));
     }
 }
