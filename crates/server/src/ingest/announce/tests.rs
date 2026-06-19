@@ -186,10 +186,14 @@ fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
 }
 
 #[test]
-fn public_projection_strips_private_realm_search_fields() {
+fn public_projection_separates_directory_preview_from_private_search() {
     let state = json!({
         "kind": "ck.realm.discovery",
         "title": "Tea Time",
+        "member_count": 42,
+        "anti_enumeration": {
+            "member_count_mode": "bucketed"
+        },
         "search_policy": {
             "enabled_profile_refs": ["ck.profile.search.blind_index.v1"],
             "allowed_service_dids": ["did:web:search.example"],
@@ -212,6 +216,8 @@ fn public_projection_strips_private_realm_search_fields() {
 
     let projected = derive_public_projection(&state, DiscoverabilityDb::Public).unwrap();
     assert_eq!(projected["title"], "Tea Time");
+    assert_eq!(projected["member_count_bucket"], "11-50");
+    assert!(projected.get("member_count").is_none());
     assert!(projected.get("search_policy").is_none());
     assert!(projected.get("search_index_manifest").is_none());
     assert!(
