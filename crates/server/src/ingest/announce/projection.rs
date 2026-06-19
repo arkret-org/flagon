@@ -129,6 +129,7 @@ pub(crate) fn derive_public_projection(
         strip_private_search_projection_fields(obj);
         normalize_member_count_projection(obj, discoverability, declared_mode.as_deref())?;
     }
+    crate::filter::circle_directory::sanitize_circle_directory_projection(&mut clone);
     Ok(clone)
 }
 

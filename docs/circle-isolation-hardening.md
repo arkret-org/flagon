@@ -1,7 +1,8 @@
-# Circle Isolation Hardening (CKP-0007)
+# Circle Directory Isolation Hardening (CKP-0007)
 
-This document captures the operator-visible hard-reject list and audit-log
-markers that ship with the CKP-0007 circle-isolation tightening.
+This document captures the operator-visible reject list, preview/stub
+projection rules, and audit-log markers that ship with the CKP-0007
+circle-directory tightening.
 
 ## Background
 
@@ -11,7 +12,28 @@ circle without the explicit consent edges spelled out in the Cokret v1
 discoverability spec. The previous behavior allowed inferred resolution via
 `alsoKnownAs` and `via_services` chains; the hardening removes those paths.
 
-## Hard-Reject List
+## Directory Preview / Stub Rule
+
+teabay does not index Circle as a top-level directory resource. Announce may
+carry exact `ck:circle:<uuid>` values only under recognized Realm
+Circle-directory preview containers; every such subtree is collapsed in public
+projection/fanout to a fixed locked envelope unless an internal caller is
+building the parent-Realm-member preview whitelist. The whitelist is limited to
+`circle_id`, `realm_id`, `visibility`, `display.color_token`,
+`display.symbol`, `member_count_bucket`, `join_rule`, and
+`opaque_commitment`.
+
+The locked stub shape is fixed:
+
+```json
+{ "visibility": "locked", "opaque_commitment": "<fixed-length>" }
+```
+
+`title`, `summary`, display `short_name`, raw `member_count`, member DIDs,
+`created_by`, history fields, and private event refs are never public
+directory fields.
+
+## Reject List
 
 teabay rejects the following request shapes at the verify layer with an
 `isolation_rejected` outcome, before any handler runs:
@@ -19,8 +41,8 @@ teabay rejects the following request shapes at the verify layer with an
 1. A cross-circle `resolve_*` whose `resource_id` is `secret` or
    `invite_only` and whose proofs do not include a same-circle membership
    credential.
-2. An announce envelope whose `via_services` set contains a circle DID the
-   announcing server does not have a published membership in.
+2. An announce envelope with a Circle typed id outside a recognized Circle
+   directory preview-entry `circle_id` / `id` field.
 3. A subscribe request whose `resource_filter` would match across circle
    boundaries unless the subscriber is the resource's own Principal Server.
 4. Any `actor.resolve` whose `audience` claim is from a circle the

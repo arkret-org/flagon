@@ -8,14 +8,12 @@
 //! ## CKP-0007 `ck:circle:` tolerance (P2E.7)
 //!
 //! `ck:circle:` is a recognised typed-id prefix in the wider Cokret
-//! identifier space, but the directory MUST NEVER store, project, or
-//! advertise any Circle. teabay deliberately **does not** add a
-//! `Circle` variant to [`IdClass`]: the only correct response to an
-//! incoming `ck:circle:<uuid>` is a reject at the ingest edge (see
-//! [`crate::filter::circle_isolation`]), not a parse-and-store. The
-//! parser tolerance is "recognise the shape to refuse it",
-//! implemented via the substring sentinel in
-//! `circle_isolation::CIRCLE_TYPED_ID_PREFIX`.
+//! identifier space, but teabay MUST NOT generate or store Circle as a
+//! top-level directory resource. teabay deliberately **does not** add a
+//! `Circle` variant to [`IdClass`]: Circle directory preview/stub handling is
+//! a projection concern in [`crate::filter::circle_directory`], while
+//! [`crate::filter::circle_isolation`] still rejects every Circle typed-id
+//! occurrence outside the narrow announce preview-entry id field.
 
 use cokret_sdk::identifiers::is_lowercase_uuidv7;
 use cokret_sdk::new_prefixed_uuid7;

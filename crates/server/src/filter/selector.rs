@@ -2,21 +2,19 @@
 //! selector-grammar — accept the `circle` selector kind on directory
 //! query filters.
 //!
-//! The directory MUST NEVER index Circle resources (CKP-0007;
-//! `circle_isolation.rs` enforces this on the ingest face). However,
-//! upstream callers — SDK clients running a unified resource-selector
-//! evaluator, capability engines, governance bridges — now legitimately
-//! emit selector envelopes that include `kind="circle"` and a
-//! `ck:circle:<uuid>` target. The directory's job on the query face is
-//! to **recognise** the selector (so the request validates, doesn't
-//! crash) and then respond with the same privacy-preserving `not_found`
-//! shape that every directory miss returns.
+//! The directory MUST NEVER index Circle as a top-level resource
+//! (CKP-0007), but a Realm discovery event may carry a spec-bounded Circle
+//! directory preview/stub subtree. Upstream callers — SDK clients running a
+//! unified resource-selector evaluator, capability engines, governance bridges
+//! — now legitimately emit selector envelopes that include `kind="circle"` and
+//! a `ck:circle:<uuid>` target. The directory's job on the generic query face
+//! is to **recognise** the selector (so the request validates, doesn't crash)
+//! and then respond with the same privacy-preserving `not_found`/locked-stub
+//! class used for every unauthorized Circle probe.
 //!
-//! By contrast the ingest face still hard-rejects Circle via
-//! [`crate::filter::circle_isolation`]; that asymmetry is intentional —
-//! a query asking "do you have anything for this circle?" is legitimate
-//! and earns a 404; an ingest publishing Circle metadata is an
-//! anti-rollback violation and earns a 422 schema-violation.
+//! By contrast, the announce ingest face only accepts exact Circle ids under
+//! recognized Circle directory preview containers; every other Circle typed-id
+//! occurrence remains a schema violation.
 //!
 //! Wire shape per `resource-selector.schema.json` (R3 delta):
 //!

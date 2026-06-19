@@ -44,17 +44,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### circle-rollout · CKP-0007 enforcement (P2E, cokret-spec `2b0d70d`)
 
 The Circle primitive lands in the spec as an intra-Realm encrypted
-sub-boundary. teabay's job is to make sure the directory never sees
-one.
+sub-boundary. teabay does not index Circle as a top-level directory
+resource; Realm announcements that carry Circle directory material are
+reduced to the spec preview/stub forms.
 
-- **BREAKING** Ingest now hard-rejects any payload value containing
-  `ck:circle:` (case-insensitive, anywhere — not only as a prefix)
-  with `schema_violation`. The wire response is deliberately
-  low-information to preserve the anti-enumeration story (the rejection
-  message does NOT echo the typed id). Audit row captures the violation
-  for operator review.
-  Mirrored on `POST /_cokret/find/directory/announce` and
-  `POST /_cokret/find/directory/push/register`.
+- **Changed** Ingest still rejects `ck:circle:` outside recognized Circle
+  directory preview-entry id fields, but a Realm announcement may now carry
+  exact Circle ids under the Circle directory preview container. Public
+  projection/fanout collapses those subtrees to a fixed locked envelope, and
+  the internal preview builder supports the parent-Realm-member whitelist for
+  `directory_visibility=realm_members`.
 - **Added** `crates/admin/` is now an actual source tree (the prior
   state shipped only `teabay-admin/` build artifacts). Dioxus SPA with
   six tabs: Dashboard / Resources / Allowlist / Takedown / Audit /

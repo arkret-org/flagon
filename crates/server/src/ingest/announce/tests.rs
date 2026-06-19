@@ -233,6 +233,54 @@ fn public_projection_separates_directory_preview_from_private_search() {
 }
 
 #[test]
+fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
+    let state = json!({
+        "kind": "ck.realm.discovery",
+        "title": "Tea Time",
+        "circles": [{
+            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+            "realm_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+            "title": "Security Council",
+            "summary": "private circle summary",
+            "display": {
+                "short_name": "SEC",
+                "color_token": "slate",
+                "symbol": { "glyph": "shield" }
+            },
+            "directory_visibility": "realm_members",
+            "member_count": 7,
+            "member_count_bucket": "1-10",
+            "join_rule": "invite",
+            "members": ["did:web:alice.example"],
+            "created_by": "did:web:alice.example",
+            "join_history": [{ "actor_id": "did:web:alice.example" }]
+        }]
+    });
+
+    let projected = derive_public_projection(&state, DiscoverabilityDb::Public).unwrap();
+    assert_eq!(projected["circles"]["visibility"], "locked");
+    assert_eq!(
+        projected["circles"]["opaque_commitment"]
+            .as_str()
+            .unwrap()
+            .len(),
+        43
+    );
+    let serialized = projected.to_string();
+    for forbidden in [
+        "Security Council",
+        "private circle summary",
+        "short_name",
+        "member_count",
+        "did:web:alice.example",
+        "created_by",
+        "join_history",
+    ] {
+        assert!(!serialized.contains(forbidden), "{forbidden} leaked");
+    }
+}
+
+#[test]
 fn announce_digest_uses_canonical_json_body() {
     let as_of = DateTime::parse_from_rfc3339("2026-05-20T00:00:00Z")
         .unwrap()

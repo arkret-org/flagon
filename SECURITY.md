@@ -33,34 +33,38 @@ line unless a release owner declares a supported release branch.
 
 ## Hard Invariants
 
-### Circle is intra-Realm only — it MUST NEVER appear in the directory
+### Circle is intra-Realm only — directory output is preview/stub only
 
-CKP-0007 (spec floor `2b0d70d`) introduces `ck:circle:` as an
-intra-Realm encrypted sub-boundary. teabay's anti-enumeration story
-depends on the directory only ever indexing Realm-level discovery
-state: a leak of Circle existence, membership, or routing metadata
-into a directory query response (or even into the audit feed of a
-divergent peer) would immediately defeat the bucket-grid /
-blinded-miss / latency-tier protections that the rest of the
-service relies on.
+CKP-0007 introduces `ck:circle:` as an intra-Realm encrypted
+sub-boundary. teabay must never index Circle as a top-level directory
+resource, and any Circle directory material inside a Realm announcement
+is reduced to the spec preview/stub forms before it reaches public
+projection or fanout. Raw Circle membership, exact member counts,
+title/summary, creator fields, history, and private event refs are not
+directory fields.
 
 Enforcement points (all in `crates/server/src/`):
 
-- `filter/circle_isolation.rs` is the single hard-reject point.
-  - Any string value containing `ck:circle:` (case-insensitive,
-    anywhere — not only as a prefix) → reject.
-- `ingest/announce.rs` calls the rejector on `discovery_state` AND
-  on the full serialized request envelope (catches smuggling via
-  top-level `resource_id` / `principal_server_did` /
+- `filter/circle_isolation.rs` rejects every Circle typed-id occurrence
+  except exact `circle_id` / `id` values under recognized announce-time
+  Circle directory preview containers.
+- `filter/circle_directory.rs` builds the fixed locked stub and the
+  `directory_visibility=realm_members` whitelist projection. It also
+  collapses public Realm projection subtrees to a single locked envelope,
+  avoiding list-length enumeration.
+- `ingest/announce.rs` calls the preview-aware rejector on
+  `discovery_state` and the full serialized request envelope (catching
+  smuggling via top-level `resource_id` / `principal_server_did` /
   `supersedes_announce_id`).
-- `ingest/subscribe.rs` calls the rejector on `resource_filter`.
-- `filter/enumeration.rs` documents that the `member_count_bucket`
-  grid is Realm-only and that this guarantee depends on the
-  circle_isolation guard above.
+- `ingest/subscribe.rs` still calls the hard rejector on
+  `resource_filter`.
+- `filter/enumeration.rs` documents that the top-level
+  `member_count_bucket` grid is Realm-only.
 
 Wire response on reject is a stable low-information `schema_violation`
-that does NOT echo the typed id back. The audit row captures the
-violation for operator review.
+that does NOT echo the typed id back. Authorized Circle directory preview
+uses only the spec whitelist; unauthorized preview uses a fixed
+`visibility="locked"` envelope with a fixed-length opaque commitment.
 
 ### Anti-enumeration invariants
 

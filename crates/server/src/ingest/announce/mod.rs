@@ -84,13 +84,14 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    // CKP-0007 / P2E.2 — hard reject explicit Circle typed ids BEFORE
-    // anything else looks at the body. Circle is an intra-Realm
-    // sub-boundary; the directory's anti-enumeration guarantees rely
-    // on Circle identifiers NEVER reaching teabay's index.
-    // The wire message is deliberately low-information so an attacker
-    // can't probe directory state by injecting a `ck:circle:` id.
-    if let Err(rejection) = circle_isolation::reject_circle_payload(&body.discovery_state) {
+    // Circle directory preview/stub convergence: a Realm discovery event may
+    // carry Circle directory entry ids, but only under the recognized preview
+    // containers. Every other Circle typed-id occurrence is still rejected
+    // before indexing, and `derive_public_projection` collapses the subtree to
+    // a fixed locked envelope for public fanout.
+    if let Err(rejection) =
+        circle_isolation::reject_circle_payload_allowing_directory_preview(&body.discovery_state)
+    {
         ingest_metric.set_outcome("circle_isolation_violation");
         let _ = audit::record(
             state.db(),
@@ -112,9 +113,11 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // strings (`resource_id`, `principal_server_did`,
     // `supersedes_announce_id`) and could carry a smuggled
     // `ck:circle:` id if a caller is misbehaving. Re-run the typed-id
-    // sentinel over the whole request envelope.
+    // sentinel over the whole request envelope while preserving the same
+    // narrow `/discovery_state/...circle_id` exception.
     if let Ok(envelope) = serde_json::to_value(&body)
-        && let Err(rejection) = circle_isolation::reject_circle_payload(&envelope)
+        && let Err(rejection) =
+            circle_isolation::reject_circle_payload_allowing_directory_preview(&envelope)
     {
         ingest_metric.set_outcome("circle_isolation_violation");
         let _ = audit::record(

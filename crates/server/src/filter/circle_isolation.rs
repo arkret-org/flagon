@@ -3,16 +3,16 @@
 //! Circle (CKP-0007, spec b7d35be / 2b0d70d) is an **intra-Realm**
 //! encrypted sub-boundary: a Circle's existence, member list, and
 //! routing metadata MUST NEVER appear in the public directory. teabay's
-//! anti-enumeration story is built on the directory only ever indexing
-//! Realm-level discovery state; Circle metadata leaking through
-//! `ck.find.directory.command.announce` or a `ck.find.directory.push.command.register` filter would
-//! immediately defeat that.
+//! anti-enumeration story is built on the directory only indexing
+//! Realm-level discovery state plus the spec-bounded Circle directory
+//! preview/stub projection.
 //!
-//! This module is the single hard-reject point. Both ingest paths
-//! (`ingest/announce.rs`, `ingest/subscribe.rs`) call
-//! [`reject_circle_payload`] BEFORE the JSON body is touched by any
-//! other code, so an attacker cannot smuggle Circle typed identifiers
-//! through a deeply-nested field. The reject deliberately uses
+//! This module is the typed-id guard point. Subscribe filters still call
+//! [`reject_circle_payload`] as a full hard reject. Announce calls
+//! [`reject_circle_payload_allowing_directory_preview`] so a signed Realm
+//! discovery event can carry a spec-bounded Circle directory entry id, while
+//! every other Circle typed-id occurrence remains rejected before indexing.
+//! The reject deliberately uses
 //! `ERROR_CODE_SCHEMA_VIOLATION` with the
 //! `circle_isolation_violation` reason sub-code (the closest
 //! spec-registered code; see SDK
@@ -21,10 +21,13 @@
 //! only that a Circle reference was found.
 //!
 //! The walker is intentionally scoped to Circle leakage:
-//!  - any string value containing `ck:circle:` is a hard reject (so a `circle_id` smuggled under a
-//!    free-form `description` field is still caught)
+//!  - by default, any string value containing `ck:circle:` is a hard reject;
+//!  - in the announce-only preview mode, the only exception is an exact canonical Circle id under a
+//!    recognized Circle directory container's `circle_id` / `id` field.
 
 use serde_json::Value as JsonValue;
+
+use crate::filter::circle_directory::is_circle_directory_container_key;
 
 /// Canonical typed-id prefix for a Circle (`ck:circle:<uuid>`). Any
 /// string value carrying this prefix anywhere in the payload is a
@@ -74,17 +77,31 @@ impl CircleRejection {
 /// returned json-pointer string on a hit) so the announce/subscribe
 /// hot path can call it unconditionally on every request.
 pub fn reject_circle_payload(value: &JsonValue) -> Result<(), CircleRejection> {
-    walk(value, &mut String::new())
+    walk(value, &mut String::new(), false)
 }
 
-fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> {
+/// Announce-only variant used before signature/shape validation. It permits
+/// the Circle id field required by a Realm's Circle directory projection, but
+/// it still rejects top-level Circle resources, scope references, embedded
+/// free-text ids, member lists, and subscribe filters.
+pub fn reject_circle_payload_allowing_directory_preview(
+    value: &JsonValue,
+) -> Result<(), CircleRejection> {
+    walk(value, &mut String::new(), true)
+}
+
+fn walk(
+    value: &JsonValue,
+    pointer: &mut String,
+    allow_directory_preview_ids: bool,
+) -> Result<(), CircleRejection> {
     match value {
         JsonValue::Object(map) => {
             for (key, child) in map {
                 let preserved_len = pointer.len();
                 pointer.push('/');
                 push_pointer_token(pointer, key);
-                walk(child, pointer)?;
+                walk(child, pointer, allow_directory_preview_ids)?;
                 pointer.truncate(preserved_len);
             }
             Ok(())
@@ -94,7 +111,7 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
                 let preserved_len = pointer.len();
                 pointer.push('/');
                 pointer.push_str(&index.to_string());
-                walk(child, pointer)?;
+                walk(child, pointer, allow_directory_preview_ids)?;
                 pointer.truncate(preserved_len);
             }
             Ok(())
@@ -108,6 +125,9 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
             // case-insensitive per spec §id-format.
             let needle = CIRCLE_TYPED_ID_PREFIX; // lowercase
             if contains_ignore_ascii_case(s, needle) {
+                if allow_directory_preview_ids && is_allowed_directory_preview_id(pointer, s) {
+                    return Ok(());
+                }
                 let pointer_clone = if pointer.is_empty() {
                     "/".to_owned()
                 } else {
@@ -119,6 +139,56 @@ fn walk(value: &JsonValue, pointer: &mut String) -> Result<(), CircleRejection> 
         }
         _ => Ok(()),
     }
+}
+
+fn is_allowed_directory_preview_id(pointer: &str, value: &str) -> bool {
+    if cokret_sdk::CircleId::new(value.to_owned()).is_err() {
+        return false;
+    }
+
+    let mut segments: Vec<&str> = pointer
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if segments.first() == Some(&"discovery_state") {
+        segments.remove(0);
+    }
+    if segments.first() == Some(&"payload") {
+        segments.remove(0);
+    }
+
+    for index in 0..segments.len() {
+        if !is_circle_directory_container_key(segments[index]) {
+            continue;
+        }
+        let tail = &segments[index + 1..];
+        if matches_directory_id_tail(tail) {
+            return true;
+        }
+    }
+    false
+}
+
+fn matches_directory_id_tail(tail: &[&str]) -> bool {
+    match tail {
+        [idx, field] if is_array_index(idx) && is_circle_id_field(field) => true,
+        [nested, idx, field]
+            if matches!(*nested, "entries" | "circles")
+                && is_array_index(idx)
+                && is_circle_id_field(field) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+fn is_circle_id_field(field: &str) -> bool {
+    matches!(field, "circle_id" | "id")
+}
+
+fn is_array_index(segment: &str) -> bool {
+    !segment.is_empty() && segment.as_bytes().iter().all(u8::is_ascii_digit)
 }
 
 fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
@@ -170,6 +240,87 @@ mod tests {
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
+    }
+
+    #[test]
+    fn announce_preview_mode_allows_exact_circle_directory_ids() {
+        let value = json!({
+            "kind": "ck.realm.discovery",
+            "circles": [{
+                "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+                "realm_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+                "directory_visibility": "realm_members",
+            }],
+            "circle_directory": {
+                "entries": [{
+                    "id": "ck:circle:01904100-0000-7000-8000-000000000002"
+                }]
+            }
+        });
+        assert!(reject_circle_payload_allowing_directory_preview(&value).is_ok());
+        assert!(reject_circle_payload(&value).is_err());
+    }
+
+    #[test]
+    fn announce_preview_mode_rejects_embedded_circle_id_text() {
+        let value = json!({
+            "kind": "ck.realm.discovery",
+            "circles": [{
+                "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001 extra"
+            }]
+        });
+        let err = reject_circle_payload_allowing_directory_preview(&value).unwrap_err();
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
+    }
+
+    #[test]
+    fn announce_preview_mode_rejects_circle_id_in_free_text_inside_directory() {
+        let value = json!({
+            "kind": "ck.realm.discovery",
+            "circles": [{
+                "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+                "summary": "see ck:circle:01904100-0000-7000-8000-000000000002",
+            }]
+        });
+        let err = reject_circle_payload_allowing_directory_preview(&value).unwrap_err();
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
+    }
+
+    #[test]
+    fn announce_preview_mode_rejects_top_level_resource_id() {
+        let envelope = json!({
+            "resource_kind": "realm",
+            "resource_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+            "principal_server_did": "did:web:principal.test",
+            "discovery_state": {
+                "kind": "ck.realm.discovery",
+                "circles": [{
+                    "circle_id": "ck:circle:01904100-0000-7000-8000-000000000002"
+                }]
+            },
+        });
+        let err = reject_circle_payload_allowing_directory_preview(&envelope).unwrap_err();
+        assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
+    }
+
+    #[test]
+    fn announce_preview_mode_allows_discovery_state_path_in_full_envelope() {
+        let envelope = json!({
+            "resource_kind": "realm",
+            "resource_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+            "principal_server_did": "did:web:principal.test",
+            "discovery_state": {
+                "kind": "ck.realm.discovery",
+                "payload": {
+                    "circle_directory": {
+                        "entries": [{
+                            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"
+                        }]
+                    }
+                }
+            },
+        });
+        assert!(reject_circle_payload_allowing_directory_preview(&envelope).is_ok());
     }
 
     #[test]
