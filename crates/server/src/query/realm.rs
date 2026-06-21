@@ -329,7 +329,7 @@ struct RealmStoredRow {
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
-    policy_revision: Option<String>,
+    policy_revision: String,
     stale: bool,
     divergent: bool,
     via_services: Vec<String>,
@@ -347,7 +347,7 @@ struct RealmRow {
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
-    policy_revision: Option<String>,
+    policy_revision: String,
     stale: bool,
     divergent: bool,
     via_services: Vec<String>,
@@ -369,8 +369,8 @@ struct RealmSqlRow {
     as_of: DateTime<Utc>,
     #[diesel(sql_type = Array<Text>)]
     source_refs: Vec<String>,
-    #[diesel(sql_type = Nullable<Text>)]
-    policy_revision: Option<String>,
+    #[diesel(sql_type = Text)]
+    policy_revision: String,
     #[diesel(sql_type = Bool)]
     stale: bool,
     #[diesel(sql_type = Bool)]

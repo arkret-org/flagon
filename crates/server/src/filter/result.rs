@@ -19,9 +19,8 @@ pub struct ResultEnvelope {
     /// Truth-source event id list — clients verify by re-fetching these.
     pub source_refs: Vec<String>,
     /// Effective discovery-state revision marker. §9.1 makes this a MUST on
-    /// every result and forbids omission, so it is serialized even when
-    /// `null` (no `skip_serializing_if`).
-    pub policy_revision: Option<String>,
+    /// every result and forbids omission.
+    pub policy_revision: String,
     /// True iff TTL+grace expired without successful revalidation.
     #[serde(skip_serializing_if = "is_false")]
     pub stale: bool,
@@ -53,7 +52,7 @@ impl ResultEnvelope {
         payload: JsonValue,
         as_of: DateTime<Utc>,
         source_refs: Vec<String>,
-        policy_revision: Option<String>,
+        policy_revision: String,
         stale: bool,
         divergent: bool,
         _via_services: Vec<String>,

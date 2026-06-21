@@ -564,7 +564,7 @@ fn build_realm_response(
         as_of: resolved.envelope.as_of,
         source_refs: resolved.envelope.source_refs.clone(),
         join_candidates: resolved.join_candidates.clone(),
-        policy_revision: resolved.envelope.policy_revision.clone(),
+        policy_revision: Some(resolved.envelope.policy_revision.clone()),
         stale: opt_bool(resolved.envelope.stale),
         divergent: opt_bool(resolved.envelope.divergent),
     })
@@ -948,7 +948,7 @@ mod tests {
                 json!({ "realm_id": format!("ck:realm:{R}"), "title": "Tea Time" }),
                 sample_time(),
                 vec!["ck:event:1".to_owned()],
-                Some("rev-7".to_owned()),
+                "rev-7".to_owned(),
                 false,
                 false,
                 vec!["did:web:hps.example".to_owned()],

@@ -29,7 +29,7 @@ pub struct DivergenceWorker {
 struct DivergenceCandidate {
     resource_kind: DirectoryResourceKindDb,
     resource_id: String,
-    policy_revision: Option<String>,
+    policy_revision: String,
     divergent: bool,
     via_services: Vec<String>,
 }
@@ -101,13 +101,7 @@ impl DivergenceWorker {
     async fn fetch_candidates(&self, limit: i64) -> anyhow::Result<Vec<DivergenceCandidate>> {
         use crate::schema::directory_resources::dsl as r;
 
-        type CandidateRow = (
-            DirectoryResourceKindDb,
-            String,
-            Option<String>,
-            bool,
-            Vec<String>,
-        );
+        type CandidateRow = (DirectoryResourceKindDb, String, String, bool, Vec<String>);
 
         let mut conn = self.state.db().get().await?;
         let rows: Vec<CandidateRow> = r::directory_resources
@@ -172,7 +166,7 @@ impl DivergenceWorker {
                 continue;
             };
             compared = true;
-            if remote_policy_revision != candidate.policy_revision {
+            if remote_policy_revision.as_deref() != Some(candidate.policy_revision.as_str()) {
                 mismatches.push(RemoteMismatch {
                     endpoint: service.clone(),
                     remote_policy_revision,

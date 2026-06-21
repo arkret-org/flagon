@@ -208,7 +208,6 @@ impl fmt::Debug for ReceiptSigningKey {
 pub enum AcceptPolicyKind {
     Open,
     Allowlist,
-    TrustRootSigned,
     OperatorReview,
 }
 
@@ -217,11 +216,14 @@ impl AcceptPolicyKind {
         match value.trim().to_ascii_lowercase().as_str() {
             "open" => Ok(Self::Open),
             "allowlist" => Ok(Self::Allowlist),
-            "trust_root_signed" => Ok(Self::TrustRootSigned),
+            "trust_root_signed" => Err(anyhow::anyhow!(
+                "TEABAY_ACCEPT_POLICY_KIND=trust_root_signed is reserved until the directory \
+                 trust-seal envelope is defined in cokret-spec and cokret-rust-sdk"
+            )),
             "operator_review" => Ok(Self::OperatorReview),
             other => Err(anyhow::anyhow!(
                 "invalid TEABAY_ACCEPT_POLICY_KIND={other}; \
-                 expected open|allowlist|trust_root_signed|operator_review"
+                 expected open|allowlist|operator_review"
             )),
         }
     }
@@ -387,7 +389,7 @@ impl AppConfig {
             Err(_) if !development_mode => anyhow::bail!(
                 "TEABAY_ACCEPT_POLICY_KIND must be set explicitly in production \
                  (development_mode=false). Choose one of \
-                 open|allowlist|trust_root_signed|operator_review. \
+                 open|allowlist|operator_review. \
                  `open` is intentionally not the production default."
             ),
             Err(_) => AcceptPolicyKind::Open,

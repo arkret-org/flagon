@@ -464,7 +464,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             indexed_at,
             as_of: body.as_of,
             source_refs: body.source_refs.clone(),
-            policy_revision: verified.policy_revision.clone(),
+            policy_revision: Some(verified.policy_revision.clone()),
             public_projection,
         },
     )

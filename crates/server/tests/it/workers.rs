@@ -67,13 +67,13 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
         diesel::sql_query(
             "INSERT INTO directory_resources (\
                  resource_kind, resource_id, principal_server_did, discovery_state, \
-                 public_projection, discoverability, as_of, source_refs, indexed_at, \
+                 public_projection, discoverability, as_of, source_refs, policy_revision, indexed_at, \
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES (\
                  'realm'::resource_kind, 'ck:realm:expired', 'did:web:expired.test', \
                  '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '50 hours', \
-                 ARRAY['evt-expired'], now() - interval '50 hours', 60, now() + interval '1 minute', \
+                 ARRAY['evt-expired'], 'rev-expired', now() - interval '50 hours', 60, now() + interval '1 minute', \
                  true, false, ARRAY[]::text[], now() - interval '50 hours', now() - interval '48 hours')",
         )
         .execute(&mut conn)
@@ -116,17 +116,17 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
         diesel::sql_query(
             "INSERT INTO directory_resources (\
                  resource_kind, resource_id, principal_server_did, discovery_state, \
-                 public_projection, discoverability, as_of, source_refs, indexed_at, \
+                 public_projection, discoverability, as_of, source_refs, policy_revision, indexed_at, \
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES \
                  ('realm'::resource_kind, 'ck:realm:within-grace', 'did:web:fresh.test', \
                   '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '2 hours', \
-                  ARRAY['evt-within-grace'], now() - interval '2 hours', 60, now() - interval '30 minutes', \
+                  ARRAY['evt-within-grace'], 'rev-within-grace', now() - interval '2 hours', 60, now() - interval '30 minutes', \
                   false, false, ARRAY[]::text[], now() - interval '2 hours', now() - interval '30 minutes'), \
                  ('realm'::resource_kind, 'ck:realm:past-grace', 'did:web:stale.test', \
                   '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '3 hours', \
-                  ARRAY['evt-past-grace'], now() - interval '3 hours', 60, now() - interval '2 hours', \
+                  ARRAY['evt-past-grace'], 'rev-past-grace', now() - interval '3 hours', 60, now() - interval '2 hours', \
                   false, false, ARRAY[]::text[], now() - interval '3 hours', now() - interval '2 hours')",
         )
         .execute(&mut conn)

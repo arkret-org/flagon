@@ -42,7 +42,7 @@ diesel::table! {
         discoverability -> Discoverability,
         as_of -> Timestamptz,
         source_refs -> Array<Text>,
-        policy_revision -> Nullable<Text>,
+        policy_revision -> Text,
         indexed_at -> Timestamptz,
         effective_ttl_seconds -> Int4,
         next_revalidation_after -> Timestamptz,

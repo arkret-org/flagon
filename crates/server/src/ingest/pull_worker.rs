@@ -209,7 +209,6 @@ impl PullWorker {
             policy_revision,
             ttl_seconds: Some(entry.effective_ttl_seconds as i64),
             supersedes_announce_id: None,
-            trust_root_attestation: None,
         };
 
         let ctx = VerifyContext::new(self.state.config(), self.state.db());
@@ -305,7 +304,7 @@ impl PullWorker {
                 indexed_at,
                 as_of: announce.as_of,
                 source_refs: announce.source_refs.clone(),
-                policy_revision: verified.policy_revision.clone(),
+                policy_revision: Some(verified.policy_revision.clone()),
                 public_projection: fanout_projection,
             },
         )

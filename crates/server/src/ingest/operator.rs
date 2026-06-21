@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
+use serde_json::json;
+use teabay_contracts::{OperatorTakedownOutcome, OperatorTakedownRequestBody};
 
 use crate::audit::{self, ActorIdentity, AuditEventKind};
 use crate::error::ApiErrorCode;
@@ -15,27 +15,6 @@ use crate::ingest::receipt::operator_takedown_proof;
 use crate::ingest::{DirectoryResourceKindDb, WithdrawalKindWire};
 use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
-
-#[derive(Debug, Deserialize)]
-pub struct OperatorTakedownRequestBody {
-    pub resource_kind: DirectoryResourceKindDb,
-    pub resource_id: String,
-    pub reason: String,
-    #[serde(default)]
-    pub operator: Option<String>,
-    #[serde(default)]
-    pub evidence: JsonValue,
-    #[serde(default)]
-    pub effective_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OperatorTakedownOutcome {
-    pub withdraw_id: String,
-    pub acked_at: DateTime<Utc>,
-    pub effective_at: DateTime<Utc>,
-    pub notification_status: &'static str,
-}
 
 #[handler]
 pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut Response) {
@@ -94,10 +73,12 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let operator = body.operator.as_deref().unwrap_or("admin-console");
     let notification_status =
         initial_notification_status(state.config().takedown_contact.is_some());
+    let resource_kind = DirectoryResourceKindDb::from(body.resource_kind);
 
     if let Err(error) = persist_operator_takedown(
         &state,
         &body,
+        resource_kind,
         &withdraw_id,
         operator,
         acked_at,
@@ -119,7 +100,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let _ = audit::record_with_identity(
         state.db(),
         AuditEventKind::OperatorTakedown,
-        Some(body.resource_kind),
+        Some(resource_kind),
         Some(&body.resource_id),
         Some(operator),
         json!({
@@ -139,7 +120,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         withdraw_id,
         acked_at,
         effective_at,
-        notification_status,
+        notification_status: notification_status.to_owned(),
     }));
 }
 
@@ -147,6 +128,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
 async fn persist_operator_takedown(
     state: &AppState,
     body: &OperatorTakedownRequestBody,
+    resource_kind: DirectoryResourceKindDb,
     withdraw_id: &str,
     operator: &str,
     acked_at: DateTime<Utc>,
@@ -171,7 +153,7 @@ async fn persist_operator_takedown(
         diesel::insert_into(w::withdrawals)
             .values((
                 w::withdraw_id.eq(withdraw_id),
-                w::resource_kind.eq(body.resource_kind),
+                w::resource_kind.eq(resource_kind),
                 w::resource_id.eq(&body.resource_id),
                 w::kind.eq(WithdrawalKindWire::OperatorTakedown),
                 w::reason.eq(&body.reason),
@@ -185,7 +167,7 @@ async fn persist_operator_takedown(
             .await?;
 
         diesel::delete(r::directory_resources)
-            .filter(r::resource_kind.eq(body.resource_kind))
+            .filter(r::resource_kind.eq(resource_kind))
             .filter(r::resource_id.eq(&body.resource_id))
             .execute(&mut *conn)
             .await?;
@@ -193,8 +175,7 @@ async fn persist_operator_takedown(
         Ok(())
     })
     .await?;
-    crate::psi_index::delete_resource_tokens(state.db(), body.resource_kind, &body.resource_id)
-        .await?;
+    crate::psi_index::delete_resource_tokens(state.db(), resource_kind, &body.resource_id).await?;
     Ok(())
 }
 

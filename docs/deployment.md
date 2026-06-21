@@ -105,7 +105,7 @@ Recommended production settings:
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
 | `TEABAY_RECEIPT_KEY_ID` | Verification method recorded in signed operator receipts. |
 | `TEABAY_CORS_ALLOW_ORIGIN` | Exact browser origin, never `*` in production. |
-| `TEABAY_ACCEPT_POLICY_KIND` | `open`, `allowlist`, `trust_root_signed`, or `operator_review`. |
+| `TEABAY_ACCEPT_POLICY_KIND` | `open`, `allowlist`, or `operator_review`. `trust_root_signed` is reserved until the directory trust-seal envelope lands in spec/SDK. |
 | `TEABAY_ALLOWLIST_DIDS` | Resource DID list when accept policy is `allowlist`. |
 | `TEABAY_ACCEPTED_RESOURCE_KINDS` | Optional comma-separated ingest allowlist; unset means `realm,organization,actor,applet,handle`. |
 | `TEABAY_ACCEPT_POLICY_REF` | Optional application or policy reference. |

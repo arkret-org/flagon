@@ -1,5 +1,13 @@
-use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+
+use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
+pub use teabay_contracts::{
+    DISCOVERABILITY_TOKENS, DirectoryAdminAllowlistUpsertRequestBody,
+    DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoverability, DirectoryResourceKind,
+    OperatorTakedownOutcome, OperatorTakedownRequestBody, RESOURCE_KIND_TOKENS,
+};
 
 use crate::api::{
     option_string, parse_json_object, parse_optional_i64, parse_optional_json_object,
@@ -21,15 +29,8 @@ pub fn badge_class_for(tone: &str) -> &'static str {
     }
 }
 
-pub const RESOURCE_KINDS: [&str; 5] = ["realm", "organization", "actor", "applet", "handle"];
-pub const DISCOVERABILITY_LEVELS: [&str; 6] = [
-    "public",
-    "listed",
-    "restricted",
-    "unlisted",
-    "invite_only",
-    "secret",
-];
+pub const RESOURCE_KINDS: [&str; 5] = RESOURCE_KIND_TOKENS;
+pub const DISCOVERABILITY_LEVELS: [&str; 6] = DISCOVERABILITY_TOKENS;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -123,7 +124,7 @@ pub struct ResourceItem {
     #[serde(default)]
     pub source_refs: Vec<String>,
     #[serde(default)]
-    pub policy_revision: Option<String>,
+    pub policy_revision: String,
     #[serde(default)]
     pub indexed_at: String,
     #[serde(default)]
@@ -185,34 +186,6 @@ pub struct AuditEvent {
 }
 
 #[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct OperatorTakedownOutcome {
-    #[serde(default)]
-    pub withdraw_id: String,
-    #[serde(default)]
-    pub acked_at: String,
-    #[serde(default)]
-    pub effective_at: String,
-    #[serde(default)]
-    pub notification_status: String,
-}
-
-#[derive(Serialize)]
-pub struct DirectoryAdminAllowlistUpsertRequestBody {
-    pub resource_did: String,
-    pub added_by: Option<String>,
-    pub note: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct OperatorTakedownRequestBody {
-    pub resource_kind: String,
-    pub resource_id: String,
-    pub reason: String,
-    pub operator: Option<String>,
-    pub evidence: JsonValue,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
 pub struct ResourceMutationEnvelope {
     #[serde(default)]
     pub item: ResourceItem,
@@ -222,26 +195,6 @@ pub struct ResourceMutationEnvelope {
 pub struct DeleteCount {
     #[serde(default)]
     pub deleted: i64,
-}
-
-#[derive(Clone, Serialize)]
-pub struct DirectoryAdminResourceUpsertRequestBody {
-    pub resource_kind: String,
-    pub resource_id: String,
-    pub principal_server_did: String,
-    pub discoverability: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub as_of: Option<String>,
-    pub source_refs: Vec<String>,
-    pub policy_revision: Option<String>,
-    pub effective_ttl_seconds: Option<i64>,
-    pub stale: bool,
-    pub divergent: bool,
-    pub via_services: Vec<String>,
-    pub public_projection: JsonValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub discovery_state: Option<JsonValue>,
-    pub last_announce_id: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -300,7 +253,7 @@ impl ResourceEditorForm {
             discoverability: item.discoverability.clone(),
             as_of: item.as_of.clone(),
             source_refs: pretty_string_array(&item.source_refs),
-            policy_revision: item.policy_revision.clone().unwrap_or_default(),
+            policy_revision: item.policy_revision.clone(),
             effective_ttl_seconds: item.effective_ttl_seconds.to_string(),
             stale: item.stale,
             divergent: item.divergent,
@@ -329,14 +282,19 @@ impl ResourceEditorForm {
             return Err("discoverability is invalid".to_string());
         }
 
+        let policy_revision = self.policy_revision.trim().to_string();
+        if policy_revision.is_empty() {
+            return Err("policy_revision is required".to_string());
+        }
+
         Ok(DirectoryAdminResourceUpsertRequestBody {
-            resource_kind: self.resource_kind.clone(),
+            resource_kind: DirectoryResourceKind::from_str(self.resource_kind.as_str())?,
             resource_id,
             principal_server_did,
-            discoverability: self.discoverability.clone(),
-            as_of: option_string(self.as_of.clone()),
+            discoverability: DirectoryDiscoverability::from_str(self.discoverability.as_str())?,
+            as_of: parse_optional_datetime(&self.as_of, "as_of")?,
             source_refs: parse_string_array(&self.source_refs, "source_refs")?,
-            policy_revision: option_string(self.policy_revision.clone()),
+            policy_revision,
             effective_ttl_seconds: parse_optional_i64(
                 &self.effective_ttl_seconds,
                 "effective_ttl_seconds",
@@ -348,5 +306,16 @@ impl ResourceEditorForm {
             discovery_state: parse_optional_json_object(&self.discovery_state, "discovery_state")?,
             last_announce_id: option_string(self.last_announce_id.clone()),
         })
+    }
+}
+
+fn parse_optional_datetime(raw: &str, field: &str) -> Result<Option<DateTime<Utc>>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        DateTime::parse_from_rfc3339(trimmed)
+            .map(|value| Some(value.with_timezone(&Utc)))
+            .map_err(|error| format!("{field}: {error}"))
     }
 }

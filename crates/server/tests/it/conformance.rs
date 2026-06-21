@@ -357,6 +357,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
             "discovery_state": discovery_state,
             "source_refs": ["evt-announce-realm"],
             "as_of": Utc::now(),
+            "policy_revision": "rev-pushed-1",
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -439,6 +440,7 @@ async fn assert_pull_worker_refreshes_due_entry(
             "discovery_state": pulled_state,
             "source_refs": ["evt-pull-realm"],
             "as_of": Utc::now(),
+            "policy_revision": "rev-pushed-1",
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -538,6 +540,7 @@ async fn assert_three_path_takedown_strand(
             "discovery_state": destroyed_state,
             "source_refs": ["evt-destroy-realm"],
             "as_of": Utc::now(),
+            "policy_revision": "rev-pushed-1",
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -566,6 +569,7 @@ async fn assert_three_path_takedown_strand(
             "discovery_state": withdraw_state,
             "source_refs": ["evt-withdraw-realm"],
             "as_of": Utc::now(),
+            "policy_revision": "rev-pushed-1",
             "ttl_seconds": 3600,
         }))
         .send(service)

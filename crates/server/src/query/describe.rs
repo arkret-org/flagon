@@ -346,7 +346,6 @@ fn accept_policy_str(cfg: &AppConfig) -> &'static str {
     match cfg.accept_policy_kind {
         Open => "open",
         Allowlist => "allowlist",
-        TrustRootSigned => "trust_root_signed",
         OperatorReview => "operator_review",
     }
 }

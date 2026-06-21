@@ -12,8 +12,7 @@
 //!    service DID.
 //! 4. Source-ref sanity — for first ingest, MAY pull at least one anchor from the resource's
 //!    Principal Server to confirm `source_refs[0]` is resolvable.
-//! 5. Accept policy — local accept_policy (open / allowlist / trust_root_signed / operator_review)
-//!    decision.
+//! 5. Accept policy — local accept_policy (open / allowlist / operator_review) decision.
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
 
@@ -48,8 +47,8 @@ pub struct VerifyOutcome {
     /// `via_services` to populate from DID document (or fallback to
     /// `principal_server_did`).
     pub via_services: Vec<String>,
-    /// Effective `policy_revision` if the discovery_state carries one.
-    pub policy_revision: Option<String>,
+    /// Effective `policy_revision` from the verified discovery state.
+    pub policy_revision: String,
 }
 
 pub struct VerifyContext<'a> {
@@ -200,7 +199,7 @@ impl<'a> VerifyContext<'a> {
         // --- Derive outcome from verified state. ---------------------------
         let discoverability = read_discoverability(&req.discovery_state)?;
         let via_services = derive_via_services(&req.discovery_state, &req.principal_server_did);
-        let policy_revision = Some(req.policy_revision.clone());
+        let policy_revision = req.policy_revision.clone();
 
         Ok(VerifyOutcome {
             discoverability,
@@ -252,7 +251,6 @@ impl<'a> VerifyContext<'a> {
                     ))
                 }
             }
-            AcceptPolicyKind::TrustRootSigned => verify_trust_root_attestation(req, self.config),
             AcceptPolicyKind::OperatorReview => {
                 // Operator-review mode requires out-of-band approval; the
                 // queue lives in the audit log + operator UI. For now we
@@ -268,108 +266,6 @@ impl<'a> VerifyContext<'a> {
             }
         }
     }
-}
-
-fn verify_trust_root_attestation(
-    req: &DirectoryAnnounceIngest,
-    config: &AppConfig,
-) -> Result<(), (ApiErrorCode, String)> {
-    let attestation = req.trust_root_attestation.as_ref().ok_or_else(|| {
-        (
-            ApiErrorCode::AcceptPolicyDenied,
-            "trust_root_signed requires trust_root_attestation".to_owned(),
-        )
-    })?;
-    let issuer = attestation
-        .get("issuer")
-        .and_then(JsonValue::as_str)
-        .filter(|issuer| !issuer.is_empty())
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::AcceptPolicyDenied,
-                "trust_root_attestation.issuer missing".to_owned(),
-            )
-        })?;
-    if !trust_root_allowed(config, issuer) {
-        return Err((
-            ApiErrorCode::AcceptPolicyDenied,
-            format!("trust root issuer `{issuer}` is not allowed by TEABAY_ACCEPT_POLICY_REF"),
-        ));
-    }
-    let subject_ok = attestation
-        .get("subject")
-        .and_then(JsonValue::as_str)
-        .is_some_and(|subject| subject == req.resource_id)
-        || attestation
-            .get("resource_id")
-            .and_then(JsonValue::as_str)
-            .is_some_and(|subject| subject == req.resource_id)
-        || attestation
-            .get("resources")
-            .and_then(JsonValue::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(JsonValue::as_str)
-            .any(|subject| subject == req.resource_id);
-    if !subject_ok {
-        return Err((
-            ApiErrorCode::AcceptPolicyDenied,
-            "trust_root_attestation does not cover resource_id".to_owned(),
-        ));
-    }
-    if let Some(expires_at) = attestation.get("expires_at").and_then(JsonValue::as_str) {
-        let expires_at = DateTime::parse_from_rfc3339(expires_at)
-            .map_err(|e| {
-                (
-                    ApiErrorCode::AcceptPolicyDenied,
-                    format!("trust_root_attestation.expires_at invalid: {e}"),
-                )
-            })?
-            .with_timezone(&Utc);
-        if expires_at <= Utc::now() {
-            return Err((
-                ApiErrorCode::AcceptPolicyDenied,
-                "trust_root_attestation expired".to_owned(),
-            ));
-        }
-    }
-
-    let proof = attestation.get("proof").ok_or_else(|| {
-        (
-            ApiErrorCode::AcceptPolicyDenied,
-            "trust_root_attestation.proof missing".to_owned(),
-        )
-    })?;
-    let canonical = canonical_payload_without_jws(attestation, "proof")?;
-    let DetachedProof {
-        verification_method,
-        jws,
-    } = detached_proof(proof)?;
-    let signer_did = verification_method
-        .split_once('#')
-        .map(|(did, _)| did)
-        .unwrap_or(&verification_method);
-    if signer_did != issuer {
-        return Err((
-            ApiErrorCode::AcceptPolicyDenied,
-            "trust_root_attestation proof signer does not match issuer".to_owned(),
-        ));
-    }
-    verify_jws_ed25519(&canonical, &jws, &verification_method, config)
-        .map_err(|msg| (ApiErrorCode::AcceptPolicyDenied, msg))
-}
-
-fn trust_root_allowed(config: &AppConfig, issuer: &str) -> bool {
-    config
-        .accept_policy_ref
-        .as_deref()
-        .map(|refs| {
-            refs.split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .any(|value| value == issuer)
-        })
-        .unwrap_or(false)
 }
 
 pub(crate) fn verify_discovery_proof(

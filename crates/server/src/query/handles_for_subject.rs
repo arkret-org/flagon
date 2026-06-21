@@ -55,6 +55,10 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
+use crate::filter::discoverers::{
+    RestrictedClaimPresentation, VerifiedRestrictedClaims, matches_allowed_discoverers,
+    verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
@@ -236,11 +240,19 @@ async fn build_response(
         Some(realm_id) => load_accepted_issuers(state, realm_id.as_str(), body.as_of).await,
         None => Vec::new(),
     };
+    let verified_claims = match verified_restricted_claims_for_body(state, body) {
+        Ok(claims) => claims,
+        Err(_) => {
+            metrics.record_filter_drop("restricted_proof_invalid");
+            VerifiedRestrictedClaims::default()
+        }
+    };
 
     match assemble_response(
         body,
         rows,
         &accepted_issuers,
+        &verified_claims,
         cursor_offset,
         limit,
         Some(metrics),
@@ -264,6 +276,7 @@ pub fn assemble_response(
     body: &DirectoryListHandlesForSubjectRequestBody,
     rows: Vec<SubjectHandleRow>,
     accepted_issuers: &[String],
+    verified_claims: &VerifiedRestrictedClaims,
     cursor_offset: usize,
     limit: u32,
     metrics: Option<&crate::observability::Metrics>,
@@ -283,7 +296,7 @@ pub fn assemble_response(
     for row in rows {
         // Disclosure gate: only directory-visible rows surface, shared with
         // resolve_handle.
-        if !row.discoverability.is_directory_visible() {
+        if !handle_row_visible_to_requester(&row, body, verified_claims) {
             drop("disclosure");
             continue;
         }
@@ -353,6 +366,51 @@ pub fn assemble_response(
         return None;
     }
     Some(response)
+}
+
+fn verified_restricted_claims_for_body(
+    state: &AppState,
+    body: &DirectoryListHandlesForSubjectRequestBody,
+) -> Result<VerifiedRestrictedClaims, String> {
+    if body.proofs.is_empty() {
+        return Ok(VerifiedRestrictedClaims::default());
+    }
+    let presentations = parse_restricted_claim_presentations(&body.proofs)?;
+    verify_restricted_claim_presentations(
+        &presentations,
+        body.requester.as_ref().map(|did| did.as_str()),
+        body.proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+}
+
+fn parse_restricted_claim_presentations(
+    proofs: &[JsonValue],
+) -> Result<Vec<RestrictedClaimPresentation>, String> {
+    proofs
+        .iter()
+        .map(|proof| {
+            serde_json::from_value(proof.clone())
+                .map_err(|error| format!("restricted claim presentation invalid: {error}"))
+        })
+        .collect()
+}
+
+fn handle_row_visible_to_requester(
+    row: &SubjectHandleRow,
+    body: &DirectoryListHandlesForSubjectRequestBody,
+    verified_claims: &VerifiedRestrictedClaims,
+) -> bool {
+    match row.discoverability {
+        DiscoverabilityDb::Restricted => matches_allowed_discoverers(
+            &row.public_projection,
+            body.requester.as_ref().map(|did| did.as_str()),
+            verified_claims,
+        ),
+        other => other.is_directory_visible(),
+    }
 }
 
 /// One indexed handle row that may belong to the subject.

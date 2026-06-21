@@ -20,8 +20,6 @@ pub struct DirectoryAnnounceIngest {
     pub ttl_seconds: Option<i64>,
     #[serde(default)]
     pub supersedes_announce_id: Option<String>,
-    #[serde(default)]
-    pub trust_root_attestation: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,7 +62,6 @@ impl TryFrom<DirectoryAnnounceWireBody> for DirectoryAnnounceIngest {
                 .transpose()
                 .map_err(|_| "ttl_seconds is too large".to_owned())?,
             supersedes_announce_id: value.supersedes_announce_id,
-            trust_root_attestation: None,
         })
     }
 }

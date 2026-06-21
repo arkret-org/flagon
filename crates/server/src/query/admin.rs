@@ -6,6 +6,9 @@ use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
+use teabay_contracts::{
+    DirectoryAdminAllowlistUpsertRequestBody, DirectoryAdminResourceUpsertRequestBody,
+};
 
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
@@ -59,15 +62,6 @@ struct AllowlistQuery {
     limit: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
-struct DirectoryAdminAllowlistUpsertRequestBody {
-    resource_did: String,
-    #[serde(default)]
-    added_by: Option<String>,
-    #[serde(default)]
-    note: Option<String>,
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct AllowlistDeleteQuery {
     #[serde(default)]
@@ -105,34 +99,6 @@ struct ResourcesQuery {
     limit: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
-struct DirectoryAdminResourceUpsertRequestBody {
-    resource_kind: DirectoryResourceKindDb,
-    resource_id: String,
-    principal_server_did: String,
-    #[serde(default)]
-    discovery_state: JsonValue,
-    #[serde(default)]
-    public_projection: JsonValue,
-    discoverability: DiscoverabilityDb,
-    #[serde(default)]
-    as_of: Option<DateTime<Utc>>,
-    #[serde(default)]
-    source_refs: Vec<String>,
-    #[serde(default)]
-    policy_revision: Option<String>,
-    #[serde(default)]
-    effective_ttl_seconds: Option<i64>,
-    #[serde(default)]
-    stale: Option<bool>,
-    #[serde(default)]
-    divergent: Option<bool>,
-    #[serde(default)]
-    via_services: Vec<String>,
-    #[serde(default)]
-    last_announce_id: Option<String>,
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct ResourceDeleteQuery {
     #[serde(default)]
@@ -151,7 +117,7 @@ struct ResourceAdminRow {
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
-    policy_revision: Option<String>,
+    policy_revision: String,
     indexed_at: DateTime<Utc>,
     effective_ttl_seconds: i32,
     next_revalidation_after: DateTime<Utc>,
@@ -171,7 +137,7 @@ struct ResourceAdminItem {
     discoverability: &'static str,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
-    policy_revision: Option<String>,
+    policy_revision: String,
     indexed_at: DateTime<Utc>,
     effective_ttl_seconds: i32,
     next_revalidation_after: DateTime<Utc>,
@@ -184,7 +150,7 @@ struct ResourceAdminItem {
 #[derive(Debug)]
 struct ResourceDeleteAudit {
     principal_server_did: String,
-    policy_revision: Option<String>,
+    policy_revision: String,
     via_services: Vec<String>,
     last_announce_id: Option<String>,
 }
@@ -394,10 +360,17 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         ApiErrorCode::MissingParam.render(res, "principal_server_did is required");
         return;
     }
+    let policy_revision = body.policy_revision.trim();
+    if policy_revision.is_empty() {
+        ApiErrorCode::MissingParam.render(res, "policy_revision is required");
+        return;
+    }
     if !body.public_projection.is_object() {
         ApiErrorCode::SchemaViolation.render(res, "public_projection must be an object");
         return;
     }
+    let resource_kind = DirectoryResourceKindDb::from(body.resource_kind);
+    let discoverability = DiscoverabilityDb::from(body.discoverability);
 
     let source_refs = {
         let refs = normalize_string_list(&body.source_refs);
@@ -415,10 +388,14 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
             services
         }
     };
-    let public_projection =
-        normalized_public_projection(&body.public_projection, body.discoverability);
-    let discovery_state = match normalized_discovery_state(&body, &public_projection, &via_services)
-    {
+    let public_projection = normalized_public_projection(&body.public_projection, discoverability);
+    let discovery_state = match normalized_discovery_state(
+        &body,
+        resource_kind,
+        discoverability,
+        &public_projection,
+        &via_services,
+    ) {
         Ok(state) => state,
         Err(message) => {
             ApiErrorCode::SchemaViolation.render(res, message);
@@ -432,6 +409,8 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     match upsert_managed_resource(
         &state,
         &body,
+        resource_kind,
+        discoverability,
         discovery_state,
         public_projection,
         source_refs,
@@ -446,13 +425,13 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
             let _ = audit::record(
                 state.db(),
                 AuditEventKind::AdminResourceUpserted,
-                Some(body.resource_kind),
+                Some(resource_kind),
                 Some(&body.resource_id),
                 Some(&state.config().service_did),
                 json!({
                     "principal_server_did": body.principal_server_did.as_str(),
-                    "discoverability": body.discoverability.as_pg(),
-                    "policy_revision": body.policy_revision.as_deref(),
+                    "discoverability": discoverability.as_pg(),
+                    "policy_revision": policy_revision,
                     "effective_ttl_seconds": effective_ttl,
                     "source_refs": item.source_refs,
                     "via_services": item.via_services,
@@ -906,6 +885,8 @@ async fn load_resources(
 async fn upsert_managed_resource(
     state: &AppState,
     body: &DirectoryAdminResourceUpsertRequestBody,
+    resource_kind: DirectoryResourceKindDb,
+    discoverability: DiscoverabilityDb,
     discovery_state: JsonValue,
     public_projection: JsonValue,
     source_refs: Vec<String>,
@@ -917,22 +898,23 @@ async fn upsert_managed_resource(
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
+    let policy_revision = body.policy_revision.trim();
     diesel::insert_into(r::directory_resources)
         .values((
-            r::resource_kind.eq(body.resource_kind),
+            r::resource_kind.eq(resource_kind),
             r::resource_id.eq(body.resource_id.trim()),
             r::principal_server_did.eq(body.principal_server_did.trim()),
             r::discovery_state.eq(&discovery_state),
             r::public_projection.eq(&public_projection),
-            r::discoverability.eq(body.discoverability),
+            r::discoverability.eq(discoverability),
             r::as_of.eq(body.as_of.unwrap_or(indexed_at)),
             r::source_refs.eq(&source_refs),
-            r::policy_revision.eq(trimmed_option(body.policy_revision.as_deref())),
+            r::policy_revision.eq(policy_revision),
             r::indexed_at.eq(indexed_at),
             r::effective_ttl_seconds.eq(effective_ttl_seconds),
             r::next_revalidation_after.eq(next_revalidation_after),
-            r::stale.eq(body.stale.unwrap_or(false)),
-            r::divergent.eq(body.divergent.unwrap_or(false)),
+            r::stale.eq(body.stale),
+            r::divergent.eq(body.divergent),
             r::via_services.eq(&via_services),
             r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
         ))
@@ -942,15 +924,15 @@ async fn upsert_managed_resource(
             r::principal_server_did.eq(body.principal_server_did.trim()),
             r::discovery_state.eq(&discovery_state),
             r::public_projection.eq(&public_projection),
-            r::discoverability.eq(body.discoverability),
+            r::discoverability.eq(discoverability),
             r::as_of.eq(body.as_of.unwrap_or(indexed_at)),
             r::source_refs.eq(&source_refs),
-            r::policy_revision.eq(trimmed_option(body.policy_revision.as_deref())),
+            r::policy_revision.eq(policy_revision),
             r::indexed_at.eq(indexed_at),
             r::effective_ttl_seconds.eq(effective_ttl_seconds),
             r::next_revalidation_after.eq(next_revalidation_after),
-            r::stale.eq(body.stale.unwrap_or(false)),
-            r::divergent.eq(body.divergent.unwrap_or(false)),
+            r::stale.eq(body.stale),
+            r::divergent.eq(body.divergent),
             r::via_services.eq(&via_services),
             r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
         ))
@@ -959,15 +941,15 @@ async fn upsert_managed_resource(
 
     crate::psi_index::sync_resource_tokens(
         state.db(),
-        body.resource_kind,
+        resource_kind,
         body.resource_id.trim(),
-        body.discoverability,
-        body.stale.unwrap_or(false),
+        discoverability,
+        body.stale,
         &public_projection,
     )
     .await?;
 
-    load_resource(state, body.resource_kind, body.resource_id.trim()).await
+    load_resource(state, resource_kind, body.resource_id.trim()).await
 }
 
 async fn load_resource(
@@ -1023,7 +1005,7 @@ async fn delete_managed_resource(
                     r::via_services,
                     r::last_announce_id,
                 ))
-                .first::<(String, Option<String>, Vec<String>, Option<String>)>(&mut *conn)
+                .first::<(String, String, Vec<String>, Option<String>)>(&mut *conn)
                 .await
                 .optional()?;
 
@@ -1068,24 +1050,34 @@ fn normalized_public_projection(raw: &JsonValue, discoverability: Discoverabilit
 
 fn normalized_discovery_state(
     body: &DirectoryAdminResourceUpsertRequestBody,
+    resource_kind: DirectoryResourceKindDb,
+    discoverability: DiscoverabilityDb,
     public_projection: &JsonValue,
     via_services: &[String],
 ) -> Result<JsonValue, String> {
-    let mut discovery_state = if body.discovery_state.is_null() {
-        public_projection.clone()
-    } else {
-        body.discovery_state.clone()
-    };
+    let mut discovery_state = body
+        .discovery_state
+        .clone()
+        .unwrap_or_else(|| public_projection.clone());
     let object = discovery_state
         .as_object_mut()
         .ok_or_else(|| "discovery_state must be an object when provided".to_string())?;
     object.insert(
         "kind".to_string(),
-        JsonValue::String(body.resource_kind.discovery_event_kind().to_string()),
+        JsonValue::String(resource_kind.discovery_event_kind().to_string()),
     );
     object.insert(
         "discoverability".to_string(),
-        JsonValue::String(body.discoverability.as_pg().to_string()),
+        JsonValue::String(discoverability.as_pg().to_string()),
+    );
+    if let Some(existing) = object.get("policy_revision").and_then(JsonValue::as_str)
+        && existing != body.policy_revision.trim()
+    {
+        return Err("discovery_state.policy_revision must match policy_revision".to_string());
+    }
+    object.insert(
+        "policy_revision".to_string(),
+        JsonValue::String(body.policy_revision.trim().to_string()),
     );
     object
         .entry("directory_services".to_string())

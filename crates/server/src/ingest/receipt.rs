@@ -6,9 +6,9 @@ use chrono::{DateTime, Utc};
 use cokret_sdk::canonical;
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
+use teabay_contracts::OperatorTakedownRequestBody;
 
 use crate::config::{AppConfig, ReceiptSigningKey};
-use crate::ingest::operator::OperatorTakedownRequestBody;
 use crate::ingest::withdraw::{DirectoryWithdrawInput, withdraw_payload_without_jws};
 
 pub(crate) const RECEIPT_VERSION: &str = "teabay.withdrawal_receipt.v1";
@@ -56,7 +56,7 @@ pub(crate) fn operator_takedown_proof(
 ) -> anyhow::Result<JsonValue> {
     let statement = withdrawal_statement(
         "operator_takedown",
-        body.resource_kind.as_pg(),
+        body.resource_kind.as_str(),
         &body.resource_id,
         &body.reason,
         withdraw_id,

@@ -311,7 +311,6 @@ fn announce_digest_uses_canonical_json_body() {
         policy_revision: "rev-1".to_owned(),
         ttl_seconds: Some(3600),
         supersedes_announce_id: None,
-        trust_root_attestation: None,
     };
     let second = DirectoryAnnounceIngest {
         discovery_state: JsonValue::Object(second_state),

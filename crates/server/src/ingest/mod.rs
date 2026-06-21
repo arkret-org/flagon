@@ -14,6 +14,10 @@ pub mod withdraw;
 use diesel_derive_enum::DbEnum;
 use salvo::Request;
 use serde::{Deserialize, Serialize};
+use teabay_contracts::{
+    DirectoryDiscoverability as ContractDiscoverability,
+    DirectoryResourceKind as ContractResourceKind,
+};
 
 /// Read a request header as a trimmed, non-empty `String`. Shared by ingest
 /// handlers so the trim+empty-filter convention lives in one place.
@@ -82,6 +86,18 @@ impl DirectoryResourceKindDb {
             Self::Actor => "ck.actor.discovery",
             Self::Applet => "ck.applet.discovery",
             Self::Handle => "ck.handle.discovery",
+        }
+    }
+}
+
+impl From<ContractResourceKind> for DirectoryResourceKindDb {
+    fn from(value: ContractResourceKind) -> Self {
+        match value {
+            ContractResourceKind::Realm => Self::Realm,
+            ContractResourceKind::Organization => Self::Organization,
+            ContractResourceKind::Actor => Self::Actor,
+            ContractResourceKind::Applet => Self::Applet,
+            ContractResourceKind::Handle => Self::Handle,
         }
     }
 }
@@ -155,6 +171,19 @@ impl DiscoverabilityDb {
             self,
             Self::Public | Self::Listed | Self::Restricted | Self::Unlisted
         )
+    }
+}
+
+impl From<ContractDiscoverability> for DiscoverabilityDb {
+    fn from(value: ContractDiscoverability) -> Self {
+        match value {
+            ContractDiscoverability::Public => Self::Public,
+            ContractDiscoverability::Listed => Self::Listed,
+            ContractDiscoverability::Restricted => Self::Restricted,
+            ContractDiscoverability::Unlisted => Self::Unlisted,
+            ContractDiscoverability::InviteOnly => Self::InviteOnly,
+            ContractDiscoverability::Secret => Self::Secret,
+        }
     }
 }
 

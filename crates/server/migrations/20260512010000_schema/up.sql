@@ -79,7 +79,7 @@ CREATE TABLE directory_resources (
     discoverability   discoverability   NOT NULL,
     as_of             TIMESTAMPTZ       NOT NULL,
     source_refs       TEXT[]            NOT NULL,
-    policy_revision   TEXT,
+    policy_revision   TEXT              NOT NULL,
     indexed_at        TIMESTAMPTZ       NOT NULL DEFAULT now(),
     effective_ttl_seconds INTEGER       NOT NULL,
     next_revalidation_after TIMESTAMPTZ NOT NULL,

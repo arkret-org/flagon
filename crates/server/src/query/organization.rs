@@ -235,7 +235,7 @@ struct OrgRow {
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
-    policy_revision: Option<String>,
+    policy_revision: String,
     stale: bool,
     divergent: bool,
     via_services: Vec<String>,

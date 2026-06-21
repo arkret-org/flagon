@@ -12,11 +12,13 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 name = "admin"
 version = "0.3.0"
 dependencies = [
+ "chrono",
  "dioxus",
  "dioxus-free-icons",
  "gloo-net 0.7.0",
  "serde",
  "serde_json",
+ "teabay-contracts",
 ]
 
 [[package]]
@@ -5089,6 +5091,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "teabay-contracts",
  "teabay-testing",
  "testcontainers-modules",
  "thiserror 2.0.18",
@@ -5417,6 +5420,15 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "teabay-contracts"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "teabay-testing"
