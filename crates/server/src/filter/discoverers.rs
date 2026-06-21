@@ -13,42 +13,27 @@ use chrono::{DateTime, Utc};
 use cokret_sdk::identity::DidKeyResolver;
 use cokret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use cokret_sdk::{
-    ClaimDisclosurePolicy, ClaimDisclosureRequirement, Did, PresentationRequestBody,
-    PresentedClaim, canonical, validate_presentation,
+    ClaimDisclosurePolicy, ClaimDisclosureRequirement,
+    DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
+    DirectoryRestrictedClaimPresentation, PresentationRequestBody, PresentedClaim, canonical,
+    validate_presentation,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::did_resolver::{did_method_allowed, did_resolver_chain};
-
-pub(crate) const RESTRICTED_CLAIM_PRESENTATION_KIND: &str =
-    "ck.directory.restricted_claim_presentation.v1";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RestrictedClaimPresentation {
-    pub kind: String,
-    pub iss: Did,
-    pub verification_method: String,
-    pub audience: String,
-    pub nonce: String,
-    pub claim: PresentedClaim,
-    pub created_at: DateTime<Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<DateTime<Utc>>,
-    pub jws: String,
-}
 
 #[derive(Debug, Serialize)]
 struct RestrictedClaimPresentationPayload<'a> {
     kind: &'a str,
     iss: &'a Did,
     verification_method: &'a str,
-    audience: &'a str,
+    audience: &'a Did,
     nonce: &'a str,
-    claim: &'a PresentedClaim,
-    created_at: DateTime<Utc>,
+    claim: &'a DirectoryPresentedClaim,
     #[serde(skip_serializing_if = "Option::is_none")]
     expires_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -100,7 +85,7 @@ pub fn matches_allowed_discoverers(
 }
 
 pub fn verify_restricted_claim_presentations(
-    presentations: &[RestrictedClaimPresentation],
+    presentations: &[DirectoryRestrictedClaimPresentation],
     requester: Option<&str>,
     proof_challenge: Option<&str>,
     expected_audience: &str,
@@ -129,23 +114,23 @@ pub fn verify_restricted_claim_presentations(
             accepted_did_methods,
             allow_private_networks,
         )?;
-        claims.push(presentation.claim.clone());
+        claims.push(presentation.claim.clone().into());
     }
     Ok(VerifiedRestrictedClaims { claims })
 }
 
 fn verify_presentation_envelope(
-    presentation: &RestrictedClaimPresentation,
+    presentation: &DirectoryRestrictedClaimPresentation,
     requester: &str,
     challenge: &str,
     expected_audience: &str,
     accepted_did_methods: &[String],
     allow_private_networks: bool,
 ) -> Result<(), String> {
-    if presentation.kind != RESTRICTED_CLAIM_PRESENTATION_KIND {
+    if presentation.kind != DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND {
         return Err("unsupported restricted claim presentation kind".to_owned());
     }
-    if presentation.audience != expected_audience {
+    if presentation.audience.as_str() != expected_audience {
         return Err("restricted claim presentation audience mismatch".to_owned());
     }
     if presentation.nonce != challenge {
@@ -177,8 +162,8 @@ fn verify_presentation_envelope(
         audience: &presentation.audience,
         nonce: &presentation.nonce,
         claim: &presentation.claim,
-        created_at: presentation.created_at,
         expires_at: presentation.expires_at,
+        created_at: presentation.created_at,
     };
     let canonical_bytes = canonical::canonical_json_bytes(&payload)
         .map_err(|error| format!("restricted claim canonicalization failed: {error}"))?;
@@ -404,30 +389,32 @@ mod tests {
         audience: &str,
         nonce: &str,
         claim: PresentedClaim,
-    ) -> RestrictedClaimPresentation {
+    ) -> DirectoryRestrictedClaimPresentation {
         let created_at = Utc::now();
         let expires_at = Some(created_at + Duration::minutes(5));
+        let audience = Did::new(audience.to_owned()).unwrap();
+        let claim: DirectoryPresentedClaim = claim.into();
         let payload = RestrictedClaimPresentationPayload {
-            kind: RESTRICTED_CLAIM_PRESENTATION_KIND,
+            kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,
             iss: &iss,
             verification_method: &verification_method,
-            audience,
+            audience: &audience,
             nonce,
             claim: &claim,
-            created_at,
             expires_at,
+            created_at,
         };
         let canonical = canonical::canonical_json_bytes(&payload).unwrap();
         let jws = sign_jws_ed25519(&canonical, signing_key).unwrap();
-        RestrictedClaimPresentation {
-            kind: RESTRICTED_CLAIM_PRESENTATION_KIND.to_owned(),
+        DirectoryRestrictedClaimPresentation {
+            kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND.to_owned(),
             iss,
             verification_method,
-            audience: audience.to_owned(),
+            audience,
             nonce: nonce.to_owned(),
             claim,
-            created_at,
             expires_at,
+            created_at,
             jws,
         }
     }

@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::VerifiedRestrictedClaims;
+use crate::filter::discoverers::{VerifiedRestrictedClaims, verify_restricted_claim_presentations};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
@@ -69,7 +69,12 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         source_realm_id: body.source_realm_id,
     };
     let requester = body.requester;
-    let verified_claims = VerifiedRestrictedClaims::default();
+    let verified_claims = verified_restricted_claims_for_realm_query(
+        &state,
+        requester.as_ref().map(Did::as_str),
+        body.proof_challenge.as_deref(),
+        &body.claim_presentations,
+    );
     let cursor = match body.cursor.as_deref().map(decode_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
@@ -189,6 +194,13 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
     };
 
+    let requester = body.requester.as_ref().map(Did::as_str).map(str::to_owned);
+    let verified_claims = verified_restricted_claims_for_realm_query(
+        &state,
+        requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &body.claim_presentations,
+    );
     let key = body
         .realm_id
         .as_ref()
@@ -214,8 +226,6 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let requester = body.requester.as_ref().map(Did::as_str).map(str::to_owned);
-    let verified_claims = VerifiedRestrictedClaims::default();
     let outcome = pad_to_budget_observed(
         budget,
         "ck.find.directory.query.resolve_realm",
@@ -261,6 +271,23 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
             ApiErrorCode::NotFound.render(res, "not found");
         }
     }
+}
+
+fn verified_restricted_claims_for_realm_query(
+    state: &AppState,
+    requester: Option<&str>,
+    proof_challenge: Option<&str>,
+    presentations: &[cokret_sdk::DirectoryRestrictedClaimPresentation],
+) -> VerifiedRestrictedClaims {
+    verify_restricted_claim_presentations(
+        presentations,
+        requester,
+        proof_challenge,
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default()
 }
 
 // ---- shared resolution helper (CKP-0011 reuse) --------------------------

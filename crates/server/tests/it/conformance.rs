@@ -7,9 +7,12 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::Utc;
-use cokret_sdk::canonical;
+use chrono::{Duration as ChronoDuration, Utc};
 use cokret_sdk::jws::sign_jws_ed25519;
+use cokret_sdk::{
+    DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
+    DirectoryRestrictedClaimPresentation, PresentedClaim, canonical,
+};
 use diesel::sql_types::{BigInt, Jsonb, Text};
 use diesel_async::RunQueryDsl;
 use ed25519_dalek::SigningKey;
@@ -89,7 +92,7 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
 
     let service = server::service(server::AppState::new(config.clone(), db.clone()));
     assert_describe_advertises_core_and_psi(&service).await?;
-    assert_query_surface_matrix(&service).await?;
+    assert_query_surface_matrix(&db, &service).await?;
     assert_search_realms_finds_seeded_realm(&service).await?;
     assert_pull_subscribe_registers_webhook(&service).await?;
     assert_push_announce_uses_mock_principal_server(&service).await?;
@@ -106,6 +109,29 @@ async fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
     diesel::sql_query(teabay_testing::DIRECTORY_FIXTURE_SQL)
         .execute(&mut conn)
         .await?;
+    Ok(())
+}
+
+async fn install_restricted_realm_claim_selector(
+    db: &server::Db,
+    issuer: &str,
+    organization: &str,
+) -> anyhow::Result<()> {
+    let mut conn = db.get().await?;
+    let discoverers = json!([{
+        "type": "claim",
+        "claim_type": "organization_membership",
+        "issuer": issuer,
+        "organization": organization
+    }]);
+    diesel::sql_query(
+        "UPDATE directory_resources \
+         SET public_projection = jsonb_set(public_projection, '{allowed_discoverers}', $1::jsonb, true) \
+         WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ck:realm:restricted'",
+    )
+    .bind::<Jsonb, _>(discoverers)
+    .execute(&mut conn)
+    .await?;
     Ok(())
 }
 
@@ -168,7 +194,7 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
     Ok(())
 }
 
-async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
+async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyhow::Result<()> {
     let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1 }))
         .send(service)
@@ -223,13 +249,74 @@ async fn assert_query_surface_matrix(service: &Service) -> anyhow::Result<()> {
         json!({}),
     )
     .await?;
+
+    let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
+    let multibase = did_key_multibase(&signing_key);
+    let issuer = Did::new(format!("did:key:{multibase}"))?;
+    let verification_method = format!("{}#{multibase}", issuer.as_str());
+    let subject = Did::new("did:web:alice.example".to_owned())?;
+    let organization = Did::new("did:web:tea-org.example".to_owned())?;
+    install_restricted_realm_claim_selector(db, issuer.as_str(), organization.as_str()).await?;
+    let proof_challenge = "realm-restricted-proof-challenge-1";
+    let claim = PresentedClaim::organization_membership(
+        "claim-realm-restricted",
+        subject.clone(),
+        issuer.clone(),
+        organization,
+        vec!["member".to_owned()],
+    );
+    let presentation = signed_restricted_claim_presentation(
+        &signing_key,
+        issuer,
+        verification_method,
+        "did:web:directory.test",
+        proof_challenge,
+        claim,
+    )?;
+    let presentation_json = serde_json::to_value(&presentation)?;
+
+    assert_resolve_realm_status(
+        service,
+        "ck:realm:restricted",
+        StatusCode::NOT_FOUND,
+        json!({
+            "requester": subject.as_str(),
+            "proof_challenge": "wrong-challenge",
+            "claim_presentations": [presentation_json.clone()]
+        }),
+    )
+    .await?;
     assert_resolve_realm_status(
         service,
         "ck:realm:restricted",
         StatusCode::OK,
-        json!({ "requester": "did:web:alice.example" }),
+        json!({
+            "requester": subject.as_str(),
+            "proof_challenge": proof_challenge,
+            "claim_presentations": [presentation_json.clone()]
+        }),
     )
     .await?;
+
+    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
+        .json(&json!({
+            "query": "Restricted",
+            "requester": subject.as_str(),
+            "proof_challenge": proof_challenge,
+            "claim_presentations": [presentation_json],
+            "limit": 10
+        }))
+        .send(service)
+        .await;
+    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    let body: JsonValue = res.take_json().await?;
+    assert!(
+        body["realms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| result["realm_id"] == "ck:realm:restricted")
+    );
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/search-organizations")
         .json(&json!({ "query": "tea", "limit": 10 }))
@@ -1094,6 +1181,56 @@ fn signed_realm_discovery_state_named(
     let jws = sign_detached_jws(&state, signing_key)?;
     state["proof"]["jws"] = JsonValue::String(jws);
     Ok(state)
+}
+
+#[derive(serde::Serialize)]
+struct DirectoryRestrictedClaimPresentationSigningPayload<'a> {
+    kind: &'a str,
+    iss: &'a Did,
+    verification_method: &'a str,
+    audience: &'a Did,
+    nonce: &'a str,
+    claim: &'a DirectoryPresentedClaim,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<chrono::DateTime<Utc>>,
+    created_at: chrono::DateTime<Utc>,
+}
+
+fn signed_restricted_claim_presentation(
+    signing_key: &SigningKey,
+    iss: Did,
+    verification_method: String,
+    audience: &str,
+    nonce: &str,
+    claim: PresentedClaim,
+) -> anyhow::Result<DirectoryRestrictedClaimPresentation> {
+    let audience = Did::new(audience.to_owned())?;
+    let claim: DirectoryPresentedClaim = claim.into();
+    let created_at = Utc::now();
+    let expires_at = Some(created_at + ChronoDuration::minutes(5));
+    let payload = DirectoryRestrictedClaimPresentationSigningPayload {
+        kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,
+        iss: &iss,
+        verification_method: &verification_method,
+        audience: &audience,
+        nonce,
+        claim: &claim,
+        expires_at,
+        created_at,
+    };
+    let canonical = canonical::canonical_json_bytes(&payload)?;
+    let jws = sign_jws_ed25519(&canonical, signing_key).map_err(anyhow::Error::msg)?;
+    Ok(DirectoryRestrictedClaimPresentation {
+        kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND.to_owned(),
+        iss,
+        verification_method,
+        audience,
+        nonce: nonce.to_owned(),
+        claim,
+        expires_at,
+        created_at,
+        jws,
+    })
 }
 
 fn did_key_multibase(signing_key: &SigningKey) -> String {

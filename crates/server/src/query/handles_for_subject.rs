@@ -44,8 +44,8 @@ use chrono::{DateTime, Utc};
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
 use cokret_sdk::models::HandleClaim;
 use cokret_sdk::{
-    DirectoryListHandlesForSubjectRequestBody, DirectorySubjectHandleList, Handle,
-    validate_handle_claim_subject,
+    DirectoryListHandlesForSubjectRequestBody, DirectoryRestrictedClaimPresentation,
+    DirectorySubjectHandleList, Handle, validate_handle_claim_subject,
 };
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Jsonb, Text, Timestamptz};
@@ -56,8 +56,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 use crate::filter::discoverers::{
-    RestrictedClaimPresentation, VerifiedRestrictedClaims, matches_allowed_discoverers,
-    verify_restricted_claim_presentations,
+    VerifiedRestrictedClaims, matches_allowed_discoverers, verify_restricted_claim_presentations,
 };
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
@@ -388,7 +387,7 @@ fn verified_restricted_claims_for_body(
 
 fn parse_restricted_claim_presentations(
     proofs: &[JsonValue],
-) -> Result<Vec<RestrictedClaimPresentation>, String> {
+) -> Result<Vec<DirectoryRestrictedClaimPresentation>, String> {
     proofs
         .iter()
         .map(|proof| {
