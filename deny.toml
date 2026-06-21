@@ -42,10 +42,32 @@ name = "ring"
 allow = ["OpenSSL", "ISC", "MIT"]
 
 [bans]
-multiple-versions = "allow"
+# Multiple versions are not silently accepted. Current unavoidable splits are
+# listed below and should be removed as upstream SDK/web stack dependencies
+# converge. Production crypto path exception:
+# - voprf 0.6.0-pre.1, checksum
+#   1965e90b2c4b5a7b3316d2633bb58345df0ef7f81e44e7cf02088bb01cd45104
+#   is retained only because cokret-spec v1 requires RFC 9497
+#   OPRF(ristretto255, SHA-512) and no stable crate is wired into the SDK yet.
+multiple-versions = "warn"
 wildcards = "deny"
 deny = []
-skip = []
+skip = [
+  # RustCrypto 0.10/0.12 chain retained by voprf 0.6.0-pre.1 and
+  # cookie/salvo until those upstreams converge on digest 0.11 / hmac 0.13.
+  { name = "block-buffer", version = "0.10.4" },
+  { name = "crypto-common", version = "0.1.7" },
+  { name = "digest", version = "0.10.7" },
+  { name = "hmac", version = "0.12.1" },
+  { name = "sha2", version = "0.10.9" },
+
+  # RNG split retained by cookie/salvo, voprf, and testcontainers while
+  # teabay itself uses rand 0.9.
+  { name = "rand", version = "0.8.6" },
+  { name = "rand", version = "0.10.1" },
+  { name = "rand_core", version = "0.6.4" },
+  { name = "rand_core", version = "0.10.1" },
+]
 skip-tree = []
 
 [sources]

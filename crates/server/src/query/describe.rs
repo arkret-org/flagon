@@ -6,20 +6,19 @@
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
-//! Directory-service-specific extension fields (`accept_policy`,
-//! `accepted_resource_kinds`, `ingest_modes`, `ttl`, etc.) ride alongside
-//! the canonical 17 as non-required extensions so the rest of the
-//! `discovery-directory.md` §9 surface stays intact.
+//! Directory-service-specific fields (`resource_types`,
+//! `accepted_resource_kinds`, `ingest_modes`, `ttl`, etc.) are registered
+//! ServiceDescribe overlay fields, not vendor-specific `x_*` extensions.
 
 use cokret_sdk::{
-    AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, EgressNetworkPolicy,
-    PlaintextVisibility, RateLimitPolicy, ServerDescription, SupportedBinding, TypedTrustDomainId,
-    VerifiedProfileEntry,
+    AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, DirectoryAcceptPolicyKind,
+    DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
+    RateLimitPolicy, ServerDescription, SupportedBinding, TypedTrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-use crate::config::AppConfig;
+use crate::config::{AcceptPolicyKind, AppConfig, IngestModeAdvert, ResourceKindAccept};
 use crate::state::AppState;
 
 #[handler]
@@ -44,8 +43,8 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
     }
 }
 
-/// Round 4 — build the `ServiceDescribe` v2 envelope plus the
-/// directory-service-specific extension fields. Runs
+/// Round 4 — build the `ServiceDescribe` v2 envelope plus the registered
+/// directory-service overlay fields. Runs
 /// [`ServerDescription::validate`] before returning so a misconfigured
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
@@ -64,6 +63,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     if cfg.private_contact_discovery_enabled {
         supported_profiles.push("ck.private_contact_discovery.v1".to_owned());
     }
+    let directory_discovery_profiles = supported_profiles.clone();
 
     // Operations the directory publishes. Single source of truth:
     // `crate::kinds::SUPPORTED_OPERATIONS` (no parallel string literals here).
@@ -140,6 +140,15 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "max_ttl_seconds": cfg.max_ttl.as_secs(),
         "revalidation_grace_seconds": cfg.revalidation_grace.as_secs(),
     });
+    let directory_rate_limits = json!({
+        "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
+        "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
+        "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
+        "psi_epoch_seconds": cfg.psi_epoch_seconds,
+        "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
+        "query_latency_floor_ms": cfg.query_latency_floor.as_millis() as u64,
+        "query_latency_jitter_ms": cfg.query_latency_jitter.as_millis() as u64,
+    });
 
     // `plaintext_visibility` advertises that the directory does NOT
     // surface plaintext message bodies — directory entries are
@@ -199,7 +208,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     let describe_body = ServerDescription {
         service_did,
         trust_domain,
-        service_type: "directory".to_owned(),
+        service_type: "directory_service".to_owned(),
         protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         supported_operations,
@@ -225,6 +234,26 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             cfg.rate_limit_per_resource_per_min,
         )),
         rate_limit_policy_id: None,
+        resource_types: all_directory_resource_kinds(),
+        discovery_profiles: directory_discovery_profiles,
+        restricted_query_proof: Some(true),
+        ingest_modes: cfg.ingest_modes.iter().map(directory_ingest_mode).collect(),
+        accept_policy_kind: Some(directory_accept_policy_kind(cfg.accept_policy_kind)),
+        accept_policy_ref: cfg
+            .accept_policy_ref
+            .as_ref()
+            .map(|reference| json!({ "ref": reference })),
+        default_ttl_seconds: Some(cfg.default_ttl.as_secs()),
+        max_ttl_seconds: Some(cfg.max_ttl.as_secs()),
+        revalidation_grace_seconds: Some(cfg.revalidation_grace.as_secs()),
+        accepted_resource_kinds: cfg
+            .accepted_resource_kinds
+            .iter()
+            .map(directory_resource_kind)
+            .collect(),
+        accepted_did_methods: cfg.accepted_did_methods.clone(),
+        takedown_contact: cfg.takedown_contact.clone(),
+        rate_limits: Some(directory_rate_limits),
         supported_reducer_profiles: Vec::new(),
         supported_schema_profiles: Vec::new(),
         frontier: Vec::new(),
@@ -242,96 +271,12 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .as_object_mut()
         .ok_or_else(|| "ServiceDescribe must serialise as a JSON object".to_owned())?;
 
-    // Directory-specific extension fields. ServiceDescribe is
-    // `additionalProperties: false` apart from the `^x_[a-z][a-z0-9_]{0,63}$`
-    // extension pattern, so every directory-private field MUST be
-    // namespaced under `x_teabay_*`. The directory surface specification
-    // (discovery-directory.md §9) expects these; they now ride strictly
-    // as namespaced extensions rather than bare top-level keys.
+    // Teabay-private describe fields stay namespaced under `x_teabay_*`.
+    // The standard directory overlay fields are already emitted by
+    // `ServerDescription` as bare top-level fields.
     object.insert(
         "x_teabay_public_base_url".to_owned(),
         JsonValue::String(cfg.public_base_url.clone()),
-    );
-    object.insert(
-        "x_teabay_resource_types".to_owned(),
-        json!(["realm", "organization", "actor", "applet", "handle"]),
-    );
-    object.insert(
-        "x_teabay_restricted_query_proof".to_owned(),
-        JsonValue::Bool(true),
-    );
-    object.insert(
-        "x_teabay_ingest_modes".to_owned(),
-        JsonValue::Array(
-            cfg.ingest_modes
-                .iter()
-                .map(|m| JsonValue::String(m.as_str().to_owned()))
-                .collect(),
-        ),
-    );
-    object.insert(
-        "x_teabay_accept_policy_kind".to_owned(),
-        JsonValue::String(accept_policy_str(cfg).to_owned()),
-    );
-    object.insert(
-        "x_teabay_accept_policy_ref".to_owned(),
-        cfg.accept_policy_ref
-            .as_ref()
-            .map(|s| JsonValue::String(s.clone()))
-            .unwrap_or(JsonValue::Null),
-    );
-    object.insert(
-        "x_teabay_default_ttl_seconds".to_owned(),
-        json!(cfg.default_ttl.as_secs()),
-    );
-    object.insert(
-        "x_teabay_max_ttl_seconds".to_owned(),
-        json!(cfg.max_ttl.as_secs()),
-    );
-    object.insert(
-        "x_teabay_revalidation_grace_seconds".to_owned(),
-        json!(cfg.revalidation_grace.as_secs()),
-    );
-    object.insert(
-        "x_teabay_accepted_resource_kinds".to_owned(),
-        JsonValue::Array(
-            cfg.accepted_resource_kinds
-                .iter()
-                .map(|k| JsonValue::String(k.as_str().to_owned()))
-                .collect(),
-        ),
-    );
-    object.insert(
-        "x_teabay_accepted_did_methods".to_owned(),
-        JsonValue::Array(
-            cfg.accepted_did_methods
-                .iter()
-                .map(|m| JsonValue::String(m.clone()))
-                .collect(),
-        ),
-    );
-    object.insert(
-        "x_teabay_takedown_contact".to_owned(),
-        cfg.takedown_contact
-            .as_ref()
-            .map(|s| JsonValue::String(s.clone()))
-            .unwrap_or(JsonValue::Null),
-    );
-    // PSI / latency-shaping knobs that don't map onto the canonical
-    // windowed `rate_limit_policy`. The headline per-resource limit is
-    // already carried canonically by `rate_limit_policy`; these are
-    // directory-private operational details.
-    object.insert(
-        "x_teabay_rate_limits".to_owned(),
-        json!({
-            "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
-            "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
-            "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
-            "psi_epoch_seconds": cfg.psi_epoch_seconds,
-            "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
-            "query_latency_floor_ms": cfg.query_latency_floor.as_millis() as u64,
-            "query_latency_jitter_ms": cfg.query_latency_jitter.as_millis() as u64,
-        }),
     );
     object.insert(
         "x_teabay_limitations".to_owned(),
@@ -341,12 +286,38 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     Ok(value)
 }
 
-fn accept_policy_str(cfg: &AppConfig) -> &'static str {
-    use crate::config::AcceptPolicyKind::*;
-    match cfg.accept_policy_kind {
-        Open => "open",
-        Allowlist => "allowlist",
-        OperatorReview => "operator_review",
+fn all_directory_resource_kinds() -> Vec<DirectoryResourceKind> {
+    vec![
+        DirectoryResourceKind::Realm,
+        DirectoryResourceKind::Organization,
+        DirectoryResourceKind::Actor,
+        DirectoryResourceKind::Applet,
+        DirectoryResourceKind::Handle,
+    ]
+}
+
+fn directory_resource_kind(kind: &ResourceKindAccept) -> DirectoryResourceKind {
+    match kind {
+        ResourceKindAccept::Realm => DirectoryResourceKind::Realm,
+        ResourceKindAccept::Organization => DirectoryResourceKind::Organization,
+        ResourceKindAccept::Actor => DirectoryResourceKind::Actor,
+        ResourceKindAccept::Applet => DirectoryResourceKind::Applet,
+        ResourceKindAccept::Handle => DirectoryResourceKind::Handle,
+    }
+}
+
+fn directory_ingest_mode(mode: &IngestModeAdvert) -> DirectoryIngestMode {
+    match mode {
+        IngestModeAdvert::Push => DirectoryIngestMode::Push,
+        IngestModeAdvert::Pull => DirectoryIngestMode::Pull,
+    }
+}
+
+fn directory_accept_policy_kind(kind: AcceptPolicyKind) -> DirectoryAcceptPolicyKind {
+    match kind {
+        AcceptPolicyKind::Open => DirectoryAcceptPolicyKind::Open,
+        AcceptPolicyKind::Allowlist => DirectoryAcceptPolicyKind::Allowlist,
+        AcceptPolicyKind::OperatorReview => DirectoryAcceptPolicyKind::OperatorReview,
     }
 }
 
@@ -469,7 +440,7 @@ mod tests {
         assert_eq!(value["development_mode"], true);
         assert_eq!(value["trust_domain"], "ck:trust_domain:local.test");
         assert_eq!(value["service_did"], "did:web:directory.test");
-        assert_eq!(value["service_type"], "directory");
+        assert_eq!(value["service_type"], "directory_service");
         // verified_profiles MUST be empty when development_mode = true.
         assert!(
             value["verified_profiles"].as_array().unwrap().is_empty(),
@@ -477,18 +448,20 @@ mod tests {
         );
     }
 
-    /// Round 4 — directory-specific extensions ride alongside the
-    /// canonical 17. The §9 surface still ships
-    /// `accepted_resource_kinds`, `ingest_modes`, `rate_limits`, etc.
+    /// Round 4 — directory-specific fields are standard ServiceDescribe
+    /// overlay fields. They are emitted as bare top-level keys, while
+    /// teabay-private fields stay under `x_teabay_*`.
     #[test]
-    fn describe_carries_directory_extensions() {
+    fn describe_carries_directory_overlay_fields() {
         let value = build_describe_response_value(&cfg(false, true)).expect("describe builds");
-        assert!(value.get("x_teabay_accepted_resource_kinds").is_some());
-        assert!(value.get("x_teabay_ingest_modes").is_some());
-        assert!(value.get("x_teabay_rate_limits").is_some());
-        assert!(value.get("x_teabay_accept_policy_kind").is_some());
-        assert_eq!(value["x_teabay_accept_policy_kind"], "open");
+        assert!(value.get("accepted_resource_kinds").is_some());
+        assert!(value.get("discovery_profiles").is_some());
+        assert!(value.get("ingest_modes").is_some());
+        assert!(value.get("rate_limits").is_some());
+        assert!(value.get("accept_policy_kind").is_some());
+        assert_eq!(value["accept_policy_kind"], "open");
         assert_eq!(value["x_teabay_public_base_url"], "http://directory.test");
+        assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
         assert!(
             value["supported_operations"]
                 .as_array()
@@ -514,7 +487,7 @@ mod tests {
         let describe_body = ServerDescription {
             service_did: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ck:trust_domain:local.test").unwrap(),
-            service_type: "directory".to_owned(),
+            service_type: "directory_service".to_owned(),
             protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ck.profile.directory_service.v1".to_owned()],
             supported_operations: Vec::new(),
@@ -546,6 +519,19 @@ mod tests {
             development_mode: true,
             rate_limit_policy: Some(RateLimitPolicy::unspecified()),
             rate_limit_policy_id: None,
+            resource_types: all_directory_resource_kinds(),
+            discovery_profiles: vec!["ck.profile.directory_service.v1".to_owned()],
+            restricted_query_proof: Some(true),
+            ingest_modes: vec![DirectoryIngestMode::Push],
+            accept_policy_kind: Some(DirectoryAcceptPolicyKind::Open),
+            accept_policy_ref: None,
+            default_ttl_seconds: Some(3_600),
+            max_ttl_seconds: Some(86_400),
+            revalidation_grace_seconds: Some(300),
+            accepted_resource_kinds: all_directory_resource_kinds(),
+            accepted_did_methods: vec!["did:web".to_owned()],
+            takedown_contact: None,
+            rate_limits: Some(json!({})),
             supported_reducer_profiles: Vec::new(),
             supported_schema_profiles: Vec::new(),
             frontier: Vec::new(),
@@ -586,6 +572,19 @@ mod tests {
             "rate_limit_policy",
             "rate_limit_policy_id",
             "egress_network_policy",
+            "resource_types",
+            "discovery_profiles",
+            "restricted_query_proof",
+            "ingest_modes",
+            "accept_policy_kind",
+            "accept_policy_ref",
+            "default_ttl_seconds",
+            "max_ttl_seconds",
+            "revalidation_grace_seconds",
+            "accepted_resource_kinds",
+            "accepted_did_methods",
+            "takedown_contact",
+            "rate_limits",
             "supported_reducer_profiles",
             "supported_schema_profiles",
             "frontier",
@@ -621,18 +620,24 @@ mod tests {
                 );
             }
 
-            // The directory-private fields are all present under `x_teabay_*`.
-            for ext in [
-                "x_teabay_public_base_url",
-                "x_teabay_resource_types",
-                "x_teabay_ingest_modes",
-                "x_teabay_accept_policy_kind",
-                "x_teabay_rate_limits",
-                "x_teabay_limitations",
-            ] {
+            // Teabay-private fields remain under `x_teabay_*`.
+            for ext in ["x_teabay_public_base_url", "x_teabay_limitations"] {
                 assert!(
                     object.contains_key(ext),
-                    "directory extension `{ext}` must ride as an x_teabay_* key"
+                    "teabay-private extension `{ext}` must ride as an x_teabay_* key"
+                );
+            }
+            for standard in [
+                "resource_types",
+                "discovery_profiles",
+                "ingest_modes",
+                "accept_policy_kind",
+                "accepted_resource_kinds",
+                "rate_limits",
+            ] {
+                assert!(
+                    object.contains_key(standard),
+                    "standard directory field `{standard}` must be emitted as a bare key"
                 );
             }
         }

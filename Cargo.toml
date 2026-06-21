@@ -23,7 +23,6 @@ cokret-sdk = {package = "cokret",version = "0.3.0",path = "../cokret-rust-sdk/cr
 deadpool = {version = "0.13",features = ["rt_tokio_1"]}
 diesel = {version = "2.3.10",features = ["postgres", "r2d2", "serde_json", "chrono", "uuid", "pq-src"]}
 diesel-async = {version = "0.9",features = ["postgres", "deadpool", "async-connection-wrapper"]}
-diesel-derive-enum = {version = "3.0.0-beta.1",features = ["postgres"]}
 diesel_migrations = {version = "2.3.2",features = ["postgres"]}
 dioxus = {version = "0.7.9",features = ["web"]}
 dioxus-free-icons = {version = "0.10.0",features = ["lucide"]}

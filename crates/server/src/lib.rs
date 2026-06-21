@@ -8,6 +8,7 @@
 pub mod audit;
 pub mod config;
 pub mod db;
+mod db_enum;
 mod did_resolver;
 mod egress;
 pub mod error;

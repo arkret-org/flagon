@@ -15,15 +15,14 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
-use diesel_derive_enum::DbEnum;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
 use crate::schema::directory_audit;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, DbEnum)]
-#[db_enum(existing_type_path = "crate::schema::sql_types::AuditEventKind")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel::AsExpression, diesel::FromSqlRow)]
+#[diesel(sql_type = crate::schema::sql_types::AuditEventKind)]
 pub enum AuditEventKind {
     IngestAccepted,
     IngestRejected,
@@ -49,26 +48,22 @@ pub enum AuditEventKind {
     IngestHistoricalOnly,
 }
 
-impl AuditEventKind {
-    pub fn as_pg(self) -> &'static str {
-        match self {
-            Self::IngestAccepted => "ingest_accepted",
-            Self::IngestRejected => "ingest_rejected",
-            Self::RevalidationSucceeded => "revalidation_succeeded",
-            Self::RevalidationFailed => "revalidation_failed",
-            Self::Withdrawal => "withdrawal",
-            Self::OperatorTakedown => "operator_takedown",
-            Self::AllowlistAdded => "allowlist_added",
-            Self::AllowlistRemoved => "allowlist_removed",
-            Self::AdminResourceUpserted => "admin_resource_upserted",
-            Self::AdminResourceDeleted => "admin_resource_deleted",
-            Self::ExpiryPurged => "expiry_purged",
-            Self::ConsentRevokeInvalidation => "consent_revoke_invalidation",
-            Self::RealmDestroyed => "realm_destroyed",
-            Self::IngestHistoricalOnly => "ingest_historical_only",
-        }
-    }
-}
+crate::db_enum::impl_pg_enum!(AuditEventKind, crate::schema::sql_types::AuditEventKind, {
+    AuditEventKind::IngestAccepted => "ingest_accepted",
+    AuditEventKind::IngestRejected => "ingest_rejected",
+    AuditEventKind::RevalidationSucceeded => "revalidation_succeeded",
+    AuditEventKind::RevalidationFailed => "revalidation_failed",
+    AuditEventKind::Withdrawal => "withdrawal",
+    AuditEventKind::OperatorTakedown => "operator_takedown",
+    AuditEventKind::AllowlistAdded => "allowlist_added",
+    AuditEventKind::AllowlistRemoved => "allowlist_removed",
+    AuditEventKind::AdminResourceUpserted => "admin_resource_upserted",
+    AuditEventKind::AdminResourceDeleted => "admin_resource_deleted",
+    AuditEventKind::ExpiryPurged => "expiry_purged",
+    AuditEventKind::ConsentRevokeInvalidation => "consent_revoke_invalidation",
+    AuditEventKind::RealmDestroyed => "realm_destroyed",
+    AuditEventKind::IngestHistoricalOnly => "ingest_historical_only",
+});
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = directory_audit)]

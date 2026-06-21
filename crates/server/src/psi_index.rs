@@ -75,6 +75,7 @@ pub(crate) async fn sync_resource_tokens_on_conn(
     let now = Utc::now();
     let epoch_keys: Vec<(String, Vec<u8>)> = k::psi_epoch_keys
         .filter(k::expires_at.gt(now))
+        .filter(k::profile.eq(crate::query::psi::VOPRF_PROFILE))
         .select((k::epoch, k::server_key))
         .load(conn)
         .await?;

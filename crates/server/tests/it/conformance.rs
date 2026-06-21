@@ -115,10 +115,14 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    let profiles = body["discovery_profiles"].as_array().unwrap();
+    let profiles = body["supported_profiles"].as_array().unwrap();
     assert!(profiles.contains(&json!("ck.profile.directory_service.v1")));
     assert!(profiles.contains(&json!("ck.private_contact_discovery.v1")));
+    let discovery_profiles = body["discovery_profiles"].as_array().unwrap();
+    assert!(discovery_profiles.contains(&json!("ck.profile.directory_service.v1")));
+    assert!(discovery_profiles.contains(&json!("ck.private_contact_discovery.v1")));
     assert_eq!(body["service_did"], "did:web:directory.test");
+    assert_eq!(body["service_type"], "directory_service");
     assert!(
         body["accepted_resource_kinds"]
             .as_array()
@@ -138,7 +142,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
             .contains(&json!("pull"))
     );
     assert!(
-        body["limitations"]
+        body["x_teabay_limitations"]
             .as_array()
             .unwrap()
             .iter()

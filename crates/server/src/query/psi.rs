@@ -20,7 +20,7 @@ use crate::error::ApiErrorCode;
 use crate::schema::psi_epoch_keys;
 use crate::state::{AppState, RateLimitOutcome};
 
-const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
+pub(crate) const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
 const MATCH_CARDINALITY: usize = 256;
 
 type PsiServer = VoprfServer<Ristretto255>;
@@ -76,6 +76,7 @@ pub struct PsiMatchOutcome {
 #[derive(Debug, Clone, Queryable)]
 struct PsiEpochKey {
     epoch: String,
+    profile: String,
     server_key: Vec<u8>,
     public_key: Vec<u8>,
     tokens_indexed_at: Option<DateTime<Utc>>,
@@ -339,11 +340,18 @@ async fn load_or_create_epoch_key(
 
     if let Some(mut row) = k::psi_epoch_keys
         .filter(k::epoch.eq(epoch_value))
-        .select((k::epoch, k::server_key, k::public_key, k::tokens_indexed_at))
+        .select((
+            k::epoch,
+            k::profile,
+            k::server_key,
+            k::public_key,
+            k::tokens_indexed_at,
+        ))
         .first::<PsiEpochKey>(&mut *conn)
         .await
         .optional()?
     {
+        ensure_epoch_profile(&row.profile)?;
         ensure_epoch_tokens_indexed(&mut conn, &mut row).await?;
         return Ok(row);
     }
@@ -372,11 +380,27 @@ async fn load_or_create_epoch_key(
 
     let mut row = k::psi_epoch_keys
         .filter(k::epoch.eq(epoch_value))
-        .select((k::epoch, k::server_key, k::public_key, k::tokens_indexed_at))
+        .select((
+            k::epoch,
+            k::profile,
+            k::server_key,
+            k::public_key,
+            k::tokens_indexed_at,
+        ))
         .first::<PsiEpochKey>(&mut *conn)
         .await?;
+    ensure_epoch_profile(&row.profile)?;
     ensure_epoch_tokens_indexed(&mut conn, &mut row).await?;
     Ok(row)
+}
+
+fn ensure_epoch_profile(profile: &str) -> anyhow::Result<()> {
+    if profile != VOPRF_PROFILE {
+        anyhow::bail!(
+            "PSI epoch profile `{profile}` is not supported by this binary; expected `{VOPRF_PROFILE}`"
+        );
+    }
+    Ok(())
 }
 
 async fn ensure_epoch_tokens_indexed(
@@ -474,6 +498,12 @@ mod tests {
         assert!(value.get("limited").is_none());
         assert!(value.get("indexed_candidate_count").is_none());
         assert!(value.get("indexed_candidate_limit").is_none());
+    }
+
+    #[test]
+    fn psi_epoch_profile_mismatch_fails_closed() {
+        assert!(ensure_epoch_profile(VOPRF_PROFILE).is_ok());
+        assert!(ensure_epoch_profile("RFC9497-OPRFV1-P256-SHA256").is_err());
     }
 
     #[test]

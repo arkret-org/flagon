@@ -11,7 +11,6 @@ pub mod subscribe;
 pub mod verify;
 pub mod withdraw;
 
-use diesel_derive_enum::DbEnum;
 use salvo::Request;
 use serde::{Deserialize, Serialize};
 use teabay_contracts::{
@@ -51,8 +50,18 @@ pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
 // by the `resource_kind` enum at deserialization time, which is the
 // intentional stub for REC-1.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
-#[db_enum(existing_type_path = "crate::schema::sql_types::ResourceKind")]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    diesel::AsExpression,
+    diesel::FromSqlRow,
+)]
+#[diesel(sql_type = crate::schema::sql_types::ResourceKind)]
 #[serde(rename_all = "snake_case")]
 pub enum DirectoryResourceKindDb {
     Realm,
@@ -63,16 +72,6 @@ pub enum DirectoryResourceKindDb {
 }
 
 impl DirectoryResourceKindDb {
-    pub fn as_pg(self) -> &'static str {
-        match self {
-            Self::Realm => "realm",
-            Self::Organization => "organization",
-            Self::Actor => "actor",
-            Self::Applet => "applet",
-            Self::Handle => "handle",
-        }
-    }
-
     /// Spec `ck.{kind}.discovery` event kind for this resource.
     ///
     /// Realm is the security boundary. Container Spaces are authorization
@@ -90,6 +89,18 @@ impl DirectoryResourceKindDb {
     }
 }
 
+crate::db_enum::impl_pg_enum!(
+    DirectoryResourceKindDb,
+    crate::schema::sql_types::ResourceKind,
+    {
+        DirectoryResourceKindDb::Realm => "realm",
+        DirectoryResourceKindDb::Organization => "organization",
+        DirectoryResourceKindDb::Actor => "actor",
+        DirectoryResourceKindDb::Applet => "applet",
+        DirectoryResourceKindDb::Handle => "handle",
+    }
+);
+
 impl From<ContractResourceKind> for DirectoryResourceKindDb {
     fn from(value: ContractResourceKind) -> Self {
         match value {
@@ -104,18 +115,43 @@ impl From<ContractResourceKind> for DirectoryResourceKindDb {
 
 // ---- Ingest mode (push / pull) ------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
-#[db_enum(existing_type_path = "crate::schema::sql_types::IngestMode")]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    diesel::AsExpression,
+    diesel::FromSqlRow,
+)]
+#[diesel(sql_type = crate::schema::sql_types::IngestMode)]
 #[serde(rename_all = "snake_case")]
 pub enum IngestModeWire {
     Push,
     Pull,
 }
 
+crate::db_enum::impl_pg_enum!(IngestModeWire, crate::schema::sql_types::IngestMode, {
+    IngestModeWire::Push => "push",
+    IngestModeWire::Pull => "pull",
+});
+
 // ---- Withdrawal kind ----------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
-#[db_enum(existing_type_path = "crate::schema::sql_types::WithdrawalKind")]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    diesel::AsExpression,
+    diesel::FromSqlRow,
+)]
+#[diesel(sql_type = crate::schema::sql_types::WithdrawalKind)]
 #[serde(rename_all = "snake_case")]
 pub enum WithdrawalKindWire {
     ResourceStateChange,
@@ -123,10 +159,30 @@ pub enum WithdrawalKindWire {
     OperatorTakedown,
 }
 
+crate::db_enum::impl_pg_enum!(
+    WithdrawalKindWire,
+    crate::schema::sql_types::WithdrawalKind,
+    {
+        WithdrawalKindWire::ResourceStateChange => "resource_state_change",
+        WithdrawalKindWire::ResourceWithdraw => "resource_withdraw",
+        WithdrawalKindWire::OperatorTakedown => "operator_takedown",
+    }
+);
+
 // ---- Discoverability (database adapter enum) ----------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, DbEnum)]
-#[db_enum(existing_type_path = "crate::schema::sql_types::Discoverability")]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    diesel::AsExpression,
+    diesel::FromSqlRow,
+)]
+#[diesel(sql_type = crate::schema::sql_types::Discoverability)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscoverabilityDb {
     Public,
@@ -138,32 +194,6 @@ pub enum DiscoverabilityDb {
 }
 
 impl DiscoverabilityDb {
-    pub fn as_pg(self) -> &'static str {
-        match self {
-            Self::Public => "public",
-            Self::Listed => "listed",
-            Self::Restricted => "restricted",
-            Self::Unlisted => "unlisted",
-            Self::InviteOnly => "invite_only",
-            Self::Secret => "secret",
-        }
-    }
-
-    /// Inverse of [`Self::as_pg`]: parse the canonical snake_case wire / pg
-    /// string. Single source of truth so `query`/`ingest` paths do not each
-    /// hand-roll the six-state match.
-    pub fn from_pg(value: &str) -> anyhow::Result<Self> {
-        Ok(match value {
-            "public" => Self::Public,
-            "listed" => Self::Listed,
-            "restricted" => Self::Restricted,
-            "unlisted" => Self::Unlisted,
-            "invite_only" => Self::InviteOnly,
-            "secret" => Self::Secret,
-            other => anyhow::bail!("unknown discoverability {other}"),
-        })
-    }
-
     /// True when the resource is allowed in *any* directory result, even
     /// gated. False ⇒ we MUST behave as if it does not exist.
     pub fn is_directory_visible(self) -> bool {
@@ -173,6 +203,19 @@ impl DiscoverabilityDb {
         )
     }
 }
+
+crate::db_enum::impl_pg_enum!(
+    DiscoverabilityDb,
+    crate::schema::sql_types::Discoverability,
+    {
+        DiscoverabilityDb::Public => "public",
+        DiscoverabilityDb::Listed => "listed",
+        DiscoverabilityDb::Restricted => "restricted",
+        DiscoverabilityDb::Unlisted => "unlisted",
+        DiscoverabilityDb::InviteOnly => "invite_only",
+        DiscoverabilityDb::Secret => "secret",
+    }
+);
 
 impl From<ContractDiscoverability> for DiscoverabilityDb {
     fn from(value: ContractDiscoverability) -> Self {
