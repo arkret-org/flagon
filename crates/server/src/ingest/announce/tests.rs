@@ -308,6 +308,7 @@ fn announce_digest_uses_canonical_json_body() {
         discovery_state: JsonValue::Object(first_state),
         source_refs: vec!["evt-1".to_owned()],
         as_of,
+        policy_revision: "rev-1".to_owned(),
         ttl_seconds: Some(3600),
         supersedes_announce_id: None,
         trust_root_attestation: None,

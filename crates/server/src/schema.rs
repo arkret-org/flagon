@@ -253,6 +253,7 @@ diesel::table! {
         executed_at -> Nullable<Timestamptz>,
         executed_withdraw_id -> Nullable<Text>,
         notification_status -> Nullable<Text>,
+        next_notification_after -> Timestamptz,
     }
 }
 

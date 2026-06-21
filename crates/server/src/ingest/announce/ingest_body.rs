@@ -1,9 +1,7 @@
 //! Parsed `ck.find.directory.command.announce` request body.
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
-    DirectoryAnnounceRequestBody as SdkDirectoryAnnounceRequestBody, DirectoryResourceKind,
-};
+use cokret_sdk::{Did, DirectoryResourceKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -17,6 +15,7 @@ pub struct DirectoryAnnounceIngest {
     pub discovery_state: JsonValue,
     pub source_refs: Vec<String>,
     pub as_of: DateTime<Utc>,
+    pub policy_revision: String,
     #[serde(default)]
     pub ttl_seconds: Option<i64>,
     #[serde(default)]
@@ -25,10 +24,26 @@ pub struct DirectoryAnnounceIngest {
     pub trust_root_attestation: Option<JsonValue>,
 }
 
-impl TryFrom<SdkDirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
+#[derive(Debug, Clone, Deserialize)]
+pub struct DirectoryAnnounceWireBody {
+    pub resource_kind: DirectoryResourceKind,
+    pub resource_id: String,
+    pub principal_server_did: Did,
+    pub discovery_state: JsonValue,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    pub as_of: DateTime<Utc>,
+    pub policy_revision: String,
+    #[serde(default)]
+    pub ttl_seconds: Option<u64>,
+    #[serde(default)]
+    pub supersedes_announce_id: Option<String>,
+}
+
+impl TryFrom<DirectoryAnnounceWireBody> for DirectoryAnnounceIngest {
     type Error = String;
 
-    fn try_from(value: SdkDirectoryAnnounceRequestBody) -> Result<Self, Self::Error> {
+    fn try_from(value: DirectoryAnnounceWireBody) -> Result<Self, Self::Error> {
         Ok(Self {
             resource_kind: match value.resource_kind {
                 DirectoryResourceKind::Realm => DirectoryResourceKindDb::Realm,
@@ -42,6 +57,7 @@ impl TryFrom<SdkDirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             discovery_state: value.discovery_state,
             source_refs: value.source_refs,
             as_of: value.as_of,
+            policy_revision: value.policy_revision,
             ttl_seconds: value
                 .ttl_seconds
                 .map(i64::try_from)

@@ -12,13 +12,10 @@ mod projection;
 mod tests;
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
-    DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome,
-    DirectoryAnnounceRequestBody as SdkDirectoryAnnounceRequestBody,
-};
+use cokret_sdk::DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome;
 use federation::verify_federation_trust_domain_headers;
 pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
-pub(crate) use ingest_body::DirectoryAnnounceIngest;
+pub(crate) use ingest_body::{DirectoryAnnounceIngest, DirectoryAnnounceWireBody};
 use persist::find_announce_by_natural_key;
 pub(crate) use persist::{
     canonical_json_string, digest_request, latest_as_of_for, upsert_resource_and_audit,
@@ -67,7 +64,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("announce");
 
-    let wire_body: SdkDirectoryAnnounceRequestBody = match req.parse_json().await {
+    let wire_body: DirectoryAnnounceWireBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");

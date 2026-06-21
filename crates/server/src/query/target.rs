@@ -52,16 +52,12 @@ use cokret_sdk::{
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
-use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
-use crate::did_resolver::did_resolver_chain;
+use crate::did_resolver::{did_method_allowed, did_resolver_chain};
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{
-    RestrictedClaimPresentation, VerifiedRestrictedClaims, matches_allowed_discoverers,
-    verify_restricted_claim_presentations,
-};
+use crate::filter::discoverers::{VerifiedRestrictedClaims, matches_allowed_discoverers};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::query::realm::resolve_realm_visible;
@@ -69,19 +65,6 @@ use crate::state::AppState;
 
 /// Dashed metric op label for this surface.
 const OP: &str = "resolve-target";
-
-#[derive(Debug, Deserialize)]
-pub struct TeabayResolveTargetRequest {
-    pub address: String,
-    #[serde(default)]
-    pub requester: Option<String>,
-    #[serde(default)]
-    pub proof_challenge: Option<String>,
-    #[serde(default)]
-    pub proofs: Vec<RestrictedClaimPresentation>,
-    #[serde(default)]
-    pub token: Option<String>,
-}
 
 #[handler]
 pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Response) {
@@ -94,26 +77,8 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     };
     let _query_timer = state.metrics().query_timer(OP);
 
-    let raw_body: JsonValue = match req.parse_json().await {
+    let body: SdkDirectoryResolveTargetRequestBody = match req.parse_json().await {
         Ok(body) => body,
-        Err(e) => {
-            state.metrics().record_query_outcome(OP, "bad_json");
-            ApiErrorCode::BadJson.render(res, format!("malformed resolve-target body: {e}"));
-            return;
-        }
-    };
-    let _wire_body: SdkDirectoryResolveTargetRequestBody =
-        match serde_json::from_value(raw_body.clone()) {
-            Ok(body) => body,
-            Err(e) => {
-                state.metrics().record_query_outcome(OP, "bad_json");
-                ApiErrorCode::BadJson
-                    .render(res, format!("malformed resolve-target SDK body: {e}"));
-                return;
-            }
-        };
-    let body: TeabayResolveTargetRequest = match serde_json::from_value(raw_body) {
-        Ok(b) => b,
         Err(e) => {
             state.metrics().record_query_outcome(OP, "bad_json");
             ApiErrorCode::BadJson.render(res, format!("malformed resolve-target body: {e}"));
@@ -135,15 +100,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     }
 
     let requester = body.requester.as_ref().map(|d| d.as_str().to_owned());
-    let verified_claims = verify_restricted_claim_presentations(
-        &body.proofs,
-        requester.as_deref(),
-        body.proof_challenge.as_deref(),
-        &state.config().service_did,
-        &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
-    )
-    .unwrap_or_default();
+    let verified_claims = VerifiedRestrictedClaims::default();
     // The address carries the token via `tok=`; the request body MAY also carry
     // it explicitly. The body wins when both are present.
     let token = body.token.clone();
@@ -536,15 +493,6 @@ fn verify_invite_token_jws(
     sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver).ok()
 }
 
-fn did_method_allowed(accepted_did_methods: &[String], expected: &str) -> bool {
-    accepted_did_methods.iter().any(|method| {
-        method
-            .trim()
-            .trim_end_matches(':')
-            .eq_ignore_ascii_case(expected)
-    })
-}
-
 fn token_verification_method(value: &JsonValue) -> Option<&str> {
     value
         .get("verification_method")
@@ -625,7 +573,6 @@ fn build_realm_response(
 #[derive(Debug, Queryable)]
 struct ObjectAccessRow {
     public_projection: JsonValue,
-    allowed_requesters: Vec<String>,
     required_claims: JsonValue,
     as_of: chrono::DateTime<Utc>,
     source_refs: Vec<String>,
@@ -717,7 +664,6 @@ async fn load_object_access_row(
         .filter(o::stale.eq(false))
         .select((
             o::public_projection,
-            o::allowed_requesters,
             o::required_claims,
             o::as_of,
             o::source_refs,
@@ -738,14 +684,6 @@ fn object_access_allowed(
     invite_authorized: bool,
 ) -> bool {
     if invite_authorized {
-        return true;
-    }
-    if let Some(requester) = requester
-        && row
-            .allowed_requesters
-            .iter()
-            .any(|allowed| allowed == requester)
-    {
         return true;
     }
     if verified_claims.is_empty() {
@@ -1030,10 +968,9 @@ mod tests {
     }
 
     #[test]
-    fn object_access_gate_requires_policy_or_invite() {
+    fn object_access_gate_requires_verified_policy_or_invite() {
         let row = ObjectAccessRow {
             public_projection: json!({ "title": "Strand" }),
-            allowed_requesters: vec!["did:web:alice.example".to_owned()],
             required_claims: json!([]),
             as_of: sample_time(),
             source_refs: vec!["ck:event:1".to_owned()],
@@ -1042,7 +979,7 @@ mod tests {
             divergent: false,
         };
 
-        assert!(object_access_allowed(
+        assert!(!object_access_allowed(
             &row,
             Some("did:web:alice.example"),
             &VerifiedRestrictedClaims::default(),

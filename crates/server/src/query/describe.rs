@@ -208,6 +208,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         auth_metadata,
         limits,
         plaintext_visibility,
+        privacy_derivation: None,
         implemented_features,
         claimed_profiles,
         verified_profiles,
@@ -524,6 +525,7 @@ mod tests {
             limits: json!({}),
             egress_network_policy: None,
             plaintext_visibility: PlaintextVisibility::none(),
+            privacy_derivation: None,
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {

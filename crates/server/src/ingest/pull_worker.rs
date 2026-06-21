@@ -42,8 +42,8 @@ use crate::ingest::announce::{
 };
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::{
-    VerifyContext, endpoint_child, resolve_principal_server_endpoint, strict_http_client,
-    strict_http_client_for_egress,
+    VerifyContext, endpoint_child, resolve_principal_server_endpoint, response_json_limited,
+    strict_http_client, strict_http_client_for_egress,
 };
 use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 use crate::state::{AppState, BackgroundWorker};
@@ -192,6 +192,12 @@ impl PullWorker {
         }
 
         let federation_cache = FederationCachePersist::from_pull_event(&entry, &pulled);
+        let policy_revision = pulled
+            .content
+            .get("policy_revision")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| anyhow::anyhow!("pulled discovery_state.policy_revision missing"))?;
 
         let announce = DirectoryAnnounceIngest {
             resource_kind: entry.resource_kind,
@@ -200,6 +206,7 @@ impl PullWorker {
             discovery_state: pulled.content,
             source_refs: vec![pulled.event_id.clone()],
             as_of: pulled.created_at,
+            policy_revision,
             ttl_seconds: Some(entry.effective_ttl_seconds as i64),
             supersedes_announce_id: None,
             trust_root_attestation: None,
@@ -339,7 +346,8 @@ impl PullWorker {
         let service_binding_ref = response_header_value(response.headers(), "service-binding-ref");
         let origin_key_state_digest =
             response_header_value(response.headers(), "origin-key-state-digest");
-        let body = response.json::<EventsQueryOutcome>().await?;
+        let body =
+            response_json_limited::<EventsQueryOutcome>(response, "pull events query").await?;
         let mut event = body
             .events
             .into_iter()

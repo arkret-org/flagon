@@ -35,6 +35,7 @@ pub enum AuditEventKind {
     AllowlistRemoved,
     AdminResourceUpserted,
     AdminResourceDeleted,
+    ExpiryPurged,
     // Round R2/R3.
     /// T17 — soland broadcast a `consent_revoke{scope=any}` and the
     /// directory invalidated the actor's reachability projection.
@@ -61,6 +62,7 @@ impl AuditEventKind {
             Self::AllowlistRemoved => "allowlist_removed",
             Self::AdminResourceUpserted => "admin_resource_upserted",
             Self::AdminResourceDeleted => "admin_resource_deleted",
+            Self::ExpiryPurged => "expiry_purged",
             Self::ConsentRevokeInvalidation => "consent_revoke_invalidation",
             Self::RealmDestroyed => "realm_destroyed",
             Self::IngestHistoricalOnly => "ingest_historical_only",
@@ -130,9 +132,9 @@ pub async fn record(
 
 /// Chained-digest audit write. Reads the previous `audit_digest` from
 /// the most-recent row (NULL on the very first row), computes
-/// `sha256(canonical(row) || prev_digest)`, and inserts. The
-/// transaction wrapper ensures the prev-digest read and the new-row
-/// insert see a consistent ordering even under concurrent writers.
+/// `sha256(canonical(row) || prev_digest)`, and inserts. A fixed
+/// PostgreSQL advisory transaction lock serializes concurrent audit writers
+/// before the prev-digest read, so READ COMMITTED cannot fork the chain.
 pub async fn record_with_identity(
     db: &Db,
     kind: AuditEventKind,
@@ -144,6 +146,9 @@ pub async fn record_with_identity(
 ) -> anyhow::Result<()> {
     let mut conn = db.get().await?;
     conn.transaction::<_, anyhow::Error, _>(async move |conn| {
+        diesel::sql_query("SELECT pg_advisory_xact_lock(1952805748, 1635018092)")
+            .execute(&mut *conn)
+            .await?;
         let prev_digest: Option<Vec<u8>> = directory_audit::table
             .order(directory_audit::audit_id.desc())
             .select(directory_audit::audit_digest)

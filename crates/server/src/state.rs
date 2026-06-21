@@ -255,14 +255,25 @@ fn stale_after_for(period: Option<Duration>) -> Duration {
 }
 
 impl AnnounceReplayCache {
+    const MAX_ROWS: usize = 8192;
+    const TTL: Duration = Duration::from_secs(600);
+
     fn get(&self, digest: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
         let mut rows = self
             .rows
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
-        rows.retain(|_, row| now.duration_since(row.inserted_at) < Duration::from_secs(600));
-        rows.get(digest).map(|row| row.response.clone())
+        match rows.get(digest) {
+            Some(row) if now.duration_since(row.inserted_at) < Self::TTL => {
+                Some(row.response.clone())
+            }
+            Some(_) => {
+                rows.remove(digest);
+                None
+            }
+            None => None,
+        }
     }
 
     fn put(&self, digest: Vec<u8>, response: CachedDirectoryAnnounceOutcome) {
@@ -270,9 +281,19 @@ impl AnnounceReplayCache {
             .rows
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if rows.len() > 8192 {
+        if rows.len() >= Self::MAX_ROWS {
             let now = Instant::now();
-            rows.retain(|_, row| now.duration_since(row.inserted_at) < Duration::from_secs(600));
+            rows.retain(|_, row| now.duration_since(row.inserted_at) < Self::TTL);
+            while rows.len() >= Self::MAX_ROWS {
+                let Some(oldest) = rows
+                    .iter()
+                    .min_by_key(|(_, row)| row.inserted_at)
+                    .map(|(digest, _)| digest.clone())
+                else {
+                    break;
+                };
+                rows.remove(&oldest);
+            }
         }
         rows.insert(
             digest,
@@ -297,7 +318,6 @@ impl RateLimiter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
-        buckets.retain(|_, bucket| now.duration_since(bucket.window_start) < window);
 
         match buckets.get_mut(&key) {
             Some(bucket) if now.duration_since(bucket.window_start) < window => {

@@ -227,9 +227,16 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
         Duration::from_secs(60),
     )?;
 
-    // Three passes -> DLQ.
-    for _ in 0..3 {
-        notifier.run_once().await?;
+    assert_eq!(notifier.run_once().await?, 1);
+    assert_eq!(
+        notifier.run_once().await?,
+        0,
+        "retry backoff should block immediate redelivery"
+    );
+
+    for _ in 0..2 {
+        force_takedown_notification_due(&state, "pt-test").await?;
+        assert_eq!(notifier.run_once().await?, 1);
     }
 
     let mut conn = state.db().get().await?;
@@ -265,4 +272,20 @@ struct CountRow {
 struct StatusRow {
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
     notification_status: Option<String>,
+}
+
+async fn force_takedown_notification_due(
+    state: &server::AppState,
+    pending_id: &str,
+) -> anyhow::Result<()> {
+    let mut conn = state.db().get().await?;
+    diesel::sql_query(
+        "UPDATE pending_takedowns \
+         SET next_notification_after = now() - interval '1 second' \
+         WHERE pending_id = $1",
+    )
+    .bind::<diesel::sql_types::Text, _>(pending_id)
+    .execute(&mut conn)
+    .await?;
+    Ok(())
 }

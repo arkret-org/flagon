@@ -53,6 +53,20 @@ The jitter is deterministic from route plus privacy key and is not selected from
 the hit or miss result. This keeps repeated probes for the same key in a stable
 latency tier while avoiding a single fixed global response time.
 
+## Query Rate Limits
+
+The shared query limiter applies two independent budgets before the expensive
+parts of search and resolve handlers:
+
+- `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`, default `600`, limits total query
+  requests per resolved client IP.
+- `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`, default `120`, limits
+  repeated exact resolves of the same resource key.
+
+Set either value to `0` only when an upstream gateway enforces an equivalent or
+stricter budget. These guards sit alongside the per-resource budget
+`TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN` and the PSI-specific quota below.
+
 ## Public Projection
 
 The ingest path strips proof and directory-service internals before persisting
@@ -93,11 +107,8 @@ MUSTs:
   to select the OPRF key.
 - The default window is 24h with `max_psi_queries_per_window = 1`.
 
-The match phase indexes at most 10,000 public/listed actor or handle rows per
-request. When the directory has more eligible rows than that cap, the response
-sets `limited=true` and includes `indexed_candidate_count` plus
-`indexed_candidate_limit` so clients and operators can distinguish a complete
-match pass from a capped one.
+The match phase returns a fixed-cardinality bitmap and padding count so response
+shape does not reveal how many contacts were indexed or matched.
 
 ## Operational Tradeoffs
 

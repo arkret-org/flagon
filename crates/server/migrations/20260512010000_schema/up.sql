@@ -48,7 +48,8 @@ CREATE TYPE audit_event_kind AS ENUM (
     'allowlist_added',
     'allowlist_removed',
     'admin_resource_upserted',
-    'admin_resource_deleted'
+    'admin_resource_deleted',
+    'expiry_purged'
 );
 
 -- ---- Search helpers ------------------------------------------------------

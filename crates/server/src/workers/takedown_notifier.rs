@@ -1,6 +1,6 @@
 //! P5 HIGH — pending-takedown HMAC-signed webhook fanout.
 //!
-//! Scans `pending_takedowns` rows whose `notification_status` indicates
+//! Scans due `pending_takedowns` rows whose `notification_status` indicates
 //! they still need fanout (`NULL`, `"pending"`, or `"retry"`) and dispatches
 //! a signed POST to every endpoint registered in
 //! `pending_takedown_webhooks`. Each attempt is HMAC-signed with the
@@ -12,7 +12,8 @@
 //! `notification_status = "dlq"` and emit
 //! `teabay_takedown_notification_failures_total{stage="dlq"}` so
 //! dashboards can alert. The DLQ row is preserved for operator review;
-//! recovery is by manual `UPDATE` back to `"retry"`.
+//! recovery is by manual `UPDATE` back to `"retry"` with
+//! `next_notification_after <= now()`.
 //!
 //! TODO(P5-impl): treat 4xx and 5xx differently — 4xx terminal, 5xx
 //! retryable. The current pass treats every non-2xx as retryable until
@@ -175,9 +176,10 @@ impl TakedownNotifier {
                     proposed_by, proposed_at, \
                     (regexp_match(coalesce(notification_status, ''), 'attempt:(\\d+)'))[1]::INT AS attempts \
              FROM pending_takedowns \
-             WHERE notification_status IS NULL \
+             WHERE (notification_status IS NULL \
                 OR notification_status = 'pending' \
-                OR notification_status LIKE 'retry:%' \
+                OR notification_status LIKE 'retry:%') \
+               AND next_notification_after <= now() \
              ORDER BY proposed_at ASC \
              LIMIT $1",
         )
@@ -262,7 +264,8 @@ impl TakedownNotifier {
         let label = format!("{status}:attempt:{attempts}");
         diesel::sql_query(
             "UPDATE pending_takedowns \
-             SET notification_status = $1 \
+             SET notification_status = $1, \
+                 next_notification_after = now() \
              WHERE pending_id = $2",
         )
         .bind::<Text, _>(label)
@@ -280,12 +283,15 @@ impl TakedownNotifier {
     ) -> anyhow::Result<()> {
         let mut conn = self.state.db().get().await?;
         let label = format!("retry:attempt:{attempts}:after:{backoff_secs}s");
+        let next_after = Utc::now() + chrono::Duration::seconds(backoff_secs.max(0));
         diesel::sql_query(
             "UPDATE pending_takedowns \
-             SET notification_status = $1 \
-             WHERE pending_id = $2",
+             SET notification_status = $1, \
+                 next_notification_after = $2 \
+             WHERE pending_id = $3",
         )
         .bind::<Text, _>(label)
+        .bind::<diesel::sql_types::Timestamptz, _>(next_after)
         .bind::<Text, _>(pending_id)
         .execute(&mut *conn)
         .await?;

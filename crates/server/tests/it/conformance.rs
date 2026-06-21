@@ -8,9 +8,11 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
+use cokret_sdk::canonical;
+use cokret_sdk::jws::sign_jws_ed25519;
 use diesel::sql_types::{BigInt, Jsonb, Text};
 use diesel_async::RunQueryDsl;
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::SigningKey;
 use salvo::http::StatusCode;
 use salvo::prelude::Service;
 use salvo::test::{ResponseExt, TestClient};
@@ -388,15 +390,16 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
 }
 
 async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::Result<()> {
+    let secret = URL_SAFE_NO_PAD.encode([1_u8; 16]);
     let mut res = TestClient::post("http://local/_cokret/find/directory/push/register")
         .json(&json!({
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
-                "resource_kind": "realm",
-                "resource_id": "ck:realm:pushed"
+                "resource_kinds": ["realm"],
+                "resource_ids": ["ck:realm:pushed"]
             },
             "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
-            "webhook_secret": "0123456789abcdef"
+            "secret": secret
         }))
         .send(service)
         .await;
@@ -405,15 +408,12 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
     assert!(
         body["subscription_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("ck:subscription:"))
+            .is_some_and(|id| id.starts_with("teabay:subscription:"))
     );
-    assert!(body.get("created_at").is_some());
     assert!(body.get("effective_at").is_some());
-    assert!(
-        body["webhook_secret"]
-            .as_str()
-            .is_some_and(|secret| !secret.is_empty())
-    );
+    assert!(body.get("created_at").is_none());
+    assert!(body.get("expires_at").is_none());
+    assert!(body.get("webhook_secret").is_none());
     Ok(())
 }
 
@@ -588,7 +588,7 @@ async fn assert_three_path_takedown_strand(
     assert!(
         body["withdrawal_ref"]
             .as_str()
-            .is_some_and(|id| id.starts_with("ck:withdraw:"))
+            .is_some_and(|id| id.starts_with("teabay:withdraw:"))
     );
 
     let res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
@@ -824,7 +824,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert!(
         body["withdraw_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("ck:withdraw:"))
+            .is_some_and(|id| id.starts_with("teabay:withdraw:"))
     );
 
     let res = TestClient::post("http://local/_cokret/find/directory/resolve-handle")
@@ -1103,14 +1103,8 @@ fn sign_detached_jws_with_proof_key(
     proof_key: &str,
     signing_key: &SigningKey,
 ) -> anyhow::Result<String> {
-    let protected = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({ "alg": "EdDSA" }))?);
     let canonical = canonical_payload_without_jws_at(payload, proof_key)?;
-    let signing_input = format!("{protected}.{}", URL_SAFE_NO_PAD.encode(canonical));
-    let signature = signing_key.sign(signing_input.as_bytes());
-    Ok(format!(
-        "{protected}..{}",
-        URL_SAFE_NO_PAD.encode(signature.to_bytes())
-    ))
+    sign_jws_ed25519(&canonical, signing_key).map_err(anyhow::Error::msg)
 }
 
 fn canonical_payload_without_jws_at(
@@ -1123,7 +1117,7 @@ fn canonical_payload_without_jws_at(
         .and_then(JsonValue::as_object_mut)
         .ok_or_else(|| anyhow::anyhow!("proof object missing"))?;
     proof.remove("jws");
-    canonical_json_bytes(&unsigned)
+    canonical::canonical_json_bytes(&unsigned).map_err(Into::into)
 }
 
 fn signed_withdraw_body(
@@ -1147,45 +1141,4 @@ fn signed_withdraw_body(
     let jws = sign_detached_jws_with_proof_key(&body, "governance_proof", signing_key)?;
     body["governance_proof"]["jws"] = JsonValue::String(jws);
     Ok(body)
-}
-
-fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {
-    let mut out = String::new();
-    write_canonical_json(value, &mut out)?;
-    Ok(out.into_bytes())
-}
-
-fn write_canonical_json(value: &JsonValue, out: &mut String) -> anyhow::Result<()> {
-    match value {
-        JsonValue::Null => out.push_str("null"),
-        JsonValue::Bool(true) => out.push_str("true"),
-        JsonValue::Bool(false) => out.push_str("false"),
-        JsonValue::Number(number) => out.push_str(&number.to_string()),
-        JsonValue::String(value) => out.push_str(&serde_json::to_string(value)?),
-        JsonValue::Array(values) => {
-            out.push('[');
-            for (index, item) in values.iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                write_canonical_json(item, out)?;
-            }
-            out.push(']');
-        }
-        JsonValue::Object(map) => {
-            out.push('{');
-            let mut keys = map.keys().collect::<Vec<_>>();
-            keys.sort_unstable();
-            for (index, key) in keys.into_iter().enumerate() {
-                if index > 0 {
-                    out.push(',');
-                }
-                out.push_str(&serde_json::to_string(key)?);
-                out.push(':');
-                write_canonical_json(&map[key], out)?;
-            }
-            out.push('}');
-        }
-    }
-    Ok(())
 }

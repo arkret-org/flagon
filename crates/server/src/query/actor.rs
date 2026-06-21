@@ -9,16 +9,13 @@
 
 use chrono::{DateTime, Utc};
 use cokret_sdk::{
-    ActorPreview, DirectoryActorSearchOutcome,
-    DirectorySearchActorsRequestBody as SdkDirectorySearchActorsRequestBody,
-    DirectorySearchUsersRequestBody as SdkDirectorySearchUsersRequestBody,
-    DirectoryUserSearchOutcome, UserSearchOutcome,
+    ActorPreview, DirectoryActorSearchOutcome, DirectorySearchActorsRequestBody,
+    DirectorySearchUsersRequestBody, DirectoryUserSearchOutcome, UserSearchOutcome,
 };
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
-use serde::Deserialize;
-use serde_json::{Value as JsonValue, json};
+use serde_json::Value as JsonValue;
 
 use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
@@ -26,38 +23,6 @@ use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::enforce_query_rate_limit;
 use crate::state::AppState;
-
-#[derive(Debug, Default, Deserialize)]
-pub struct TeabaySearchActorsRequest {
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub realm_id: Option<String>,
-    #[serde(default)]
-    pub organization_did: Option<String>,
-    #[serde(default)]
-    pub cursor: Option<String>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct TeabaySearchUsersRequest {
-    #[serde(default, alias = "q")]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub requester: Option<String>,
-    #[serde(default)]
-    pub realm_id: Option<String>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-    /// Why the requester wants to enumerate users. Spec 0a5ab85:
-    /// `ck.find.directory.query.search_users` adds `intent`. Implementations MUST
-    /// pipe this into anti-enumeration filtering and Realm
-    /// `allowed_recipient_services` policy checks.
-    #[serde(default)]
-    pub intent: Option<String>,
-}
 
 #[handler]
 pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Response) {
@@ -72,14 +37,13 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let raw_body: JsonValue = req.parse_json().await.unwrap_or_else(|_| json!({}));
-    if let Err(error) =
-        serde_json::from_value::<SdkDirectorySearchActorsRequestBody>(raw_body.clone())
-    {
-        ApiErrorCode::BadQuery.render(res, format!("malformed search_actors body: {error}"));
-        return;
-    }
-    let body: TeabaySearchActorsRequest = serde_json::from_value(raw_body).unwrap_or_default();
+    let body: DirectorySearchActorsRequestBody = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadQuery.render(res, format!("malformed search_actors body: {error}"));
+            return;
+        }
+    };
     if !crate::query::rate_limit::enforce_search_needle_rate_limit(
         res,
         &state,
@@ -95,8 +59,14 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let privacy_key = format!(
         "q={};realm={};org={};cursor={};limit={limit}",
         body.query.as_deref().unwrap_or_default(),
-        body.realm_id.as_deref().unwrap_or_default(),
-        body.organization_did.as_deref().unwrap_or_default(),
+        body.realm_id
+            .as_ref()
+            .map(cokret_sdk::RealmId::as_str)
+            .unwrap_or_default(),
+        body.organization_did
+            .as_ref()
+            .map(cokret_sdk::Did::as_str)
+            .unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );
     let result = pad_to_budget_observed(
@@ -154,34 +124,14 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         return;
     }
 
-    let raw_body: JsonValue = match req.parse_json().await {
+    let query: DirectorySearchUsersRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
             return;
         }
     };
-    if let Err(error) =
-        serde_json::from_value::<SdkDirectorySearchUsersRequestBody>(raw_body.clone())
-    {
-        ApiErrorCode::BadQuery.render(res, format!("malformed search_users SDK body: {error}"));
-        return;
-    }
-    let query: TeabaySearchUsersRequest = match serde_json::from_value(raw_body) {
-        Ok(query) => query,
-        Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
-            return;
-        }
-    };
-    let requester = match query.requester.as_deref().filter(|value| !value.is_empty()) {
-        Some(requester) => requester,
-        None => {
-            ApiErrorCode::MissingParam.render(res, "requester is required");
-            return;
-        }
-    };
-    let realm_id = match query.realm_id.as_deref().filter(|value| !value.is_empty()) {
+    let realm_id = match query.realm_id.as_ref() {
         Some(realm_id) => realm_id,
         None => {
             ApiErrorCode::MissingParam.render(res, "realm_id is required");
@@ -189,7 +139,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         }
     };
     let limit = query.limit.unwrap_or(20).clamp(1, 100) as i64;
-    let needle = query.query.unwrap_or_default();
+    let needle = query.query;
     if !crate::query::rate_limit::enforce_search_needle_rate_limit(res, &state, &needle) {
         return;
     }
@@ -198,13 +148,13 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let privacy_key = format!("q={needle};requester={requester};realm={realm_id};limit={limit}");
+    let privacy_key = format!("q={needle};realm={};limit={limit}", realm_id.as_str());
     let result = pad_to_budget_observed(
         budget,
         "ck.find.directory.query.search_users",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad("search-users", target),
-        async { run_user_search(&state, &needle, requester, realm_id, limit + 1).await },
+        async { run_user_search(&state, &needle, realm_id.as_str(), limit + 1).await },
     )
     .await;
 
@@ -217,17 +167,9 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
             let users = match rows
                 .into_iter()
                 .map(|scored| {
-                    // spec discovery-directory.md §9 search_users：`results[].did`
-                    // 是 conditional。共同 Realm membership 不得单独授权披露 did。
-                    // 仅当结果来自调用方本地持有的联系人索引（resource_id ==
-                    // requester），或已通过 resolve_handle 所需的 claim /
-                    // presentation / audience / Realm intent 验证时才回 did。
-                    // 当前 search_users wire body 不携带 proofs / proof_challenge
-                    // （SDK `DirectorySearchUsersRequestBody` 无该字段），故
-                    // presentation 路径无可验证输入；唯一可成立的授权途径是
-                    // local-contact（resource_id == requester）。fail-closed：
-                    // 判不准授权即省略 did，未授权分支只回 handle / display
-                    // preview（SDK `UserSearchOutcome.did` 已为 Option，可省略）。
+                    // `results[].did` is conditional. The SDK request body has
+                    // no requester-bound proof input, so this face never has
+                    // enough evidence to disclose the subject DID.
                     let did_authorized = scored.did_authorized;
                     user_search_outcome_from_envelope(envelope_from_row(scored.row)).map(
                         |mut outcome| {
@@ -321,7 +263,6 @@ struct ScoredUserRow {
 async fn run_user_search(
     state: &AppState,
     needle: &str,
-    requester: &str,
     realm_id: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<ScoredUserRow>> {
@@ -349,21 +290,13 @@ async fn run_user_search(
     let needle = needle.trim().to_ascii_lowercase();
     Ok(rows
         .into_iter()
-        .filter(|row| {
-            row.resource_id == requester || actor_lists_realm(&row.public_projection, realm_id)
-        })
+        .filter(|row| actor_lists_realm(&row.public_projection, realm_id))
         .filter(|row| {
             needle.is_empty() || actor_matches(&row.public_projection, &row.resource_id, &needle)
         })
-        .map(|row| {
-            // local-contact path is the only did-disclosure authorization
-            // available on this wire (no presentation proofs in the body).
-            // Rows matched solely via actor_lists_realm are NOT authorized.
-            let did_authorized = row.resource_id == requester;
-            ScoredUserRow {
-                row,
-                did_authorized,
-            }
+        .map(|row| ScoredUserRow {
+            row,
+            did_authorized: false,
         })
         .take(limit as usize)
         .collect())

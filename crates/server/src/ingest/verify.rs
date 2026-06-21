@@ -27,17 +27,19 @@ use cokret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver, canonical};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use reqwest::Client;
+use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use url::Url;
 
 use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
-use crate::did_resolver::did_resolver_chain;
+use crate::did_resolver::{did_method_allowed, did_method_prefix_for_did, did_resolver_chain};
 use crate::error::ApiErrorCode;
 use crate::ingest::DirectoryResourceKindDb;
 use crate::ingest::announce::DirectoryAnnounceIngest;
 
 const MAX_VIA_SERVICES: usize = 8;
+pub(crate) const EXTERNAL_JSON_MAX_BYTES: usize = 1_048_576;
 
 #[derive(Debug)]
 pub struct VerifyOutcome {
@@ -198,11 +200,7 @@ impl<'a> VerifyContext<'a> {
         // --- Derive outcome from verified state. ---------------------------
         let discoverability = read_discoverability(&req.discovery_state)?;
         let via_services = derive_via_services(&req.discovery_state, &req.principal_server_did);
-        let policy_revision = req
-            .discovery_state
-            .get("policy_revision")
-            .and_then(JsonValue::as_str)
-            .map(str::to_string);
+        let policy_revision = Some(req.policy_revision.clone());
 
         Ok(VerifyOutcome {
             discoverability,
@@ -222,16 +220,19 @@ impl<'a> VerifyContext<'a> {
                 | DirectoryResourceKindDb::Actor
                 | DirectoryResourceKindDb::Applet
         ) {
-            let method = did_method(&req.resource_id).unwrap_or_default();
+            let method = did_method_prefix_for_did(&req.resource_id).unwrap_or_default();
             if !self
                 .config
                 .accepted_did_methods
                 .iter()
-                .any(|m| m.eq_ignore_ascii_case(&method))
+                .any(|m| crate::did_resolver::did_method_allowed(std::slice::from_ref(m), &method))
             {
                 return Err((
                     ApiErrorCode::AcceptPolicyDenied,
-                    format!("DID method {method} not in TEABAY_ACCEPTED_DID_METHODS"),
+                    format!(
+                        "DID method {} not in TEABAY_ACCEPTED_DID_METHODS",
+                        method.trim_end_matches(':')
+                    ),
                 ));
             }
         }
@@ -605,12 +606,14 @@ async fn verify_first_source_ref_resolves(
             format!("source-ref fetch returned {}", response.status()),
         ));
     }
-    let body = response.json::<JsonValue>().await.map_err(|e| {
-        (
-            ApiErrorCode::SourceRefsUnverifiable,
-            format!("source-ref response was not JSON: {e}"),
-        )
-    })?;
+    let body = response_json_limited::<JsonValue>(response, "source-ref response")
+        .await
+        .map_err(|e| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                format!("source-ref response was not JSON: {e}"),
+            )
+        })?;
     let returned_id = body
         .pointer("/event/event_id")
         .or_else(|| body.get("event_id"))
@@ -637,7 +640,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
 ) -> anyhow::Result<Url> {
     let did = Did::new(principal_server_did.to_owned())
         .map_err(|e| anyhow::anyhow!("invalid DID `{principal_server_did}`: {e}"))?;
-    if !did_method_allowed(config, principal_server_did) {
+    if !principal_did_method_allowed(config, principal_server_did) {
         anyhow::bail!("DID method is outside TEABAY_ACCEPTED_DID_METHODS");
     }
 
@@ -708,12 +711,10 @@ fn strict_http_client_builder() -> reqwest::ClientBuilder {
         .redirect(reqwest::redirect::Policy::none())
 }
 
-fn did_method_allowed(config: &AppConfig, did: &str) -> bool {
-    config
-        .accepted_did_methods
-        .iter()
-        .map(|method| method.trim().trim_end_matches(':'))
-        .any(|method| did.starts_with(&format!("{method}:")))
+fn principal_did_method_allowed(config: &AppConfig, did: &str) -> bool {
+    did_method_prefix_for_did(did)
+        .as_deref()
+        .is_some_and(|method| did_method_allowed(&config.accepted_did_methods, method))
 }
 
 fn did_document_url(did: &Did) -> anyhow::Result<Url> {
@@ -751,6 +752,20 @@ async fn fetch_did_document_json(
         anyhow::bail!("DID document exceeds maximum size");
     }
     serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("DID document JSON parse: {e}"))
+}
+
+pub(crate) async fn response_json_limited<T>(
+    response: reqwest::Response,
+    context: &str,
+) -> anyhow::Result<T>
+where
+    T: DeserializeOwned,
+{
+    let bytes = response.bytes().await?;
+    if bytes.len() > EXTERNAL_JSON_MAX_BYTES {
+        anyhow::bail!("{context} exceeds maximum size");
+    }
+    serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("{context} JSON parse: {e}"))
 }
 
 fn service_type_matches(service: &JsonValue, expected: &str) -> bool {
@@ -851,12 +866,6 @@ fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) 
         }
     }
     vec![principal_server_did.to_string()]
-}
-
-fn did_method(did: &str) -> Option<String> {
-    let trimmed = did.strip_prefix("did:")?;
-    let end = trimmed.find(':').unwrap_or(trimmed.len());
-    Some(format!("did:{}", &trimmed[..end]))
 }
 
 async fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {

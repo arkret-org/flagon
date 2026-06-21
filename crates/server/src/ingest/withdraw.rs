@@ -8,14 +8,11 @@
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
 use chrono::Utc;
-use cokret_sdk::{
-    DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome,
-    DirectoryWithdrawRequestBody as SdkDirectoryWithdrawRequestBody,
-};
+use cokret_sdk::DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome;
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::audit::{self, AuditEventKind};
@@ -41,6 +38,16 @@ pub struct DirectoryWithdrawInput {
     pub effective_at: Option<chrono::DateTime<Utc>>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DirectoryWithdrawWireBody {
+    pub resource_id: String,
+    pub governance_proof: JsonValue,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub effective_at: Option<chrono::DateTime<Utc>>,
+}
+
 #[handler]
 pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.obtain::<AppState>() {
@@ -52,7 +59,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("withdraw");
 
-    let wire_body: SdkDirectoryWithdrawRequestBody = match req.parse_json().await {
+    let wire_body: DirectoryWithdrawWireBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");
@@ -68,11 +75,6 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }
     if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id) {
         ingest_metric.set_outcome("rate_limited");
-        return;
-    }
-    if wire_body.reason.trim().is_empty() {
-        ingest_metric.set_outcome("schema_rejected");
-        ApiErrorCode::MissingParam.render(res, "reason is required");
         return;
     }
     if !wire_body.governance_proof.is_object() {
@@ -92,7 +94,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         resource_kind,
         resource_id: wire_body.resource_id,
         governance_proof: wire_body.governance_proof,
-        reason: wire_body.reason,
+        reason: wire_body.reason.unwrap_or_default(),
         effective_at: wire_body.effective_at,
     };
 

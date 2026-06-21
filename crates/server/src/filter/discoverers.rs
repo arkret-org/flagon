@@ -19,10 +19,8 @@ use cokret_sdk::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::did_resolver::did_resolver_chain;
+use crate::did_resolver::{did_method_allowed, did_resolver_chain};
 
-/// Object-entry keys that identify the requesting principal.
-const REQUESTER_KEYS: [&str; 4] = ["requester", "subject", "did", "actor"];
 pub(crate) const RESTRICTED_CLAIM_PRESENTATION_KIND: &str =
     "ck.directory.restricted_claim_presentation.v1";
 
@@ -96,14 +94,7 @@ pub fn matches_allowed_discoverers(
         return false;
     };
     discoverers.iter().any(|entry| match entry {
-        JsonValue::Object(obj) => {
-            let requester_matches = requester.is_some_and(|requester| {
-                REQUESTER_KEYS
-                    .iter()
-                    .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(requester))
-            });
-            requester_matches || claim_selector_matches(obj, requester, verified_claims)
-        }
+        JsonValue::Object(obj) => claim_selector_matches(obj, requester, verified_claims),
         _ => false,
     })
 }
@@ -229,15 +220,6 @@ fn verify_presentation_jws(
         .map_err(|error| format!("restricted claim DID resolver: {error}"))?;
     sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver)
         .map_err(|error| format!("restricted claim JWS invalid: {error}"))
-}
-
-fn did_method_allowed(accepted_did_methods: &[String], expected: &str) -> bool {
-    accepted_did_methods.iter().any(|method| {
-        method
-            .trim()
-            .trim_end_matches(':')
-            .eq_ignore_ascii_case(expected)
-    })
 }
 
 fn verification_method_issuer(verification_method: &str) -> Option<&str> {

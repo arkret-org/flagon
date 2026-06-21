@@ -28,7 +28,7 @@ type PsiBlindedElement = BlindedElement<Ristretto255>;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct DirectoryPrivateContactDiscoveryRequestBody {
+pub struct PsiContactDiscoveryRequestBody {
     pub phase: PsiPhase,
     pub requester: String,
     #[serde(default)]
@@ -49,7 +49,7 @@ pub enum PsiPhase {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DirectoryPrivateContactDiscoveryBlindOutcome {
+pub struct PsiBlindOutcome {
     pub phase: &'static str,
     pub epoch: String,
     pub key_id: String,
@@ -62,7 +62,7 @@ pub struct DirectoryPrivateContactDiscoveryBlindOutcome {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DirectoryPrivateContactDiscoveryMatchOutcome {
+pub struct PsiMatchOutcome {
     pub phase: &'static str,
     pub epoch: String,
     pub key_id: String,
@@ -117,7 +117,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
     }
     let client_ip = crate::query::rate_limit::resolve_client_ip(req, &state);
 
-    let body: DirectoryPrivateContactDiscoveryRequestBody = match req.parse_json().await {
+    let body: PsiContactDiscoveryRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed PSI request: {error}"));
@@ -189,7 +189,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
 }
 
 async fn handle_blind_phase(
-    body: DirectoryPrivateContactDiscoveryRequestBody,
+    body: PsiContactDiscoveryRequestBody,
     key: PsiEpochKey,
     res: &mut Response,
 ) {
@@ -252,7 +252,7 @@ async fn handle_blind_phase(
 
     let query_id = random_query_id();
     let padding_count = MATCH_CARDINALITY.saturating_sub(real_count);
-    res.render(Json(DirectoryPrivateContactDiscoveryBlindOutcome {
+    res.render(Json(PsiBlindOutcome {
         phase: "blind",
         epoch: key.epoch.clone(),
         key_id: key.epoch,
@@ -267,7 +267,7 @@ async fn handle_blind_phase(
 
 async fn handle_match_phase(
     state: &AppState,
-    body: DirectoryPrivateContactDiscoveryRequestBody,
+    body: PsiContactDiscoveryRequestBody,
     key: PsiEpochKey,
     res: &mut Response,
 ) {
@@ -313,7 +313,7 @@ async fn handle_match_phase(
         .collect::<Vec<_>>();
     let padding_count = MATCH_CARDINALITY.saturating_sub(hit_bitmap.len());
     hit_bitmap.resize(MATCH_CARDINALITY, false);
-    res.render(Json(DirectoryPrivateContactDiscoveryMatchOutcome {
+    res.render(Json(PsiMatchOutcome {
         phase: "match",
         epoch: key.epoch.clone(),
         key_id: key.epoch,
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn match_response_does_not_expose_index_size() {
-        let value = serde_json::to_value(DirectoryPrivateContactDiscoveryMatchOutcome {
+        let value = serde_json::to_value(PsiMatchOutcome {
             phase: "match",
             epoch: "psi-epoch-1".to_owned(),
             key_id: "psi-epoch-1".to_owned(),

@@ -158,7 +158,7 @@ mod tests {
             ReceiptSigningKey::from_raw("did:web:directory.test#receipt-1".to_owned(), [13; 32]);
         let statement = json!({
             "receipt_version": RECEIPT_VERSION,
-            "withdraw_id": "ck:withdraw:test",
+            "withdraw_id": "teabay:withdraw:test",
             "kind": "operator_takedown",
         });
 

@@ -107,6 +107,7 @@ Recommended production settings:
 | `TEABAY_CORS_ALLOW_ORIGIN` | Exact browser origin, never `*` in production. |
 | `TEABAY_ACCEPT_POLICY_KIND` | `open`, `allowlist`, `trust_root_signed`, or `operator_review`. |
 | `TEABAY_ALLOWLIST_DIDS` | Resource DID list when accept policy is `allowlist`. |
+| `TEABAY_ACCEPTED_RESOURCE_KINDS` | Optional comma-separated ingest allowlist; unset means `realm,organization,actor,applet,handle`. |
 | `TEABAY_ACCEPT_POLICY_REF` | Optional application or policy reference. |
 | `TEABAY_TAKEDOWN_CONTACT` | Optional appeal or operator contact. |
 
@@ -185,6 +186,8 @@ The hard maximum TTL accepted by the server is 30 days.
 | `TEABAY_QUERY_LATENCY_FLOOR_MS` | `25` | Minimum visible query latency. |
 | `TEABAY_QUERY_LATENCY_JITTER_MS` | `10` | Deterministic per-route jitter window. |
 | `TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN` | `60` | Per-resource query budget. |
+| `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN` | `600` | Per-client query request budget. `0` disables this guard. |
+| `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN` | `120` | Per-resource exact resolve budget. `0` disables this guard. |
 | `TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED` | `true` | Enables PSI contact discovery endpoint. |
 | `TEABAY_MAX_PSI_QUERIES_PER_WINDOW` | `1` | Spec §6.4 anti-enumeration quota: max PSI batches per requester per quota window. Decoupled from the OPRF key epoch. |
 | `TEABAY_PSI_QUOTA_WINDOW_SECONDS` | `86400` | Spec §6.4 quota window length (24h default). Independent of `TEABAY_PSI_EPOCH_SECONDS`. |

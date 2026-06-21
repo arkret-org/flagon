@@ -11,69 +11,57 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
-    DirectoryHandleResolutionOutcome,
-    DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody,
-};
+use cokret_sdk::DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
-use serde::Deserialize;
+use serde::Serialize;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{
-    RestrictedClaimPresentation, VerifiedRestrictedClaims, verify_restricted_claim_presentations,
-};
+use crate::filter::discoverers::{VerifiedRestrictedClaims, matches_allowed_discoverers};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize)]
-pub struct TeabayResolveHandleRequest {
+#[derive(Debug, Clone)]
+pub struct ResolveHandleRequestView {
     pub handle: String,
-    #[serde(default)]
     pub expected_did: Option<String>,
-    #[serde(default)]
     pub proof_challenge: Option<String>,
     /// Why the handle is being resolved. Spec 0a5ab85:
     /// gates audience binding on the response claim and selects the
     /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
     /// filter when `intent ∈ {member_add, invite}`.
-    #[serde(default)]
     pub intent: Option<String>,
     /// DID or service DID of the requester. Used to scope audience-bearing
     /// claims so that the verifier can enforce `audience == self` and to
     /// authorize disclosure of Realm-restricted bindings.
-    #[serde(default)]
     pub requester: Option<String>,
     /// Explicit audience the verifier expects on the claim (typically a
     /// target Realm DID or inviter service DID).
-    #[serde(default)]
     pub audience: Option<String>,
     /// Target Realm DID for `intent=member_add | invite`. When present we
     /// load the Realm `delivery_binding_policy` baseline and filter
     /// candidate bindings against `allowed_recipient_services`.
-    #[serde(default)]
     pub realm_id: Option<String>,
-    /// Optional proofs / claim ids the requester presents to be admitted as
-    /// a Realm audience. Mirrors `resolve_realm` semantics.
-    #[serde(default)]
-    pub proofs: Vec<RestrictedClaimPresentation>,
-    /// CKP R3 spec-sync 2026-05-27 (commit b47ff6e) — directory query
-    /// filters now accept the unified `resource-selector` shape. We
-    /// recognise the `circle` kind (CKP-0007) and immediately collapse
-    /// the response to `not_found`: the directory MUST NEVER index a
-    /// Circle resource, so any circle-keyed lookup is by definition a
-    /// miss. The selector is accepted (not rejected) on the query face
-    /// so SDK callers running a unified selector evaluator do not have
-    /// to special-case the directory transport. See
-    /// `filter::selector::is_circle_selector` for the parser.
-    #[serde(default)]
-    pub selector: Option<serde_json::Value>,
+}
+
+impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
+    fn from(body: SdkDirectoryResolveHandleRequestBody) -> Self {
+        Self {
+            handle: body.handle,
+            expected_did: body.expected_did.map(|did| did.as_str().to_owned()),
+            proof_challenge: body.proof_challenge,
+            intent: body.intent,
+            requester: body.requester.map(|did| did.as_str().to_owned()),
+            audience: body.audience,
+            realm_id: body.realm_id.map(|realm_id| realm_id.as_str().to_owned()),
+        }
+    }
 }
 
 /// CKP R3 — extract the localpart from a handle value and run it through
@@ -199,7 +187,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         return;
     }
 
-    let body = TeabayResolveHandleRequest {
+    let body = ResolveHandleRequestView {
         handle: handle.clone(),
         expected_did: None,
         proof_challenge: None,
@@ -207,8 +195,6 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         requester: None,
         audience: None,
         realm_id: None,
-        proofs: Vec::new(),
-        selector: None,
     };
 
     let budget = LatencyBudget::new(
@@ -257,26 +243,14 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-handle");
-    let raw_body: JsonValue = match req.parse_json().await {
+    let sdk_body: SdkDirectoryResolveHandleRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed body: {error}"));
             return;
         }
     };
-    if let Err(error) =
-        serde_json::from_value::<SdkDirectoryResolveHandleRequestBody>(raw_body.clone())
-    {
-        ApiErrorCode::BadJson.render(res, format!("malformed SDK body: {error}"));
-        return;
-    }
-    let body: TeabayResolveHandleRequest = match serde_json::from_value(raw_body) {
-        Ok(body) => body,
-        Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed body: {error}"));
-            return;
-        }
-    };
+    let body = ResolveHandleRequestView::from(sdk_body);
     if body.handle.is_empty() {
         ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
@@ -298,21 +272,6 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {
         return;
     }
-    // CKP R3 spec-sync 2026-05-27 — accept `circle` selector kind on
-    // the query filter. Circle is an intra-Realm sub-boundary; the
-    // directory never indexes Circle resources, so a circle-keyed
-    // lookup collapses to the standard privacy-preserving `not_found`.
-    // We do this AFTER rate-limit gating so the wire response shape is
-    // identical to a genuine miss (same status, same body, same
-    // jitter), but BEFORE the latency-budget padding so we don't waste
-    // a query timer slot on a request that has no DB-bound work.
-    if let Some(selector) = body.selector.as_ref()
-        && crate::filter::selector::is_circle_selector(selector)
-    {
-        apply_resolve_response_jitter().await;
-        ApiErrorCode::NotFound.render(res, "not found");
-        return;
-    }
     // Defence in depth: a bare `ck:circle:` typed id smuggled into the
     // `handle` field is also collapsed to `not_found` rather than
     // routed into the DB lookup.
@@ -321,15 +280,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::NotFound.render(res, "not found");
         return;
     }
-    let verified_claims = verify_restricted_claim_presentations(
-        &body.proofs,
-        body.requester.as_deref(),
-        body.proof_challenge.as_deref(),
-        &state.config().service_did,
-        &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
-    )
-    .unwrap_or_default();
+    let verified_claims = VerifiedRestrictedClaims::default();
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -434,6 +385,7 @@ struct HandleRow {
     stale: bool,
     divergent: bool,
     via_services: Vec<String>,
+    expires_at: DateTime<Utc>,
 }
 
 async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Option<HandleRow>> {
@@ -456,6 +408,7 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
             r::stale,
             r::divergent,
             r::via_services,
+            r::expires_at,
         ))
         .first(&mut *conn)
         .await
@@ -492,7 +445,7 @@ pub(crate) struct RealmDeliveryBindingPolicy {
 
 async fn member_add_policy_for(
     state: &AppState,
-    body: &TeabayResolveHandleRequest,
+    body: &ResolveHandleRequestView,
 ) -> anyhow::Result<Option<RealmDeliveryBindingPolicy>> {
     if !is_member_add_intent(body.intent.as_deref()) {
         return Ok(None);
@@ -598,7 +551,7 @@ fn string_array_at(value: Option<&JsonValue>) -> Vec<String> {
 /// exercise the policy without a Postgres dependency.
 fn evaluate_handle_disclosure(
     row: HandleRow,
-    body: &TeabayResolveHandleRequest,
+    body: &ResolveHandleRequestView,
     verified_claims: &VerifiedRestrictedClaims,
     policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
@@ -631,12 +584,29 @@ fn evaluate_handle_disclosure(
             row.stale,
             row.divergent,
             row.via_services,
+            row.expires_at,
             audience,
         );
         return ResolveOutcome::Found(envelope);
     }
 
-    // Non-member-add path: existing §9 behavior.
+    if matches!(row.discoverability, DiscoverabilityDb::Restricted)
+        && !matches_allowed_discoverers(
+            &row.public_projection,
+            body.requester.as_deref(),
+            verified_claims,
+        )
+    {
+        return ResolveOutcome::NotFound;
+    }
+    if matches!(
+        row.discoverability,
+        DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret
+    ) {
+        return ResolveOutcome::NotFound;
+    }
+
+    // Non-member-add path.
     let envelope = envelope_from_projection(
         row.public_projection,
         row.resource_id,
@@ -647,6 +617,7 @@ fn evaluate_handle_disclosure(
         row.stale,
         row.divergent,
         row.via_services,
+        row.expires_at,
         audience,
     );
     ResolveOutcome::Found(envelope)
@@ -739,6 +710,7 @@ fn envelope_from_projection(
     stale: bool,
     divergent: bool,
     via_services: Vec<String>,
+    expires_at: DateTime<Utc>,
     audience: Option<String>,
 ) -> ResultEnvelope {
     let did = public_projection
@@ -752,10 +724,12 @@ fn envelope_from_projection(
         .unwrap_or(JsonValue::Null);
     let mut payload = json!({
         "did": did,
+        "subject": did,
         "handle": resource_id,
         "verified": public_projection.get("verified").and_then(JsonValue::as_bool).unwrap_or(false),
         "claims": claims,
         "discoverability": discoverability.as_pg(),
+        "expires_at": expires_at,
     });
     // Carry the post-filter binding fields forward so downstream builders
     // see exactly the Realm-policy-approved subset.
@@ -781,13 +755,76 @@ fn envelope_from_projection(
     )
 }
 
+#[derive(Debug, Serialize)]
+struct DirectoryHandleResolutionWireOutcome {
+    did: String,
+    subject: String,
+    handle: String,
+    verified: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    claims: Vec<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    member_delivery_binding: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    source_refs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<DateTime<Utc>>,
+}
+
 fn handle_resolution_from_envelope(
     envelope: ResultEnvelope,
-) -> Result<DirectoryHandleResolutionOutcome, String> {
-    let value = serde_json::to_value(envelope)
-        .map_err(|error| format!("handle envelope serialization failed: {error}"))?;
-    serde_json::from_value(value)
-        .map_err(|error| format!("handle outcome is not SDK-compatible: {error}"))
+) -> Result<DirectoryHandleResolutionWireOutcome, String> {
+    let payload = envelope
+        .payload
+        .as_object()
+        .ok_or_else(|| "handle projection is not an object".to_owned())?;
+    let did = payload
+        .get("did")
+        .and_then(JsonValue::as_str)
+        .filter(|did| cokret_sdk::Did::new((*did).to_owned()).is_ok())
+        .ok_or_else(|| "handle projection did is missing or invalid".to_owned())?
+        .to_owned();
+    let subject = payload
+        .get("subject")
+        .and_then(JsonValue::as_str)
+        .unwrap_or(&did);
+    if subject != did {
+        return Err("handle projection subject must match did".to_owned());
+    }
+    let handle = payload
+        .get("handle")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| "handle projection handle is missing".to_owned())?
+        .to_owned();
+    let verified = payload
+        .get("verified")
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let claims = match payload.get("claims").unwrap_or(&JsonValue::Null) {
+        JsonValue::Array(values) => values.clone(),
+        JsonValue::Null => Vec::new(),
+        other => vec![other.clone()],
+    };
+    let member_delivery_binding = payload
+        .get("member_delivery_binding")
+        .filter(|value| !value.is_null())
+        .cloned();
+    let expires_at = payload
+        .get("expires_at")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("handle projection expires_at is invalid: {error}"))?;
+    Ok(DirectoryHandleResolutionWireOutcome {
+        did: did.clone(),
+        subject: did,
+        handle,
+        verified,
+        claims,
+        member_delivery_binding,
+        source_refs: envelope.source_refs,
+        expires_at,
+    })
 }
 
 #[cfg(test)]
@@ -809,11 +846,12 @@ mod tests {
             stale: false,
             divergent: false,
             via_services: vec!["did:web:principal.test".to_string()],
+            expires_at: Utc.timestamp_opt(3_600, 0).unwrap(),
         }
     }
 
-    fn member_add_request(realm_id: &str, requester: &str) -> TeabayResolveHandleRequest {
-        TeabayResolveHandleRequest {
+    fn member_add_request(realm_id: &str, requester: &str) -> ResolveHandleRequestView {
+        ResolveHandleRequestView {
             handle: "alice.example".to_string(),
             expected_did: None,
             proof_challenge: None,
@@ -821,8 +859,6 @@ mod tests {
             requester: Some(requester.to_string()),
             audience: None,
             realm_id: Some(realm_id.to_string()),
-            proofs: vec![],
-            selector: None,
         }
     }
 
@@ -1082,7 +1118,7 @@ mod tests {
             );
         }
 
-        let measure = |body: &TeabayResolveHandleRequest, row: &HandleRow| -> Duration {
+        let measure = |body: &ResolveHandleRequestView, row: &HandleRow| -> Duration {
             let start = Instant::now();
             for _ in 0..iters {
                 let _ = evaluate_handle_disclosure(
@@ -1127,13 +1163,26 @@ mod tests {
 
     #[test]
     fn audience_authorization_falls_back_to_allowed_discoverers() {
+        let issuer = cokret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
+        let org = cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
+        let requester = cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let claim = cokret_sdk::PresentedClaim::organization_membership(
+            "claim-1",
+            requester.clone(),
+            issuer.clone(),
+            org.clone(),
+            vec!["member".to_owned()],
+        );
+        let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "allowed_discoverers": [{ "requester": "did:web:alice.example" }],
+            "allowed_discoverers": [{
+                "type": "claim",
+                "claim_type": "organization_membership",
+                "issuer": issuer.as_str(),
+                "organization": org.as_str(),
+            }],
         }));
-        assert!(policy.audience_authorized(
-            Some("did:web:alice.example"),
-            &VerifiedRestrictedClaims::default()
-        ));
+        assert!(policy.audience_authorized(Some(requester.as_str()), &verified_claims));
         assert!(!policy.audience_authorized(
             Some("did:web:bob.example"),
             &VerifiedRestrictedClaims::default()

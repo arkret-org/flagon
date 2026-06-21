@@ -7,8 +7,8 @@ takedown notifier (P5 HIGH) and the matching operator dashboard signals.
 
 `crate::workers::takedown_notifier::TakedownNotifier` scans
 `pending_takedowns` rows whose `notification_status` is `NULL`, `"pending"`,
-or `"retry:*"` and dispatches a signed POST to every endpoint registered
-in `pending_takedown_webhooks`.
+or `"retry:*"` and whose `next_notification_after <= now()`, then dispatches a
+signed POST to every endpoint registered in `pending_takedown_webhooks`.
 
 ## Wire Contract
 
@@ -38,6 +38,9 @@ MUST verify the signature before treating the payload as authentic.
 Each dispatch attempt is recorded by mutating `notification_status`. After
 the first failure the row is rescheduled to `retry:attempt:1:after:60s`,
 then `retry:attempt:2:after:300s`, then `retry:attempt:3:after:900s`.
+The retry text is diagnostic; the actual gate is
+`pending_takedowns.next_notification_after`, which is advanced to
+`now() + backoff` on every retry.
 
 The minimum attempt budget before DLQ is `TAKEDOWN_MIN_ATTEMPTS = 3`. The
 backoff schedule is intentionally short on the first hop (1 min) so a
@@ -49,7 +52,8 @@ flaky endpoint does not block urgent takedown propagation, then widens to
 After three consecutive failed dispatches the row is marked
 `notification_status = "dlq:attempt:3"`. The notifier skips DLQed rows on
 subsequent passes; operators recover a row by manually updating the status
-back to `"retry:attempt:0:after:0s"`.
+back to `"retry:attempt:0:after:0s"` and setting
+`next_notification_after <= now()`.
 
 Every DLQ transition emits exactly one
 `teabay_takedown_notification_failures_total{stage="dlq"}` increment.

@@ -99,10 +99,8 @@ impl ApiErrorCode {
         StatusCode::SERVICE_UNAVAILABLE,
     );
     #[allow(non_upper_case_globals)]
-    pub const CrossDomainReplayRejected: Self = Self::new(
-        cokret_sdk::ERROR_CODE_CROSS_DOMAIN_REPLAY_REJECTED,
-        StatusCode::CONFLICT,
-    );
+    pub const CrossDomainReplayRejected: Self =
+        Self::new(cokret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
     #[allow(non_upper_case_globals)]
     pub const HistorySharingPolicyMissing: Self = Self::new(
         cokret_sdk::ERROR_CODE_HISTORY_SHARING_POLICY_MISSING,
@@ -175,10 +173,8 @@ impl ApiErrorCode {
     // `policy_revision_rollback` (which means an `as_of`/`policy_revision`
     // earlier than the indexed value, §8.10).
     #[allow(non_upper_case_globals)]
-    pub const RealmTerminalState: Self = Self::new(
-        cokret_sdk::ERROR_CODE_REALM_TERMINAL_STATE,
-        StatusCode::CONFLICT,
-    );
+    pub const RealmTerminalState: Self =
+        Self::new(cokret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
 
     // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
     // CKP R3 handle homograph wire-level enforce. Emitted by
@@ -188,8 +184,8 @@ impl ApiErrorCode {
     // `cokret_sdk::normalize_handle_localpart`.
     #[allow(non_upper_case_globals)]
     pub const HandleHomographForbidden: Self = Self::new(
-        cokret_sdk::error::ERROR_CODE_HANDLE_HOMOGRAPH_FORBIDDEN,
-        StatusCode::FORBIDDEN,
+        cokret_sdk::ERROR_CODE_INVALID_PARAM,
+        StatusCode::BAD_REQUEST,
     );
 
     // -------- R3.2 spec-sync 2026-05-28 (cokret-spec @ b56cab1) --------

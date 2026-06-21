@@ -17,7 +17,7 @@ use tracing::{info, warn};
 
 use crate::audit::{self, AuditEventKind};
 use crate::ingest::DirectoryResourceKindDb;
-use crate::ingest::verify::strict_http_client_for_egress;
+use crate::ingest::verify::{response_json_limited, strict_http_client_for_egress};
 use crate::state::{AppState, BackgroundWorker};
 
 pub struct DivergenceWorker {
@@ -203,7 +203,8 @@ impl DivergenceWorker {
         if !response.status().is_success() {
             return Ok(None);
         }
-        let body = response.json::<JsonValue>().await?;
+        let body =
+            response_json_limited::<JsonValue>(response, "divergence resolve response").await?;
         Ok(extract_policy_revision(&body))
     }
 

@@ -48,7 +48,7 @@ Include these files for reviewers:
 Run locally before sending the review package:
 
 ```bash
-cargo fmt --all --check
+cargo +nightly fmt --all -- --check
 cargo check --locked --all-targets
 cargo test --locked
 cargo clippy --all-targets --all-features -- -D warnings

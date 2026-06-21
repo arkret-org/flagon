@@ -22,11 +22,18 @@ CREATE TABLE IF NOT EXISTS pending_takedowns (
     expires_at TIMESTAMPTZ NOT NULL,
     executed_at TIMESTAMPTZ,
     executed_withdraw_id TEXT,
-    notification_status TEXT
+    notification_status TEXT,
+    next_notification_after TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS pending_takedowns_status_idx
     ON pending_takedowns (status, expires_at);
+
+CREATE INDEX IF NOT EXISTS pending_takedowns_notification_due_idx
+    ON pending_takedowns (next_notification_after)
+    WHERE notification_status IS NULL
+       OR notification_status = 'pending'
+       OR notification_status LIKE 'retry:%';
 
 CREATE TABLE IF NOT EXISTS pending_takedown_approvals (
     pending_id TEXT NOT NULL REFERENCES pending_takedowns(pending_id) ON DELETE CASCADE,

@@ -1,9 +1,8 @@
 //! UUIDv7-prefixed identifiers used by teabay.
 //!
-//! All teabay-issued ids are `ck:<class>:<uuidv7>`. UUIDv7 is time-ordered,
-//! which gives us natural ordering for audit logs without a separate
-//! sequence column, and keeps these service-internal ids aligned with the
-//! protocol-wide UUIDv7 typed-id form (`cokret_sdk::new_prefixed_uuid7`).
+//! `ck:announce:` is a registered protocol typed id. Other teabay-issued
+//! ids are Directory-local references and deliberately stay outside the
+//! reserved `ck:` namespace.
 //!
 //! ## CKP-0007 `ck:circle:` tolerance (P2E.7)
 //!
@@ -30,9 +29,9 @@ impl IdClass {
     fn prefix(self) -> &'static str {
         match self {
             Self::Announce => "ck:announce:",
-            Self::Withdraw => "ck:withdraw:",
-            Self::Subscription => "ck:subscription:",
-            Self::AuditAck => "ck:audit_ack:",
+            Self::Withdraw => "teabay:withdraw:",
+            Self::Subscription => "teabay:subscription:",
+            Self::AuditAck => "teabay:audit_ack:",
         }
     }
 }
@@ -78,7 +77,7 @@ mod tests {
 
     #[test]
     fn audit_ack_prefix_is_not_abbreviated() {
-        assert!(new_id(IdClass::AuditAck).starts_with("ck:audit_ack:"));
+        assert!(new_id(IdClass::AuditAck).starts_with("teabay:audit_ack:"));
     }
 
     #[test]

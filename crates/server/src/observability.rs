@@ -3,18 +3,17 @@
 //! Kept dependency-free so the Prometheus surface can be used in local
 //! release-hygiene slices without changing the workspace lockfile.
 //!
-//! ## OTLP Exporter (P5) — stub
+//! ## OTLP Push Helper (P5)
 //!
 //! `Metrics::push_to_otlp` reads `TEABAY_OTLP_ENDPOINT` and, when set,
-//! performs a single OTLP HTTP push of this Prometheus surface. It is a
-//! contract-surface stub: there is no in-process wiring (no background
-//! task, no startup hook) that calls it on a schedule, so setting
-//! `TEABAY_OTLP_ENDPOINT` alone does NOT auto-export metrics. To get
-//! parity with an otel collector today an operator must drive
-//! `push_to_otlp` externally (a curl loop against the metrics endpoint
-//! / the deployment shim) — see `docs/operations.md` for the local
-//! evidence recipe. We intentionally avoid pulling the heavy
-//! `opentelemetry` crate stack into the workspace lockfile.
+//! performs a single HTTP push of this Prometheus surface as raw
+//! `text/plain; version=0.0.4` exposition text. There is no in-process
+//! wiring (no background task, no startup hook) that calls it on a schedule,
+//! so setting `TEABAY_OTLP_ENDPOINT` alone does NOT auto-export metrics.
+//! Operators can either scrape `TEABAY_METRICS_BIND` with an OTel Collector or
+//! wire a deployment shim that calls this helper on a schedule. We
+//! intentionally avoid pulling the heavy `opentelemetry` crate stack into the
+//! workspace lockfile.
 //!
 //! TODO(P5-impl): replace the external curl-loop shim with an
 //! in-process scheduled push (and/or the official OTLP SDK) once the
@@ -599,16 +598,14 @@ impl Metrics {
         out
     }
 
-    /// P5 — best-effort OTLP HTTP push of the current Prometheus
-    /// snapshot. Returns `Ok(false)` when `TEABAY_OTLP_ENDPOINT` is
-    /// unset (caller treats this as "exporter disabled"). On success
-    /// returns `Ok(true)`; transport errors propagate.
+    /// P5 — best-effort HTTP push of the current Prometheus snapshot to
+    /// `TEABAY_OTLP_ENDPOINT`. Returns `Ok(false)` when the endpoint is unset
+    /// (caller treats this as "exporter disabled"). On success returns
+    /// `Ok(true)`; transport errors propagate.
     ///
-    /// The payload is `application/x-www-form-urlencoded` with the raw
-    /// Prometheus exposition format under the key `body=`. This matches
-    /// the otel collector `prometheusreceiver` simple-push bridge and
-    /// avoids pulling the heavy `opentelemetry-otlp` crate stack into
-    /// the workspace lockfile for this slice.
+    /// The payload is the raw Prometheus exposition text with content-type
+    /// `text/plain; version=0.0.4`. Callers that need OTLP-native export
+    /// should put an OTel Collector or deployment shim in front of this helper.
     pub async fn push_to_otlp(&self) -> anyhow::Result<bool> {
         let Some(endpoint) = std::env::var("TEABAY_OTLP_ENDPOINT")
             .ok()

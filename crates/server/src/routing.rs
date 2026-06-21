@@ -478,7 +478,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/health",
             PathItemType::Get,
-            "teabay.health",
+            "org.cokret.teabay.health",
             "health",
             "Health check",
             "Process liveness probe.",
@@ -486,7 +486,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/readyz",
             PathItemType::Get,
-            "teabay.readyz",
+            "org.cokret.teabay.readyz",
             "health",
             "Readiness check",
             "PostgreSQL and background-worker readiness probe.",
@@ -494,7 +494,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/dashboard",
             PathItemType::Get,
-            "teabay.admin.dashboard_stats",
+            "org.cokret.teabay.admin.dashboard_stats",
             "admin",
             "Directory Dashboard Stats",
             "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
@@ -502,7 +502,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/audit",
             PathItemType::Get,
-            "teabay.admin.audit_feed",
+            "org.cokret.teabay.admin.audit_feed",
             "admin",
             "List Audit Events",
             "Return the append-only directory audit feed for operator dashboards.",
@@ -510,7 +510,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/allowlist",
             PathItemType::Get,
-            "teabay.admin.allowlist_list",
+            "org.cokret.teabay.admin.allowlist_list",
             "admin",
             "List Allowlist Entries",
             "Return operator-managed accept-policy allowlist entries.",
@@ -518,7 +518,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/allowlist",
             PathItemType::Post,
-            "teabay.admin.allowlist_upsert",
+            "org.cokret.teabay.admin.allowlist_upsert",
             "admin",
             "Upsert Allowlist Entry",
             "Add or update an operator-managed accept-policy allowlist entry.",
@@ -526,7 +526,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/allowlist",
             PathItemType::Delete,
-            "teabay.admin.allowlist_delete",
+            "org.cokret.teabay.admin.allowlist_delete",
             "admin",
             "Delete Allowlist Entry",
             "Remove an operator-managed accept-policy allowlist entry.",
@@ -534,7 +534,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/resources",
             PathItemType::Get,
-            "teabay.admin.resources_browser",
+            "org.cokret.teabay.admin.resources_browser",
             "admin",
             "Browse Directory Resources",
             "Return indexed resources with kind, stale, divergent, and text filters.",
@@ -542,7 +542,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/resources",
             PathItemType::Post,
-            "teabay.admin.resource_upsert",
+            "org.cokret.teabay.admin.resource_upsert",
             "admin",
             "Upsert Directory Resource",
             "Create or update an indexed directory resource directly from the operator console.",
@@ -550,7 +550,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/resources",
             PathItemType::Delete,
-            "teabay.admin.resource_delete",
+            "org.cokret.teabay.admin.resource_delete",
             "admin",
             "Delete Directory Resource",
             "Remove an indexed directory resource directly from the operator console.",
@@ -558,7 +558,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/takedown",
             PathItemType::Post,
-            "teabay.admin.operator_takedown",
+            "org.cokret.teabay.admin.operator_takedown",
             "admin",
             "Operator Takedown",
             "Admin-only operator takedown path for §8.7 path 3.",
@@ -566,7 +566,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/takedowns",
             PathItemType::Get,
-            "teabay.admin.takedown_audit_export",
+            "org.cokret.teabay.admin.takedown_audit_export",
             "admin",
             "Export Takedown Audit",
             "Return every operator-takedown audit row within an optional `since` / `until` window.",

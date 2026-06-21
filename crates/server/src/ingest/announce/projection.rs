@@ -63,6 +63,23 @@ pub(crate) fn validate_request_shape(
             "discovery_state must be an object".into(),
         ));
     }
+    if req.policy_revision.trim().is_empty() {
+        return Err((
+            ApiErrorCode::MissingParam,
+            "policy_revision is required".into(),
+        ));
+    }
+    if let Some(discovery_policy_revision) = req
+        .discovery_state
+        .get("policy_revision")
+        .and_then(JsonValue::as_str)
+        && discovery_policy_revision != req.policy_revision
+    {
+        return Err((
+            ApiErrorCode::PolicyRevisionRollback,
+            "policy_revision does not match discovery_state.policy_revision".into(),
+        ));
+    }
     if let Some(ttl) = req.ttl_seconds
         && (ttl <= 0 || ttl > max_ttl.as_secs() as i64)
     {

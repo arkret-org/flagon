@@ -13,13 +13,10 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
+use serde_json::Value as JsonValue;
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{
-    RestrictedClaimPresentation, VerifiedRestrictedClaims, matches_allowed_discoverers,
-    verify_restricted_claim_presentations,
-};
+use crate::filter::discoverers::{VerifiedRestrictedClaims, matches_allowed_discoverers};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
@@ -27,22 +24,6 @@ use crate::query::rate_limit::{
     apply_resolve_response_jitter, enforce_query_rate_limit, enforce_resolve_rate_limit,
 };
 use crate::state::AppState;
-
-#[derive(Debug, Default, Deserialize)]
-pub struct TeabaySearchOrganizationsRequest {
-    #[serde(default)]
-    pub query: Option<String>,
-    #[serde(default)]
-    pub requester: Option<String>,
-    #[serde(default)]
-    pub proof_challenge: Option<String>,
-    #[serde(default)]
-    pub proofs: Vec<RestrictedClaimPresentation>,
-    #[serde(default)]
-    pub cursor: Option<String>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
 
 #[handler]
 pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mut Response) {
@@ -57,29 +38,17 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let raw_body: JsonValue = req.parse_json().await.unwrap_or_else(|_| json!({}));
-    if let Err(error) =
-        serde_json::from_value::<SdkDirectorySearchOrganizationsRequestBody>(raw_body.clone())
-    {
-        ApiErrorCode::BadJson.render(res, format!("malformed search body: {error}"));
-        return;
-    }
-    let body: TeabaySearchOrganizationsRequest =
-        serde_json::from_value(raw_body).unwrap_or_default();
+    let body: SdkDirectorySearchOrganizationsRequestBody = match req.parse_json().await {
+        Ok(body) => body,
+        Err(error) => {
+            ApiErrorCode::BadJson.render(res, format!("malformed search body: {error}"));
+            return;
+        }
+    };
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
-    let requester = body.requester;
-    let proof_challenge = body.proof_challenge;
-    let verified_claims = verify_restricted_claim_presentations(
-        &body.proofs,
-        requester.as_deref(),
-        proof_challenge.as_deref(),
-        &state.config().service_did,
-        &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
-    )
-    .unwrap_or_default();
+    let verified_claims = VerifiedRestrictedClaims::default();
     let cursor = match body.cursor.as_deref().map(decode_org_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
@@ -113,7 +82,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 &state,
                 &needle,
                 cursor.as_ref(),
-                requester.as_deref(),
+                None,
                 &verified_claims,
                 limit + 1,
             )
@@ -179,20 +148,6 @@ fn decode_org_cursor(cursor: &str) -> Result<OrgCursor, String> {
     serde_json::from_slice(&bytes).map_err(|e| format!("invalid cursor body: {e}"))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct TeabayResolveOrganizationRequest {
-    #[serde(default)]
-    pub organization_did: Option<String>,
-    #[serde(default)]
-    pub handle: Option<String>,
-    #[serde(default)]
-    pub requester: Option<String>,
-    #[serde(default)]
-    pub proof_challenge: Option<String>,
-    #[serde(default)]
-    pub proofs: Vec<RestrictedClaimPresentation>,
-}
-
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
 // Spec sync 37ce729 (B-E) — identity-handles §6: `resolve_organization`
 // looks up rows by `organization_did` (canonical key) or by a Directory
@@ -209,27 +164,18 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-organization");
-    let raw_body: JsonValue = match req.parse_json().await {
+    let body: SdkDirectoryResolveOrganizationRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {error}"));
             return;
         }
     };
-    if let Err(error) =
-        serde_json::from_value::<SdkDirectoryResolveOrganizationRequestBody>(raw_body.clone())
-    {
-        ApiErrorCode::BadJson.render(res, format!("malformed resolve SDK body: {error}"));
-        return;
-    }
-    let body: TeabayResolveOrganizationRequest = match serde_json::from_value(raw_body) {
-        Ok(body) => body,
-        Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {error}"));
-            return;
-        }
-    };
-    let key = body.organization_did.or(body.handle);
+    let key = body
+        .organization_did
+        .as_ref()
+        .map(|did| did.as_str().to_owned())
+        .or(body.handle);
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
@@ -257,21 +203,13 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         async { load_org_row(&state, &key).await },
     )
     .await;
-    let verified_claims = verify_restricted_claim_presentations(
-        &body.proofs,
-        body.requester.as_deref(),
-        body.proof_challenge.as_deref(),
-        &state.config().service_did,
-        &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
-    )
-    .unwrap_or_default();
+    let verified_claims = VerifiedRestrictedClaims::default();
 
     // P5 — stochastic anti-enumeration jitter on resolve responses.
     apply_resolve_response_jitter().await;
 
     match row {
-        Ok(Some(r)) if is_org_visible(&r, body.requester.as_deref(), &verified_claims) => {
+        Ok(Some(r)) if is_org_visible(&r, None, &verified_claims) => {
             let organization_preview =
                 match organization_preview_from_envelope(envelope_from_row(r)) {
                     Ok(organization_preview) => organization_preview,

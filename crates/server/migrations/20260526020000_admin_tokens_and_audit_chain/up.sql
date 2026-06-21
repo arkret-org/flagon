@@ -19,6 +19,9 @@ CREATE INDEX IF NOT EXISTS admin_tokens_active_idx
     WHERE revoked_at IS NULL;
 
 -- A.8.5 — chained audit digest.
+ALTER TYPE audit_event_kind ADD VALUE IF NOT EXISTS 'expiry_purged';
+
+-- A.8.5 — chained audit digest.
 --
 -- Append `audit_digest = sha256(canonical(row) || prev_digest)` so an
 -- operator can verify the audit log was not tampered with after the

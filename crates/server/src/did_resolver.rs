@@ -56,3 +56,21 @@ pub(crate) fn normalize_did_method_prefix(method: &str) -> String {
         format!("{trimmed}:")
     }
 }
+
+pub(crate) fn did_method_allowed(accepted_did_methods: &[String], expected: &str) -> bool {
+    let expected = normalize_did_method_prefix(expected);
+    accepted_did_methods
+        .iter()
+        .map(|method| normalize_did_method_prefix(method))
+        .any(|method| method.eq_ignore_ascii_case(&expected))
+}
+
+pub(crate) fn did_method_prefix_for_did(did: &str) -> Option<String> {
+    let mut parts = did.trim().splitn(3, ':');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("did"), Some(method), Some(_)) if !method.is_empty() => {
+            Some(format!("did:{method}:"))
+        }
+        _ => None,
+    }
+}

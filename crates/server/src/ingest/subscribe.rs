@@ -1,16 +1,20 @@
 //! `ck.find.directory.push.command.register` webhook registration and fanout.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
+use cokret_sdk::{DirectoryPushRegisterOutcome, DirectoryPushRegisterRequestBody};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use salvo::prelude::*;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
+use tokio::sync::Semaphore;
 use url::Url;
 
 use crate::error::ApiErrorCode;
@@ -21,27 +25,8 @@ use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
-
-#[derive(Debug, Deserialize)]
-pub struct DirectoryPushRegisterRequestBody {
-    pub subscriber_did: String,
-    #[serde(default)]
-    pub resource_filter: JsonValue,
-    pub webhook_endpoint: String,
-    #[serde(default)]
-    pub webhook_secret: Option<String>,
-    #[serde(default)]
-    pub expires_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DirectoryPushRegisterOutcome {
-    pub subscription_id: String,
-    pub created_at: DateTime<Utc>,
-    pub effective_at: DateTime<Utc>,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub webhook_secret: String,
-}
+const WEBHOOK_DELIVERY_TIMEOUT: Duration = Duration::from_secs(10);
+const WEBHOOK_FANOUT_CONCURRENCY: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct AcceptedIngestEvent {
@@ -77,21 +62,28 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         }
     };
 
-    if !enforce_ingest_rate_limit(req, res, &state, &body.subscriber_did) {
+    let subscriber_did = body.subscriber_did.as_str();
+    if !enforce_ingest_rate_limit(req, res, &state, subscriber_did) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
-    if body.subscriber_did.trim().is_empty() {
-        ingest_metric.set_outcome("schema_rejected");
-        ApiErrorCode::MissingParam.render(res, "subscriber_did is required");
-        return;
-    }
-    if body.resource_filter.is_null() {
+    let resource_filter = match serde_json::to_value(&body.resource_filter) {
+        Ok(value) => value,
+        Err(error) => {
+            ingest_metric.set_outcome("schema_rejected");
+            ApiErrorCode::SchemaViolation.render(
+                res,
+                format!("resource_filter serialization failed: {error}"),
+            );
+            return;
+        }
+    };
+    if resource_filter.is_null() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
     }
-    if !body.resource_filter.is_object() {
+    if !resource_filter.is_object() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::SchemaViolation.render(res, "resource_filter must be an object");
         return;
@@ -100,14 +92,14 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     // typed id is rejected before persist. The audit row captures the
     // JSON pointer for operator review; the wire response is the standard
     // low-information `schema_violation`.
-    if let Err(rejection) = circle_isolation::reject_circle_payload(&body.resource_filter) {
+    if let Err(rejection) = circle_isolation::reject_circle_payload(&resource_filter) {
         ingest_metric.set_outcome("circle_isolation_violation");
         let _ = crate::audit::record(
             state.db(),
             crate::audit::AuditEventKind::IngestRejected,
             None,
             None,
-            Some(&body.subscriber_did),
+            Some(subscriber_did),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "circle_isolation_violation",
@@ -128,26 +120,24 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
 
     let subscription_id = new_id(IdClass::Subscription);
     let created_at = Utc::now();
-    let secret = match body.webhook_secret.as_deref().map(secret_from_wire) {
+    let secret = match body.secret.as_deref().map(secret_from_wire) {
         Some(Ok(secret)) => secret,
         Some(Err(error)) => {
-            tracing::warn!(%error, "invalid supplied webhook_secret; generated a replacement");
-            generate_secret(
-                &subscription_id,
-                &body.subscriber_did,
-                &body.webhook_endpoint,
-            )
+            tracing::warn!(%error, "invalid supplied webhook secret; generated a replacement");
+            generate_secret(&subscription_id, subscriber_did, &body.webhook_endpoint)
         }
-        None => generate_secret(
-            &subscription_id,
-            &body.subscriber_did,
-            &body.webhook_endpoint,
-        ),
+        None => generate_secret(&subscription_id, subscriber_did, &body.webhook_endpoint),
     };
-    let response_secret = URL_SAFE_NO_PAD.encode(&secret);
 
-    if let Err(error) =
-        persist_subscription(&state, &body, &subscription_id, &secret, created_at).await
+    if let Err(error) = persist_subscription(
+        &state,
+        &body,
+        &resource_filter,
+        &subscription_id,
+        &secret,
+        created_at,
+    )
+    .await
     {
         ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist subscription: {error}"));
@@ -157,10 +147,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     ingest_metric.set_outcome("verify_ok");
     res.render(Json(DirectoryPushRegisterOutcome {
         subscription_id,
-        created_at,
         effective_at: created_at,
-        expires_at: body.expires_at,
-        webhook_secret: response_secret,
     }));
 }
 
@@ -202,17 +189,25 @@ pub async fn fanout_reachability_tombstone(
                 continue;
             }
         };
-        for subscription in subscriptions {
-            delivered += 1;
-            let tombstone = tombstone.clone();
-            tokio::spawn(async move {
-                if let Err(error) =
-                    deliver_tombstone(subscription, tombstone, development_mode).await
-                {
-                    tracing::warn!(%error, "tombstone webhook delivery failed");
-                }
-            });
-        }
+        delivered += subscriptions.len();
+        let semaphore = Arc::new(Semaphore::new(WEBHOOK_FANOUT_CONCURRENCY));
+        let tombstone = tombstone.clone();
+        tokio::spawn(async move {
+            for subscription in subscriptions {
+                let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                    break;
+                };
+                let tombstone = tombstone.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    if let Err(error) =
+                        deliver_tombstone(subscription, tombstone, development_mode).await
+                    {
+                        tracing::warn!(%error, "tombstone webhook delivery failed");
+                    }
+                });
+            }
+        });
     }
     delivered
 }
@@ -274,19 +269,30 @@ pub async fn fanout_accepted_ingest(state: AppState, event: AcceptedIngestEvent)
     }
 
     let development_mode = state.config().development_mode;
-    for subscription in subscriptions {
-        let event = event.clone();
-        tokio::spawn(async move {
-            if let Err(error) = deliver_webhook(subscription, event, development_mode).await {
-                tracing::warn!(%error, "webhook delivery failed");
-            }
-        });
-    }
+    let semaphore = Arc::new(Semaphore::new(WEBHOOK_FANOUT_CONCURRENCY));
+    tokio::spawn(async move {
+        for subscription in subscriptions {
+            let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                return;
+            };
+            let event = event.clone();
+            tokio::spawn(async move {
+                let _permit = permit;
+                if let Err(error) = deliver_webhook(subscription, event, development_mode).await {
+                    tracing::warn!(%error, "webhook delivery failed");
+                }
+            });
+        }
+    });
 }
 
 fn locked_webhook_http_client(target: &crate::egress::LockedEgressUrl) -> anyhow::Result<Client> {
     target
-        .apply_to_client_builder(Client::builder().redirect(reqwest::redirect::Policy::none()))
+        .apply_to_client_builder(
+            Client::builder()
+                .timeout(WEBHOOK_DELIVERY_TIMEOUT)
+                .redirect(reqwest::redirect::Policy::none()),
+        )
         .build()
         .map_err(|error| anyhow::anyhow!("build webhook HTTP client: {error}"))
 }
@@ -306,16 +312,16 @@ fn validate_endpoint(endpoint: &str, development_mode: bool) -> Result<(), Strin
 }
 
 fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
-    // The webhook secret MUST be base64url (no padding). A decode failure is a
+    // The secret MUST be base64url (no padding). A decode failure is a
     // hard error rather than a silent "treat the literal string as key" fallback
     // — that fallback masked client misconfiguration and made the same string
     // produce different HMAC keys depending on whether it happened to be valid
     // base64url.
     let bytes = URL_SAFE_NO_PAD
         .decode(raw)
-        .map_err(|_| "webhook_secret must be base64url (unpadded) encoded".to_owned())?;
+        .map_err(|_| "secret must be base64url (unpadded) encoded".to_owned())?;
     if bytes.len() < 16 {
-        return Err("webhook_secret must decode to at least 16 bytes".to_owned());
+        return Err("secret must decode to at least 16 bytes".to_owned());
     }
     Ok(bytes)
 }
@@ -337,6 +343,7 @@ fn generate_secret(subscription_id: &str, subscriber_did: &str, endpoint: &str) 
 async fn persist_subscription(
     state: &AppState,
     body: &DirectoryPushRegisterRequestBody,
+    resource_filter: &JsonValue,
     subscription_id: &str,
     secret: &[u8],
     created_at: DateTime<Utc>,
@@ -346,8 +353,8 @@ async fn persist_subscription(
     diesel::insert_into(s::webhook_subscriptions)
         .values((
             s::subscription_id.eq(subscription_id),
-            s::subscriber_did.eq(&body.subscriber_did),
-            s::resource_filter.eq(&body.resource_filter),
+            s::subscriber_did.eq(body.subscriber_did.as_str()),
+            s::resource_filter.eq(resource_filter),
             s::webhook_endpoint.eq(&body.webhook_endpoint),
             s::secret.eq(Some(secret)),
             s::expires_at.eq(body.expires_at),

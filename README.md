@@ -173,16 +173,17 @@ curl http://127.0.0.1:9095/metrics
 The metrics surface includes ingest outcomes, query latency, anti-enumeration
 pad targets, pull revalidation outcomes, and divergence detections. For
 OpenTelemetry, run an OTel Collector next to teabay and scrape the Prometheus
-endpoint plus stdout/stderr tracing logs. An in-process `tracing-opentelemetry`
-OTLP exporter is intentionally left for a dependency-refresh slice so this
-local hygiene work does not modify `Cargo.lock`.
+endpoint plus stdout/stderr tracing logs. A deployment shim may also call the
+`TEABAY_OTLP_ENDPOINT` push helper, which sends the same Prometheus exposition
+as `text/plain; version=0.0.4`; setting the variable alone does not start a
+background export loop.
 
 ## Validation
 
 GitHub Actions runs the same checks expected locally:
 
 ```bash
-cargo fmt --all --check
+cargo +nightly fmt --all -- --check
 cargo check --all-targets
 cargo test
 cargo check --manifest-path crates/testing/Cargo.toml

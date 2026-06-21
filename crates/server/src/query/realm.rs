@@ -214,7 +214,9 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let row = pad_to_budget_observed(
+    let requester = body.requester.as_ref().map(Did::as_str).map(str::to_owned);
+    let verified_claims = VerifiedRestrictedClaims::default();
+    let outcome = pad_to_budget_observed(
         budget,
         "ck.find.directory.query.resolve_realm",
         &key,
@@ -223,36 +225,36 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 .metrics()
                 .record_anti_enum_pad("resolve-realm", target)
         },
-        async { load_realm_row(&state, &key).await },
+        async {
+            let row = match load_realm_row(&state, &key).await {
+                Ok(Some(row)) => row,
+                Ok(None) => return Ok(None),
+                Err(error) => return Err(format!("realm resolve: {error}")),
+            };
+            if !is_result_visible(&row, requester.as_deref(), &verified_claims) {
+                return Ok(None);
+            }
+            let join_candidates = join_candidates_for_row(&row);
+            let realm_preview = realm_preview_from_row(row)?;
+            Ok(Some((realm_preview, join_candidates)))
+        },
     )
     .await;
-    let verified_claims = VerifiedRestrictedClaims::default();
 
     // P5 — stochastic anti-enumeration jitter on resolve responses.
     apply_resolve_response_jitter().await;
 
-    match row {
-        Ok(Some(r))
-            if is_result_visible(
-                &r,
-                body.requester.as_ref().map(Did::as_str),
-                &verified_claims,
-            ) =>
-        {
-            let join_candidates = join_candidates_for_row(&r);
-            let realm_preview = match realm_preview_from_row(r) {
-                Ok(realm_preview) => realm_preview,
-                Err(message) => {
-                    ApiErrorCode::InternalError.render(res, message);
-                    return;
-                }
-            };
+    match outcome {
+        Ok(Some((realm_preview, join_candidates))) => {
             res.render(Json(DirectoryRealmResolutionOutcome {
                 realm_preview,
                 stripped_state: Vec::new(),
                 join_rule: None,
                 join_candidates,
             }));
+        }
+        Err(message) => {
+            ApiErrorCode::InternalError.render(res, message);
         }
         // Hidden, withdrawn, or unknown — all collapse to blinded not_found.
         _ => {
@@ -785,7 +787,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn restricted_projection_requires_matching_requester_or_proof() {
+    fn restricted_projection_requires_verified_claim() {
         let projection = json!({
             "payload": {
                 "allowed_discoverers": [
@@ -794,13 +796,12 @@ mod tests {
                         "claim_type": "organization_membership",
                         "organization": "did:web:acme.example",
                         "issuer": "did:web:acme.example"
-                    },
-                    { "requester": "did:web:alice.example" }
+                    }
                 ]
             }
         });
 
-        assert!(has_restricted_query_authorization(
+        assert!(!has_restricted_query_authorization(
             &projection,
             Some("did:web:alice.example"),
             &VerifiedRestrictedClaims::default(),

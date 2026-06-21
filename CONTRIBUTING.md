@@ -8,9 +8,9 @@ After cloning, enable the project's pre-commit hooks:
 git config core.hooksPath .githooks
 ```
 
-The hook runs `cargo fmt --all -- --check` and `cargo clippy --no-deps -- -D
-warnings` on staged Rust changes. If `.githooks/pre-commit` is missing, copy
-it from
+The hook runs `cargo +nightly fmt --all -- --check` and
+`cargo clippy --no-deps -- -D warnings` on staged Rust changes. If
+`.githooks/pre-commit` is missing, copy it from
 [`cokret-rust-sdk`](https://github.com/cokret/cokret-rust-sdk) and
 adapt to your local toolchain.
 
@@ -65,7 +65,7 @@ usually `http://localhost:7781` for local development.
 Run the checks that match the files you changed:
 
 ```bash
-cargo fmt --all --check
+cargo +nightly fmt --all -- --check
 cargo check --locked --all-targets
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked
