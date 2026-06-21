@@ -11,12 +11,11 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use cokret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
-    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, RealmId,
-    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
-    RealmJoinCandidateSource, RealmJoinMethod, RealmPreview,
+    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, RealmId,
+    RealmJoinCandidate, RealmPreview,
 };
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -597,49 +596,10 @@ fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
 }
 
 fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
-    let Ok(realm_id) = RealmId::new(row.resource_id.clone()) else {
+    if RealmId::new(row.resource_id.clone()).is_err() {
         return Vec::new();
-    };
-    let source_refs: Vec<EventId> = row
-        .source_refs
-        .iter()
-        .filter_map(|source_ref| EventId::new(source_ref.clone()).ok())
-        .collect();
-    row.via_services
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, service_did)| {
-            let service_did = Did::new(service_did.clone()).ok()?;
-            Some(RealmJoinCandidate {
-                realm_id: realm_id.clone(),
-                service_did,
-                service_type: RealmJoinCandidateServiceType::PrincipalServer,
-                role: if idx == 0 {
-                    RealmJoinCandidateRole::Primary
-                } else {
-                    RealmJoinCandidateRole::Mirror
-                },
-                endpoint: None,
-                operations: vec!["ck.self.events.command.submit".to_owned()],
-                join_methods: vec![
-                    RealmJoinMethod::InviteAccept,
-                    RealmJoinMethod::MemberJoin,
-                    RealmJoinMethod::Knock,
-                    RealmJoinMethod::RestrictedJoin,
-                ],
-                priority: Some(idx.min(1000) as u16),
-                source: RealmJoinCandidateSource::DirectoryIngest,
-                source_refs: source_refs.clone(),
-                frontier_ref: None,
-                // The directory service holds no Realm Seal; the seal head is
-                // disclosed by the Realm's principal server on resolve-realm.
-                seal_head_ref: None,
-                as_of: row.as_of,
-                expires_at: row.as_of + Duration::minutes(15),
-                proofs: Vec::new(),
-            })
-        })
-        .collect()
+    }
+    Vec::new()
 }
 
 fn is_result_visible(
