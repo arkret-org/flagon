@@ -57,7 +57,9 @@ use sha2::{Digest, Sha256};
 
 use crate::did_resolver::{did_method_allowed, did_resolver_chain};
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{VerifiedRestrictedClaims, matches_allowed_discoverers};
+use crate::filter::discoverers::{
+    VerifiedRestrictedClaims, matches_allowed_discoverers, verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::query::realm::resolve_realm_visible;
@@ -100,7 +102,12 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     }
 
     let requester = body.requester.as_ref().map(|d| d.as_str().to_owned());
-    let verified_claims = VerifiedRestrictedClaims::default();
+    let verified_claims = verified_restricted_claims_for_target_query(
+        &state,
+        requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &body.claim_presentations,
+    );
     // The address carries the token via `tok=`; the request body MAY also carry
     // it explicitly. The body wins when both are present.
     let token = body.token.clone();
@@ -113,10 +120,11 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     // every input that changes the visible outcome so repeated probes from one
     // origin land on a stable tier without leaking hit/miss.
     let privacy_key = format!(
-        "addr={};req={};tok={}",
+        "addr={};req={};tok={};claims={}",
         body.address,
         requester.as_deref().unwrap_or_default(),
         token.as_deref().map(|_| "1").unwrap_or("0"),
+        body.claim_presentations.len(),
     );
 
     let outcome = pad_to_budget_observed(
@@ -159,6 +167,23 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
             ApiErrorCode::InternalError.render(res, message);
         }
     }
+}
+
+fn verified_restricted_claims_for_target_query(
+    state: &AppState,
+    requester: Option<&str>,
+    proof_challenge: Option<&str>,
+    presentations: &[cokret_sdk::DirectoryRestrictedClaimPresentation],
+) -> VerifiedRestrictedClaims {
+    verify_restricted_claim_presentations(
+        presentations,
+        requester,
+        proof_challenge,
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default()
 }
 
 /// The internal resolve outcome. `TokenReject` and `NotFound` BOTH render the
@@ -618,6 +643,9 @@ async fn build_object_response(
     if !object_access_allowed(&row, requester, verified_claims, invite_authorized) {
         return Ok(None);
     }
+    let Some(policy_revision) = required_object_policy_revision(&row) else {
+        return Ok(None);
+    };
 
     let mut object_preview = row.public_projection;
     if let Some(obj) = object_preview.as_object_mut() {
@@ -640,7 +668,7 @@ async fn build_object_response(
         as_of: row.as_of,
         source_refs: row.source_refs,
         join_candidates: Vec::new(),
-        policy_revision: row.policy_revision,
+        policy_revision: Some(policy_revision),
         stale: opt_bool(row.stale),
         divergent: opt_bool(row.divergent),
     }))
@@ -691,6 +719,14 @@ fn object_access_allowed(
     }
     let required = json!({ "allowed_discoverers": row.required_claims.clone() });
     matches_allowed_discoverers(&required, requester, verified_claims)
+}
+
+fn required_object_policy_revision(row: &ObjectAccessRow) -> Option<String> {
+    row.policy_revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|policy_revision| !policy_revision.is_empty())
+        .map(str::to_owned)
 }
 
 async fn invite_token_revoked(
@@ -997,6 +1033,70 @@ mod tests {
             &VerifiedRestrictedClaims::default(),
             true,
         ));
+    }
+
+    #[test]
+    fn object_access_accepts_matching_verified_claim_presentation() {
+        let issuer = cokret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
+        let org = cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
+        let requester = cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let claim = cokret_sdk::PresentedClaim::organization_membership(
+            "claim-1",
+            requester.clone(),
+            issuer.clone(),
+            org.clone(),
+            vec!["member".to_owned()],
+        );
+        let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
+        let row = ObjectAccessRow {
+            public_projection: json!({ "title": "Strand" }),
+            required_claims: json!([{
+                "type": "claim",
+                "claim_type": "organization_membership",
+                "issuer": issuer.as_str(),
+                "organization": org.as_str(),
+            }]),
+            as_of: sample_time(),
+            source_refs: vec!["ck:event:1".to_owned()],
+            policy_revision: Some("rev-7".to_owned()),
+            stale: false,
+            divergent: false,
+        };
+
+        assert!(object_access_allowed(
+            &row,
+            Some(requester.as_str()),
+            &verified_claims,
+            false,
+        ));
+        assert!(!object_access_allowed(
+            &row,
+            Some("did:web:bob.example"),
+            &verified_claims,
+            false,
+        ));
+    }
+
+    #[test]
+    fn object_policy_revision_is_required() {
+        let mut row = ObjectAccessRow {
+            public_projection: json!({ "title": "Strand" }),
+            required_claims: json!([]),
+            as_of: sample_time(),
+            source_refs: vec!["ck:event:1".to_owned()],
+            policy_revision: None,
+            stale: false,
+            divergent: false,
+        };
+
+        assert!(required_object_policy_revision(&row).is_none());
+        row.policy_revision = Some("   ".to_owned());
+        assert!(required_object_policy_revision(&row).is_none());
+        row.policy_revision = Some(" rev-7 ".to_owned());
+        assert_eq!(
+            required_object_policy_revision(&row).as_deref(),
+            Some("rev-7")
+        );
     }
 
     #[test]

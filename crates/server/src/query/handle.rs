@@ -20,7 +20,9 @@ use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{VerifiedRestrictedClaims, matches_allowed_discoverers};
+use crate::filter::discoverers::{
+    VerifiedRestrictedClaims, matches_allowed_discoverers, verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
@@ -32,6 +34,7 @@ pub struct ResolveHandleRequestView {
     pub handle: String,
     pub expected_did: Option<String>,
     pub proof_challenge: Option<String>,
+    pub claim_presentations: Vec<cokret_sdk::DirectoryRestrictedClaimPresentation>,
     /// Why the handle is being resolved. Spec 0a5ab85:
     /// gates audience binding on the response claim and selects the
     /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
@@ -56,6 +59,7 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
             handle: body.handle,
             expected_did: body.expected_did.map(|did| did.as_str().to_owned()),
             proof_challenge: body.proof_challenge,
+            claim_presentations: body.claim_presentations,
             intent: body.intent.map(|intent| intent.to_string()),
             requester: body.requester.map(|did| did.as_str().to_owned()),
             audience: body.audience,
@@ -191,6 +195,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         handle: handle.clone(),
         expected_did: None,
         proof_challenge: None,
+        claim_presentations: Vec::new(),
         intent: None,
         requester: None,
         audience: None,
@@ -280,7 +285,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::NotFound.render(res, "not found");
         return;
     }
-    let verified_claims = VerifiedRestrictedClaims::default();
+    let verified_claims = verified_restricted_claims_for_handle_query(&state, &body);
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -298,12 +303,13 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     ip_hasher.update(requester_ip.as_bytes());
     let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
     let privacy_key = format!(
-        "handle={};intent={};realm={};req={};aud={};iph={}",
+        "handle={};intent={};realm={};req={};aud={};claims={};iph={}",
         body.handle,
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id.as_deref().unwrap_or_default(),
         body.requester.as_deref().unwrap_or_default(),
         body.audience.as_deref().unwrap_or_default(),
+        body.claim_presentations.len(),
         requester_ip_hash,
     );
 
@@ -359,6 +365,21 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
             ApiErrorCode::NotFound.render(res, "not found")
         }
     }
+}
+
+fn verified_restricted_claims_for_handle_query(
+    state: &AppState,
+    body: &ResolveHandleRequestView,
+) -> VerifiedRestrictedClaims {
+    verify_restricted_claim_presentations(
+        &body.claim_presentations,
+        body.requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default()
 }
 
 /// Result of running the policy filter against a stored handle row.
@@ -855,6 +876,7 @@ mod tests {
             handle: "alice.example".to_string(),
             expected_did: None,
             proof_challenge: None,
+            claim_presentations: Vec::new(),
             intent: Some("member_add".to_string()),
             requester: Some(requester.to_string()),
             audience: None,
@@ -1187,6 +1209,45 @@ mod tests {
             Some("did:web:bob.example"),
             &VerifiedRestrictedClaims::default()
         ));
+    }
+
+    #[test]
+    fn restricted_handle_accepts_verified_claim_presentation() {
+        let issuer = cokret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
+        let org = cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
+        let requester = cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let claim = cokret_sdk::PresentedClaim::organization_membership(
+            "claim-1",
+            requester.clone(),
+            issuer.clone(),
+            org.clone(),
+            vec!["member".to_owned()],
+        );
+        let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
+        let mut row = dummy_row(json!({
+            "did": requester.as_str(),
+            "verified": true,
+            "allowed_discoverers": [{
+                "type": "claim",
+                "claim_type": "organization_membership",
+                "issuer": issuer.as_str(),
+                "organization": org.as_str(),
+            }],
+        }));
+        row.discoverability = DiscoverabilityDb::Restricted;
+        let body = ResolveHandleRequestView {
+            handle: "alice.example".to_owned(),
+            expected_did: None,
+            proof_challenge: None,
+            claim_presentations: Vec::new(),
+            intent: Some("lookup".to_owned()),
+            requester: Some(requester.as_str().to_owned()),
+            audience: None,
+            realm_id: None,
+        };
+
+        let outcome = evaluate_handle_disclosure(row, &body, &verified_claims, None);
+        assert!(matches!(outcome, ResolveOutcome::Found(_)));
     }
 
     #[test]

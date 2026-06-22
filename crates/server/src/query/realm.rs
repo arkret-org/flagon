@@ -615,11 +615,13 @@ fn is_result_visible(
         return false;
     }
     match row.discoverability {
-        DiscoverabilityDb::Public | DiscoverabilityDb::Listed | DiscoverabilityDb::Unlisted => true,
+        DiscoverabilityDb::Public | DiscoverabilityDb::Listed => true,
         DiscoverabilityDb::Restricted => {
             has_restricted_query_authorization(&row.public_projection, requester, verified_claims)
         }
-        DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret => false,
+        DiscoverabilityDb::Unlisted | DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret => {
+            false
+        }
     }
 }
 
@@ -809,6 +811,31 @@ mod tests {
         assert!(!has_restricted_query_authorization(
             &projection,
             Some("did:web:bob.example"),
+            &VerifiedRestrictedClaims::default(),
+        ));
+    }
+
+    #[test]
+    fn unlisted_realm_is_not_search_visible() {
+        let row = RealmRow {
+            resource_id: "ck:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+            public_projection: json!({ "title": "Tea" }),
+            discoverability: DiscoverabilityDb::Unlisted,
+            as_of: chrono::Utc::now(),
+            source_refs: vec!["ck:event:1".to_owned()],
+            policy_revision: "rev-1".to_owned(),
+            stale: false,
+            divergent: false,
+            via_services: Vec::new(),
+            indexed_at: chrono::Utc::now(),
+            score: 1.0,
+            realm_destroyed_at: None,
+            reachability_revoked_at: None,
+        };
+
+        assert!(!is_result_visible(
+            &row,
+            Some("did:web:alice.example"),
             &VerifiedRestrictedClaims::default(),
         ));
     }

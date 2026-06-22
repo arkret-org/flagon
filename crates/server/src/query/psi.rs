@@ -8,6 +8,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
+use cokret_sdk::Did;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use rand::rngs::OsRng;
@@ -116,8 +117,6 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
     if !crate::query::rate_limit::enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let client_ip = crate::query::rate_limit::resolve_client_ip(req, &state);
-
     let body: PsiContactDiscoveryRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
@@ -129,9 +128,16 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         ApiErrorCode::MissingParam.render(res, "requester is required");
         return;
     }
+    let requester_did = match Did::new(body.requester.trim().to_owned()) {
+        Ok(did) => did,
+        Err(error) => {
+            ApiErrorCode::InvalidParam.render(res, format!("requester must be a DID: {error}"));
+            return;
+        }
+    };
 
     // Spec §6.4 anti-enumeration quota: at most `max_psi_queries_per_window`
-    // *batches* per requester per quota window. A batch is one logical PSI
+    // *batches* per requester DID per quota window. A batch is one logical PSI
     // query, i.e. one `blind` round followed by its `match` round — so the
     // quota is charged once, at the `blind` phase that opens the batch. The
     // `match` continuation does not consume an additional unit (otherwise a
@@ -150,14 +156,12 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             .timestamp()
             .div_euclid(state.config().psi_quota_window_seconds as i64);
         // §6.4 requires the quota to be counted per authenticable principal /
-        // device credential; `body.requester` is an unauthenticated free-form
-        // string from the request body, so an attacker could rotate it per
-        // batch to bypass the limit. Until the query face carries a verified
-        // principal, the *mandatory* quota dimension MUST be the resolved
-        // client IP (spec permits IP as a hardening dimension); `requester` is
-        // retained only as a secondary disambiguator behind the same IP.
+        // device credential. This handler's wire contract carries requester
+        // as a DID, so the PSI quota key is requester-primary. The IP-based
+        // generic query limiter above remains a separate auxiliary hardening
+        // dimension; it is not the PSI quota key.
         if let RateLimitOutcome::Limited { retry_after } = state.check_rate_limit_window(
-            format!("psi-quota:{client_ip}:{}:{quota_bucket}", body.requester),
+            psi_quota_key(&requester_did, quota_bucket),
             state.config().max_psi_queries_per_window,
             quota_window,
         ) {
@@ -424,6 +428,10 @@ fn current_epoch(config: &AppConfig) -> String {
     format!("psi-epoch-{epoch}")
 }
 
+fn psi_quota_key(requester: &Did, quota_bucket: i64) -> String {
+    format!("psi-quota:requester:{}:{quota_bucket}", requester.as_str())
+}
+
 fn random_query_id() -> String {
     URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>())
 }
@@ -518,6 +526,16 @@ mod tests {
             first
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
+    }
+
+    #[test]
+    fn psi_quota_key_is_requester_primary() {
+        let requester = Did::new("did:web:alice.example".to_owned()).unwrap();
+
+        assert_eq!(
+            psi_quota_key(&requester, 42),
+            "psi-quota:requester:did:web:alice.example:42"
         );
     }
 }
