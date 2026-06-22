@@ -108,6 +108,9 @@ diesel::table! {
         acked_at -> Timestamptz,
         operator -> Nullable<Text>,
         notified_at -> Nullable<Timestamptz>,
+        overturned_at -> Nullable<Timestamptz>,
+        overturn_appeal_id -> Nullable<Text>,
+        overturn_receipt -> Nullable<Jsonb>,
     }
 }
 
@@ -276,6 +279,31 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ResourceKind;
+
+    takedown_appeals (appeal_id) {
+        appeal_id -> Text,
+        takedown_id -> Text,
+        resource_kind -> ResourceKind,
+        resource_id -> Text,
+        appellant_did -> Text,
+        requested_outcome -> Text,
+        argument -> Text,
+        evidence_digest -> Text,
+        appeal_packet -> Jsonb,
+        status -> Text,
+        created_at -> Timestamptz,
+        accepted_at -> Timestamptz,
+        decided_at -> Nullable<Timestamptz>,
+        decided_by -> Nullable<Text>,
+        decision -> Nullable<Text>,
+        decision_reason -> Nullable<Text>,
+        decision_receipt -> Nullable<Jsonb>,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
     ingest_announces,
@@ -292,4 +320,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     pending_takedowns,
     pending_takedown_approvals,
     pending_takedown_webhooks,
+    takedown_appeals,
 );

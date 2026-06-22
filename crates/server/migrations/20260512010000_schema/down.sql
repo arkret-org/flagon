@@ -24,6 +24,11 @@ DROP TABLE IF EXISTS webhook_subscriptions;
 DROP INDEX IF EXISTS pull_subscriptions_next_pull_idx;
 DROP TABLE IF EXISTS pull_subscriptions;
 
+DROP INDEX IF EXISTS takedown_appeals_status_idx;
+DROP INDEX IF EXISTS takedown_appeals_takedown_idx;
+DROP TABLE IF EXISTS takedown_appeals;
+
+DROP INDEX IF EXISTS withdrawals_active_takedown_idx;
 DROP INDEX IF EXISTS withdrawals_resource_idx;
 DROP TABLE IF EXISTS withdrawals;
 

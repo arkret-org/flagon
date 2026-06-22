@@ -1363,7 +1363,11 @@ async fn load_takedown_export(
 
     let mut conn = state.db().get().await?;
     let mut query = a::directory_audit
-        .filter(a::kind.eq(AuditEventKind::OperatorTakedown))
+        .filter(a::kind.eq_any([
+            AuditEventKind::OperatorTakedown,
+            AuditEventKind::TakedownAppealSubmitted,
+            AuditEventKind::TakedownAppealDecided,
+        ]))
         .into_boxed();
     if let Some(since) = since {
         query = query.filter(a::occurred_at.ge(since));

@@ -20,13 +20,17 @@
 //!   (c) an unknown path keyword → fail-closed (parse error → not_found);
 //!   (d) a strand address missing `via` → fail-closed (parse error → not_found).
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use cokret_sdk::canonical;
 use cokret_sdk::jws::sign_jws_ed25519;
-use cokret_sdk::models::{LinkType, ParsedAddress, TargetDescriptor, parse_address};
+use cokret_sdk::models::{
+    LinkType, ParsedAddress, TargetDescriptor, parse_address, target_digest,
+};
 use ed25519_dalek::SigningKey;
-use serde_json::json;
-use server::query::target::{TokenCheck, verify_address_token_with_methods};
+use serde_json::{Value as JsonValue, json};
+use server::query::target::{
+    TokenCheck, verify_address_token_with_methods, verify_preview_token_with_methods,
+};
 
 const R: &str = "01904100-0000-7000-8000-0000000000aa";
 const F: &str = "01904100-0000-7000-8000-0000000000bb";
@@ -50,6 +54,7 @@ fn verify_address_token(
 }
 const VIA: &str = "did:web:relay.example";
 const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
+const PREVIEW_SIGNING_SEED: [u8; 32] = [23u8; 32];
 
 /// Mint a signed invite-token JSON whose embedded `target_descriptor` is bound
 /// to `address` under the canonical realm id (the digest is over the uuid realm,
@@ -83,6 +88,84 @@ fn did_key_multibase(signing_key: &SigningKey) -> String {
     let mut bytes = vec![0xed, 0x01];
     bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
     format!("z{}", bs58::encode(bytes).into_string())
+}
+
+fn preview_policy(accepted_previous: Vec<JsonValue>) -> JsonValue {
+    let mut policy = json!({
+        "mode": "stripped_state",
+        "audiences": ["link_token_holder"],
+        "fields": ["title", "summary", "join_rule", "member_count_bucket"],
+    });
+    if !accepted_previous.is_empty() {
+        policy
+            .as_object_mut()
+            .unwrap()
+            .insert("accepted_previous_policy_digests".to_owned(), json!(accepted_previous));
+    }
+    policy
+}
+
+fn mint_preview_token(
+    address: &ParsedAddress,
+    canonical_realm_id: &str,
+    preview_policy_digest: &str,
+    aud: JsonValue,
+    exp: i64,
+    nonce: Option<&str>,
+) -> String {
+    let mut descriptor = TargetDescriptor::from_parsed(address);
+    descriptor.set_realm_id(canonical_realm_id);
+    descriptor.link_type = LinkType::Preview;
+    let signing_key = SigningKey::from_bytes(&PREVIEW_SIGNING_SEED);
+    let multibase = did_key_multibase(&signing_key);
+    let issuer = format!("did:key:{multibase}");
+    let verification_method = format!("{issuer}#{multibase}");
+    let mut payload = json!({
+        "kind": "preview_token",
+        "iss": issuer,
+        "verification_method": verification_method,
+        "exp": exp,
+        "aud": aud,
+        "target_digest": target_digest(&descriptor).unwrap(),
+        "link_type": "preview",
+        "preview_policy_digest": preview_policy_digest,
+    });
+    if let Some(nonce) = nonce {
+        payload
+            .as_object_mut()
+            .unwrap()
+            .insert("nonce".to_owned(), json!(nonce));
+    }
+    let canonical = canonical::canonical_json_bytes(&payload).unwrap();
+    let jws = sign_jws_ed25519(&canonical, &signing_key).unwrap();
+    payload
+        .as_object_mut()
+        .unwrap()
+        .insert("jws".to_owned(), json!(jws));
+    payload.to_string()
+}
+
+fn verify_preview_token(
+    parsed: &ParsedAddress,
+    token: Option<&str>,
+    canonical_realm_id: &str,
+    policy: &JsonValue,
+    policy_digest: &str,
+    requester: Option<&str>,
+    now: chrono::DateTime<Utc>,
+) -> TokenCheck {
+    let accepted_did_methods = vec!["did:key".to_owned()];
+    verify_preview_token_with_methods(
+        parsed,
+        token,
+        canonical_realm_id,
+        policy,
+        policy_digest,
+        requester,
+        now,
+        &accepted_did_methods,
+        false,
+    )
 }
 
 /// Case (a) — a realm address parses and classifies as a Realm target, so the
@@ -155,6 +238,183 @@ fn invite_link_without_token_is_rejected() {
         verify_address_token(&addr, None, &canonical, LinkType::Invite),
         TokenCheck::Reject
     );
+}
+
+#[test]
+fn preview_token_matching_current_policy_digest_is_accepted() {
+    let now = Utc::now();
+    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let canonical = format!("ck:realm:{R}");
+    let policy = preview_policy(Vec::new());
+    let digest = canonical::canonical_sha256(&policy).unwrap();
+    let token = mint_preview_token(
+        &addr,
+        &canonical,
+        &digest,
+        json!("did:web:alice.example"),
+        (now + Duration::hours(1)).timestamp(),
+        Some("nonce-1"),
+    );
+
+    assert_eq!(
+        verify_preview_token(
+            &addr,
+            Some(&token),
+            &canonical,
+            &policy,
+            &digest,
+            Some("did:web:alice.example"),
+            now,
+        ),
+        TokenCheck::Pass
+    );
+}
+
+#[test]
+fn preview_token_replayed_onto_other_object_is_rejected() {
+    let now = Utc::now();
+    let addr_a = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let addr_b = parse_address(&format!("web+cokret:realm/{R}/strand/{F2}?lt=preview")).unwrap();
+    let canonical = format!("ck:realm:{R}");
+    let policy = preview_policy(Vec::new());
+    let digest = canonical::canonical_sha256(&policy).unwrap();
+    let token = mint_preview_token(
+        &addr_a,
+        &canonical,
+        &digest,
+        json!("link_token_holder"),
+        (now + Duration::hours(1)).timestamp(),
+        Some("nonce-1"),
+    );
+
+    assert_eq!(
+        verify_preview_token(
+            &addr_b,
+            Some(&token),
+            &canonical,
+            &policy,
+            &digest,
+            None,
+            now,
+        ),
+        TokenCheck::Reject
+    );
+}
+
+#[test]
+fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
+    let now = Utc::now();
+    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let canonical = format!("ck:realm:{R}");
+    let previous_digest =
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let policy = preview_policy(vec![json!({
+        "preview_policy_digest": previous_digest,
+        "expires_at": (now + Duration::minutes(30)).to_rfc3339(),
+    })]);
+    let digest = canonical::canonical_sha256(&policy).unwrap();
+    let token = mint_preview_token(
+        &addr,
+        &canonical,
+        previous_digest,
+        json!("link_token_holder"),
+        (now + Duration::hours(1)).timestamp(),
+        Some("nonce-1"),
+    );
+
+    assert_eq!(
+        verify_preview_token(
+            &addr,
+            Some(&token),
+            &canonical,
+            &policy,
+            &digest,
+            None,
+            now,
+        ),
+        TokenCheck::Pass
+    );
+
+    let expired_policy = preview_policy(vec![json!({
+        "preview_policy_digest": previous_digest,
+        "expires_at": (now - Duration::seconds(1)).to_rfc3339(),
+    })]);
+    let expired_digest = canonical::canonical_sha256(&expired_policy).unwrap();
+    assert_eq!(
+        verify_preview_token(
+            &addr,
+            Some(&token),
+            &canonical,
+            &expired_policy,
+            &expired_digest,
+            None,
+            now,
+        ),
+        TokenCheck::Reject
+    );
+
+    let unlisted_policy = preview_policy(Vec::new());
+    let unlisted_digest = canonical::canonical_sha256(&unlisted_policy).unwrap();
+    assert_eq!(
+        verify_preview_token(
+            &addr,
+            Some(&token),
+            &canonical,
+            &unlisted_policy,
+            &unlisted_digest,
+            None,
+            now,
+        ),
+        TokenCheck::Reject
+    );
+}
+
+#[test]
+fn malformed_preview_token_lifecycle_fields_are_rejected() {
+    let now = Utc::now();
+    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let canonical = format!("ck:realm:{R}");
+    let policy = preview_policy(Vec::new());
+    let digest = canonical::canonical_sha256(&policy).unwrap();
+    let missing_nonce = mint_preview_token(
+        &addr,
+        &canonical,
+        &digest,
+        json!("link_token_holder"),
+        (now + Duration::hours(1)).timestamp(),
+        None,
+    );
+    let expired = mint_preview_token(
+        &addr,
+        &canonical,
+        &digest,
+        json!("link_token_holder"),
+        (now - Duration::seconds(1)).timestamp(),
+        Some("nonce-1"),
+    );
+    let wrong_audience = mint_preview_token(
+        &addr,
+        &canonical,
+        &digest,
+        json!("did:web:bob.example"),
+        (now + Duration::hours(1)).timestamp(),
+        Some("nonce-1"),
+    );
+
+    for token in [missing_nonce, expired, wrong_audience] {
+        assert_eq!(
+            verify_preview_token(
+                &addr,
+                Some(&token),
+                &canonical,
+                &policy,
+                &digest,
+                Some("did:web:alice.example"),
+                now,
+            ),
+            TokenCheck::Reject
+        );
+    }
 }
 
 #[test]

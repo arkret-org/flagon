@@ -124,6 +124,63 @@ pub struct OperatorTakedownOutcome {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TakedownAppealRequestBody {
+    pub takedown_id: String,
+    pub resource_kind: DirectoryResourceKind,
+    pub resource_id: String,
+    pub appellant_did: String,
+    pub argument: String,
+    pub evidence_digest: String,
+    pub requested_outcome: String,
+    pub created_at: DateTime<Utc>,
+    pub governance_proof: JsonValue,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TakedownAppealOutcome {
+    pub appeal_id: String,
+    pub takedown_id: String,
+    pub accepted_at: DateTime<Utc>,
+    pub status: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TakedownAppealDecision {
+    Upheld,
+    Overturned,
+}
+
+impl TakedownAppealDecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Upheld => "upheld",
+            Self::Overturned => "overturned",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TakedownAppealDecisionRequestBody {
+    pub appeal_id: String,
+    pub decision: TakedownAppealDecision,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_digest: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TakedownAppealDecisionOutcome {
+    pub appeal_id: String,
+    pub takedown_id: String,
+    pub decision: TakedownAppealDecision,
+    pub decided_at: DateTime<Utc>,
+    pub receipt: JsonValue,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,
     pub resource_id: String,

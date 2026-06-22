@@ -38,7 +38,9 @@
 //! unauthorized requester. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
-use chrono::Utc;
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, TimeZone, Utc};
 use cokret_sdk::identity::DidKeyResolver;
 use cokret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use cokret_sdk::models::{
@@ -47,7 +49,7 @@ use cokret_sdk::models::{
 };
 use cokret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
-    DirectoryTargetResolutionOutcome, TargetKind, canonical,
+    DirectoryTargetResolutionOutcome, RealmPreview, TargetKind, canonical,
 };
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -219,8 +221,17 @@ async fn resolve(
         RealmRef::RealmId(uuid) => format!("ck:realm:{uuid}"),
         RealmRef::Alias(alias) => alias.clone(),
     };
-    let resolved = match resolve_realm_visible(state, &realm_key, requester, verified_claims).await
-    {
+    // 3. Token target binding (security-critical). Applies whenever a token is present OR the
+    //    address declares an invite link — an invite link MUST carry a token; a token that fails to
+    //    bind → blinded not_found.
+    let effective_link_type = parsed.link_type;
+    let token = token.or(parsed.token.as_deref());
+    let realm_resolution = if effective_link_type == LinkType::Preview {
+        crate::query::realm::resolve_realm_for_preview_link(state, &realm_key).await
+    } else {
+        resolve_realm_visible(state, &realm_key, requester, verified_claims).await
+    };
+    let resolved = match realm_resolution {
         Ok(Some(r)) => r,
         // Hidden / withdrawn / unknown realm, OR an alias that resolves to
         // nothing → blinded not_found (same as resolve_realm).
@@ -229,16 +240,38 @@ async fn resolve(
     };
     let canonical_realm_id = resolved.realm_id.clone();
 
-    // 3. Token target binding (security-critical). Applies whenever a token is present OR the
-    //    address declares an invite link — an invite link MUST carry a token; a token that fails to
-    //    bind → blinded not_found.
-    let effective_link_type = parsed.link_type;
-    let token = token.or(parsed.token.as_deref());
+    let mut verified_preview = None;
     if effective_link_type == LinkType::Preview {
-        return ResolveOutcome::TokenReject;
+        let preview_policy = match load_preview_policy(state, &canonical_realm_id).await {
+            Ok(Some(policy)) => policy,
+            Ok(None) => return ResolveOutcome::TokenReject,
+            Err(error) => {
+                return ResolveOutcome::Error(format!(
+                    "resolve_target preview policy load: {error}"
+                ));
+            }
+        };
+        match verify_preview_token_details_with_methods(
+            &parsed,
+            token,
+            &canonical_realm_id,
+            &preview_policy.value,
+            &preview_policy.digest,
+            requester,
+            Utc::now(),
+            &state.config().accepted_did_methods,
+            crate::egress::private_networks_allowed(state.config().development_mode),
+        ) {
+            Ok(_) => verified_preview = Some(preview_policy),
+            Err(TokenCheck::Reject) => return ResolveOutcome::TokenReject,
+            Err(TokenCheck::Pass) => unreachable!("detail verifier never returns Pass as error"),
+        }
     }
+
     let mut verified_invite_token = None;
-    if effective_link_type == LinkType::Invite || token.is_some() {
+    if effective_link_type != LinkType::Preview
+        && (effective_link_type == LinkType::Invite || token.is_some())
+    {
         match verify_address_token_details_with_methods(
             &parsed,
             token,
@@ -263,7 +296,16 @@ async fn resolve(
 
     // 4. Classify the target and build the response.
     if parsed.is_realm() {
-        let response = build_realm_response(resolved);
+        let response = match verified_preview.as_ref() {
+            Some(preview) => build_preview_response(
+                resolved,
+                &parsed,
+                TargetKind::Realm,
+                &preview.value,
+                &preview.digest,
+            ),
+            None => build_realm_response(resolved),
+        };
         return match response {
             Ok(r) => ResolveOutcome::Ok(r),
             Err(e) => ResolveOutcome::Error(e),
@@ -275,6 +317,19 @@ async fn resolve(
     } else {
         TargetKind::Strand
     };
+    if let Some(preview) = verified_preview.as_ref() {
+        let response = build_preview_response(
+            resolved,
+            &parsed,
+            target_kind,
+            &preview.value,
+            &preview.digest,
+        );
+        return match response {
+            Ok(r) => ResolveOutcome::Ok(r),
+            Err(e) => ResolveOutcome::Error(e),
+        };
+    }
     let invite_authorized =
         effective_link_type == LinkType::Invite && verified_invite_token.is_some();
     match build_object_response(
@@ -307,6 +362,314 @@ pub struct VerifiedInviteToken {
     pub descriptor: TargetDescriptor,
     pub token_payload_digest: Vec<u8>,
     pub target_digest: String,
+}
+
+#[derive(Debug, Clone)]
+struct PreviewPolicy {
+    value: JsonValue,
+    digest: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifiedPreviewToken {
+    pub target_digest: String,
+    pub preview_policy_digest: String,
+}
+
+async fn load_preview_policy(
+    state: &AppState,
+    realm_id: &str,
+) -> anyhow::Result<Option<PreviewPolicy>> {
+    use crate::schema::directory_resources::dsl as r;
+
+    let mut conn = state.db().get().await?;
+    let discovery_state: Option<JsonValue> = r::directory_resources
+        .filter(r::resource_kind.eq(crate::ingest::DirectoryResourceKindDb::Realm))
+        .filter(r::resource_id.eq(realm_id))
+        .select(r::discovery_state)
+        .first(&mut *conn)
+        .await
+        .optional()?;
+    let Some(discovery_state) = discovery_state else {
+        return Ok(None);
+    };
+    let Some(value) = preview_policy_from_discovery_state(&discovery_state) else {
+        return Ok(None);
+    };
+    let Some(digest) = canonical::canonical_sha256(&value).ok() else {
+        return Ok(None);
+    };
+    Ok(Some(PreviewPolicy { value, digest }))
+}
+
+fn preview_policy_from_discovery_state(discovery_state: &JsonValue) -> Option<JsonValue> {
+    for candidate in [
+        discovery_state.get("preview_policy"),
+        discovery_state.pointer("/object/preview_policy"),
+        discovery_state.pointer("/payload/object/preview_policy"),
+        discovery_state.pointer("/payload/preview_policy"),
+        Some(discovery_state),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(policy) = normalize_preview_policy_value(candidate) {
+            return Some(policy);
+        }
+    }
+    None
+}
+
+fn normalize_preview_policy_value(candidate: &JsonValue) -> Option<JsonValue> {
+    let value = candidate
+        .get("value")
+        .filter(|value| preview_policy_has_required_shape(value))
+        .unwrap_or(candidate);
+    preview_policy_has_required_shape(value).then(|| value.clone())
+}
+
+fn preview_policy_has_required_shape(value: &JsonValue) -> bool {
+    value.get("mode").and_then(JsonValue::as_str).is_some()
+        && value.get("audiences").and_then(JsonValue::as_array).is_some()
+        && value.get("fields").and_then(JsonValue::as_array).is_some()
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn verify_preview_token_with_methods(
+    parsed: &ParsedAddress,
+    token: Option<&str>,
+    canonical_realm_id: &str,
+    preview_policy: &JsonValue,
+    current_policy_digest: &str,
+    requester: Option<&str>,
+    now: DateTime<Utc>,
+    accepted_did_methods: &[String],
+    allow_private_networks: bool,
+) -> TokenCheck {
+    match verify_preview_token_details_with_methods(
+        parsed,
+        token,
+        canonical_realm_id,
+        preview_policy,
+        current_policy_digest,
+        requester,
+        now,
+        accepted_did_methods,
+        allow_private_networks,
+    ) {
+        Ok(_) => TokenCheck::Pass,
+        Err(reject) => reject,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn verify_preview_token_details_with_methods(
+    parsed: &ParsedAddress,
+    token: Option<&str>,
+    canonical_realm_id: &str,
+    preview_policy: &JsonValue,
+    current_policy_digest: &str,
+    requester: Option<&str>,
+    now: DateTime<Utc>,
+    accepted_did_methods: &[String],
+    allow_private_networks: bool,
+) -> Result<VerifiedPreviewToken, TokenCheck> {
+    if !preview_policy_accepts_link_token_holder(preview_policy) {
+        return Err(TokenCheck::Reject);
+    }
+    let Some(token) = token else {
+        return Err(TokenCheck::Reject);
+    };
+    let Some(mut value) = decode_token_json(token) else {
+        return Err(TokenCheck::Reject);
+    };
+    if !preview_token_kind_allowed(&value) {
+        return Err(TokenCheck::Reject);
+    }
+    if value.get("link_type").and_then(JsonValue::as_str) != Some("preview") {
+        return Err(TokenCheck::Reject);
+    }
+
+    let verification_method = token_verification_method(&value)
+        .map(str::to_owned)
+        .ok_or(TokenCheck::Reject)?;
+    let issuer = value
+        .get("iss")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|issuer| !issuer.is_empty())
+        .map(str::to_owned)
+        .ok_or(TokenCheck::Reject)?;
+    if verification_method_issuer(&verification_method) != Some(issuer.as_str()) {
+        return Err(TokenCheck::Reject);
+    }
+    let jws = detach_jws(&mut value).ok_or(TokenCheck::Reject)?;
+    let canonical_bytes = canonical::canonical_json_bytes(&value).map_err(|_| TokenCheck::Reject)?;
+    verify_invite_token_jws(
+        &canonical_bytes,
+        &jws,
+        &verification_method,
+        &issuer,
+        accepted_did_methods,
+        allow_private_networks,
+    )
+    .ok_or(TokenCheck::Reject)?;
+
+    if value
+        .get("nonce")
+        .and_then(JsonValue::as_str)
+        .is_none_or(|nonce| nonce.trim().is_empty())
+    {
+        return Err(TokenCheck::Reject);
+    }
+    let Some(expires_at) = parse_preview_token_expiry(value.get("exp")) else {
+        return Err(TokenCheck::Reject);
+    };
+    if expires_at <= now {
+        return Err(TokenCheck::Reject);
+    }
+    if !preview_audience_matches(value.get("aud"), requester) {
+        return Err(TokenCheck::Reject);
+    }
+
+    let Some(claimed_policy_digest) = value
+        .get("preview_policy_digest")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|digest| !digest.is_empty())
+    else {
+        return Err(TokenCheck::Reject);
+    };
+    if !preview_policy_digest_allowed(
+        preview_policy,
+        current_policy_digest,
+        claimed_policy_digest,
+        now,
+    ) {
+        return Err(TokenCheck::Reject);
+    }
+
+    let expected_target_digest =
+        expected_preview_target_digest(parsed, canonical_realm_id).ok_or(TokenCheck::Reject)?;
+    let Some(claimed_target_digest) = value
+        .get("target_digest")
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|digest| !digest.is_empty())
+    else {
+        return Err(TokenCheck::Reject);
+    };
+    if claimed_target_digest != expected_target_digest {
+        return Err(TokenCheck::Reject);
+    }
+
+    Ok(VerifiedPreviewToken {
+        target_digest: expected_target_digest,
+        preview_policy_digest: claimed_policy_digest.to_owned(),
+    })
+}
+
+fn decode_token_json(token: &str) -> Option<JsonValue> {
+    let encoded = token
+        .trim()
+        .strip_prefix("ck:preview-token:")
+        .unwrap_or_else(|| token.trim());
+    if encoded.starts_with('{') {
+        return serde_json::from_str(encoded).ok();
+    }
+    let bytes = URL_SAFE_NO_PAD.decode(encoded).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn preview_token_kind_allowed(value: &JsonValue) -> bool {
+    match value.get("kind").and_then(JsonValue::as_str) {
+        None => true,
+        Some("preview_token" | "ck.directory.preview_token" | "ck.realm.preview_token") => true,
+        _ => false,
+    }
+}
+
+fn preview_policy_accepts_link_token_holder(policy: &JsonValue) -> bool {
+    policy.get("mode").and_then(JsonValue::as_str) != Some("none")
+        && policy_array_contains(policy, "audiences", "link_token_holder")
+}
+
+fn policy_array_contains(policy: &JsonValue, field: &str, expected: &str) -> bool {
+    policy
+        .get(field)
+        .and_then(JsonValue::as_array)
+        .is_some_and(|values| values.iter().any(|value| value.as_str() == Some(expected)))
+}
+
+fn parse_preview_token_expiry(value: Option<&JsonValue>) -> Option<DateTime<Utc>> {
+    match value? {
+        JsonValue::String(value) => DateTime::parse_from_rfc3339(value)
+            .ok()
+            .map(|datetime| datetime.with_timezone(&Utc)),
+        JsonValue::Number(value) => {
+            let raw = value.as_i64()?;
+            if raw > 10_000_000_000 {
+                Utc.timestamp_millis_opt(raw).single()
+            } else {
+                Utc.timestamp_opt(raw, 0).single()
+            }
+        }
+        _ => None,
+    }
+}
+
+fn preview_audience_matches(value: Option<&JsonValue>, requester: Option<&str>) -> bool {
+    let matches_audience = |aud: &str| match aud.trim() {
+        "" => false,
+        "anonymous" | "link_token_holder" => true,
+        "authenticated" => requester.is_some(),
+        expected => requester.is_some_and(|requester| requester == expected),
+    };
+    match value {
+        Some(JsonValue::String(aud)) => matches_audience(aud),
+        Some(JsonValue::Array(audiences)) => audiences
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .any(matches_audience),
+        _ => false,
+    }
+}
+
+fn preview_policy_digest_allowed(
+    policy: &JsonValue,
+    current_policy_digest: &str,
+    claimed_policy_digest: &str,
+    now: DateTime<Utc>,
+) -> bool {
+    if claimed_policy_digest == current_policy_digest {
+        return true;
+    }
+    policy
+        .get("accepted_previous_policy_digests")
+        .and_then(JsonValue::as_array)
+        .is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                entry
+                    .get("preview_policy_digest")
+                    .and_then(JsonValue::as_str)
+                    .map(str::trim)
+                    == Some(claimed_policy_digest)
+                    && entry
+                        .get("expires_at")
+                        .and_then(|expires_at| parse_preview_token_expiry(Some(expires_at)))
+                        .is_some_and(|expires_at| now < expires_at)
+            })
+        })
+}
+
+fn expected_preview_target_digest(
+    parsed: &ParsedAddress,
+    canonical_realm_id: &str,
+) -> Option<String> {
+    let mut descriptor = TargetDescriptor::from_parsed(parsed);
+    descriptor.set_realm_id(canonical_realm_id);
+    descriptor.link_type = LinkType::Preview;
+    target_digest(&descriptor).ok()
 }
 
 /// Verify an invite token against the parsed address under the canonical
@@ -593,6 +956,94 @@ fn build_realm_response(
         stale: opt_bool(resolved.envelope.stale),
         divergent: opt_bool(resolved.envelope.divergent),
     })
+}
+
+fn build_preview_response(
+    resolved: crate::query::realm::ResolvedRealm,
+    parsed: &ParsedAddress,
+    target_kind: TargetKind,
+    preview_policy: &JsonValue,
+    preview_policy_digest: &str,
+) -> Result<DirectoryTargetResolutionOutcome, String> {
+    let mut realm_preview =
+        crate::query::realm::realm_preview_from_envelope(&resolved.realm_id, &resolved.envelope)?;
+    trim_realm_preview_for_policy(&mut realm_preview, preview_policy, preview_policy_digest);
+
+    Ok(DirectoryTargetResolutionOutcome {
+        target_kind,
+        realm_preview: Some(realm_preview),
+        object_preview: preview_object_for_address(parsed, target_kind),
+        join_rule: None,
+        as_of: resolved.envelope.as_of,
+        source_refs: resolved.envelope.source_refs.clone(),
+        join_candidates: Vec::new(),
+        policy_revision: Some(preview_policy_digest.to_owned()),
+        stale: opt_bool(resolved.envelope.stale),
+        divergent: opt_bool(resolved.envelope.divergent),
+    })
+}
+
+fn trim_realm_preview_for_policy(
+    preview: &mut RealmPreview,
+    policy: &JsonValue,
+    preview_policy_digest: &str,
+) {
+    preview.alias = None;
+    if !preview_policy_field_allowed(policy, "title") {
+        preview.title = None;
+    }
+    if !preview_policy_field_allowed(policy, "avatar_blob_ref") {
+        preview.avatar_blob_ref = None;
+    }
+    if !preview_policy_field_allowed(policy, "owning_organizations") {
+        preview.organization_did = None;
+        preview.owning_organizations.clear();
+    }
+    if !preview_policy_field_allowed(policy, "join_rule") {
+        preview.join_rule = None;
+    }
+    if !preview_policy_field_allowed(policy, "member_count_bucket") {
+        preview.member_count_bucket = None;
+    }
+    if !preview_policy_field_allowed(policy, "summary") {
+        preview.summary = None;
+    }
+    if !preview_policy_field_allowed(policy, "preview_ref") {
+        preview.preview_ref = None;
+    }
+    if !preview_policy_field_allowed(policy, "history_visibility") {
+        preview.history_visibility = None;
+    }
+    preview.discoverability = None;
+    preview.join_candidates.clear();
+    preview.policy_revision = preview_policy_digest.to_owned();
+}
+
+fn preview_policy_field_allowed(policy: &JsonValue, field: &str) -> bool {
+    policy_array_contains(policy, "fields", field)
+}
+
+fn preview_object_for_address(parsed: &ParsedAddress, target_kind: TargetKind) -> Option<JsonValue> {
+    match target_kind {
+        TargetKind::Realm => None,
+        TargetKind::Strand | TargetKind::Message => {
+            let strand_id = parsed
+                .strand
+                .as_deref()
+                .map(|strand| format!("ck:strand:{strand}"))?;
+            let mut preview = serde_json::Map::new();
+            preview.insert("kind".to_owned(), json!(target_kind));
+            preview.insert("strand_id".to_owned(), JsonValue::String(strand_id));
+            if let Some(message_id) = parsed
+                .message
+                .as_deref()
+                .map(|message| format!("ck:message:{message}"))
+            {
+                preview.insert("message_id".to_owned(), JsonValue::String(message_id));
+            }
+            Some(JsonValue::Object(preview))
+        }
+    }
 }
 
 #[derive(Debug, Queryable)]

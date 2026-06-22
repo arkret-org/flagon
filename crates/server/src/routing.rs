@@ -106,6 +106,10 @@ fn admin_router() -> Router {
                 .delete(query::admin::resource_delete),
         )
         .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
+        .push(
+            Router::with_path("takedown/appeals/decision")
+                .post(ingest::appeal::decide_takedown_appeal),
+        )
         // B.8.6 — operator-facing export of every takedown row, for
         // legal / ops review. Bearer-auth same as the rest of admin.
         .push(Router::with_path("takedowns").get(query::admin::takedown_audit_export))
@@ -169,6 +173,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .hoop(http_sig_middleware)
         .push(Router::with_path("announce").post(ingest::announce::announce))
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
+        .push(Router::with_path("takedown/appeal").post(ingest::appeal::submit_takedown_appeal))
         .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
 
     Router::with_path("_cokret/find/directory")
@@ -564,6 +569,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Admin-only operator takedown path for §8.7 path 3.",
         ),
         (
+            "/_teabay/admin/takedown/appeals/decision",
+            PathItemType::Post,
+            "org.cokret.teabay.admin.takedown_appeal_decision",
+            "admin",
+            "Decide Takedown Appeal",
+            "Return a signed decision receipt and clear takedown_in_force when overturned.",
+        ),
+        (
             "/_teabay/admin/takedowns",
             PathItemType::Get,
             "org.cokret.teabay.admin.takedown_audit_export",
@@ -578,6 +591,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
+        ),
+        (
+            "/_cokret/find/directory/takedown/appeal",
+            PathItemType::Post,
+            "ck.find.directory.command.takedown_appeal",
+            "directory",
+            "Submit Takedown Appeal",
+            "Submit a resource-signed operator takedown appeal packet.",
         ),
         (
             "/_cokret/find/directory/search-realms",

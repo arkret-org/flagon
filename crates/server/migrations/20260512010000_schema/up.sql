@@ -49,7 +49,9 @@ CREATE TYPE audit_event_kind AS ENUM (
     'allowlist_removed',
     'admin_resource_upserted',
     'admin_resource_deleted',
-    'expiry_purged'
+    'expiry_purged',
+    'takedown_appeal_submitted',
+    'takedown_appeal_decided'
 );
 
 -- ---- Search helpers ------------------------------------------------------
@@ -160,11 +162,47 @@ CREATE TABLE withdrawals (
     effective_at      TIMESTAMPTZ       NOT NULL,
     acked_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
     operator          TEXT,
-    notified_at       TIMESTAMPTZ
+    notified_at       TIMESTAMPTZ,
+    overturned_at     TIMESTAMPTZ,
+    overturn_appeal_id TEXT,
+    overturn_receipt  JSONB
 );
 
 CREATE INDEX withdrawals_resource_idx
     ON withdrawals (resource_kind, resource_id, effective_at DESC);
+
+CREATE INDEX withdrawals_active_takedown_idx
+    ON withdrawals (resource_kind, resource_id, effective_at DESC)
+    WHERE overturned_at IS NULL;
+
+CREATE TABLE takedown_appeals (
+    appeal_id         TEXT              PRIMARY KEY,
+    takedown_id       TEXT              NOT NULL
+        REFERENCES withdrawals (withdraw_id) ON DELETE CASCADE,
+    resource_kind     resource_kind     NOT NULL,
+    resource_id       TEXT              NOT NULL,
+    appellant_did     TEXT              NOT NULL,
+    requested_outcome TEXT              NOT NULL,
+    argument          TEXT              NOT NULL,
+    evidence_digest   TEXT              NOT NULL,
+    appeal_packet     JSONB             NOT NULL,
+    status            TEXT              NOT NULL DEFAULT 'pending',
+    created_at        TIMESTAMPTZ       NOT NULL,
+    accepted_at       TIMESTAMPTZ       NOT NULL DEFAULT now(),
+    decided_at        TIMESTAMPTZ,
+    decided_by        TEXT,
+    decision          TEXT,
+    decision_reason   TEXT,
+    decision_receipt  JSONB,
+    CHECK (status IN ('pending', 'upheld', 'overturned')),
+    CHECK (decision IS NULL OR decision IN ('upheld', 'overturned'))
+);
+
+CREATE INDEX takedown_appeals_takedown_idx
+    ON takedown_appeals (takedown_id, accepted_at DESC);
+
+CREATE INDEX takedown_appeals_status_idx
+    ON takedown_appeals (status, accepted_at DESC);
 
 -- ---- Pull-mode and webhook subscriptions --------------------------------
 

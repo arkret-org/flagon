@@ -97,6 +97,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "directory.subscribe",
         "directory.announce",
         "directory.takedown",
+        "directory.takedown_appeal",
         "federation.idempotency_historical_only",
         "federation.s2s_trust_domain_headers",
     ]
@@ -172,6 +173,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "directory.subscribe",
         "directory.announce",
         "directory.takedown",
+        "directory.takedown_appeal",
         "federation.idempotency_historical_only",
     ]
     .into_iter()
@@ -345,11 +347,6 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
         "status": "best_effort",
         "detail": "ck.find.directory.push.command.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
-    limitations.push(json!({
-        "feature": "resolve_target.preview_link",
-        "status": "not_implemented",
-        "detail": "Preview links fail closed as not_found because Realm preview_policy is not projected into teabay yet; reference and invite links remain supported.",
-    }));
     limitations
 }
 
@@ -476,7 +473,7 @@ mod tests {
             .iter()
             .filter_map(|entry| entry.get("feature").and_then(JsonValue::as_str))
             .collect();
-        assert!(limitation_features.contains("resolve_target.preview_link"));
+        assert!(!limitation_features.contains("resolve_target.preview_link"));
     }
 
     /// Round 4 — `validate` fails closed when development mode is set

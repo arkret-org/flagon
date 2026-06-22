@@ -21,6 +21,7 @@ use cokret_sdk::new_prefixed_uuid7;
 pub enum IdClass {
     Announce,
     Withdraw,
+    Appeal,
     Subscription,
     AuditAck,
 }
@@ -30,6 +31,7 @@ impl IdClass {
         match self {
             Self::Announce => "ck:announce:",
             Self::Withdraw => "teabay:withdraw:",
+            Self::Appeal => "teabay:appeal:",
             Self::Subscription => "teabay:subscription:",
             Self::AuditAck => "teabay:audit_ack:",
         }
@@ -46,6 +48,7 @@ pub fn parse(id: &str) -> Option<IdClass> {
     for class in [
         IdClass::Announce,
         IdClass::Withdraw,
+        IdClass::Appeal,
         IdClass::Subscription,
         IdClass::AuditAck,
     ] {
@@ -67,6 +70,7 @@ mod tests {
         for class in [
             IdClass::Announce,
             IdClass::Withdraw,
+            IdClass::Appeal,
             IdClass::Subscription,
             IdClass::AuditAck,
         ] {

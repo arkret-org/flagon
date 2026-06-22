@@ -339,6 +339,25 @@ pub(crate) async fn resolve_realm_visible(
     }))
 }
 
+/// Resolve a Realm for a token-scoped preview link. This deliberately skips
+/// the ordinary discoverability gate: the preview token and effective
+/// `ck.realm.preview_policy` are the authorization boundary for this path.
+pub(crate) async fn resolve_realm_for_preview_link(
+    state: &AppState,
+    key: &str,
+) -> anyhow::Result<Option<ResolvedRealm>> {
+    let Some(row) = load_realm_row(state, key).await? else {
+        return Ok(None);
+    };
+    let realm_id = row.resource_id.clone();
+    let envelope = envelope_from_row(row);
+    Ok(Some(ResolvedRealm {
+        realm_id,
+        envelope,
+        join_candidates: Vec::new(),
+    }))
+}
+
 // ---- internal load primitives -------------------------------------------
 
 // Tail-column ordering across the three Realm row mirrors (`RealmStoredRow` /

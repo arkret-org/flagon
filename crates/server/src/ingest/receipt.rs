@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use cokret_sdk::canonical;
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
-use teabay_contracts::OperatorTakedownRequestBody;
+use teabay_contracts::{OperatorTakedownRequestBody, TakedownAppealDecision};
 
 use crate::config::{AppConfig, ReceiptSigningKey};
 use crate::ingest::withdraw::{DirectoryWithdrawInput, withdraw_payload_without_jws};
@@ -63,10 +63,12 @@ pub(crate) fn operator_takedown_proof(
         acked_at,
         effective_at,
         Some(json!({
+            "takedown_id": withdraw_id,
             "operator": operator,
             "evidence": body.evidence.clone(),
             "notification_status": notification_status,
             "service_did": config.service_did.as_str(),
+            "appeal_endpoint": takedown_appeal_endpoint(config),
         })),
     );
     let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
@@ -80,6 +82,65 @@ pub(crate) fn operator_takedown_proof(
         "statement": statement,
         "receipt_proof": receipt_proof,
     }))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn takedown_appeal_decision_receipt(
+    config: &AppConfig,
+    appeal_id: &str,
+    takedown_id: &str,
+    resource_kind: &str,
+    resource_id: &str,
+    appellant_did: &str,
+    requested_outcome: &str,
+    evidence_digest: &str,
+    decision_evidence_digest: Option<&str>,
+    decision: TakedownAppealDecision,
+    decided_by: &str,
+    reason: &str,
+    decided_at: DateTime<Utc>,
+) -> anyhow::Result<JsonValue> {
+    let mut statement = json!({
+        "receipt_version": RECEIPT_VERSION,
+        "kind": "operator_takedown_appeal_decision",
+        "appeal_id": appeal_id,
+        "takedown_id": takedown_id,
+        "resource_kind": resource_kind,
+        "resource_id": resource_id,
+        "appellant_did": appellant_did,
+        "requested_outcome": requested_outcome,
+        "evidence_digest": evidence_digest,
+        "decision": decision.as_str(),
+        "decided_by": decided_by,
+        "reason": reason,
+        "decided_at": decided_at,
+        "service_did": config.service_did.as_str(),
+    });
+    if let Some(decision_evidence_digest) = decision_evidence_digest
+        && let Some(object) = statement.as_object_mut()
+    {
+        object.insert(
+            "decision_evidence_digest".to_owned(),
+            JsonValue::String(decision_evidence_digest.to_owned()),
+        );
+    }
+    let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("TEABAY_RECEIPT_SIGNING_KEY_B64 is required for takedown appeal decisions")
+    })?;
+    let receipt_proof = sign_receipt_statement(signing_key, &statement)?;
+    Ok(json!({
+        "kind": "operator_takedown_appeal_decision",
+        "receipt_version": RECEIPT_VERSION,
+        "statement": statement,
+        "receipt_proof": receipt_proof,
+    }))
+}
+
+pub(crate) fn takedown_appeal_endpoint(config: &AppConfig) -> String {
+    format!(
+        "{}/_cokret/find/directory/takedown/appeal",
+        config.public_base_url.trim_end_matches('/')
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

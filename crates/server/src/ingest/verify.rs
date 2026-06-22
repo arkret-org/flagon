@@ -785,6 +785,7 @@ async fn previously_withdrawn(
     let row: Option<DateTime<Utc>> = dsl::withdrawals
         .filter(dsl::resource_kind.eq(resource_kind))
         .filter(dsl::resource_id.eq(resource_id))
+        .filter(dsl::overturned_at.is_null())
         .order(dsl::effective_at.desc())
         .select(dsl::effective_at)
         .first(&mut *conn)
