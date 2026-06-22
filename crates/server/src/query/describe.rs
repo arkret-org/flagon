@@ -225,6 +225,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         compat_surfaces,
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
+        receive_policy_constraints: None,
         // Canonical inline rate-limit policy (replaces the legacy
         // top-level `rate_limit`). The directory enforces a per-resource
         // windowed limit; expressed as a windowed policy entry. The
@@ -498,6 +499,7 @@ mod tests {
             egress_network_policy: None,
             plaintext_visibility: PlaintextVisibility::none(),
             privacy_derivation: None,
+            receive_policy_constraints: None,
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {

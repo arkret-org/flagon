@@ -56,7 +56,7 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
             handle: body.handle,
             expected_did: body.expected_did.map(|did| did.as_str().to_owned()),
             proof_challenge: body.proof_challenge,
-            intent: body.intent,
+            intent: body.intent.map(|intent| intent.to_string()),
             requester: body.requester.map(|did| did.as_str().to_owned()),
             audience: body.audience,
             realm_id: body.realm_id.map(|realm_id| realm_id.as_str().to_owned()),

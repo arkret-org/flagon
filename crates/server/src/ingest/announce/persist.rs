@@ -158,15 +158,19 @@ pub(crate) async fn upsert_resource_and_audit(
 
             // Spec §3 member_count bucket hysteresis / minimum residency.
             // The projection derived above carries the *real* (instantaneous)
-            // bucket; we must pin the publicly-emitted bucket for a minimum
-            // residency window after it changes so boundary oscillation is
-            // not an enumeration side channel. Read the prior lock state +
-            // the entry's last refresh TTL (the residency lower bound) in the
-            // same transaction so the decision is race-free.
+            // bucket; we must pin the publicly-emitted bucket for the minimum
+            // residency window and require the exact count to clear the
+            // default hysteresis band before switching. Read the prior lock
+            // state + the entry's last refresh TTL (the residency lower bound)
+            // in the same transaction so the decision is race-free.
             let real_bucket = public_projection
                 .get("member_count_bucket")
                 .and_then(JsonValue::as_str)
                 .map(str::to_string);
+            let real_count = body
+                .discovery_state
+                .get("member_count")
+                .and_then(JsonValue::as_i64);
             let prior_residency = if real_bucket.is_some() {
                 r::directory_resources
                     .filter(r::resource_kind.eq(body.resource_kind))
@@ -190,6 +194,7 @@ pub(crate) async fn upsert_resource_and_audit(
             );
             let decision = apply_member_count_residency(
                 real_bucket.as_deref(),
+                real_count,
                 &MemberCountResidencyPrior {
                     locked_bucket: prior_residency
                         .as_ref()

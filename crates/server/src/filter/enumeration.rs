@@ -23,6 +23,46 @@ use sha2::{Digest, Sha256};
 pub const MEMBER_COUNT_BUCKETS: &[&str] =
     &["1-10", "11-50", "51-100", "101-500", "501-2000", "2000+"];
 
+#[derive(Clone, Copy, Debug)]
+struct MemberCountBucketRange {
+    label: &'static str,
+    max: Option<i64>,
+    finite_span: i64,
+}
+
+const MEMBER_COUNT_BUCKET_RANGES: &[MemberCountBucketRange] = &[
+    MemberCountBucketRange {
+        label: "1-10",
+        max: Some(10),
+        finite_span: 10,
+    },
+    MemberCountBucketRange {
+        label: "11-50",
+        max: Some(50),
+        finite_span: 40,
+    },
+    MemberCountBucketRange {
+        label: "51-100",
+        max: Some(100),
+        finite_span: 50,
+    },
+    MemberCountBucketRange {
+        label: "101-500",
+        max: Some(500),
+        finite_span: 400,
+    },
+    MemberCountBucketRange {
+        label: "501-2000",
+        max: Some(2_000),
+        finite_span: 1_500,
+    },
+    MemberCountBucketRange {
+        label: "2000+",
+        max: None,
+        finite_span: 1_500,
+    },
+];
+
 /// Map an exact member count to its §3.x bucket. Returns `None` for a count of
 /// zero or below: the lowest grid bucket is `1-10` ("1 to 10 members"), so a
 /// zero/negative count has no valid bucket. Folding it into `1-10` would
@@ -42,6 +82,72 @@ pub fn bucket_member_count(count: i64) -> Option<&'static str> {
 
 pub fn is_valid_member_count_bucket(bucket: &str) -> bool {
     MEMBER_COUNT_BUCKETS.contains(&bucket)
+}
+
+fn member_count_bucket_index(bucket: &str) -> Option<usize> {
+    MEMBER_COUNT_BUCKET_RANGES
+        .iter()
+        .position(|range| range.label == bucket)
+}
+
+fn default_member_count_hysteresis_width_for_boundary(lower_bucket_index: usize) -> Option<i64> {
+    let lower = MEMBER_COUNT_BUCKET_RANGES.get(lower_bucket_index)?;
+    let upper = MEMBER_COUNT_BUCKET_RANGES.get(lower_bucket_index + 1)?;
+    let upper_reference_span = if upper.max.is_some() {
+        upper.finite_span
+    } else {
+        lower.finite_span
+    };
+    let reference_span = lower.finite_span.min(upper_reference_span);
+    Some(((reference_span + 9) / 10).max(2))
+}
+
+fn real_count_exceeds_default_hysteresis(
+    locked_bucket: &str,
+    real_bucket: &str,
+    real_count: Option<i64>,
+) -> bool {
+    let Some(locked_index) = member_count_bucket_index(locked_bucket) else {
+        return true;
+    };
+    let Some(real_index) = member_count_bucket_index(real_bucket) else {
+        return false;
+    };
+    if locked_index == real_index {
+        return true;
+    }
+
+    let Some(count) = real_count else {
+        return locked_index.abs_diff(real_index) > 1;
+    };
+    if bucket_member_count(count) != Some(real_bucket) {
+        return false;
+    }
+
+    if real_index > locked_index {
+        let Some(boundary) = MEMBER_COUNT_BUCKET_RANGES
+            .get(locked_index)
+            .and_then(|range| range.max)
+        else {
+            return false;
+        };
+        let Some(width) = default_member_count_hysteresis_width_for_boundary(locked_index) else {
+            return false;
+        };
+        count >= boundary.saturating_add(width)
+    } else {
+        let boundary_index = locked_index.saturating_sub(1);
+        let Some(boundary) = MEMBER_COUNT_BUCKET_RANGES
+            .get(boundary_index)
+            .and_then(|range| range.max)
+        else {
+            return false;
+        };
+        let Some(width) = default_member_count_hysteresis_width_for_boundary(boundary_index) else {
+            return false;
+        };
+        count <= boundary.saturating_add(1).saturating_sub(width)
+    }
 }
 
 /// Prior member-count residency state read from `directory_resources`
@@ -72,9 +178,9 @@ pub struct MemberCountResidencyDecision {
 /// flip on every refresh when the true count hovers at a grid boundary.
 /// Emitting it verbatim is an enumeration side channel. This function pins
 /// the publicly-emitted bucket for a minimum residency window after it
-/// changes: the emitted bucket only switches to the new real bucket once
-/// `now - locked_since >= residency`. Until then the previously locked
-/// bucket is re-emitted.
+/// changes, and only switches after the exact count has crossed the default
+/// hysteresis band for the adjacent boundary. Until both conditions hold, the
+/// previously locked bucket is re-emitted.
 ///
 /// `residency` is the policy minimum-residency window; callers pass the
 /// entry's effective refresh TTL (spec: default SHOULD ≥ refresh TTL),
@@ -82,6 +188,7 @@ pub struct MemberCountResidencyDecision {
 /// larger.
 pub fn apply_member_count_residency(
     real_bucket: Option<&str>,
+    real_count: Option<i64>,
     prior: &MemberCountResidencyPrior,
     residency: Duration,
     now: chrono::DateTime<chrono::Utc>,
@@ -111,9 +218,11 @@ pub fn apply_member_count_residency(
                 let elapsed = now.signed_duration_since(since);
                 let residency = chrono::Duration::from_std(residency)
                     .unwrap_or_else(|_| chrono::Duration::seconds(0));
-                if elapsed >= residency {
-                    // Residency satisfied: the real bucket has genuinely
-                    // moved and stayed long enough — switch and re-pin.
+                if elapsed >= residency
+                    && real_count_exceeds_default_hysteresis(locked, real, real_count)
+                {
+                    // Residency and hysteresis are satisfied: switch and
+                    // re-pin the emitted bucket.
                     MemberCountResidencyDecision {
                         emitted_bucket: Some(real.to_string()),
                         locked_since: Some(now),
@@ -248,6 +357,30 @@ mod tests {
         assert!(!is_valid_member_count_bucket("42"));
     }
 
+    #[test]
+    fn default_hysteresis_widths_follow_spec_boundaries() {
+        assert_eq!(
+            default_member_count_hysteresis_width_for_boundary(0),
+            Some(2)
+        );
+        assert_eq!(
+            default_member_count_hysteresis_width_for_boundary(1),
+            Some(4)
+        );
+        assert_eq!(
+            default_member_count_hysteresis_width_for_boundary(2),
+            Some(5)
+        );
+        assert_eq!(
+            default_member_count_hysteresis_width_for_boundary(3),
+            Some(40)
+        );
+        assert_eq!(
+            default_member_count_hysteresis_width_for_boundary(4),
+            Some(150)
+        );
+    }
+
     fn prior(
         locked: Option<&str>,
         since: Option<chrono::DateTime<chrono::Utc>>,
@@ -263,6 +396,7 @@ mod tests {
         let now = chrono::Utc::now();
         let d = apply_member_count_residency(
             Some("11-50"),
+            Some(42),
             &prior(None, None),
             Duration::from_secs(3600),
             now,
@@ -278,6 +412,7 @@ mod tests {
         // Real bucket flipped 11-50 -> 1-10 but residency not elapsed.
         let d = apply_member_count_residency(
             Some("1-10"),
+            Some(8),
             &prior(Some("11-50"), Some(since)),
             Duration::from_secs(3600),
             now,
@@ -292,6 +427,7 @@ mod tests {
         let now = since + chrono::Duration::seconds(3600);
         let d = apply_member_count_residency(
             Some("1-10"),
+            Some(9),
             &prior(Some("11-50"), Some(since)),
             Duration::from_secs(3600),
             now,
@@ -301,11 +437,77 @@ mod tests {
     }
 
     #[test]
+    fn residency_pins_adjacent_jitter_after_window_until_hysteresis_exceeded() {
+        let since = chrono::Utc::now();
+        let now = since + chrono::Duration::seconds(3600);
+        let d = apply_member_count_residency(
+            Some("11-50"),
+            Some(11),
+            &prior(Some("1-10"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("1-10"));
+        assert_eq!(d.locked_since, Some(since));
+
+        let d = apply_member_count_residency(
+            Some("11-50"),
+            Some(12),
+            &prior(Some("1-10"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("11-50"));
+        assert_eq!(d.locked_since, Some(now));
+    }
+
+    #[test]
+    fn residency_without_exact_count_does_not_infer_adjacent_hysteresis_crossing() {
+        let since = chrono::Utc::now();
+        let now = since + chrono::Duration::seconds(3600);
+        let d = apply_member_count_residency(
+            Some("11-50"),
+            None,
+            &prior(Some("1-10"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("1-10"));
+        assert_eq!(d.locked_since, Some(since));
+    }
+
+    #[test]
+    fn residency_uses_1500_reference_for_open_upper_bucket_boundary() {
+        let since = chrono::Utc::now();
+        let now = since + chrono::Duration::seconds(3600);
+        let d = apply_member_count_residency(
+            Some("2000+"),
+            Some(2_149),
+            &prior(Some("501-2000"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("501-2000"));
+        assert_eq!(d.locked_since, Some(since));
+
+        let d = apply_member_count_residency(
+            Some("2000+"),
+            Some(2_150),
+            &prior(Some("501-2000"), Some(since)),
+            Duration::from_secs(3600),
+            now,
+        );
+        assert_eq!(d.emitted_bucket.as_deref(), Some("2000+"));
+        assert_eq!(d.locked_since, Some(now));
+    }
+
+    #[test]
     fn residency_unchanged_bucket_keeps_window() {
         let since = chrono::Utc::now();
         let now = since + chrono::Duration::seconds(10_000);
         let d = apply_member_count_residency(
             Some("11-50"),
+            Some(42),
             &prior(Some("11-50"), Some(since)),
             Duration::from_secs(3600),
             now,
@@ -317,6 +519,7 @@ mod tests {
     #[test]
     fn residency_no_bucket_is_noop() {
         let d = apply_member_count_residency(
+            None,
             None,
             &prior(Some("11-50"), Some(chrono::Utc::now())),
             Duration::from_secs(3600),
