@@ -23,9 +23,7 @@
 use chrono::{Duration, Utc};
 use cokret_sdk::canonical;
 use cokret_sdk::jws::sign_jws_ed25519;
-use cokret_sdk::models::{
-    LinkType, ParsedAddress, TargetDescriptor, parse_address, target_digest,
-};
+use cokret_sdk::models::{LinkType, ParsedAddress, TargetDescriptor, parse_address, target_digest};
 use ed25519_dalek::SigningKey;
 use serde_json::{Value as JsonValue, json};
 use server::query::target::{
@@ -97,10 +95,10 @@ fn preview_policy(accepted_previous: Vec<JsonValue>) -> JsonValue {
         "fields": ["title", "summary", "join_rule", "member_count_bucket"],
     });
     if !accepted_previous.is_empty() {
-        policy
-            .as_object_mut()
-            .unwrap()
-            .insert("accepted_previous_policy_digests".to_owned(), json!(accepted_previous));
+        policy.as_object_mut().unwrap().insert(
+            "accepted_previous_policy_digests".to_owned(),
+            json!(accepted_previous),
+        );
     }
     policy
 }
@@ -306,8 +304,7 @@ fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
     let now = Utc::now();
     let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
     let canonical = format!("ck:realm:{R}");
-    let previous_digest =
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let previous_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let policy = preview_policy(vec![json!({
         "preview_policy_digest": previous_digest,
         "expires_at": (now + Duration::minutes(30)).to_rfc3339(),
@@ -323,15 +320,7 @@ fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
     );
 
     assert_eq!(
-        verify_preview_token(
-            &addr,
-            Some(&token),
-            &canonical,
-            &policy,
-            &digest,
-            None,
-            now,
-        ),
+        verify_preview_token(&addr, Some(&token), &canonical, &policy, &digest, None, now,),
         TokenCheck::Pass
     );
 

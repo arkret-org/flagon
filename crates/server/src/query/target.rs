@@ -193,7 +193,7 @@ fn verified_restricted_claims_for_target_query(
 /// `/metrics` surface can distinguish a scope-confusion / token failure from a
 /// genuine miss for operator dashboards. The wire bytes are identical.
 enum ResolveOutcome {
-    Ok(DirectoryTargetResolutionOutcome),
+    Ok(Box<DirectoryTargetResolutionOutcome>),
     TokenReject,
     NotFound,
     Error(String),
@@ -307,7 +307,7 @@ async fn resolve(
             None => build_realm_response(resolved),
         };
         return match response {
-            Ok(r) => ResolveOutcome::Ok(r),
+            Ok(r) => ResolveOutcome::Ok(Box::new(r)),
             Err(e) => ResolveOutcome::Error(e),
         };
     }
@@ -326,7 +326,7 @@ async fn resolve(
             &preview.digest,
         );
         return match response {
-            Ok(r) => ResolveOutcome::Ok(r),
+            Ok(r) => ResolveOutcome::Ok(Box::new(r)),
             Err(e) => ResolveOutcome::Error(e),
         };
     }
@@ -343,7 +343,7 @@ async fn resolve(
     )
     .await
     {
-        Ok(Some(response)) => ResolveOutcome::Ok(response),
+        Ok(Some(response)) => ResolveOutcome::Ok(Box::new(response)),
         Ok(None) => ResolveOutcome::NotFound,
         Err(error) => ResolveOutcome::Error(format!("resolve_target object access: {error}")),
     }
@@ -430,7 +430,10 @@ fn normalize_preview_policy_value(candidate: &JsonValue) -> Option<JsonValue> {
 
 fn preview_policy_has_required_shape(value: &JsonValue) -> bool {
     value.get("mode").and_then(JsonValue::as_str).is_some()
-        && value.get("audiences").and_then(JsonValue::as_array).is_some()
+        && value
+            .get("audiences")
+            .and_then(JsonValue::as_array)
+            .is_some()
         && value.get("fields").and_then(JsonValue::as_array).is_some()
 }
 
@@ -504,7 +507,8 @@ pub fn verify_preview_token_details_with_methods(
         return Err(TokenCheck::Reject);
     }
     let jws = detach_jws(&mut value).ok_or(TokenCheck::Reject)?;
-    let canonical_bytes = canonical::canonical_json_bytes(&value).map_err(|_| TokenCheck::Reject)?;
+    let canonical_bytes =
+        canonical::canonical_json_bytes(&value).map_err(|_| TokenCheck::Reject)?;
     verify_invite_token_jws(
         &canonical_bytes,
         &jws,
@@ -582,11 +586,10 @@ fn decode_token_json(token: &str) -> Option<JsonValue> {
 }
 
 fn preview_token_kind_allowed(value: &JsonValue) -> bool {
-    match value.get("kind").and_then(JsonValue::as_str) {
-        None => true,
-        Some("preview_token" | "ck.directory.preview_token" | "ck.realm.preview_token") => true,
-        _ => false,
-    }
+    matches!(
+        value.get("kind").and_then(JsonValue::as_str),
+        None | Some("preview_token" | "ck.directory.preview_token" | "ck.realm.preview_token")
+    )
 }
 
 fn preview_policy_accepts_link_token_holder(policy: &JsonValue) -> bool {
@@ -1023,7 +1026,10 @@ fn preview_policy_field_allowed(policy: &JsonValue, field: &str) -> bool {
     policy_array_contains(policy, "fields", field)
 }
 
-fn preview_object_for_address(parsed: &ParsedAddress, target_kind: TargetKind) -> Option<JsonValue> {
+fn preview_object_for_address(
+    parsed: &ParsedAddress,
+    target_kind: TargetKind,
+) -> Option<JsonValue> {
     match target_kind {
         TargetKind::Realm => None,
         TargetKind::Strand | TargetKind::Message => {

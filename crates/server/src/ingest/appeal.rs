@@ -7,8 +7,8 @@ use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::{
-    TakedownAppealDecision, TakedownAppealDecisionOutcome,
-    TakedownAppealDecisionRequestBody, TakedownAppealOutcome, TakedownAppealRequestBody,
+    TakedownAppealDecision, TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
+    TakedownAppealOutcome, TakedownAppealRequestBody,
 };
 
 use crate::audit::{self, ActorIdentity, AuditEventKind};
@@ -89,9 +89,15 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
-    if let Err(error) =
-        persist_takedown_appeal(&state, &body, resource_kind, &appeal_id, accepted_at, &appeal_packet)
-            .await
+    if let Err(error) = persist_takedown_appeal(
+        &state,
+        &body,
+        resource_kind,
+        &appeal_id,
+        accepted_at,
+        &appeal_packet,
+    )
+    .await
     {
         ApiErrorCode::InternalError.render(res, format!("persist takedown appeal: {error}"));
         return;
@@ -202,14 +208,22 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     ) {
         Ok(receipt) => receipt,
         Err(error) => {
-            ApiErrorCode::InternalError.render(res, format!("build appeal decision receipt: {error}"));
+            ApiErrorCode::InternalError
+                .render(res, format!("build appeal decision receipt: {error}"));
             return;
         }
     };
 
-    if let Err(error) =
-        persist_appeal_decision(&state, &appeal, &body, decided_by, reason, decided_at, &decision_receipt)
-            .await
+    if let Err(error) = persist_appeal_decision(
+        &state,
+        &appeal,
+        &body,
+        decided_by,
+        reason,
+        decided_at,
+        &decision_receipt,
+    )
+    .await
     {
         ApiErrorCode::InternalError.render(res, format!("persist appeal decision: {error}"));
         return;
@@ -255,7 +269,10 @@ fn validate_appeal_body(body: &TakedownAppealRequestBody) -> Result<(), (ApiErro
         ));
     }
     if body.resource_id.trim().is_empty() {
-        return Err((ApiErrorCode::MissingParam, "resource_id is required".to_owned()));
+        return Err((
+            ApiErrorCode::MissingParam,
+            "resource_id is required".to_owned(),
+        ));
     }
     if body.appellant_did.trim().is_empty() || Did::new(body.appellant_did.clone()).is_err() {
         return Err((
@@ -264,7 +281,10 @@ fn validate_appeal_body(body: &TakedownAppealRequestBody) -> Result<(), (ApiErro
         ));
     }
     if body.argument.trim().is_empty() {
-        return Err((ApiErrorCode::MissingParam, "argument is required".to_owned()));
+        return Err((
+            ApiErrorCode::MissingParam,
+            "argument is required".to_owned(),
+        ));
     }
     if body.evidence_digest.trim().is_empty() {
         return Err((
@@ -378,7 +398,10 @@ struct AppealRow {
     status: String,
 }
 
-async fn load_pending_appeal(state: &AppState, appeal_id: &str) -> anyhow::Result<Option<AppealRow>> {
+async fn load_pending_appeal(
+    state: &AppState,
+    appeal_id: &str,
+) -> anyhow::Result<Option<AppealRow>> {
     use crate::schema::takedown_appeals::dsl as a;
 
     let mut conn = state.db().get().await?;
@@ -460,8 +483,8 @@ mod tests {
             resource_id: "ck:realm:01904100-0000-7000-8000-000000000002".to_owned(),
             appellant_did: "did:web:realm.example".to_owned(),
             argument: "policy violation was remediated".to_owned(),
-            evidence_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                .to_owned(),
+            evidence_digest:
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
             requested_outcome: "overturn".to_owned(),
             created_at: Utc::now(),
             governance_proof: json!({
@@ -474,7 +497,10 @@ mod tests {
         let unsigned = appeal_packet_without_jws(&body).expect("unsigned packet");
 
         assert!(unsigned["governance_proof"].get("jws").is_none());
-        assert_eq!(unsigned["takedown_id"].as_str(), Some(body.takedown_id.as_str()));
+        assert_eq!(
+            unsigned["takedown_id"].as_str(),
+            Some(body.takedown_id.as_str())
+        );
         assert_eq!(unsigned["requested_outcome"], "overturn");
     }
 }

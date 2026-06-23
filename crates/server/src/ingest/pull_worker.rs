@@ -530,11 +530,11 @@ struct RefreshOutcome {
 
 #[derive(Debug, Deserialize)]
 struct EventsQueryOutcome {
-    events: Vec<EventEnvelope>,
+    events: Vec<PulledEventEnvelope>,
 }
 
 #[derive(Debug, Deserialize)]
-struct EventEnvelope {
+struct PulledEventEnvelope {
     event: PulledEvent,
 }
 
