@@ -95,6 +95,49 @@ INSERT INTO directory_resources (
     'ck:announce:test-realm-secret'
 ),
 (
+    -- TBY-ORG-02/04 — a Realm that DECLARES an owning organization in its
+    -- projection but has NO verified `ck.realm.organization` statement. It MUST
+    -- NOT surface an official verified `owning_organizations` set (declared-only
+    -- ⇒ no badge).
+    'realm'::resource_kind,
+    'ck:realm:org-declared-only',
+    'did:web:principal.test',
+    '{"kind":"ck.realm.discovery","discoverability":"public"}'::jsonb,
+    '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_did":"did:web:tea-org.example","owning_organizations":["did:web:tea-org.example"]}'::jsonb,
+    'public'::discoverability,
+    now(),
+    ARRAY['evt-realm-org-declared'],
+    'rev-realm-org-declared',
+    now(),
+    86400,
+    now() + interval '1 day',
+    false,
+    false,
+    ARRAY['did:web:principal.test'],
+    'ck:announce:test-realm-org-declared'
+),
+(
+    -- TBY-ORG-02/04 — a Realm with an ACTIVE verified owner relationship (see
+    -- verified_realm_organizations.sql). It MUST surface the verified org as an
+    -- official `owning_organizations` member.
+    'realm'::resource_kind,
+    'ck:realm:org-verified',
+    'did:web:principal.test',
+    '{"kind":"ck.realm.discovery","discoverability":"public"}'::jsonb,
+    '{"name":"Verified Org Realm","summary":"Has an active ck.realm.organization owner statement"}'::jsonb,
+    'public'::discoverability,
+    now(),
+    ARRAY['evt-realm-org-verified'],
+    'rev-realm-org-verified',
+    now(),
+    86400,
+    now() + interval '1 day',
+    false,
+    false,
+    ARRAY['did:web:principal.test'],
+    'ck:announce:test-realm-org-verified'
+),
+(
     'organization'::resource_kind,
     'did:web:tea-org.example',
     'did:web:principal.test',

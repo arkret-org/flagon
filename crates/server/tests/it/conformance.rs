@@ -94,6 +94,7 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     assert_describe_advertises_core_and_psi(&service).await?;
     assert_query_surface_matrix(&db, &service).await?;
     assert_search_realms_finds_seeded_realm(&service).await?;
+    assert_official_badge_is_verified_relationship_driven(&db, &service).await?;
     assert_pull_subscribe_registers_webhook(&service).await?;
     assert_push_announce_uses_mock_principal_server(&service).await?;
     assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
@@ -107,6 +108,11 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
 async fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
     let mut conn = db.get().await?;
     diesel::sql_query(teabay_testing::DIRECTORY_FIXTURE_SQL)
+        .execute(&mut conn)
+        .await?;
+    // TBY-ORG-04 — verified relationship index rows reference the realm rows
+    // seeded above, so they must be applied after the directory fixture.
+    diesel::sql_query(teabay_testing::VERIFIED_REALM_ORGANIZATIONS_FIXTURE_SQL)
         .execute(&mut conn)
         .await?;
     Ok(())
@@ -191,6 +197,94 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
             .iter()
             .any(|result| result["realm_id"] == "ck:realm:tea")
     );
+    Ok(())
+}
+
+/// TBY-ORG-02/03/04 — the official verified badge / owning-organization surface
+/// is driven exclusively by the verified `ck.realm.organization` index, never by
+/// a declared projection hint. Covers: active owner ⇒ badge; declared-only ⇒ no
+/// badge; relationship mismatch (sponsor ≠ owner) ⇒ no badge; revoke removes
+/// badge; expiry removes badge.
+async fn assert_official_badge_is_verified_relationship_driven(
+    db: &server::Db,
+    service: &Service,
+) -> anyhow::Result<()> {
+    async fn resolve_owning_orgs(service: &Service, realm_id: &str) -> Vec<String> {
+        let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+            .json(&json!({ "realm_id": realm_id }))
+            .send(service)
+            .await;
+        assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+        let body: JsonValue = res.take_json().await.expect("resolve-realm body");
+        body["realm_preview"]["owning_organizations"]
+            .as_array()
+            .map(|orgs| {
+                orgs.iter()
+                    .filter_map(|o| o.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    // (1) active owner relationship ⇒ verified owning organization surfaces.
+    let verified = resolve_owning_orgs(service, "ck:realm:org-verified").await;
+    assert_eq!(
+        verified,
+        vec!["did:web:tea-org.example".to_owned()],
+        "active owner ck.realm.organization MUST surface verified owning org"
+    );
+
+    // (2) declared-only org hint (no statement) ⇒ no verified owning org.
+    let declared_only = resolve_owning_orgs(service, "ck:realm:org-declared-only").await;
+    assert!(
+        declared_only.is_empty(),
+        "declared owning_organizations / organization_did hint MUST NOT yield a verified badge"
+    );
+
+    // (3) relationship mismatch: sponsor is NOT owner/governance ⇒ no owning org.
+    let sponsor_only = resolve_owning_orgs(service, "ck:realm:tea").await;
+    assert!(
+        sponsor_only.is_empty(),
+        "sponsor relationship MUST NOT be usable as a verified owner/governance badge"
+    );
+
+    // (4) revoke (delete the verified row) ⇒ badge disappears after refresh.
+    {
+        let mut conn = db.get().await?;
+        diesel::sql_query(
+            "DELETE FROM verified_realm_organizations \
+             WHERE realm_id = 'ck:realm:org-verified'",
+        )
+        .execute(&mut conn)
+        .await?;
+    }
+    let after_revoke = resolve_owning_orgs(service, "ck:realm:org-verified").await;
+    assert!(
+        after_revoke.is_empty(),
+        "revoking the ck.realm.organization statement MUST remove the verified badge"
+    );
+
+    // (5) expired relationship ⇒ not surfaced even before purge.
+    {
+        let mut conn = db.get().await?;
+        diesel::sql_query(
+            "INSERT INTO verified_realm_organizations \
+               (realm_id, organization_did, relationship, control_scopes, statement_id, \
+                statement_issued_at, not_before, expires_at, realm_frontier_digest, stale, \
+                verified_at, source_announce_id) \
+             VALUES ('ck:realm:org-verified', 'did:web:tea-org.example', 'owner', \
+                     ARRAY['official_badge'], 'org-stmt-expired', now() - interval '2 hours', \
+                     NULL, now() - interval '1 hour', NULL, false, now(), 'ck:announce:expired')",
+        )
+        .execute(&mut conn)
+        .await?;
+    }
+    let after_expiry = resolve_owning_orgs(service, "ck:realm:org-verified").await;
+    assert!(
+        after_expiry.is_empty(),
+        "expired ck.realm.organization statement MUST NOT surface a verified badge"
+    );
+
     Ok(())
 }
 

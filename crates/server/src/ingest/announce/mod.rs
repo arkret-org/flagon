@@ -410,6 +410,79 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
+    // TBY-ORG-01/03 — verify and project any `ck.realm.organization` relationship
+    // statements the Realm announce carries. Only `active`, in-validity-window,
+    // proof-bearing, scope-covering statements that pass the SDK verifier enter
+    // the verified index; a bare `organization_did` / `owning_organizations`
+    // hint is NOT treated as an official relationship. Failures are audited but
+    // never block the announce (the projection hint still lands).
+    if matches!(body.resource_kind, DirectoryResourceKindDb::Realm) {
+        let statement_outcome = crate::ingest::organization_statement::verify_announced_statements(
+            &body.discovery_state,
+            &body.resource_id,
+            indexed_at,
+        );
+        if !statement_outcome.rejected.is_empty() {
+            let _ = audit::record(
+                state.db(),
+                AuditEventKind::IngestRejected,
+                Some(body.resource_kind),
+                Some(&body.resource_id),
+                Some(&body.principal_server_did),
+                json!({
+                    "reason": "realm_organization_statement_rejected",
+                    "rejected": statement_outcome
+                        .rejected
+                        .iter()
+                        .map(|rejected| json!({
+                            "statement_id": rejected.statement_id,
+                            "message": rejected.reason,
+                        }))
+                        .collect::<Vec<_>>(),
+                }),
+            )
+            .await;
+        }
+        if let Err(e) = crate::ingest::organization_statement::persist_verified_statements(
+            state.db(),
+            &statement_outcome.verified,
+            &announce_id,
+        )
+        .await
+        {
+            // A statement-projection failure must not lose the indexed row; log
+            // and continue so the declared-hint projection is still served.
+            tracing::warn!(
+                resource_id = %body.resource_id,
+                error = %e,
+                "failed to persist verified realm organization statements"
+            );
+        }
+
+        // TBY-ORG-03 — when the Realm advertises its current control-frontier
+        // digest, mark any verified relationship sealed against an older
+        // frontier as stale so it stops surfacing as an effective badge. A
+        // statement re-announced in THIS batch already refreshed the matching
+        // cell (its digest matches the current frontier), so it is unaffected.
+        if let Some(current_frontier) = body
+            .discovery_state
+            .get("realm_frontier_digest")
+            .and_then(serde_json::Value::as_str)
+            && let Err(e) = crate::ingest::organization_statement::mark_stale_behind_frontier(
+                state.db(),
+                &body.resource_id,
+                current_frontier,
+            )
+            .await
+        {
+            tracing::warn!(
+                resource_id = %body.resource_id,
+                error = %e,
+                "failed to mark stale verified realm organizations"
+            );
+        }
+    }
+
     let _ = audit::record(
         state.db(),
         AuditEventKind::IngestAccepted,

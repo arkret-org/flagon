@@ -143,6 +143,21 @@ pub(crate) fn derive_public_projection(
         // (spec §4.5). Strip it so it never enters the index or search SQL;
         // organization scoping uses the canonical `organization_did`.
         obj.remove("official_organizations");
+        // TBY-ORG-01/02 — the `ck.realm.organization` statements are verified
+        // and projected into a separate `verified_realm_organizations` index;
+        // they MUST NOT leak verbatim into the public projection (which is
+        // served to unauthenticated callers and indexed for search).
+        obj.remove("organization_statements");
+        // TBY-ORG-02 — `owning_organizations` / `organization_did` that survive
+        // here are DECLARED hints only (realm.schema: "This field alone is not a
+        // verified ownership/governance endorsement; directories MUST require an
+        // active ck.realm.organization statement"). They are retained for
+        // org-scoped *search* filtering, but a caller MUST NOT be able to inject
+        // an official verified badge through the projection — the query layer
+        // re-derives the verified `owning_organizations` from the verified index
+        // and ignores any pre-supplied badge field here.
+        obj.remove("verified_badge");
+        obj.remove("official_badge");
         strip_private_search_projection_fields(obj);
         normalize_member_count_projection(obj, discoverability, declared_mode.as_deref())?;
     }

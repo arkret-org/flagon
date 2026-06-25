@@ -146,7 +146,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                     return;
                 }
             };
-            let results = match rows
+            let mut results = match rows
                 .into_iter()
                 .map(realm_preview_from_row)
                 .collect::<Result<Vec<_>, _>>()
@@ -157,6 +157,12 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                     return;
                 }
             };
+            // TBY-ORG-02 — derive the verified owning-organization set / official
+            // badge from the verified index, replacing any declared hint.
+            for preview in &mut results {
+                let realm_id = preview.realm_id.as_str().to_owned();
+                apply_verified_organizations(&state, &realm_id, preview).await;
+            }
             res.render(Json(DirectoryRealmSearchOutcome {
                 realms: results,
                 next_cursor,
@@ -244,7 +250,11 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 return Ok(None);
             }
             let join_candidates = join_candidates_for_row(&row);
-            let realm_preview = realm_preview_from_row(row)?;
+            let realm_id = row.resource_id.clone();
+            let mut realm_preview = realm_preview_from_row(row)?;
+            // TBY-ORG-02 — verified owning-organization set / official badge,
+            // derived inside the latency budget so a hit stays timing-equivalent.
+            apply_verified_organizations(&state, &realm_id, &mut realm_preview).await;
             Ok(Some((realm_preview, join_candidates)))
         },
     )
@@ -605,6 +615,14 @@ pub(crate) fn realm_preview_from_envelope(
         "realm_id".to_owned(),
         JsonValue::String(realm_id.to_owned()),
     );
+    // TBY-ORG-02 — `owning_organizations` / `organization_did` carried by the
+    // public projection are DECLARED hints only. They MUST NOT auto-populate the
+    // verified-relationship surface of the preview; the official badge / verified
+    // organization set is re-derived from the `verified_realm_organizations`
+    // index by `apply_verified_organizations`. Drop the declared values here so a
+    // realm with only declared hints surfaces an EMPTY verified set (no badge).
+    object.remove("owning_organizations");
+    object.remove("organization_did");
     serde_json::from_value(value).map_err(|e| format!("realm preview is not SDK-compatible: {e}"))
 }
 
@@ -612,6 +630,68 @@ fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
     let realm_id = row.resource_id.clone();
     let envelope = envelope_from_row(row);
     realm_preview_from_envelope(&realm_id, &envelope)
+}
+
+/// TBY-ORG-02 — overwrite a Realm preview's verified-relationship surface
+/// (`owning_organizations` + the single `organization_did` convenience field)
+/// from the `verified_realm_organizations` index. Only `active`,
+/// in-validity-window, non-stale relationships whose verified `control_scopes`
+/// cover `official_badge` are surfaced as owning organizations, so a Realm that
+/// carries only a declared `owning_organizations` / `organization_did` hint (or
+/// a relationship that lacks the `official_badge` scope) shows NO official
+/// verified organization. `owner` and `governance` relationships are the
+/// ownership / governance surface; `sponsor` and `directory_certifier` are not
+/// owners and never populate `owning_organizations`.
+async fn apply_verified_organizations(
+    state: &AppState,
+    realm_id: &str,
+    preview: &mut RealmPreview,
+) {
+    let now = Utc::now();
+    let rows = match crate::ingest::organization_statement::load_verified_relationships(
+        state.db(),
+        realm_id,
+        now,
+    )
+    .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            // Fail closed: an index read error must not fabricate a badge.
+            tracing::warn!(%realm_id, %error, "failed to load verified realm organizations");
+            preview.owning_organizations.clear();
+            preview.organization_did = None;
+            return;
+        }
+    };
+
+    let mut owning: Vec<Did> = Vec::new();
+    for row in rows {
+        if !row.is_effective_active(now) {
+            continue;
+        }
+        // Owner / governance relationships that carry the `official_badge`
+        // endorsement scope are the verified owning-organization surface.
+        let is_owning = matches!(row.relationship.as_str(), "owner" | "governance");
+        if !is_owning || !row.covers_scope("official_badge") {
+            continue;
+        }
+        if let Ok(did) = Did::new(row.organization_did.clone())
+            && !owning.contains(&did)
+        {
+            owning.push(did);
+        }
+    }
+
+    // `organization_did` is the single-org convenience mirror; only set it when
+    // exactly one verified owning organization exists, never from a declared
+    // hint.
+    preview.organization_did = if owning.len() == 1 {
+        <[Did]>::first(&owning).cloned()
+    } else {
+        None
+    };
+    preview.owning_organizations = owning;
 }
 
 fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
@@ -749,6 +829,13 @@ WITH ranked AS (
           OR search_text % $1
           OR public_projection::text ILIKE ('%' || $1 || '%')
       )
+      -- TBY-ORG-02 — `organization_did` here is the DECLARED announce hint, so
+      -- this is a declared-hint filter (a cheap pre-filter / discovery aid). It
+      -- is NOT a verified-relationship filter: each returned preview's
+      -- `owning_organizations` is re-derived from the verified
+      -- `ck.realm.organization` index by `apply_verified_organizations`, so the
+      -- client distinguishes "claims this org" (matched here) from "verified
+      -- official relationship" (present in the preview's owning_organizations).
       AND (
           $2::text IS NULL
           OR public_projection->>'organization_did' = $2

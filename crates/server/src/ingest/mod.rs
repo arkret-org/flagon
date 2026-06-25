@@ -5,6 +5,7 @@ pub mod appeal;
 pub mod divergence_worker;
 pub mod freshness_worker;
 pub mod operator;
+pub mod organization_statement;
 pub mod pull_worker;
 pub mod rate_limit;
 pub mod receipt;

@@ -304,6 +304,27 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+
+    // TBY-ORG-01/02/03 — verified `ck.realm.organization` relationships. See
+    // migration 20260625010000_verified_realm_organizations.
+    verified_realm_organizations (realm_id, organization_did, relationship) {
+        realm_id -> Text,
+        organization_did -> Text,
+        relationship -> Text,
+        control_scopes -> Array<Text>,
+        statement_id -> Text,
+        statement_issued_at -> Timestamptz,
+        not_before -> Nullable<Timestamptz>,
+        expires_at -> Nullable<Timestamptz>,
+        realm_frontier_digest -> Nullable<Text>,
+        stale -> Bool,
+        verified_at -> Timestamptz,
+        source_announce_id -> Nullable<Text>,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
     ingest_announces,
@@ -321,4 +342,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     pending_takedown_approvals,
     pending_takedown_webhooks,
     takedown_appeals,
+    verified_realm_organizations,
 );
