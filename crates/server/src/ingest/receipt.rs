@@ -84,6 +84,48 @@ pub(crate) fn operator_takedown_proof(
     }))
 }
 
+/// Signed "appeal received" receipt returned synchronously from the submit
+/// handler. The decision is `pending` until an operator adjudicates; the
+/// resource holder gets a verifiable acknowledgement that the appeal entered
+/// the queue (`discovery-directory.md §8.7`, `DirectoryTakedownAppealOutcome`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn takedown_appeal_received_receipt(
+    config: &AppConfig,
+    appeal_id: &str,
+    takedown_id: &str,
+    resource_kind: &str,
+    resource_id: &str,
+    appellant_did: &str,
+    requested_outcome: &str,
+    argument_digest: &str,
+    received_at: DateTime<Utc>,
+) -> anyhow::Result<JsonValue> {
+    let statement = json!({
+        "receipt_version": RECEIPT_VERSION,
+        "kind": "operator_takedown_appeal_received",
+        "appeal_id": appeal_id,
+        "takedown_id": takedown_id,
+        "resource_kind": resource_kind,
+        "resource_id": resource_id,
+        "appellant_did": appellant_did,
+        "requested_outcome": requested_outcome,
+        "argument_digest": argument_digest,
+        "decision": "pending",
+        "received_at": received_at,
+        "service_did": config.service_did.as_str(),
+    });
+    let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("TEABAY_RECEIPT_SIGNING_KEY_B64 is required for takedown appeal receipts")
+    })?;
+    let receipt_proof = sign_receipt_statement(signing_key, &statement)?;
+    Ok(json!({
+        "kind": "operator_takedown_appeal_received",
+        "receipt_version": RECEIPT_VERSION,
+        "statement": statement,
+        "receipt_proof": receipt_proof,
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn takedown_appeal_decision_receipt(
     config: &AppConfig,
@@ -93,7 +135,7 @@ pub(crate) fn takedown_appeal_decision_receipt(
     resource_id: &str,
     appellant_did: &str,
     requested_outcome: &str,
-    evidence_digest: &str,
+    argument_digest: &str,
     decision_evidence_digest: Option<&str>,
     decision: TakedownAppealDecision,
     decided_by: &str,
@@ -109,7 +151,7 @@ pub(crate) fn takedown_appeal_decision_receipt(
         "resource_id": resource_id,
         "appellant_did": appellant_did,
         "requested_outcome": requested_outcome,
-        "evidence_digest": evidence_digest,
+        "argument_digest": argument_digest,
         "decision": decision.as_str(),
         "decided_by": decided_by,
         "reason": reason,

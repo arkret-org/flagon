@@ -183,8 +183,10 @@ CREATE TABLE takedown_appeals (
     resource_id       TEXT              NOT NULL,
     appellant_did     TEXT              NOT NULL,
     requested_outcome TEXT              NOT NULL,
-    argument          TEXT              NOT NULL,
-    evidence_digest   TEXT              NOT NULL,
+    -- Spec wire carries only a sha256 digest of the appeal argument/evidence;
+    -- the directory never stores plaintext appeal content (privacy: the
+    -- directory is a deanonymized-metadata index, not an appeal-body store).
+    argument_digest   TEXT              NOT NULL,
     appeal_packet     JSONB             NOT NULL,
     status            TEXT              NOT NULL DEFAULT 'pending',
     created_at        TIMESTAMPTZ       NOT NULL,

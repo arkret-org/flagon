@@ -192,17 +192,18 @@ fn blocked_ip(ip: IpAddr) -> bool {
 }
 
 fn blocked_ipv4(ip: Ipv4Addr) -> bool {
-    let [a, b, c, d] = ip.octets();
+    let [a, b, c, _d] = ip.octets();
     a == 0
         || a == 10
         || a == 127
         || (a == 100 && (64..=127).contains(&b))
+        // 169.254.0.0/16 link-local, which already covers the cloud
+        // metadata endpoint 169.254.169.254.
         || (a == 169 && b == 254)
         || (a == 172 && (16..=31).contains(&b))
         || (a == 192 && b == 0 && c == 0) // 192.0.0.0/24 IETF protocol assignments
         || (a == 192 && b == 168)
         || (a == 198 && (b == 18 || b == 19))
-        || (a == 169 && b == 254 && c == 169 && d == 254)
         || a >= 224
 }
 

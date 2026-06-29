@@ -123,26 +123,12 @@ pub struct OperatorTakedownOutcome {
     pub notification_status: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TakedownAppealRequestBody {
-    pub takedown_id: String,
-    pub resource_kind: DirectoryResourceKind,
-    pub resource_id: String,
-    pub appellant_did: String,
-    pub argument: String,
-    pub evidence_digest: String,
-    pub requested_outcome: String,
-    pub created_at: DateTime<Utc>,
-    pub governance_proof: JsonValue,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct TakedownAppealOutcome {
-    pub appeal_id: String,
-    pub takedown_id: String,
-    pub accepted_at: DateTime<Utc>,
-    pub status: String,
-}
+// `ck.find.directory.command.takedown_appeal` wire types live in
+// `cokret-rust-sdk` (`DirectoryTakedownAppealRequestBody` /
+// `DirectoryTakedownAppealOutcome`). The directory consumes those spec types
+// directly — see `crates/server/src/ingest/appeal.rs`. The local
+// admin-side decision command types below (teabay product surface, not a spec
+// operation) remain here.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -245,7 +245,11 @@ async fn persist_withdraw(
     Ok(())
 }
 
-async fn resolve_withdraw_resource_kind(
+/// Resolve the `resource_kind` for a `resource_id` that does not carry the
+/// kind on the wire (withdraw, takedown appeal): prefer the indexed
+/// directory row, fall back to ck-id prefix inference. Shared with the appeal
+/// ingest handler.
+pub(crate) async fn resolve_withdraw_resource_kind(
     state: &AppState,
     resource_id: &str,
 ) -> Result<DirectoryResourceKindDb, String> {

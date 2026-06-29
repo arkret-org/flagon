@@ -21,7 +21,6 @@
 //! Delivery is best-effort per pass; failed pulls are retried with
 //! exponential backoff via `pull_subscriptions`.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -55,13 +54,13 @@ pub struct PullWorker {
 }
 
 impl PullWorker {
-    pub fn new(state: AppState, period: Duration) -> Self {
-        let http = strict_http_client().expect("pull worker HTTP client");
-        Self {
+    pub fn new(state: AppState, period: Duration) -> anyhow::Result<Self> {
+        let http = strict_http_client()?;
+        Ok(Self {
             state,
             period,
             http,
-        }
+        })
     }
 
     /// Spawn the worker on the current Tokio runtime. Returns a handle —
@@ -594,13 +593,6 @@ fn response_header_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .and_then(|value| value.to_str().ok())
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
-}
-
-// Allow `Arc<AppState>` style usage in test fixtures without changing public API.
-impl From<Arc<AppState>> for PullWorker {
-    fn from(state: Arc<AppState>) -> Self {
-        Self::new((*state).clone(), Duration::from_secs(300))
-    }
 }
 
 #[cfg(test)]

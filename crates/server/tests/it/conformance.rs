@@ -648,7 +648,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     }
 
     let worker_state = server::AppState::new(config.clone(), db.clone());
-    server::ingest::pull_worker::PullWorker::new(worker_state, Duration::from_millis(1))
+    server::ingest::pull_worker::PullWorker::new(worker_state, Duration::from_millis(1))?
         .run_once_for_tests()
         .await?;
 

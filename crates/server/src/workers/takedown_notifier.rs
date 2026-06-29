@@ -15,9 +15,10 @@
 //! recovery is by manual `UPDATE` back to `"retry"` with
 //! `next_notification_after <= now()`.
 //!
-//! TODO(P5-impl): treat 4xx and 5xx differently — 4xx terminal, 5xx
-//! retryable. The current pass treats every non-2xx as retryable until
-//! the attempt budget is exhausted, then DLQ.
+//! A permanent 4xx (other than 408 Request Timeout and 429 Too Many
+//! Requests, which are retryable) sends the row straight to the DLQ without
+//! burning the remaining attempt budget; 5xx, timeouts, and transport
+//! errors go through the normal backoff/retry schedule.
 
 use std::time::Duration;
 
@@ -49,6 +50,38 @@ pub const DEFAULT_TAKEDOWN_NOTIFIER_TICK: Duration = Duration::from_secs(60);
 pub const TAKEDOWN_MIN_ATTEMPTS: i32 = 3;
 
 const BACKOFF_SCHEDULE_SECS: &[i64] = &[60, 300, 900];
+
+/// Outcome of a single webhook dispatch attempt. `permanent` failures (a
+/// blocked endpoint, or a non-retryable 4xx) skip the backoff budget and go
+/// straight to the DLQ; non-permanent failures (5xx, timeout, transport)
+/// follow the normal retry schedule.
+#[derive(Debug)]
+struct DispatchError {
+    message: String,
+    permanent: bool,
+}
+
+impl DispatchError {
+    fn permanent(message: impl std::fmt::Display) -> Self {
+        Self {
+            message: message.to_string(),
+            permanent: true,
+        }
+    }
+
+    fn retryable(message: impl std::fmt::Display) -> Self {
+        Self {
+            message: message.to_string(),
+            permanent: false,
+        }
+    }
+}
+
+impl std::fmt::Display for DispatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
 
 #[derive(Debug, Clone, diesel::QueryableByName)]
 struct PendingRow {
@@ -127,15 +160,18 @@ impl TakedownNotifier {
         for row in pending {
             let attempts = row.attempts.unwrap_or(0);
             let mut all_ok = true;
+            let mut permanent_failure = false;
             for webhook in &webhooks {
                 if let Err(e) = self.dispatch(&row, webhook).await {
                     warn!(
                         pending_id = %row.pending_id,
                         webhook_id = %webhook.webhook_id,
+                        permanent = e.permanent,
                         %e,
                         "takedown notification dispatch failed"
                     );
                     all_ok = false;
+                    permanent_failure |= e.permanent;
                     self.state.metrics().record_takedown_notification_failure(
                         TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED,
                     );
@@ -145,7 +181,7 @@ impl TakedownNotifier {
             if all_ok {
                 self.mark_status(&row.pending_id, "delivered", next_attempts)
                     .await?;
-            } else if next_attempts >= TAKEDOWN_MIN_ATTEMPTS {
+            } else if permanent_failure || next_attempts >= TAKEDOWN_MIN_ATTEMPTS {
                 self.mark_status(&row.pending_id, "dlq", next_attempts)
                     .await?;
                 self.state
@@ -203,13 +239,15 @@ impl TakedownNotifier {
         Ok(rows)
     }
 
-    async fn dispatch(&self, row: &PendingRow, webhook: &WebhookRow) -> anyhow::Result<()> {
+    async fn dispatch(&self, row: &PendingRow, webhook: &WebhookRow) -> Result<(), DispatchError> {
+        // A bad/blocked endpoint URL is a permanent configuration fault — no
+        // amount of retrying will make an SSRF-denied target deliverable.
         let target = crate::egress::resolve_http_url_for_egress(
             &webhook.endpoint,
             "takedown webhook",
             self.state.config().development_mode,
         )
-        .map_err(|error| anyhow::anyhow!(error))?;
+        .map_err(DispatchError::permanent)?;
         let body = json!({
             "pending_id": row.pending_id,
             "resource_kind": row.resource_kind,
@@ -218,10 +256,10 @@ impl TakedownNotifier {
             "proposed_by": row.proposed_by,
             "proposed_at": row.proposed_at,
         });
-        let body_bytes = serde_json::to_vec(&body)?;
+        let body_bytes = serde_json::to_vec(&body).map_err(DispatchError::retryable)?;
         let signature = if let Some(secret) = webhook.secret.as_deref() {
             let mut mac = HmacSha256::new_from_slice(secret)
-                .map_err(|e| anyhow::anyhow!("invalid HMAC secret: {e}"))?;
+                .map_err(|e| DispatchError::retryable(format!("invalid HMAC secret: {e}")))?;
             mac.update(&body_bytes);
             let tag = mac.finalize().into_bytes();
             Some(hex_encode(&tag))
@@ -236,7 +274,9 @@ impl TakedownNotifier {
                     .redirect(Policy::none()),
             )
             .build()
-            .map_err(|error| anyhow::anyhow!("build locked takedown webhook client: {error}"))?;
+            .map_err(|error| {
+                DispatchError::retryable(format!("build locked takedown webhook client: {error}"))
+            })?;
         let mut req = http
             .post(target.url().clone())
             .header("content-type", "application/json")
@@ -246,10 +286,19 @@ impl TakedownNotifier {
         if let Some(sig) = signature {
             req = req.header("x-teabay-signature", format!("sha256={sig}"));
         }
-        let resp = req.send().await?;
+        let resp = req.send().await.map_err(DispatchError::retryable)?;
         let status = resp.status();
         if !status.is_success() {
-            anyhow::bail!("non-2xx status from webhook endpoint: {status}");
+            let message = format!("non-2xx status from webhook endpoint: {status}");
+            // Permanent client errors (bad/expired endpoint, auth failure)
+            // are not worth retrying — except 408/429 which signal "try later".
+            if status.is_client_error()
+                && status != reqwest::StatusCode::REQUEST_TIMEOUT
+                && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+            {
+                return Err(DispatchError::permanent(message));
+            }
+            return Err(DispatchError::retryable(message));
         }
         Ok(())
     }

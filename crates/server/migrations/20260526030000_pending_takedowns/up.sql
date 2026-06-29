@@ -71,8 +71,8 @@ CREATE TABLE IF NOT EXISTS takedown_appeals (
     resource_id TEXT NOT NULL,
     appellant_did TEXT NOT NULL,
     requested_outcome TEXT NOT NULL,
-    argument TEXT NOT NULL,
-    evidence_digest TEXT NOT NULL,
+    -- sha256 digest only; the directory never stores plaintext appeal content.
+    argument_digest TEXT NOT NULL,
     appeal_packet JSONB NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL,

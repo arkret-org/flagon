@@ -398,10 +398,13 @@ impl AppConfig {
         let accept_policy_ref = std::env::var("TEABAY_ACCEPT_POLICY_REF").ok();
         let takedown_contact = std::env::var("TEABAY_TAKEDOWN_CONTACT").ok();
 
-        let accepted_did_methods = csv_env(
-            "TEABAY_ACCEPTED_DID_METHODS",
-            &["did:web", "did:webvh", "did:key"],
-        );
+        // did:webvh is the only v1-core accepted DID method. did:web is a
+        // no-history identity (DNS/TLS-takeover risk) and must never be a
+        // default for a discovery index; operators that run an explicit
+        // no-history service/personal_node profile can opt in via
+        // TEABAY_ACCEPTED_DID_METHODS. did:key (ephemeral, self-contained) is
+        // likewise opt-in only.
+        let accepted_did_methods = csv_env("TEABAY_ACCEPTED_DID_METHODS", &["did:webvh"]);
 
         let allowlist_dids = csv_env("TEABAY_ALLOWLIST_DIDS", &[]);
 

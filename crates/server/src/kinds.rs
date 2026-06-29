@@ -39,6 +39,7 @@ pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
 pub const OP_DIRECTORY_ANNOUNCE: &str = cokret_sdk::OP_DIRECTORY_ANNOUNCE;
 pub const OP_DIRECTORY_WITHDRAW: &str = cokret_sdk::OP_DIRECTORY_WITHDRAW;
 pub const OP_DIRECTORY_PUSH_REGISTER: &str = cokret_sdk::OP_DIRECTORY_PUSH_REGISTER;
+pub const OP_DIRECTORY_TAKEDOWN_APPEAL: &str = cokret_sdk::OP_DIRECTORY_TAKEDOWN_APPEAL;
 
 // ---- §9 query operations (declared for profile self-check) --------------
 
@@ -98,4 +99,7 @@ pub const SUPPORTED_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_ANNOUNCE,
     OP_DIRECTORY_WITHDRAW,
     OP_DIRECTORY_PUSH_REGISTER,
+    // Implemented but non-required (G-3): broadcast appeal support so
+    // capability discovery via describe does not rely on out-of-band knowledge.
+    OP_DIRECTORY_TAKEDOWN_APPEAL,
 ];

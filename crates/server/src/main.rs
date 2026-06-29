@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(config.clone(), db);
 
     if let Some(period) = config.pull_interval {
-        let _worker = PullWorker::new(state.clone(), period).spawn();
+        let _worker = PullWorker::new(state.clone(), period)?.spawn();
     }
     if let Some(period) = config.divergence_interval {
         let _worker = DivergenceWorker::new(state.clone(), period).spawn();

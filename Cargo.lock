@@ -848,6 +848,7 @@ name = "cokret-keystore"
 version = "0.3.0"
 dependencies = [
  "cokret-core",
+ "tracing",
 ]
 
 [[package]]
@@ -868,11 +869,13 @@ dependencies = [
  "chrono",
  "cokret-core",
  "ed25519-dalek",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]
