@@ -397,6 +397,7 @@ fn verify_jws_ed25519(
         .map(|(did, _)| did)
         .unwrap_or(verification_method);
     sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver)
+        .map_err(|err| err.to_string())
 }
 
 fn enforce_governance_method_binding(
