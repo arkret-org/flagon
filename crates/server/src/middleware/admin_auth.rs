@@ -242,7 +242,7 @@ impl Handler for AdminAuthHoop {
             return;
         }
 
-        let state = match depot.obtain::<AppState>() {
+        let state = match depot.get_typed::<AppState>() {
             Ok(state) => state.clone(),
             Err(_) => {
                 ApiErrorCode::InternalError.render(res, "AppState not injected");

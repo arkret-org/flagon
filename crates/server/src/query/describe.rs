@@ -23,7 +23,7 @@ use crate::state::AppState;
 
 #[handler]
 pub async fn describe(depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             res.status_code(StatusCode::INTERNAL_SERVER_ERROR);

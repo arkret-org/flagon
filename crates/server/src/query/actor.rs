@@ -26,7 +26,7 @@ use crate::state::AppState;
 
 #[handler]
 pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
@@ -112,7 +112,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
 
 #[handler]
 pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");

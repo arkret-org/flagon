@@ -27,7 +27,7 @@ use crate::state::AppState;
 
 #[handler]
 pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
@@ -156,7 +156,7 @@ fn decode_org_cursor(cursor: &str) -> Result<OrgCursor, String> {
 // reverse endorsement and is not a Directory routing input.
 #[handler]
 pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");

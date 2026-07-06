@@ -144,7 +144,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
 /// the bare localpart so an operator-issued curl probe works.
 #[handler]
 pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
@@ -240,7 +240,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
 
 #[handler]
 pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");

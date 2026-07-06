@@ -72,7 +72,7 @@ const OP: &str = "resolve-target";
 
 #[handler]
 pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");

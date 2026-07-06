@@ -183,7 +183,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
 
 #[handler]
 async fn health(depot: &mut Depot, res: &mut Response) {
-    let hardening = match depot.obtain::<AppState>() {
+    let hardening = match depot.get_typed::<AppState>() {
         Ok(state) => teabay_hardening_status(state.config()),
         Err(_) => default_hardening_status(),
     };
@@ -196,7 +196,7 @@ async fn health(depot: &mut Depot, res: &mut Response) {
 
 #[handler]
 async fn readyz(depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(state) => state,
         Err(_) => {
             res.status_code(StatusCode::SERVICE_UNAVAILABLE);
@@ -233,7 +233,7 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
 
 #[handler]
 async fn metrics(depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(state) => state,
         Err(_) => {
             res.status_code(StatusCode::SERVICE_UNAVAILABLE);
@@ -410,7 +410,7 @@ fn default_hardening_status() -> serde_json::Value {
 
 #[handler]
 async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
-    let doc = match depot.obtain::<TeabayOpenApiDoc>() {
+    let doc = match depot.get_typed::<TeabayOpenApiDoc>() {
         Ok(doc) => doc,
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "OpenAPI document not injected");

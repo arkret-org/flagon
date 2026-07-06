@@ -24,7 +24,7 @@ const APPEAL_STATUS_PENDING: &str = "pending";
 
 #[handler]
 pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
@@ -173,7 +173,7 @@ fn requested_outcome_wire(
 
 #[handler]
 pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");

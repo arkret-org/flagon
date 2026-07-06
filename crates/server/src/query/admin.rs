@@ -157,7 +157,7 @@ struct ResourceDeleteAudit {
 
 #[handler]
 pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
@@ -699,7 +699,7 @@ async fn invalidate_reachability(
 }
 
 async fn admin_state(req: &Request, depot: &mut Depot, res: &mut Response) -> Option<AppState> {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
@@ -1149,7 +1149,7 @@ struct DashboardKindCount {
 
 #[handler]
 pub async fn dashboard_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
-    let state = match depot.obtain::<AppState>() {
+    let state = match depot.get_typed::<AppState>() {
         Ok(state) => state.clone(),
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "AppState not injected");
