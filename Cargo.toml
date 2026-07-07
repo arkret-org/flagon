@@ -33,8 +33,8 @@ gloo-net = "0.7.0"
 hmac = "0.13.0"
 rand = "0.9.4"
 reqwest = {version = "0.13.4",default-features = false,features = ["json", "rustls"]}
-salvo = {git = "https://github.com/salvo-rs/salvo.git",branch = "main",features = ["affix-state", "cors", "oapi"]}
-salvo-oapi = {git = "https://github.com/salvo-rs/salvo.git",branch = "main",features = ["yaml"]}
+salvo = {git = "https://github.com/salvo-rs/salvo.git",rev = "d1365f0d0e8e0f35ed3a04fb2faec861881c9863",features = ["affix-state", "cors", "oapi"]}
+salvo-oapi = {git = "https://github.com/salvo-rs/salvo.git",rev = "d1365f0d0e8e0f35ed3a04fb2faec861881c9863",features = ["yaml"]}
 serde = {version = "1.0.228",features = ["derive"]}
 serde_json = "1.0.150"
 sha2 = "0.11.0"

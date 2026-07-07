@@ -44,7 +44,7 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
         code.render(res, message);
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id, None) {
         return;
     }
 
@@ -64,11 +64,25 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
+    let expected_controller = match crate::ingest::withdraw::governance_controller_for_withdraw(
+        &state,
+        resource_kind,
+        &body.resource_id,
+    )
+    .await
+    {
+        Ok(controller) => controller,
+        Err((code, message)) => {
+            code.render(res, message);
+            return;
+        }
+    };
     if let Err((code, message)) = verify::verify_governance_proof_payload(
         &unsigned_packet,
         &body.governance_proof,
         resource_kind,
         &body.resource_id,
+        expected_controller.as_deref(),
         state.config(),
     ) {
         code.render(res, message);

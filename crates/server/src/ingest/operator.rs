@@ -57,7 +57,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         ApiErrorCode::MissingParam.render(res, "reason is required");
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id, None) {
         return;
     }
 

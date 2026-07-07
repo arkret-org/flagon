@@ -204,13 +204,23 @@ async fn lookup_admin_secret(state: &AppState, key_id: &str) -> Result<Vec<u8>, 
 /// `X-CSRF-Token` header matching the configured value. Reads safely
 /// (GET / HEAD) are exempt because they cannot mutate state.
 pub fn require_admin_csrf(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
-    let Some(expected) = state.config().admin_csrf_token.as_deref() else {
-        return Ok(());
-    };
     let method = req.method();
     if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
         return Ok(());
     }
+    let Some(expected) = state.config().admin_csrf_token.as_deref() else {
+        if state.config().development_mode {
+            return Ok(());
+        }
+        if state
+            .config()
+            .admin_csrf_missing_allowed_until
+            .is_some_and(|expires_at| Utc::now() < expires_at)
+        {
+            return Ok(());
+        }
+        return Err(ApiErrorCode::Unauthenticated);
+    };
     let supplied = req
         .headers()
         .get("X-CSRF-Token")

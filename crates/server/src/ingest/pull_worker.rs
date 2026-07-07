@@ -250,6 +250,8 @@ impl PullWorker {
         // observed from the upstream `ck.self.events.query.scan` response/envelope.
         let realm_terminal =
             derive_realm_terminal_state(announce.resource_kind, &announce.discovery_state);
+        let request_digest = digest_request(&announce)
+            .map_err(|message| anyhow::anyhow!("announce digest rejected: {message}"))?;
         let fanout_projection = upsert_resource_and_audit(
             self.state.db(),
             &announce,
@@ -259,7 +261,7 @@ impl PullWorker {
             indexed_at,
             effective_ttl,
             next_revalidation,
-            digest_request(&announce),
+            request_digest,
             public_projection,
             federation_cache,
             realm_terminal,
@@ -309,6 +311,7 @@ impl PullWorker {
                 as_of: announce.as_of,
                 source_refs: announce.source_refs.clone(),
                 policy_revision: Some(verified.policy_revision.clone()),
+                discoverability: verified.discoverability,
                 public_projection: DirectoryPublicProjection::from_json(fanout_projection),
             },
         )

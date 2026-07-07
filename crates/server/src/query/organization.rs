@@ -191,6 +191,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
+    let verified_claims = VerifiedRestrictedClaims::default();
     let row = pad_to_budget_observed(
         budget,
         "ck.find.directory.query.resolve_organization",
@@ -200,16 +201,18 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
                 .metrics()
                 .record_anti_enum_pad("resolve-organization", target)
         },
-        async { load_org_row(&state, &key).await },
+        async {
+            let row = load_org_row(&state, &key).await?;
+            Ok::<_, anyhow::Error>(row.filter(|row| is_org_visible(row, None, &verified_claims)))
+        },
     )
     .await;
-    let verified_claims = VerifiedRestrictedClaims::default();
 
     // P5 — stochastic anti-enumeration jitter on resolve responses.
     apply_resolve_response_jitter().await;
 
     match row {
-        Ok(Some(r)) if is_org_visible(&r, None, &verified_claims) => {
+        Ok(Some(r)) => {
             let organization_preview =
                 match organization_preview_from_envelope(envelope_from_row(r)) {
                     Ok(organization_preview) => organization_preview,

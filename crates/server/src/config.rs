@@ -42,6 +42,7 @@ pub struct AppConfig {
     /// emitted with `SameSite=Strict` so cookie-bearing strands are
     /// additionally CSRF-hardened.
     pub admin_csrf_token: Option<String>,
+    pub admin_csrf_missing_allowed_until: Option<DateTime<Utc>>,
     pub admin_token: Option<String>,
     /// A.8.4 — sliding window during which a rotating HMAC token
     /// remains valid. Defaults to 30 minutes; clients sign
@@ -346,9 +347,11 @@ impl AppConfig {
         // development_mode). Fail-closed at startup so an operator
         // cannot silently expose the admin SPA without CSRF protection.
         // See docs/deployment.md hardening checklist.
+        let mut admin_csrf_missing_allowed_until = None;
         if !development_mode && admin_csrf_token.is_none() {
             if read_bool(TEABAY_ALLOW_MISSING_CSRF, false)? {
                 let expires_at = missing_csrf_escape_hatch_until()?;
+                admin_csrf_missing_allowed_until = Some(expires_at);
                 tracing::error!(
                     expires_at = %expires_at.to_rfc3339(),
                     "TEABAY_ADMIN_CSRF_TOKEN is unset in production mode; \
@@ -581,6 +584,7 @@ impl AppConfig {
             database_url,
             cors_allow_origin,
             admin_csrf_token,
+            admin_csrf_missing_allowed_until,
             admin_token,
             admin_token_rotation_window,
             development_mode,

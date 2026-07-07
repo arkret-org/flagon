@@ -73,7 +73,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         ApiErrorCode::MissingParam.render(res, "resource_id is required");
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id) {
+    if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id, None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
@@ -106,11 +106,23 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             return;
         }
     };
+    let expected_controller =
+        match governance_controller_for_withdraw(&state, body.resource_kind, &body.resource_id)
+            .await
+        {
+            Ok(controller) => controller,
+            Err((code, msg)) => {
+                ingest_metric.set_outcome("signature_invalid");
+                code.render(res, msg);
+                return;
+            }
+        };
     if let Err((code, msg)) = verify::verify_governance_proof_payload(
         &canonical_payload,
         &body.governance_proof,
         body.resource_kind,
         &body.resource_id,
+        expected_controller.as_deref(),
         state.config(),
     ) {
         ingest_metric.set_outcome("signature_invalid");
@@ -173,6 +185,34 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         withdrawal_ref: withdraw_id,
         acked_at,
     }));
+}
+
+pub(crate) async fn governance_controller_for_withdraw(
+    state: &AppState,
+    resource_kind: DirectoryResourceKindDb,
+    resource_id: &str,
+) -> Result<Option<String>, (ApiErrorCode, String)> {
+    if !matches!(
+        resource_kind,
+        DirectoryResourceKindDb::Realm | DirectoryResourceKindDb::Handle
+    ) {
+        return Ok(None);
+    }
+    verify::indexed_principal_server(state.db(), resource_kind, resource_id)
+        .await
+        .map_err(|error| {
+            (
+                ApiErrorCode::InternalError,
+                format!("governance controller lookup: {error}"),
+            )
+        })?
+        .map(Some)
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::GovernanceKeyInvalid,
+                format!("no indexed governance controller for `{resource_id}`"),
+            )
+        })
 }
 
 pub(crate) fn withdraw_payload_without_jws(

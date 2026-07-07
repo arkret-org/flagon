@@ -141,6 +141,7 @@ struct RateLimiter {
 struct RateBucket {
     count: u32,
     window_start: Instant,
+    window: Duration,
 }
 
 #[derive(Debug, Clone)]
@@ -306,6 +307,8 @@ impl AnnounceReplayCache {
 }
 
 impl RateLimiter {
+    const MAX_BUCKETS: usize = 16_384;
+
     fn check(&self, key: String, max_requests: u32, window: Duration) -> RateLimitOutcome {
         if max_requests == 0 {
             return RateLimitOutcome::Limited {
@@ -321,6 +324,7 @@ impl RateLimiter {
 
         match buckets.get_mut(&key) {
             Some(bucket) if now.duration_since(bucket.window_start) < window => {
+                bucket.window = window;
                 if bucket.count >= max_requests {
                     let retry_after = window
                         .checked_sub(now.duration_since(bucket.window_start))
@@ -332,15 +336,57 @@ impl RateLimiter {
                 }
             }
             _ => {
+                Self::prune(&mut buckets, now);
                 buckets.insert(
                     key,
                     RateBucket {
                         count: 1,
                         window_start: now,
+                        window,
                     },
                 );
                 RateLimitOutcome::Allowed
             }
         }
+    }
+
+    fn prune(buckets: &mut HashMap<String, RateBucket>, now: Instant) {
+        buckets.retain(|_, bucket| now.duration_since(bucket.window_start) < bucket.window);
+        while buckets.len() >= Self::MAX_BUCKETS {
+            let Some(oldest) = buckets
+                .iter()
+                .min_by_key(|(_, bucket)| bucket.window_start)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            buckets.remove(&oldest);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_limiter_prunes_expired_buckets_before_insert() {
+        let limiter = RateLimiter::default();
+        assert_eq!(
+            limiter.check("first".to_owned(), 1, Duration::from_millis(1)),
+            RateLimitOutcome::Allowed
+        );
+        std::thread::sleep(Duration::from_millis(5));
+        assert_eq!(
+            limiter.check("second".to_owned(), 1, Duration::from_secs(60)),
+            RateLimitOutcome::Allowed
+        );
+
+        let buckets = limiter
+            .buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(!buckets.contains_key("first"));
+        assert!(buckets.contains_key("second"));
     }
 }

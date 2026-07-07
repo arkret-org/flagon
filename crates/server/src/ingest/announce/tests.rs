@@ -318,5 +318,31 @@ fn announce_digest_uses_canonical_json_body() {
         ..first.clone()
     };
 
-    assert_eq!(digest_request(&first), digest_request(&second));
+    assert_eq!(
+        digest_request(&first).unwrap(),
+        digest_request(&second).unwrap()
+    );
+}
+
+#[test]
+fn digest_request_rejects_non_canonical_float_values() {
+    let as_of: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
+    let request = DirectoryAnnounceIngest {
+        resource_kind: DirectoryResourceKindDb::Realm,
+        resource_id: "ck:realm:tea".to_owned(),
+        principal_server_did: "did:web:principal.test".to_owned(),
+        discovery_state: DirectoryDiscoveryState::from_json(json!({
+            "kind": "ck.realm.discovery",
+            "discoverability": "public",
+            "directory_services": ["did:web:directory.test"],
+            "non_canonical": 1.5
+        })),
+        source_refs: vec!["evt-1".to_owned()],
+        as_of,
+        policy_revision: "rev-1".to_owned(),
+        ttl_seconds: Some(3600),
+        supersedes_announce_id: None,
+    };
+
+    assert!(digest_request(&request).is_err());
 }

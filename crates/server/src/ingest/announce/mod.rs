@@ -173,12 +173,28 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         code.render(res, msg);
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id) {
+    if !enforce_ingest_rate_limit(
+        req,
+        res,
+        &state,
+        &body.resource_id,
+        Some(&body.principal_server_did),
+    ) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
 
-    let request_digest = digest_request(&body);
+    let request_digest = match digest_request(&body) {
+        Ok(digest) => digest,
+        Err(message) => {
+            ingest_metric.set_outcome("schema_rejected");
+            ApiErrorCode::SchemaViolation.render(
+                res,
+                format!("announce body is not canonical-json serializable: {message}"),
+            );
+            return;
+        }
+    };
     // Round R2/R3 T14 — federation idempotency cache key is the
     // SHA-256 over (request_digest || Source-Service-DID ||
     // verification_method || service_binding_ref ||
@@ -539,6 +555,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             as_of: body.as_of,
             source_refs: body.source_refs.clone(),
             policy_revision: Some(verified.policy_revision.clone()),
+            discoverability: verified.discoverability,
             public_projection: DirectoryPublicProjection::from_json(public_projection),
         },
     )

@@ -15,16 +15,15 @@ use crate::db::Db;
 use crate::filter::enumeration::{MemberCountResidencyPrior, apply_member_count_residency};
 use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 
-pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Vec<u8> {
+pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Result<Vec<u8>, String> {
     // Cokret canonical JSON body SHA-256 — used for replay detection in
     // `ingest_announces.request_digest` and for Request-Canonical-Digest.
     let mut h = Sha256::new();
     let value = serde_json::to_value(req)
         .expect("DirectoryAnnounceIngest is serde-serializable by construction");
-    let canonical = canonical_json_bytes(&value)
-        .expect("DirectoryAnnounceIngest is canonical-json serializable by construction");
+    let canonical = canonical_json_bytes(&value)?;
     h.update(&canonical);
-    h.finalize().to_vec()
+    Ok(h.finalize().to_vec())
 }
 
 /// Cokret canonical JSON string via the SDK's `cokret_sdk::canonical`

@@ -22,7 +22,7 @@ use crate::error::ApiErrorCode;
 use crate::filter::circle_isolation;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
-use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
+use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb, IngestModeWire};
 use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -40,6 +40,7 @@ pub struct AcceptedIngestEvent {
     pub as_of: DateTime<Utc>,
     pub source_refs: Vec<String>,
     pub policy_revision: Option<String>,
+    pub discoverability: DiscoverabilityDb,
     pub public_projection: DirectoryPublicProjection,
 }
 
@@ -64,7 +65,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     };
 
     let subscriber_did = body.subscriber_did.as_str();
-    if !enforce_ingest_rate_limit(req, res, &state, subscriber_did) {
+    if !enforce_ingest_rate_limit(req, res, &state, subscriber_did, None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
@@ -179,6 +180,7 @@ pub async fn fanout_reachability_tombstone(
                 as_of: now,
                 source_refs: Vec::new(),
                 policy_revision: None,
+                discoverability: DiscoverabilityDb::Public,
                 public_projection: DirectoryPublicProjection::from_json(JsonValue::Null),
             },
         )
@@ -258,6 +260,12 @@ async fn deliver_tombstone(
 }
 
 pub async fn fanout_accepted_ingest(state: AppState, event: AcceptedIngestEvent) {
+    if !matches!(
+        event.discoverability,
+        DiscoverabilityDb::Public | DiscoverabilityDb::Listed
+    ) {
+        return;
+    }
     let subscriptions = match matching_subscriptions(&state, &event).await {
         Ok(rows) => rows,
         Err(error) => {

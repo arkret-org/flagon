@@ -767,7 +767,7 @@ mod tests {
             signing_key,
             &["@method", "@target-uri", "@authority", "content-digest"],
             now - 1,
-            now + 300,
+            now + 299,
         )
     }
 

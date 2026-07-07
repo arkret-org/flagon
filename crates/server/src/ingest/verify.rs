@@ -138,10 +138,12 @@ impl<'a> VerifyContext<'a> {
         }
 
         // --- Step 2: discovery proof verification. -------------------------
+        let expected_governance_controller = self.expected_governance_controller(req).await?;
         verify_discovery_proof(
             &req.discovery_state,
             req.resource_kind,
             &req.resource_id,
+            expected_governance_controller.as_deref(),
             self.config,
         )?;
 
@@ -266,12 +268,44 @@ impl<'a> VerifyContext<'a> {
             }
         }
     }
+
+    async fn expected_governance_controller(
+        &self,
+        req: &DirectoryAnnounceIngest,
+    ) -> Result<Option<String>, (ApiErrorCode, String)> {
+        if !matches!(
+            req.resource_kind,
+            DirectoryResourceKindDb::Realm | DirectoryResourceKindDb::Handle
+        ) {
+            return Ok(None);
+        }
+        let indexed = indexed_principal_server(self.db, req.resource_kind, &req.resource_id)
+            .await
+            .map_err(|error| {
+                (
+                    ApiErrorCode::InternalError,
+                    format!("governance controller lookup: {error}"),
+                )
+            })?;
+        let expected = indexed.unwrap_or_else(|| req.principal_server_did.clone());
+        if expected != req.principal_server_did {
+            return Err((
+                ApiErrorCode::GovernanceKeyInvalid,
+                format!(
+                    "principal_server_did `{}` does not match indexed governance controller `{expected}`",
+                    req.principal_server_did
+                ),
+            ));
+        }
+        Ok(Some(expected))
+    }
 }
 
 pub(crate) fn verify_discovery_proof(
     discovery_state: &JsonValue,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
+    expected_controller_did: Option<&str>,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
     let proof = discovery_state.get("proof").ok_or_else(|| {
@@ -281,7 +315,14 @@ pub(crate) fn verify_discovery_proof(
         )
     })?;
     let canonical = canonical_payload_without_jws(discovery_state, "proof")?;
-    verify_detached_jws_payload(&canonical, proof, resource_kind, resource_id, config)
+    verify_detached_jws_payload(
+        &canonical,
+        proof,
+        resource_kind,
+        resource_id,
+        expected_controller_did,
+        config,
+    )
 }
 
 pub(crate) fn verify_governance_proof_payload(
@@ -289,11 +330,19 @@ pub(crate) fn verify_governance_proof_payload(
     proof: &JsonValue,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
+    expected_controller_did: Option<&str>,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
     let canonical = canonical_json_bytes(canonical_payload_without_jws)
         .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))?;
-    verify_detached_jws_payload(&canonical, proof, resource_kind, resource_id, config)
+    verify_detached_jws_payload(
+        &canonical,
+        proof,
+        resource_kind,
+        resource_id,
+        expected_controller_did,
+        config,
+    )
 }
 
 fn verify_detached_jws_payload(
@@ -301,13 +350,19 @@ fn verify_detached_jws_payload(
     proof: &JsonValue,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
+    expected_controller_did: Option<&str>,
     config: &AppConfig,
 ) -> Result<(), (ApiErrorCode, String)> {
     let DetachedProof {
         verification_method,
         jws,
     } = detached_proof(proof)?;
-    enforce_governance_method_binding(resource_kind, resource_id, &verification_method)?;
+    enforce_governance_method_binding(
+        resource_kind,
+        resource_id,
+        expected_controller_did,
+        &verification_method,
+    )?;
     verify_jws_ed25519(canonical_bytes, &jws, &verification_method, config)
         .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
@@ -403,25 +458,59 @@ fn verify_jws_ed25519(
 fn enforce_governance_method_binding(
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
+    expected_controller_did: Option<&str>,
     verification_method: &str,
 ) -> Result<(), (ApiErrorCode, String)> {
     let did = verification_method
         .split_once('#')
         .map(|(did, _)| did)
         .unwrap_or(verification_method);
-    if matches!(
-        resource_kind,
+    match resource_kind {
         DirectoryResourceKindDb::Organization
-            | DirectoryResourceKindDb::Actor
-            | DirectoryResourceKindDb::Applet
-    ) && did != resource_id
-    {
-        return Err((
-            ApiErrorCode::GovernanceKeyInvalid,
-            format!("verification_method DID `{did}` does not control `{resource_id}`"),
-        ));
+        | DirectoryResourceKindDb::Actor
+        | DirectoryResourceKindDb::Applet => {
+            if did != resource_id {
+                return Err((
+                    ApiErrorCode::GovernanceKeyInvalid,
+                    format!("verification_method DID `{did}` does not control `{resource_id}`"),
+                ));
+            }
+        }
+        DirectoryResourceKindDb::Realm | DirectoryResourceKindDb::Handle => {
+            let Some(expected) = expected_controller_did else {
+                return Err((
+                    ApiErrorCode::GovernanceKeyInvalid,
+                    format!("no indexed governance controller for `{resource_id}`"),
+                ));
+            };
+            if did != expected {
+                return Err((
+                    ApiErrorCode::GovernanceKeyInvalid,
+                    format!(
+                        "verification_method DID `{did}` does not match governance controller `{expected}` for `{resource_id}`"
+                    ),
+                ));
+            }
+        }
     }
     Ok(())
+}
+
+pub(crate) async fn indexed_principal_server(
+    db: &Db,
+    resource_kind: DirectoryResourceKindDb,
+    resource_id: &str,
+) -> anyhow::Result<Option<String>> {
+    use crate::schema::directory_resources::dsl;
+    let mut conn = db.get().await?;
+    let row = dsl::directory_resources
+        .filter(dsl::resource_kind.eq(resource_kind))
+        .filter(dsl::resource_id.eq(resource_id))
+        .select(dsl::principal_server_did)
+        .first::<String>(&mut *conn)
+        .await
+        .optional()?;
+    Ok(row)
 }
 
 async fn resource_already_indexed(
@@ -842,6 +931,39 @@ mod tests {
         assert_eq!(
             derive_via_services(&discovery_state, "did:web:fallback.example"),
             vec!["did:web:fallback.example".to_owned()]
+        );
+    }
+
+    #[test]
+    fn realm_governance_binding_requires_expected_controller() {
+        assert!(
+            enforce_governance_method_binding(
+                DirectoryResourceKindDb::Realm,
+                "ck:realm:tea",
+                None,
+                "did:web:principal.example#key-1",
+            )
+            .is_err()
+        );
+
+        assert!(
+            enforce_governance_method_binding(
+                DirectoryResourceKindDb::Realm,
+                "ck:realm:tea",
+                Some("did:web:principal.example"),
+                "did:web:attacker.example#key-1",
+            )
+            .is_err()
+        );
+
+        assert!(
+            enforce_governance_method_binding(
+                DirectoryResourceKindDb::Realm,
+                "ck:realm:tea",
+                Some("did:web:principal.example"),
+                "did:web:principal.example#key-1",
+            )
+            .is_ok()
         );
     }
 }
