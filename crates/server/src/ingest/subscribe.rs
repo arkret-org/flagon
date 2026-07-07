@@ -14,6 +14,7 @@ use reqwest::Client;
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
+use teabay_contracts::DirectoryPublicProjection;
 use tokio::sync::Semaphore;
 use url::Url;
 
@@ -39,7 +40,7 @@ pub struct AcceptedIngestEvent {
     pub as_of: DateTime<Utc>,
     pub source_refs: Vec<String>,
     pub policy_revision: Option<String>,
-    pub public_projection: JsonValue,
+    pub public_projection: DirectoryPublicProjection,
 }
 
 #[handler]
@@ -178,7 +179,7 @@ pub async fn fanout_reachability_tombstone(
                 as_of: now,
                 source_refs: Vec::new(),
                 policy_revision: None,
-                public_projection: JsonValue::Null,
+                public_projection: DirectoryPublicProjection::from_json(JsonValue::Null),
             },
         )
         .await

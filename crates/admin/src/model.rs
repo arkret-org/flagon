@@ -1,12 +1,11 @@
-use std::str::FromStr;
-
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 pub use teabay_contracts::{
     DISCOVERABILITY_TOKENS, DirectoryAdminAllowlistUpsertRequestBody,
-    DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoverability, DirectoryResourceKind,
+    DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
     OperatorTakedownOutcome, OperatorTakedownRequestBody, RESOURCE_KIND_TOKENS,
+    parse_directory_discoverability, parse_directory_resource_kind,
 };
 
 use crate::api::{
@@ -114,9 +113,9 @@ pub struct ResourceItem {
     #[serde(default)]
     pub principal_server_did: String,
     #[serde(default)]
-    pub discovery_state: JsonValue,
+    pub discovery_state: DirectoryDiscoveryState,
     #[serde(default)]
-    pub public_projection: JsonValue,
+    pub public_projection: DirectoryPublicProjection,
     #[serde(default)]
     pub discoverability: String,
     #[serde(default)]
@@ -258,8 +257,8 @@ impl ResourceEditorForm {
             stale: item.stale,
             divergent: item.divergent,
             via_services: pretty_string_array(&item.via_services),
-            public_projection: pretty_json(&item.public_projection),
-            discovery_state: pretty_json(&item.discovery_state),
+            public_projection: pretty_json(item.public_projection.as_value()),
+            discovery_state: pretty_json(item.discovery_state.as_value()),
             last_announce_id: item.last_announce_id.clone().unwrap_or_default(),
         }
     }
@@ -288,10 +287,10 @@ impl ResourceEditorForm {
         }
 
         Ok(DirectoryAdminResourceUpsertRequestBody {
-            resource_kind: DirectoryResourceKind::from_str(self.resource_kind.as_str())?,
+            resource_kind: parse_directory_resource_kind(self.resource_kind.as_str())?,
             resource_id,
             principal_server_did,
-            discoverability: DirectoryDiscoverability::from_str(self.discoverability.as_str())?,
+            discoverability: parse_directory_discoverability(self.discoverability.as_str())?,
             as_of: parse_optional_datetime(&self.as_of, "as_of")?,
             source_refs: parse_string_array(&self.source_refs, "source_refs")?,
             policy_revision,
@@ -302,8 +301,13 @@ impl ResourceEditorForm {
             stale: self.stale,
             divergent: self.divergent,
             via_services: parse_string_array(&self.via_services, "via_services")?,
-            public_projection: parse_json_object(&self.public_projection, "public_projection")?,
-            discovery_state: parse_optional_json_object(&self.discovery_state, "discovery_state")?,
+            public_projection: DirectoryPublicProjection::from_json_object(
+                parse_json_object(&self.public_projection, "public_projection")?,
+                "public_projection",
+            )?,
+            discovery_state: parse_optional_json_object(&self.discovery_state, "discovery_state")?
+                .map(|value| DirectoryDiscoveryState::from_json_object(value, "discovery_state"))
+                .transpose()?,
             last_announce_id: option_string(self.last_announce_id.clone()),
         })
     }

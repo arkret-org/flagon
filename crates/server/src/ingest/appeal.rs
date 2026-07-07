@@ -7,7 +7,8 @@ use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::{
-    TakedownAppealDecision, TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
+    DirectoryDecisionReceipt, TakedownAppealDecision, TakedownAppealDecisionOutcome,
+    TakedownAppealDecisionRequestBody,
 };
 
 use crate::audit::{self, ActorIdentity, AuditEventKind};
@@ -300,7 +301,7 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
         takedown_id: appeal.takedown_id,
         decision: body.decision,
         decided_at,
-        receipt: decision_receipt,
+        receipt: DirectoryDecisionReceipt::from_json(decision_receipt),
     }));
 }
 

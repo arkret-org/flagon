@@ -4,6 +4,7 @@ use gloo_net::http::{Request, RequestBuilder, Response};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value as JsonValue, json};
+use teabay_contracts::OperatorEvidence;
 
 use crate::model::{AuditEvent, BADGE_DANGER, BADGE_NEUTRAL, BADGE_OK, BADGE_WARN, ResourceItem};
 
@@ -220,12 +221,14 @@ pub fn upsert_resource_row(rows: &mut Vec<ResourceItem>, item: ResourceItem) {
     }
 }
 
-pub fn parse_evidence(raw: &str) -> Result<JsonValue, String> {
+pub fn parse_evidence(raw: &str) -> Result<OperatorEvidence, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        Ok(json!({}))
+        Ok(OperatorEvidence::from_json(json!({})))
     } else {
-        serde_json::from_str(trimmed).map_err(|error| format!("evidence JSON: {error}"))
+        serde_json::from_str(trimmed)
+            .map(OperatorEvidence::from_json)
+            .map_err(|error| format!("evidence JSON: {error}"))
     }
 }
 

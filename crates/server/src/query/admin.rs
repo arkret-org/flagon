@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::{
     DirectoryAdminAllowlistUpsertRequestBody, DirectoryAdminResourceUpsertRequestBody,
+    DirectoryDiscoveryState, DirectoryPublicProjection,
 };
 
 use crate::audit::{self, AuditEventKind};
@@ -132,8 +133,8 @@ struct ResourceAdminItem {
     resource_kind: &'static str,
     resource_id: String,
     principal_server_did: String,
-    discovery_state: JsonValue,
-    public_projection: JsonValue,
+    discovery_state: DirectoryDiscoveryState,
+    public_projection: DirectoryPublicProjection,
     discoverability: &'static str,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
@@ -370,7 +371,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         return;
     }
     let resource_kind = DirectoryResourceKindDb::from(body.resource_kind);
-    let discoverability = DiscoverabilityDb::from(body.discoverability);
+    let discoverability = DiscoverabilityDb::from(&body.discoverability);
 
     let source_refs = {
         let refs = normalize_string_list(&body.source_refs);
@@ -1058,6 +1059,7 @@ fn normalized_discovery_state(
     let mut discovery_state = body
         .discovery_state
         .clone()
+        .map(DirectoryDiscoveryState::into_value)
         .unwrap_or_else(|| public_projection.clone());
     let object = discovery_state
         .as_object_mut()
@@ -1247,8 +1249,8 @@ impl From<ResourceAdminRow> for ResourceAdminItem {
             resource_kind: row.resource_kind.as_pg(),
             resource_id: row.resource_id,
             principal_server_did: row.principal_server_did,
-            discovery_state: row.discovery_state,
-            public_projection: row.public_projection,
+            discovery_state: DirectoryDiscoveryState::from_json(row.discovery_state),
+            public_projection: DirectoryPublicProjection::from_json(row.public_projection),
             discoverability: row.discoverability.as_pg(),
             as_of: row.as_of,
             source_refs: row.source_refs,

@@ -109,7 +109,10 @@ impl FreshnessWorker {
         .await
         {
             Ok(purged) if purged > 0 => {
-                info!(purged, "freshness worker: expired verified realm organizations purged");
+                info!(
+                    purged,
+                    "freshness worker: expired verified realm organizations purged"
+                );
             }
             Ok(_) => {}
             Err(e) => warn!(%e, "freshness worker: verified organization expiry purge failed"),

@@ -11,11 +11,13 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody;
+use cokret_sdk::{
+    Did, DirectoryHandleResolutionOutcome,
+    DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody,
+};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
-use serde::Serialize;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
@@ -776,40 +778,26 @@ fn envelope_from_projection(
     )
 }
 
-#[derive(Debug, Serialize)]
-struct DirectoryHandleResolutionWireOutcome {
-    did: String,
-    subject: String,
-    handle: String,
-    verified: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    claims: Vec<JsonValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    member_delivery_binding: Option<JsonValue>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    source_refs: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    expires_at: Option<DateTime<Utc>>,
-}
-
 fn handle_resolution_from_envelope(
     envelope: ResultEnvelope,
-) -> Result<DirectoryHandleResolutionWireOutcome, String> {
+) -> Result<DirectoryHandleResolutionOutcome, String> {
     let payload = envelope
         .payload
         .as_object()
         .ok_or_else(|| "handle projection is not an object".to_owned())?;
-    let did = payload
+    let did_raw = payload
         .get("did")
         .and_then(JsonValue::as_str)
         .filter(|did| cokret_sdk::Did::new((*did).to_owned()).is_ok())
         .ok_or_else(|| "handle projection did is missing or invalid".to_owned())?
         .to_owned();
+    let did = Did::new(did_raw.clone())
+        .map_err(|error| format!("handle projection did is invalid: {error}"))?;
     let subject = payload
         .get("subject")
         .and_then(JsonValue::as_str)
-        .unwrap_or(&did);
-    if subject != did {
+        .unwrap_or(&did_raw);
+    if subject != did_raw {
         return Err("handle projection subject must match did".to_owned());
     }
     let handle = payload
@@ -821,30 +809,41 @@ fn handle_resolution_from_envelope(
         .get("verified")
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
-    let claims = match payload.get("claims").unwrap_or(&JsonValue::Null) {
-        JsonValue::Array(values) => values.clone(),
-        JsonValue::Null => Vec::new(),
-        other => vec![other.clone()],
-    };
+    let claims = payload.get("claims").cloned().unwrap_or(JsonValue::Null);
+    let audience = payload
+        .get("audience")
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned);
     let member_delivery_binding = payload
         .get("member_delivery_binding")
         .filter(|value| !value.is_null())
-        .cloned();
-    let expires_at = payload
-        .get("expires_at")
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| format!("handle projection expires_at is invalid: {error}"))?;
-    Ok(DirectoryHandleResolutionWireOutcome {
-        did: did.clone(),
-        subject: did,
+        .map_err(|error| {
+            format!("handle projection member_delivery_binding is invalid: {error}")
+        })?;
+    let handle_claim = payload
+        .get("handle_claim")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("handle projection handle_claim is invalid: {error}"))?;
+    Ok(DirectoryHandleResolutionOutcome {
+        did,
         handle,
         verified,
         claims,
+        audience,
         member_delivery_binding,
+        handle_claim,
+        as_of: Some(envelope.as_of),
         source_refs: envelope.source_refs,
-        expires_at,
+        policy_revision: Some(envelope.policy_revision),
+        stale: envelope.stale,
+        divergent: envelope.divergent,
+        via_services: Vec::new(),
     })
 }
 
