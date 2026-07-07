@@ -5322,6 +5322,7 @@ name = "teabay-contracts"
 version = "0.3.0"
 dependencies = [
  "chrono",
+ "cokret",
  "serde",
  "serde_json",
 ]

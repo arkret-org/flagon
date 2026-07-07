@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde_json::{Value as JsonValue, json};
+use teabay_contracts::DirectoryDiscoveryState;
 
 use super::federation::{
     FederationCacheKeyInputs, hex_lower_sha256, verify_federation_trust_domain_headers,
@@ -305,7 +306,7 @@ fn announce_digest_uses_canonical_json_body() {
         resource_kind: DirectoryResourceKindDb::Realm,
         resource_id: "ck:realm:tea".to_owned(),
         principal_server_did: "did:web:principal.test".to_owned(),
-        discovery_state: JsonValue::Object(first_state),
+        discovery_state: DirectoryDiscoveryState::from_json(JsonValue::Object(first_state)),
         source_refs: vec!["evt-1".to_owned()],
         as_of,
         policy_revision: "rev-1".to_owned(),
@@ -313,7 +314,7 @@ fn announce_digest_uses_canonical_json_body() {
         supersedes_announce_id: None,
     };
     let second = DirectoryAnnounceIngest {
-        discovery_state: JsonValue::Object(second_state),
+        discovery_state: DirectoryDiscoveryState::from_json(JsonValue::Object(second_state)),
         ..first.clone()
     };
 

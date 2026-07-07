@@ -6,14 +6,15 @@
 
 use chrono::{DateTime, Utc};
 use cokret_sdk::RealmJoinCandidate;
-use serde::{Deserialize, Serialize};
+use serde::ser::{Error as _, SerializeMap};
+use serde::{Serialize, Serializer};
 use serde_json::Value as JsonValue;
+use teabay_contracts::DirectoryPublicProjection;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ResultEnvelope {
     /// The actual public-projection payload (Realm preview, Org preview, etc.).
-    #[serde(flatten)]
-    pub payload: JsonValue,
+    pub payload: DirectoryPublicProjection,
     /// Directory's last refresh timestamp for this entry (§9.1).
     pub as_of: DateTime<Utc>,
     /// Truth-source event id list — clients verify by re-fetching these.
@@ -22,18 +23,11 @@ pub struct ResultEnvelope {
     /// every result and forbids omission.
     pub policy_revision: String,
     /// True iff TTL+grace expired without successful revalidation.
-    #[serde(skip_serializing_if = "is_false")]
     pub stale: bool,
     /// Set by the optional cross-directory consistency probe (§9.1).
-    #[serde(skip_serializing_if = "is_false")]
     pub divergent: bool,
     /// Candidate ingress services for Realm join / invite-accept / knock.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub join_candidates: Vec<RealmJoinCandidate>,
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
 }
 
 impl ResultEnvelope {
@@ -58,7 +52,7 @@ impl ResultEnvelope {
         _via_services: Vec<String>,
     ) -> Self {
         Self {
-            payload,
+            payload: DirectoryPublicProjection::from_json(payload),
             as_of,
             source_refs,
             policy_revision,
@@ -71,5 +65,37 @@ impl ResultEnvelope {
     pub fn with_join_candidates(mut self, join_candidates: Vec<RealmJoinCandidate>) -> Self {
         self.join_candidates = join_candidates;
         self
+    }
+}
+
+impl Serialize for ResultEnvelope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let payload = self
+            .payload
+            .as_object()
+            .ok_or_else(|| S::Error::custom("result envelope payload must be an object"))?;
+        let optional_fields = usize::from(self.stale)
+            + usize::from(self.divergent)
+            + usize::from(!self.join_candidates.is_empty());
+        let mut map = serializer.serialize_map(Some(payload.len() + 3 + optional_fields))?;
+        for (key, value) in payload {
+            map.serialize_entry(key, value)?;
+        }
+        map.serialize_entry("as_of", &self.as_of)?;
+        map.serialize_entry("source_refs", &self.source_refs)?;
+        map.serialize_entry("policy_revision", &self.policy_revision)?;
+        if self.stale {
+            map.serialize_entry("stale", &self.stale)?;
+        }
+        if self.divergent {
+            map.serialize_entry("divergent", &self.divergent)?;
+        }
+        if !self.join_candidates.is_empty() {
+            map.serialize_entry("join_candidates", &self.join_candidates)?;
+        }
+        map.end()
     }
 }

@@ -29,6 +29,7 @@ use diesel_async::RunQueryDsl;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
+use teabay_contracts::{DirectoryDiscoveryState, DirectoryPublicProjection};
 use tokio::time::interval;
 use tracing::{info, warn};
 
@@ -202,7 +203,11 @@ impl PullWorker {
             resource_kind: entry.resource_kind,
             resource_id: entry.resource_id.clone(),
             principal_server_did: entry.principal_server_did.clone(),
-            discovery_state: pulled.content,
+            discovery_state: DirectoryDiscoveryState::from_json_object(
+                pulled.content,
+                "discovery_state",
+            )
+            .map_err(|message| anyhow::anyhow!(message))?,
             source_refs: vec![pulled.event_id.clone()],
             as_of: pulled.created_at,
             policy_revision,
@@ -304,7 +309,7 @@ impl PullWorker {
                 as_of: announce.as_of,
                 source_refs: announce.source_refs.clone(),
                 policy_revision: Some(verified.policy_revision.clone()),
-                public_projection: fanout_projection,
+                public_projection: DirectoryPublicProjection::from_json(fanout_projection),
             },
         )
         .await;

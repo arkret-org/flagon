@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::str::FromStr;
 
 use dioxus::prelude::*;
 use serde_json::Value as JsonValue;
@@ -11,8 +10,8 @@ use crate::api::{
 use crate::icons::{ListIcon, RefreshIcon, SaveIcon, SendIcon, TrashIcon};
 use crate::model::{
     AllowlistEnvelope, AllowlistItem, AuditEnvelope, AuditEvent, BADGE_NEUTRAL, BADGE_WARN,
-    DirectoryAdminAllowlistUpsertRequestBody, DirectoryResourceKind, OperatorTakedownOutcome,
-    OperatorTakedownRequestBody, RESOURCE_KINDS,
+    DirectoryAdminAllowlistUpsertRequestBody, OperatorTakedownOutcome, OperatorTakedownRequestBody,
+    RESOURCE_KINDS, parse_directory_resource_kind,
 };
 use crate::shell::{AuditTable, PanelHeader, StatusLine};
 
@@ -290,7 +289,7 @@ pub fn TakedownPanel(base_url: String, token: String) -> Element {
                 return;
             }
         };
-        let kind = match DirectoryResourceKind::from_str(resource_kind().as_str()) {
+        let kind = match parse_directory_resource_kind(resource_kind().as_str()) {
             Ok(kind) => kind,
             Err(message) => {
                 error.set(message);

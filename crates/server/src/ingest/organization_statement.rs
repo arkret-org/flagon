@@ -142,8 +142,7 @@ pub(crate) fn verify_announced_statements(
             }
         };
 
-        if let Err(error) =
-            verify_realm_organization_statement(&payload, &realm_id, now, &resolver)
+        if let Err(error) = verify_realm_organization_statement(&payload, &realm_id, now, &resolver)
         {
             outcome.rejected.push(RejectedStatement {
                 statement_id: Some(payload.statement_id.clone()),
@@ -180,12 +179,11 @@ pub(crate) fn verify_announced_statements(
 /// `verified_realm_organizations` index.
 ///
 /// Lifecycle (TBY-ORG-03):
-///   * an `active` statement upserts the `(realm_id, organization_did,
-///     relationship)` row, but only when its `statement_issued_at` is at least
-///     as recent as the stored statement — a replayed older `active` statement
-///     can never overwrite a newer revocation;
-///   * a `revoked` statement removes the row (the badge disappears on the next
-///     directory refresh) when it is at least as recent as the stored row.
+///   * an `active` statement upserts the `(realm_id, organization_did, relationship)` row, but only
+///     when its `statement_issued_at` is at least as recent as the stored statement — a replayed
+///     older `active` statement can never overwrite a newer revocation;
+///   * a `revoked` statement removes the row (the badge disappears on the next directory refresh)
+///     when it is at least as recent as the stored row.
 pub(crate) async fn persist_verified_statements(
     db: &Db,
     statements: &[VerifiedStatement],
@@ -407,7 +405,12 @@ mod tests {
         assert!(outcome.rejected.is_empty());
         let verified = &outcome.verified[0];
         assert_eq!(verified.relationship, "owner");
-        assert!(verified.control_scopes.iter().any(|s| s == "official_badge"));
+        assert!(
+            verified
+                .control_scopes
+                .iter()
+                .any(|s| s == "official_badge")
+        );
         assert!(!verified.is_revocation);
     }
 

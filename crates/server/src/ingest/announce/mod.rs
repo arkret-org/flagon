@@ -26,6 +26,7 @@ pub(crate) use projection::{
 };
 use salvo::prelude::*;
 use serde_json::json;
+use teabay_contracts::DirectoryPublicProjection;
 
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
@@ -538,7 +539,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             as_of: body.as_of,
             source_refs: body.source_refs.clone(),
             policy_revision: Some(verified.policy_revision.clone()),
-            public_projection,
+            public_projection: DirectoryPublicProjection::from_json(public_projection),
         },
     )
     .await;

@@ -115,6 +115,12 @@ impl From<ContractResourceKind> for DirectoryResourceKindDb {
     }
 }
 
+impl DirectoryResourceKindDb {
+    pub fn from_sdk(value: ContractResourceKind) -> Self {
+        Self::from(value)
+    }
+}
+
 // ---- Ingest mode (push / pull) ------------------------------------------
 
 #[derive(
@@ -221,6 +227,12 @@ crate::db_enum::impl_pg_enum!(
 
 impl From<ContractDiscoverability> for DiscoverabilityDb {
     fn from(value: ContractDiscoverability) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl From<&ContractDiscoverability> for DiscoverabilityDb {
+    fn from(value: &ContractDiscoverability) -> Self {
         match value {
             ContractDiscoverability::Public => Self::Public,
             ContractDiscoverability::Listed => Self::Listed,

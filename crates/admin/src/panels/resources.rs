@@ -347,7 +347,7 @@ fn ResourceRow(
                 div { class: "mono", "{item.indexed_at}" }
                 div { class: "muted mono", "next {item.next_revalidation_after}" }
             }
-            td { class: "mono", "{compact_json(&item.public_projection)}" }
+            td { class: "mono", "{compact_json(item.public_projection.as_value())}" }
             td {
                 button {
                     class: "button",
