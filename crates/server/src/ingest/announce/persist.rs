@@ -71,21 +71,51 @@ pub(super) async fn find_announce_by_natural_key(
     Ok(row)
 }
 
-pub(crate) async fn latest_as_of_for(
+#[derive(Debug, Clone)]
+pub(crate) struct IndexedPolicyRevision {
+    pub as_of: DateTime<Utc>,
+    pub policy_revision: String,
+}
+
+pub(crate) async fn latest_policy_revision_for(
     db: &Db,
     kind: DirectoryResourceKindDb,
     resource_id: &str,
-) -> anyhow::Result<Option<DateTime<Utc>>> {
+) -> anyhow::Result<Option<IndexedPolicyRevision>> {
     use crate::schema::directory_resources::dsl;
     let mut conn = db.get().await?;
-    let row: Option<DateTime<Utc>> = dsl::directory_resources
+    let row: Option<(DateTime<Utc>, String)> = dsl::directory_resources
         .filter(dsl::resource_kind.eq(kind))
         .filter(dsl::resource_id.eq(resource_id))
-        .select(dsl::as_of)
+        .select((dsl::as_of, dsl::policy_revision))
         .first(&mut *conn)
         .await
         .optional()?;
-    Ok(row)
+    Ok(row.map(|(as_of, policy_revision)| IndexedPolicyRevision {
+        as_of,
+        policy_revision,
+    }))
+}
+
+pub(crate) async fn policy_revision_seen_before(
+    db: &Db,
+    kind: DirectoryResourceKindDb,
+    resource_id: &str,
+    policy_revision: &str,
+    before_as_of: DateTime<Utc>,
+) -> anyhow::Result<bool> {
+    use crate::schema::ingest_announces::dsl;
+    let mut conn = db.get().await?;
+    let seen: Option<String> = dsl::ingest_announces
+        .filter(dsl::resource_kind.eq(kind))
+        .filter(dsl::resource_id.eq(resource_id))
+        .filter(dsl::policy_revision.eq(policy_revision))
+        .filter(dsl::as_of.lt(before_as_of))
+        .select(dsl::announce_id)
+        .first(&mut *conn)
+        .await
+        .optional()?;
+    Ok(seen.is_some())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -118,6 +148,7 @@ pub(crate) async fn upsert_resource_and_audit(
                     a::ingest_mode.eq(ingest_mode),
                     a::discovery_state.eq(body.discovery_state.as_value()),
                     a::source_refs.eq(&body.source_refs),
+                    a::policy_revision.eq(&verified.policy_revision),
                     a::as_of.eq(body.as_of),
                     a::indexed_at.eq(indexed_at),
                     a::effective_ttl_seconds.eq(effective_ttl as i32),
@@ -135,14 +166,23 @@ pub(crate) async fn upsert_resource_and_audit(
                 .await?;
 
             let stored_announce_id = if inserted == 0 {
-                let (stored_announce_id, stored_state, stored_source_refs) = a::ingest_announces
-                    .filter(a::resource_kind.eq(body.resource_kind))
-                    .filter(a::resource_id.eq(&body.resource_id))
-                    .filter(a::as_of.eq(body.as_of))
-                    .select((a::announce_id, a::discovery_state, a::source_refs))
-                    .first::<(String, JsonValue, Vec<String>)>(&mut *conn)
-                    .await?;
-                if stored_state != body.discovery_state || stored_source_refs != body.source_refs {
+                let (stored_announce_id, stored_state, stored_source_refs, stored_revision) =
+                    a::ingest_announces
+                        .filter(a::resource_kind.eq(body.resource_kind))
+                        .filter(a::resource_id.eq(&body.resource_id))
+                        .filter(a::as_of.eq(body.as_of))
+                        .select((
+                            a::announce_id,
+                            a::discovery_state,
+                            a::source_refs,
+                            a::policy_revision,
+                        ))
+                        .first::<(String, JsonValue, Vec<String>, String)>(&mut *conn)
+                        .await?;
+                if stored_state != body.discovery_state
+                    || stored_source_refs != body.source_refs
+                    || stored_revision != verified.policy_revision
+                {
                     anyhow::bail!(
                         "natural-key conflict for ({}, {}, {}) carries different signed state",
                         body.resource_kind.as_pg(),

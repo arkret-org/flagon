@@ -14,6 +14,6 @@ pub use admin_auth::{
     AdminAuthHoop, AdminAuthMethod, AdminCredential, require_admin_csrf, verify_admin_credential,
 };
 pub use http_sig::{
-    DidResolverKeyDirectory, Ed25519PublicKey, HttpSigKeyDirectory, HttpSigMiddleware,
-    StaticKeyDirectory,
+    AuthenticatedHttpSignature, DidResolverKeyDirectory, Ed25519PublicKey, HttpSigKeyDirectory,
+    HttpSigMiddleware, StaticKeyDirectory,
 };

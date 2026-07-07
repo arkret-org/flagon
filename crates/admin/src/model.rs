@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use serde_json::Value as JsonValue;
 pub use teabay_contracts::{
-    DISCOVERABILITY_TOKENS, DirectoryAdminAllowlistUpsertRequestBody,
+    AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
+    DISCOVERABILITY_TOKENS, DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
-    OperatorTakedownOutcome, OperatorTakedownRequestBody, RESOURCE_KIND_TOKENS,
-    parse_directory_discoverability, parse_directory_resource_kind,
+    OperatorTakedownOutcome, OperatorTakedownRequestBody, RESOURCE_KIND_TOKENS, ResourceItem,
+    ResourceList, ResourceMutationEnvelope, TakedownAppealDecision, TakedownAppealDecisionOutcome,
+    TakedownAppealDecisionRequestBody, parse_directory_discoverability,
+    parse_directory_resource_kind,
 };
 
 use crate::api::{
@@ -38,17 +39,19 @@ pub enum Tab {
     Diagnostics,
     Allowlist,
     Takedown,
+    Appeals,
     Audit,
     Review,
 }
 
 impl Tab {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Dashboard,
         Self::Resources,
         Self::Diagnostics,
         Self::Allowlist,
         Self::Takedown,
+        Self::Appeals,
         Self::Audit,
         Self::Review,
     ];
@@ -60,140 +63,11 @@ impl Tab {
             Self::Diagnostics => "Diagnostics",
             Self::Allowlist => "Allowlist",
             Self::Takedown => "Takedown",
+            Self::Appeals => "Appeals",
             Self::Audit => "Audit",
             Self::Review => "Review",
         }
     }
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct DashboardStats {
-    #[serde(default)]
-    pub directory_resources: i64,
-    #[serde(default)]
-    pub stale_resources: i64,
-    #[serde(default)]
-    pub divergent_resources: i64,
-    #[serde(default)]
-    pub realm_destroyed: i64,
-    #[serde(default)]
-    pub ingest_announces: i64,
-    #[serde(default)]
-    pub webhook_subscriptions: i64,
-    #[serde(default)]
-    pub audit_events: i64,
-    #[serde(default)]
-    pub allowlist_entries: i64,
-    #[serde(default)]
-    pub per_kind: Vec<DashboardKindCount>,
-    #[serde(default)]
-    pub as_of: String,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct DashboardKindCount {
-    #[serde(default)]
-    pub resource_kind: String,
-    #[serde(default)]
-    pub count: i64,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct ResourceList {
-    #[serde(default)]
-    pub items: Vec<ResourceItem>,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct ResourceItem {
-    #[serde(default)]
-    pub resource_kind: String,
-    #[serde(default)]
-    pub resource_id: String,
-    #[serde(default)]
-    pub principal_server_did: String,
-    #[serde(default)]
-    pub discovery_state: DirectoryDiscoveryState,
-    #[serde(default)]
-    pub public_projection: DirectoryPublicProjection,
-    #[serde(default)]
-    pub discoverability: String,
-    #[serde(default)]
-    pub as_of: String,
-    #[serde(default)]
-    pub source_refs: Vec<String>,
-    #[serde(default)]
-    pub policy_revision: String,
-    #[serde(default)]
-    pub indexed_at: String,
-    #[serde(default)]
-    pub effective_ttl_seconds: i32,
-    #[serde(default)]
-    pub next_revalidation_after: String,
-    #[serde(default)]
-    pub stale: bool,
-    #[serde(default)]
-    pub divergent: bool,
-    #[serde(default)]
-    pub via_services: Vec<String>,
-    #[serde(default)]
-    pub last_announce_id: Option<String>,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct AllowlistEnvelope {
-    #[serde(default)]
-    pub items: Vec<AllowlistItem>,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct AllowlistItem {
-    #[serde(default)]
-    pub resource_did: String,
-    #[serde(default)]
-    pub added_by: String,
-    #[serde(default)]
-    pub added_at: String,
-    #[serde(default)]
-    pub note: Option<String>,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct AuditEnvelope {
-    #[serde(default)]
-    pub events: Vec<AuditEvent>,
-    #[serde(default)]
-    pub next_since: Option<String>,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct AuditEvent {
-    #[serde(default)]
-    pub audit_id: i64,
-    #[serde(default)]
-    pub occurred_at: String,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub resource_kind: Option<String>,
-    #[serde(default)]
-    pub resource_id: Option<String>,
-    #[serde(default)]
-    pub actor: Option<String>,
-    #[serde(default)]
-    pub detail: JsonValue,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct ResourceMutationEnvelope {
-    #[serde(default)]
-    pub item: ResourceItem,
-}
-
-#[derive(Clone, Default, Deserialize, PartialEq)]
-pub struct DeleteCount {
-    #[serde(default)]
-    pub deleted: i64,
 }
 
 #[derive(Clone, PartialEq)]

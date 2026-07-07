@@ -38,7 +38,7 @@ use crate::ids::{IdClass, new_id};
 use crate::ingest::announce::{
     DirectoryAnnounceIngest, FederationCachePersist, canonical_json_string,
     derive_public_projection, derive_realm_terminal_state, digest_request, effective_ttl_seconds,
-    latest_as_of_for, upsert_resource_and_audit,
+    latest_policy_revision_for, policy_revision_seen_before, upsert_resource_and_audit,
 };
 use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::{
@@ -220,18 +220,36 @@ impl PullWorker {
             anyhow::anyhow!("verify rejected with {}: {message}", code.wire_code())
         })?;
 
-        if let Some(latest) = latest_as_of_for(
+        if let Some(latest) = latest_policy_revision_for(
             self.state.db(),
             announce.resource_kind,
             &announce.resource_id,
         )
         .await?
-            && announce.as_of < latest
         {
-            anyhow::bail!(
-                "pulled as_of {} is older than indexed {latest}",
-                announce.as_of
-            );
+            if announce.as_of < latest.as_of {
+                anyhow::bail!(
+                    "pulled as_of {} is older than indexed {}",
+                    announce.as_of,
+                    latest.as_of
+                );
+            }
+            if verified.policy_revision != latest.policy_revision
+                && policy_revision_seen_before(
+                    self.state.db(),
+                    announce.resource_kind,
+                    &announce.resource_id,
+                    &verified.policy_revision,
+                    latest.as_of,
+                )
+                .await?
+            {
+                anyhow::bail!(
+                    "pulled policy_revision {} was already superseded by indexed {}",
+                    verified.policy_revision,
+                    latest.policy_revision
+                );
+            }
         }
 
         let effective_ttl = effective_ttl_seconds(announce.ttl_seconds, self.state.config());

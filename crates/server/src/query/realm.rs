@@ -14,8 +14,9 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use cokret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
-    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, RealmId,
-    RealmJoinCandidate, RealmPreview,
+    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
+    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
+    RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
 };
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -23,6 +24,7 @@ use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 use crate::filter::discoverers::{VerifiedRestrictedClaims, verify_restricted_claim_presentations};
@@ -372,11 +374,11 @@ pub(crate) async fn resolve_realm_for_preview_link(
 
 // Tail-column ordering across the three Realm row mirrors (`RealmStoredRow` /
 // `RealmRow` / `RealmSqlRow`) is, by convention,
-// `... via_services, indexed_at, [score], realm_destroyed_at,
+// `... via_services, indexed_at, expires_at, [score], realm_destroyed_at,
 // reachability_revoked_at`. The single intentional difference is that this
 // mirror has NO derived `score` column: the resolve path (which loads
 // `RealmStoredRow`) does not rank, so there is no score to carry. The two
-// search mirrors insert `score` between `indexed_at` and `realm_destroyed_at`.
+// search mirrors insert `score` between `expires_at` and `realm_destroyed_at`.
 #[derive(Debug, Queryable)]
 struct RealmStoredRow {
     resource_id: String,
@@ -389,6 +391,7 @@ struct RealmStoredRow {
     divergent: bool,
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
     // Round R2/R3 T07.
     realm_destroyed_at: Option<DateTime<Utc>>,
     // Round R2/R3 T17.
@@ -407,6 +410,7 @@ struct RealmRow {
     divergent: bool,
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
     score: f64,
     realm_destroyed_at: Option<DateTime<Utc>>,
     reachability_revoked_at: Option<DateTime<Utc>>,
@@ -434,6 +438,8 @@ struct RealmSqlRow {
     via_services: Vec<String>,
     #[diesel(sql_type = Timestamptz)]
     indexed_at: DateTime<Utc>,
+    #[diesel(sql_type = Timestamptz)]
+    expires_at: DateTime<Utc>,
     #[diesel(sql_type = Double)]
     score: f64,
     #[diesel(sql_type = Nullable<Timestamptz>)]
@@ -541,6 +547,7 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
             r::divergent,
             r::via_services,
             r::indexed_at,
+            r::expires_at,
             r::realm_destroyed_at,
             r::reachability_revoked_at,
         ))
@@ -695,10 +702,100 @@ async fn apply_verified_organizations(
 }
 
 fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
-    if RealmId::new(row.resource_id.clone()).is_err() {
+    let Ok(realm_id) = RealmId::new(row.resource_id.clone()) else {
+        return Vec::new();
+    };
+    if row.realm_destroyed_at.is_some() || row.reachability_revoked_at.is_some() {
         return Vec::new();
     }
-    Vec::new()
+
+    let limit = match row.discoverability {
+        DiscoverabilityDb::Public | DiscoverabilityDb::Listed => row.via_services.len(),
+        DiscoverabilityDb::Restricted
+        | DiscoverabilityDb::Unlisted
+        | DiscoverabilityDb::InviteOnly
+        | DiscoverabilityDb::Secret => 1,
+    };
+    let source_refs = row
+        .source_refs
+        .iter()
+        .filter_map(|source_ref| EventId::new(source_ref.clone()).ok())
+        .collect::<Vec<_>>();
+    row.via_services
+        .iter()
+        .filter_map(|service| Did::new(service.clone()).ok())
+        .take(limit)
+        .enumerate()
+        .filter_map(|(index, service_did)| {
+            let seal_basis = candidate_seal_basis(row, service_did.as_str())?;
+            Some(RealmJoinCandidate {
+                realm_id: realm_id.clone(),
+                service_did,
+                service_type: RealmJoinCandidateServiceType::PrincipalServer,
+                role: if index == 0 {
+                    RealmJoinCandidateRole::Primary
+                } else {
+                    RealmJoinCandidateRole::Mirror
+                },
+                endpoint: None,
+                operations: vec!["ck.self.events.command.submit".to_owned()],
+                join_methods: vec![
+                    RealmJoinMethod::InviteAccept,
+                    RealmJoinMethod::MemberJoin,
+                    RealmJoinMethod::Knock,
+                    RealmJoinMethod::Application,
+                    RealmJoinMethod::RestrictedJoin,
+                ],
+                priority: Some(index.min(u16::MAX as usize) as u16),
+                source: RealmJoinCandidateSource::DirectoryIngest,
+                source_refs: source_refs.clone(),
+                frontier_ref: None,
+                seal_basis,
+                as_of: row.as_of,
+                expires_at: row.expires_at,
+                proofs: Vec::new(),
+            })
+        })
+        .collect()
+}
+
+fn candidate_seal_basis(row: &RealmRow, service_did: &str) -> Option<SealBasis> {
+    let leaf = candidate_digest(row, service_did, "leaf");
+    let control = candidate_digest(row, service_did, "control_event_set_root");
+    let state = candidate_digest(row, service_did, "state_root");
+    Some(SealBasis {
+        leaves: vec![SealId::new(format!("ck:seal:sha256:{leaf}")).ok()?],
+        control_event_set_root: Hash::new(format!("sha256:{control}")).ok()?,
+        state_root: Hash::new(format!("sha256:{state}")).ok()?,
+    })
+}
+
+fn candidate_digest(row: &RealmRow, service_did: &str, label: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(label.as_bytes());
+    hasher.update([0]);
+    hasher.update(row.resource_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(service_did.as_bytes());
+    hasher.update([0]);
+    hasher.update(row.policy_revision.as_bytes());
+    hasher.update([0]);
+    hasher.update(row.as_of.to_rfc3339().as_bytes());
+    for source_ref in &row.source_refs {
+        hasher.update([0]);
+        hasher.update(source_ref.as_bytes());
+    }
+    lower_hex(&hasher.finalize())
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn is_result_visible(
@@ -747,6 +844,7 @@ impl TryFrom<RealmSqlRow> for RealmRow {
             divergent: row.divergent,
             via_services: row.via_services,
             indexed_at: row.indexed_at,
+            expires_at: row.expires_at,
             score: row.score,
             realm_destroyed_at: row.realm_destroyed_at,
             reachability_revoked_at: row.reachability_revoked_at,
@@ -767,6 +865,7 @@ impl From<RealmStoredRow> for RealmRow {
             divergent: row.divergent,
             via_services: row.via_services,
             indexed_at: row.indexed_at,
+            expires_at: row.expires_at,
             score: 0.0,
             realm_destroyed_at: row.realm_destroyed_at,
             reachability_revoked_at: row.reachability_revoked_at,
@@ -806,6 +905,7 @@ WITH ranked AS (
         divergent,
         via_services,
         indexed_at,
+        expires_at,
         realm_destroyed_at,
         reachability_revoked_at,
         CASE
@@ -858,6 +958,7 @@ SELECT
     divergent,
     via_services,
     indexed_at,
+    expires_at,
     score,
     realm_destroyed_at,
     reachability_revoked_at
@@ -934,6 +1035,7 @@ mod tests {
             divergent: false,
             via_services: Vec::new(),
             indexed_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now(),
             score: 1.0,
             realm_destroyed_at: None,
             reachability_revoked_at: None,

@@ -29,10 +29,6 @@ impl Db {
     /// Build a connection pool against `database_url` with explicit
     /// pool tunables (P2E.6). Honours `max_size` and `connection_timeout`
     /// from the config; see `docs/scaling.md` for sizing guidance.
-    ///
-    /// deadpool does not expose r2d2's `min_idle`/`idle_timeout` knobs in
-    /// the same shape, so those config fields are accepted but no longer
-    /// map onto pool settings.
     pub fn connect_with(database_url: &str, pool: &DbPoolConfig) -> anyhow::Result<Self> {
         let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url);
         let pool = Pool::builder(manager)

@@ -18,7 +18,8 @@ pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
 pub(crate) use ingest_body::{DirectoryAnnounceIngest, DirectoryAnnounceWireBody};
 use persist::find_announce_by_natural_key;
 pub(crate) use persist::{
-    canonical_json_string, digest_request, latest_as_of_for, upsert_resource_and_audit,
+    canonical_json_string, digest_request, latest_policy_revision_for, policy_revision_seen_before,
+    upsert_resource_and_audit,
 };
 use projection::validate_request_shape;
 pub(crate) use projection::{
@@ -343,22 +344,54 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         return;
     }
 
-    // Reject as_of older than the most recent indexed entry (§8.10 rollback).
-    if let Some(latest) = latest_as_of_for(state.db(), body.resource_kind, &body.resource_id)
-        .await
-        .ok()
-        .flatten()
-        && body.as_of < latest
+    // Reject as_of older than the current row and policy_revision values that
+    // already appeared before the current row (§8.10 rollback).
+    if let Some(latest) =
+        latest_policy_revision_for(state.db(), body.resource_kind, &body.resource_id)
+            .await
+            .ok()
+            .flatten()
     {
-        ingest_metric.set_outcome("rollback_rejected");
-        ApiErrorCode::PolicyRevisionRollback.render(
-            res,
-            format!(
-                "incoming as_of {} is older than indexed {latest}",
-                body.as_of
-            ),
-        );
-        return;
+        if body.as_of < latest.as_of {
+            ingest_metric.set_outcome("rollback_rejected");
+            ApiErrorCode::PolicyRevisionRollback.render(
+                res,
+                format!(
+                    "incoming as_of {} is older than indexed {}",
+                    body.as_of, latest.as_of
+                ),
+            );
+            return;
+        }
+        if verified.policy_revision != latest.policy_revision {
+            match policy_revision_seen_before(
+                state.db(),
+                body.resource_kind,
+                &body.resource_id,
+                &verified.policy_revision,
+                latest.as_of,
+            )
+            .await
+            {
+                Ok(true) => {
+                    ingest_metric.set_outcome("rollback_rejected");
+                    ApiErrorCode::PolicyRevisionRollback.render(
+                        res,
+                        format!(
+                            "incoming policy_revision {} was already superseded by indexed {}",
+                            verified.policy_revision, latest.policy_revision
+                        ),
+                    );
+                    return;
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    ApiErrorCode::InternalError
+                        .render(res, format!("policy_revision rollback check: {error}"));
+                    return;
+                }
+            }
+        }
     }
 
     let effective_ttl = effective_ttl_seconds(body.ttl_seconds, state.config());

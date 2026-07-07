@@ -135,6 +135,7 @@ CREATE TABLE ingest_announces (
     ingest_mode       ingest_mode       NOT NULL,
     discovery_state   JSONB             NOT NULL,
     source_refs       TEXT[]            NOT NULL,
+    policy_revision   TEXT              NOT NULL,
     as_of             TIMESTAMPTZ       NOT NULL,
     indexed_at        TIMESTAMPTZ       NOT NULL DEFAULT now(),
     effective_ttl_seconds INTEGER       NOT NULL,

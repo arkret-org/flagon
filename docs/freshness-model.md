@@ -11,7 +11,7 @@ clients can reason about how recently the directory observed source truth.
 - `indexed_at`: local time when teabay accepted the state.
 - `source_refs`: source event IDs clients can re-fetch from the Principal
   Server.
-- `policy_revision`: optional source policy revision.
+- `policy_revision`: required source policy revision.
 - `effective_ttl_seconds`: TTL selected by teabay after applying defaults and
   caps.
 - `next_revalidation_after`: `indexed_at + effective_ttl_seconds`.
@@ -34,14 +34,20 @@ Announce requests may include `ttl_seconds`.
 - Requested TTLs cannot exceed `TEABAY_MAX_TTL_SECONDS`.
 - `TEABAY_MAX_TTL_SECONDS` itself cannot exceed the 30-day hard ceiling.
 
-The effective TTL is persisted with both the announce audit row and the current
-resource row.
+The effective TTL and `policy_revision` are persisted with both the announce
+audit row and the current resource row.
 
 ## Monotonic `as_of`
 
 teabay rejects an announce when its `as_of` is older than the currently indexed
 row for the same `(resource_kind, resource_id)`. This prevents rollback of the
 effective index through stale signed state.
+
+The directory also keeps accepted announce history keyed by resource and
+`as_of`. When an incoming state has a newer `as_of` but presents a
+`policy_revision` that was already observed before the current row, teabay
+rejects it as a policy rollback. Reusing the current revision is accepted;
+switching to a revision that has not previously been superseded is accepted.
 
 The verification chain also enforces `TEABAY_AS_OF_SKEW_SECONDS` so incoming
 state cannot be too far from local server time.

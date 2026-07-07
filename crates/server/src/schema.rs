@@ -79,6 +79,7 @@ diesel::table! {
         ingest_mode -> IngestMode,
         discovery_state -> Jsonb,
         source_refs -> Array<Text>,
+        policy_revision -> Text,
         as_of -> Timestamptz,
         indexed_at -> Timestamptz,
         effective_ttl_seconds -> Int4,

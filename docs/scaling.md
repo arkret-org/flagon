@@ -13,9 +13,7 @@ from `crate::config::DbPoolConfig::default`.
 | Env                                         | Default | Effect |
 |---------------------------------------------|---------|--------|
 | `TEABAY_DB_POOL_MAX_SIZE`                   | 16      | Hard ceiling on concurrent connections. Includes background workers + admin queries. |
-| `TEABAY_DB_POOL_MIN_IDLE`                   | 2       | Minimum idle connections kept warm. Clamped to `max_size`. |
 | `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`    | 5       | How long `pool.get()` waits before returning a `Timeout`. |
-| `TEABAY_DB_POOL_IDLE_TIMEOUT_SECS`          | 60      | How long an idle connection sits before the reaper closes it. `0` disables the reaper. |
 
 ### Sizing rule of thumb
 

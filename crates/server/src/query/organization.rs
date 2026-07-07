@@ -4,9 +4,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use cokret_sdk::{
-    DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
-    DirectoryResolveOrganizationRequestBody as SdkDirectoryResolveOrganizationRequestBody,
-    DirectorySearchOrganizationsRequestBody as SdkDirectorySearchOrganizationsRequestBody,
+    Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
+    DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
     OrganizationPreview,
 };
 use diesel::prelude::*;
@@ -16,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{VerifiedRestrictedClaims, matches_allowed_discoverers};
+use crate::filter::discoverers::{
+    VerifiedRestrictedClaims, matches_allowed_discoverers, verify_restricted_claim_presentations,
+};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::filter::result::ResultEnvelope;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
@@ -38,7 +39,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     if !enforce_query_rate_limit(req, res, &state) {
         return;
     }
-    let body: SdkDirectorySearchOrganizationsRequestBody = match req.parse_json().await {
+    let body: DirectorySearchOrganizationsRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed search body: {error}"));
@@ -48,7 +49,18 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
 
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
-    let verified_claims = VerifiedRestrictedClaims::default();
+    let claims = parse_org_restricted_claims(&body.claims);
+    let requester = claims
+        .requester
+        .as_ref()
+        .map(Did::as_str)
+        .map(str::to_owned);
+    let verified_claims = verified_restricted_claims_for_org_query(
+        &state,
+        requester.as_deref(),
+        claims.proof_challenge.as_deref(),
+        &claims.claim_presentations,
+    );
     let cursor = match body.cursor.as_deref().map(decode_org_cursor).transpose() {
         Ok(cursor) => cursor,
         Err(message) => {
@@ -82,7 +94,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 &state,
                 &needle,
                 cursor.as_ref(),
-                None,
+                requester.as_deref(),
                 &verified_claims,
                 limit + 1,
             )
@@ -164,7 +176,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-organization");
-    let body: SdkDirectoryResolveOrganizationRequestBody = match req.parse_json().await {
+    let body: OrganizationResolveRequestView = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {error}"));
@@ -191,7 +203,13 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let verified_claims = VerifiedRestrictedClaims::default();
+    let requester = body.requester.as_ref().map(Did::as_str).map(str::to_owned);
+    let verified_claims = verified_restricted_claims_for_org_query(
+        &state,
+        requester.as_deref(),
+        body.proof_challenge.as_deref(),
+        &body.claim_presentations,
+    );
     let row = pad_to_budget_observed(
         budget,
         "ck.find.directory.query.resolve_organization",
@@ -203,7 +221,9 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         },
         async {
             let row = load_org_row(&state, &key).await?;
-            Ok::<_, anyhow::Error>(row.filter(|row| is_org_visible(row, None, &verified_claims)))
+            Ok::<_, anyhow::Error>(
+                row.filter(|row| is_org_visible(row, requester.as_deref(), &verified_claims)),
+            )
         },
     )
     .await;
@@ -229,6 +249,54 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
         _ => ApiErrorCode::NotFound.render(res, "not found"),
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OrganizationRestrictedClaims {
+    #[serde(default)]
+    requester: Option<Did>,
+    #[serde(default)]
+    proof_challenge: Option<String>,
+    #[serde(default)]
+    claim_presentations: Vec<DirectoryRestrictedClaimPresentation>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OrganizationResolveRequestView {
+    #[serde(default)]
+    organization_did: Option<Did>,
+    #[serde(default)]
+    handle: Option<String>,
+    #[serde(default)]
+    requester: Option<Did>,
+    #[serde(default)]
+    proof_challenge: Option<String>,
+    #[serde(default)]
+    claim_presentations: Vec<DirectoryRestrictedClaimPresentation>,
+}
+
+fn parse_org_restricted_claims(value: &JsonValue) -> OrganizationRestrictedClaims {
+    if value.is_null() {
+        return OrganizationRestrictedClaims::default();
+    }
+    serde_json::from_value(value.clone()).unwrap_or_default()
+}
+
+fn verified_restricted_claims_for_org_query(
+    state: &AppState,
+    requester: Option<&str>,
+    proof_challenge: Option<&str>,
+    presentations: &[DirectoryRestrictedClaimPresentation],
+) -> VerifiedRestrictedClaims {
+    verify_restricted_claim_presentations(
+        presentations,
+        requester,
+        proof_challenge,
+        &state.config().service_did,
+        &state.config().accepted_did_methods,
+        crate::egress::private_networks_allowed(state.config().development_mode),
+    )
+    .unwrap_or_default()
 }
 
 #[derive(Debug, Queryable)]

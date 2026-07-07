@@ -7,8 +7,10 @@ use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::{
-    DirectoryAdminAllowlistUpsertRequestBody, DirectoryAdminResourceUpsertRequestBody,
-    DirectoryDiscoveryState, DirectoryPublicProjection,
+    AllowlistEnvelope, AllowlistItem, AllowlistMutationEnvelope, AuditEnvelope, AuditEvent,
+    DashboardKindCount, DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
+    DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
+    ResourceItem, ResourceList, ResourceMutationEnvelope,
 };
 
 use crate::audit::{self, AuditEventKind};
@@ -46,17 +48,6 @@ struct AuditDbRow {
     detail: JsonValue,
 }
 
-#[derive(Debug, Serialize)]
-struct AuditFeedItem {
-    audit_id: i64,
-    occurred_at: DateTime<Utc>,
-    kind: &'static str,
-    resource_kind: Option<&'static str>,
-    resource_id: Option<String>,
-    actor: Option<String>,
-    detail: JsonValue,
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct AllowlistQuery {
     #[serde(default)]
@@ -69,8 +60,8 @@ struct AllowlistDeleteQuery {
     resource_did: Option<String>,
 }
 
-#[derive(Debug, Queryable, Serialize)]
-struct AllowlistItem {
+#[derive(Debug, Queryable)]
+struct AllowlistDbRow {
     resource_did: String,
     added_by: String,
     added_at: DateTime<Utc>,
@@ -128,26 +119,6 @@ struct ResourceAdminRow {
     last_announce_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct ResourceAdminItem {
-    resource_kind: &'static str,
-    resource_id: String,
-    principal_server_did: String,
-    discovery_state: DirectoryDiscoveryState,
-    public_projection: DirectoryPublicProjection,
-    discoverability: &'static str,
-    as_of: DateTime<Utc>,
-    source_refs: Vec<String>,
-    policy_revision: String,
-    indexed_at: DateTime<Utc>,
-    effective_ttl_seconds: i32,
-    next_revalidation_after: DateTime<Utc>,
-    stale: bool,
-    divergent: bool,
-    via_services: Vec<String>,
-    last_announce_id: Option<String>,
-}
-
 #[derive(Debug)]
 struct ResourceDeleteAudit {
     principal_server_did: String,
@@ -193,14 +164,34 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
 
     match load_audit_rows(&state, since, limit).await {
         Ok(rows) => {
-            let next_since = rows.last().map(|row| row.occurred_at);
-            let events: Vec<_> = rows.into_iter().map(AuditFeedItem::from).collect();
-            res.render(Json(json!({
-                "events": events,
-                "next_since": next_since,
-            })));
+            let next_since = rows.last().map(|row| row.occurred_at.to_rfc3339());
+            let events: Vec<_> = rows.into_iter().map(AuditEvent::from).collect();
+            res.render(Json(AuditEnvelope { events, next_since }));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("audit feed: {error}")),
+    }
+}
+
+#[handler]
+pub async fn audit_chain_verify(req: &mut Request, depot: &mut Depot, res: &mut Response) {
+    let state = match depot.get_typed::<AppState>() {
+        Ok(s) => s.clone(),
+        Err(_) => {
+            ApiErrorCode::InternalError.render(res, "AppState not injected");
+            return;
+        }
+    };
+
+    if let Err(error) = require_admin(req, &state).await {
+        error.render(res, "admin bearer token required");
+        return;
+    }
+
+    match audit::verify_chain(state.db()).await {
+        Ok(outcome) => res.render(Json(outcome)),
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("audit chain verify: {error}"))
+        }
     }
 }
 
@@ -223,7 +214,7 @@ pub async fn allowlist_list(req: &mut Request, depot: &mut Depot, res: &mut Resp
         .clamp(1, MAX_ADMIN_LIMIT);
 
     match load_allowlist(&state, limit).await {
-        Ok(items) => res.render(Json(json!({ "items": items }))),
+        Ok(items) => res.render(Json(AllowlistEnvelope { items })),
         Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist list: {error}")),
     }
 }
@@ -262,7 +253,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
                 json!({ "note": body.note }),
             )
             .await;
-            res.render(Json(json!({ "item": item })));
+            res.render(Json(AllowlistMutationEnvelope { item }));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist upsert: {error}")),
     }
@@ -307,7 +298,9 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
                 )
                 .await;
             }
-            res.render(Json(json!({ "deleted": deleted })));
+            res.render(Json(DeleteCount {
+                deleted: deleted as i64,
+            }));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("allowlist delete: {error}")),
     }
@@ -332,7 +325,7 @@ pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut R
         .clamp(1, MAX_ADMIN_LIMIT);
 
     match load_resources(&state, &query, limit).await {
-        Ok(items) => res.render(Json(json!({ "items": items }))),
+        Ok(items) => res.render(Json(ResourceList { items })),
         Err(error) => {
             ApiErrorCode::InternalError.render(res, format!("resources browser: {error}"))
         }
@@ -439,7 +432,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
                 }),
             )
             .await;
-            res.render(Json(json!({ "item": item })));
+            res.render(Json(ResourceMutationEnvelope { item }));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("resource upsert: {error}")),
     }
@@ -494,9 +487,9 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
                 }),
             )
             .await;
-            res.render(Json(json!({ "deleted": 1 })));
+            res.render(Json(DeleteCount { deleted: 1 }));
         }
-        Ok(None) => res.render(Json(json!({ "deleted": 0 }))),
+        Ok(None) => res.render(Json(DeleteCount { deleted: 0 })),
         Err(error) => ApiErrorCode::InternalError.render(res, format!("resource delete: {error}")),
     }
 }
@@ -762,13 +755,13 @@ async fn load_allowlist(state: &AppState, limit: i64) -> anyhow::Result<Vec<Allo
     use crate::schema::accept_allowlist::dsl as a;
 
     let mut conn = state.db().get().await?;
-    let rows = a::accept_allowlist
+    let rows: Vec<AllowlistDbRow> = a::accept_allowlist
         .order(a::added_at.desc())
         .limit(limit)
         .select((a::resource_did, a::added_by, a::added_at, a::note))
         .load(&mut *conn)
         .await?;
-    Ok(rows)
+    Ok(rows.into_iter().map(AllowlistItem::from).collect())
 }
 
 async fn upsert_allowlist(
@@ -797,12 +790,12 @@ async fn upsert_allowlist(
         .execute(&mut *conn)
         .await?;
 
-    let item = a::accept_allowlist
+    let item: AllowlistDbRow = a::accept_allowlist
         .filter(a::resource_did.eq(&body.resource_did))
         .select((a::resource_did, a::added_by, a::added_at, a::note))
         .first(&mut *conn)
         .await?;
-    Ok(item)
+    Ok(item.into())
 }
 
 async fn delete_allowlist(state: &AppState, resource_did: &str) -> anyhow::Result<usize> {
@@ -819,7 +812,7 @@ async fn load_resources(
     state: &AppState,
     query: &ResourcesQuery,
     limit: i64,
-) -> anyhow::Result<Vec<ResourceAdminItem>> {
+) -> anyhow::Result<Vec<ResourceItem>> {
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
@@ -879,7 +872,7 @@ async fn load_resources(
                 .await
         })
         .await?;
-    Ok(rows.into_iter().map(ResourceAdminItem::from).collect())
+    Ok(rows.into_iter().map(ResourceItem::from).collect())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -895,7 +888,7 @@ async fn upsert_managed_resource(
     indexed_at: DateTime<Utc>,
     effective_ttl_seconds: i32,
     next_revalidation_after: DateTime<Utc>,
-) -> anyhow::Result<ResourceAdminItem> {
+) -> anyhow::Result<ResourceItem> {
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
@@ -957,7 +950,7 @@ async fn load_resource(
     state: &AppState,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
-) -> anyhow::Result<ResourceAdminItem> {
+) -> anyhow::Result<ResourceItem> {
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
@@ -1108,13 +1101,15 @@ fn trimmed_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-impl From<AuditDbRow> for AuditFeedItem {
+impl From<AuditDbRow> for AuditEvent {
     fn from(row: AuditDbRow) -> Self {
         Self {
             audit_id: row.audit_id,
-            occurred_at: row.occurred_at,
-            kind: row.kind.as_pg(),
-            resource_kind: row.resource_kind.map(DirectoryResourceKindDb::as_pg),
+            occurred_at: row.occurred_at.to_rfc3339(),
+            kind: row.kind.as_pg().to_owned(),
+            resource_kind: row
+                .resource_kind
+                .map(|resource_kind| resource_kind.as_pg().to_owned()),
             resource_id: row.resource_id,
             actor: row.actor,
             detail: row.detail,
@@ -1125,30 +1120,6 @@ impl From<AuditDbRow> for AuditFeedItem {
 /// P2E.3 — operator dashboard stats. Cheap COUNT(*) aggregates over
 /// the directory tables so the admin SPA can render a single-shot
 /// overview without scanning the full audit feed.
-#[derive(Debug, Serialize)]
-struct DashboardStats {
-    directory_resources: i64,
-    stale_resources: i64,
-    divergent_resources: i64,
-    realm_destroyed: i64,
-    ingest_announces: i64,
-    webhook_subscriptions: i64,
-    audit_events: i64,
-    allowlist_entries: i64,
-    /// Per-kind directory size breakdown; ordered by descending count
-    /// so the SPA can render a bar chart without sorting.
-    per_kind: Vec<DashboardKindCount>,
-    /// Server timestamp at which the snapshot was assembled. The SPA
-    /// uses this to label the dashboard refresh time.
-    as_of: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize)]
-struct DashboardKindCount {
-    resource_kind: &'static str,
-    count: i64,
-}
-
 #[handler]
 pub async fn dashboard_stats(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.get_typed::<AppState>() {
@@ -1223,7 +1194,7 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
             .get_result(&mut *conn)
             .await?;
         per_kind.push(DashboardKindCount {
-            resource_kind: kind.as_pg(),
+            resource_kind: kind.as_pg().to_owned(),
             count,
         });
     }
@@ -1239,25 +1210,36 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
         audit_events,
         allowlist_entries,
         per_kind,
-        as_of: Utc::now(),
+        as_of: Utc::now().to_rfc3339(),
     })
 }
 
-impl From<ResourceAdminRow> for ResourceAdminItem {
+impl From<AllowlistDbRow> for AllowlistItem {
+    fn from(row: AllowlistDbRow) -> Self {
+        Self {
+            resource_did: row.resource_did,
+            added_by: row.added_by,
+            added_at: row.added_at.to_rfc3339(),
+            note: row.note,
+        }
+    }
+}
+
+impl From<ResourceAdminRow> for ResourceItem {
     fn from(row: ResourceAdminRow) -> Self {
         Self {
-            resource_kind: row.resource_kind.as_pg(),
+            resource_kind: row.resource_kind.as_pg().to_owned(),
             resource_id: row.resource_id,
             principal_server_did: row.principal_server_did,
             discovery_state: DirectoryDiscoveryState::from_json(row.discovery_state),
             public_projection: DirectoryPublicProjection::from_json(row.public_projection),
-            discoverability: row.discoverability.as_pg(),
-            as_of: row.as_of,
+            discoverability: row.discoverability.as_pg().to_owned(),
+            as_of: row.as_of.to_rfc3339(),
             source_refs: row.source_refs,
             policy_revision: row.policy_revision,
-            indexed_at: row.indexed_at,
+            indexed_at: row.indexed_at.to_rfc3339(),
             effective_ttl_seconds: row.effective_ttl_seconds,
-            next_revalidation_after: row.next_revalidation_after,
+            next_revalidation_after: row.next_revalidation_after.to_rfc3339(),
             stale: row.stale,
             divergent: row.divergent,
             via_services: row.via_services,

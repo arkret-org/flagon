@@ -17,8 +17,10 @@ use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
+use teabay_contracts::{AuditChainVerificationFailure, AuditChainVerificationOutcome};
 
 use crate::db::Db;
+use crate::ingest::DirectoryResourceKindDb;
 use crate::schema::directory_audit;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel::AsExpression, diesel::FromSqlRow)]
@@ -88,6 +90,22 @@ struct NewAuditRow<'a> {
     authentication_method: Option<&'a str>,
     authenticated_actor: Option<&'a str>,
     asserted_operator: Option<&'a str>,
+    prev_digest: Option<Vec<u8>>,
+    audit_digest: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Queryable)]
+struct AuditChainRow {
+    audit_id: i64,
+    occurred_at: DateTime<Utc>,
+    kind: AuditEventKind,
+    resource_kind: Option<DirectoryResourceKindDb>,
+    resource_id: Option<String>,
+    actor: Option<String>,
+    detail: JsonValue,
+    authentication_method: Option<String>,
+    authenticated_actor: Option<String>,
+    asserted_operator: Option<String>,
     prev_digest: Option<Vec<u8>>,
     audit_digest: Option<Vec<u8>>,
 }
@@ -191,6 +209,129 @@ pub async fn record_with_identity(
     .await
 }
 
+pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutcome> {
+    let mut conn = db.get().await?;
+    let rows: Vec<AuditChainRow> = directory_audit::table
+        .order(directory_audit::audit_id.asc())
+        .select((
+            directory_audit::audit_id,
+            directory_audit::occurred_at,
+            directory_audit::kind,
+            directory_audit::resource_kind,
+            directory_audit::resource_id,
+            directory_audit::actor,
+            directory_audit::detail,
+            directory_audit::authentication_method,
+            directory_audit::authenticated_actor,
+            directory_audit::asserted_operator,
+            directory_audit::prev_digest,
+            directory_audit::audit_digest,
+        ))
+        .load(&mut *conn)
+        .await?;
+
+    let checked_rows = rows.len() as i64;
+    let mut chain_rows = 0_i64;
+    let mut first_audit_id = None;
+    let mut last_audit_id = None;
+    let mut expected_prev: Option<Vec<u8>> = None;
+    let mut head_digest: Option<Vec<u8>> = None;
+    let mut chain_started = false;
+
+    for row in rows {
+        let Some(actual_digest) = row.audit_digest.as_ref() else {
+            if chain_started {
+                return Ok(chain_failure(
+                    checked_rows,
+                    chain_rows,
+                    first_audit_id,
+                    last_audit_id,
+                    head_digest.as_deref(),
+                    row.audit_id,
+                    "missing audit_digest after chain start",
+                    None,
+                    None,
+                ));
+            }
+            continue;
+        };
+
+        if !chain_started {
+            if row.prev_digest.is_some() {
+                return Ok(chain_failure(
+                    checked_rows,
+                    chain_rows,
+                    first_audit_id,
+                    last_audit_id,
+                    head_digest.as_deref(),
+                    row.audit_id,
+                    "first chained row has non-null prev_digest",
+                    None,
+                    row.prev_digest.as_deref(),
+                ));
+            }
+            chain_started = true;
+            first_audit_id = Some(row.audit_id);
+        } else if row.prev_digest.as_deref() != expected_prev.as_deref() {
+            return Ok(chain_failure(
+                checked_rows,
+                chain_rows,
+                first_audit_id,
+                last_audit_id,
+                head_digest.as_deref(),
+                row.audit_id,
+                "prev_digest does not match previous audit_digest",
+                expected_prev.as_deref(),
+                row.prev_digest.as_deref(),
+            ));
+        }
+
+        let identity = ActorIdentity {
+            authentication_method: row.authentication_method.as_deref(),
+            authenticated_actor: row.authenticated_actor.as_deref(),
+            asserted_operator: row.asserted_operator.as_deref(),
+        };
+        let expected_digest = compute_row_digest(
+            row.occurred_at,
+            row.kind,
+            row.resource_kind,
+            row.resource_id.as_deref(),
+            row.actor.as_deref(),
+            &row.detail,
+            &identity,
+            row.prev_digest.as_deref(),
+        )?;
+        if expected_digest.as_slice() != actual_digest.as_slice() {
+            return Ok(chain_failure(
+                checked_rows,
+                chain_rows,
+                first_audit_id,
+                last_audit_id,
+                head_digest.as_deref(),
+                row.audit_id,
+                "audit_digest does not match recomputed digest",
+                Some(expected_digest.as_slice()),
+                Some(actual_digest.as_slice()),
+            ));
+        }
+
+        chain_rows += 1;
+        last_audit_id = Some(row.audit_id);
+        head_digest = Some(actual_digest.clone());
+        expected_prev = Some(actual_digest.clone());
+    }
+
+    Ok(AuditChainVerificationOutcome {
+        ok: true,
+        checked_rows,
+        chain_rows,
+        first_audit_id,
+        last_audit_id,
+        head_digest: head_digest.as_deref().map(lower_hex),
+        failure: None,
+    })
+}
+
 /// Canonical digest input. Includes every operator-meaningful field so
 /// any tamper (e.g. swapping `detail.reason`, blanking `actor`) breaks
 /// the chain.
@@ -227,4 +368,42 @@ fn compute_row_digest(
         hasher.update(prev);
     }
     Ok(hasher.finalize().to_vec())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn chain_failure(
+    checked_rows: i64,
+    chain_rows: i64,
+    first_audit_id: Option<i64>,
+    last_audit_id: Option<i64>,
+    head_digest: Option<&[u8]>,
+    audit_id: i64,
+    reason: &str,
+    expected: Option<&[u8]>,
+    actual: Option<&[u8]>,
+) -> AuditChainVerificationOutcome {
+    AuditChainVerificationOutcome {
+        ok: false,
+        checked_rows,
+        chain_rows,
+        first_audit_id,
+        last_audit_id,
+        head_digest: head_digest.map(lower_hex),
+        failure: Some(AuditChainVerificationFailure {
+            audit_id,
+            reason: reason.to_owned(),
+            expected: expected.map(lower_hex),
+            actual: actual.map(lower_hex),
+        }),
+    }
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }

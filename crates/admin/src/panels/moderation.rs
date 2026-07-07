@@ -5,13 +5,15 @@ use serde_json::Value as JsonValue;
 
 use crate::api::{
     delete_admin, get_admin, is_review_event, nonempty_or, option_string, parse_evidence,
-    post_admin, push_param,
+    post_admin, pretty_json, push_param,
 };
 use crate::icons::{ListIcon, RefreshIcon, SaveIcon, SendIcon, TrashIcon};
 use crate::model::{
-    AllowlistEnvelope, AllowlistItem, AuditEnvelope, AuditEvent, BADGE_NEUTRAL, BADGE_WARN,
-    DirectoryAdminAllowlistUpsertRequestBody, OperatorTakedownOutcome, OperatorTakedownRequestBody,
-    RESOURCE_KINDS, parse_directory_resource_kind,
+    AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
+    BADGE_NEUTRAL, BADGE_WARN, DirectoryAdminAllowlistUpsertRequestBody, OperatorTakedownOutcome,
+    OperatorTakedownRequestBody, RESOURCE_KINDS, TakedownAppealDecision,
+    TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
+    parse_directory_resource_kind,
 };
 use crate::shell::{AuditTable, PanelHeader, StatusLine};
 
@@ -403,6 +405,161 @@ pub fn TakedownPanel(base_url: String, token: String) -> Element {
 }
 
 #[component]
+pub fn AppealDecisionPanel(base_url: String, token: String) -> Element {
+    let base_url: Rc<str> = Rc::from(base_url);
+    let token: Rc<str> = Rc::from(token);
+    let mut appeal_id = use_signal(String::new);
+    let mut decision = use_signal(|| "upheld".to_string());
+    let mut reason = use_signal(String::new);
+    let mut decided_by = use_signal(|| "admin-console".to_string());
+    let mut evidence_digest = use_signal(String::new);
+    let mut loading = use_signal(|| false);
+    let mut status = use_signal(|| "Idle".to_string());
+    let mut error = use_signal(String::new);
+    let mut response = use_signal(Option::<TakedownAppealDecisionOutcome>::default);
+
+    let appeal_id_value = appeal_id();
+    let decision_value = decision();
+    let reason_value = reason();
+    let decided_by_value = decided_by();
+    let evidence_digest_value = evidence_digest();
+    let loading_now = loading();
+    let status_text = status();
+    let error_text = error();
+    let response_detail = response().as_ref().map(|payload| {
+        (
+            payload.appeal_id.clone(),
+            payload.takedown_id.clone(),
+            payload.decision.as_str().to_string(),
+            payload.decided_at.to_string(),
+            pretty_json(payload.receipt.as_value()),
+        )
+    });
+
+    let submit = move |_| {
+        let appeal_id_text = appeal_id().trim().to_string();
+        let reason_text = reason().trim().to_string();
+        if appeal_id_text.is_empty() {
+            error.set("appeal_id is required".to_string());
+            return;
+        }
+        if reason_text.is_empty() {
+            error.set("reason is required".to_string());
+            return;
+        }
+        let decision_kind = match decision().as_str() {
+            "overturned" => TakedownAppealDecision::Overturned,
+            _ => TakedownAppealDecision::Upheld,
+        };
+        let body = TakedownAppealDecisionRequestBody {
+            appeal_id: appeal_id_text,
+            decision: decision_kind,
+            reason: reason_text,
+            decided_by: option_string(decided_by()),
+            evidence_digest: option_string(evidence_digest()),
+        };
+        let base_url = base_url.clone();
+        let token = token.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Submitting appeal decision".to_string());
+        spawn(async move {
+            match post_admin::<TakedownAppealDecisionRequestBody, TakedownAppealDecisionOutcome>(
+                base_url,
+                token,
+                "takedown/appeals/decision",
+                &body,
+            )
+            .await
+            {
+                Ok(payload) => {
+                    response.set(Some(payload));
+                    status.set("Appeal decision recorded".to_string());
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Appeal decision failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+
+    rsx! {
+        div { class: "panel",
+            PanelHeader {
+                title: "Appeal decision",
+                actions: rsx! {
+                    button {
+                        class: "button primary",
+                        disabled: loading_now,
+                        onclick: submit,
+                        SendIcon {}
+                        "Submit"
+                    }
+                },
+            }
+            div { class: "split",
+                div { class: "form-surface",
+                    div { class: "field",
+                        label { "Appeal id" }
+                        input {
+                            value: "{appeal_id_value}",
+                            oninput: move |event| appeal_id.set(event.value()),
+                        }
+                    }
+                    div { class: "field",
+                        label { "Decision" }
+                        select {
+                            value: "{decision_value}",
+                            onchange: move |event| decision.set(event.value()),
+                            option { value: "upheld", "upheld" }
+                            option { value: "overturned", "overturned" }
+                        }
+                    }
+                    div { class: "field",
+                        label { "Reason" }
+                        input {
+                            value: "{reason_value}",
+                            oninput: move |event| reason.set(event.value()),
+                        }
+                    }
+                    div { class: "field",
+                        label { "Decided by" }
+                        input {
+                            value: "{decided_by_value}",
+                            oninput: move |event| decided_by.set(event.value()),
+                        }
+                    }
+                    div { class: "field",
+                        label { "Evidence digest" }
+                        input {
+                            value: "{evidence_digest_value}",
+                            oninput: move |event| evidence_digest.set(event.value()),
+                        }
+                    }
+                }
+                div {
+                    StatusLine { status: status_text, error: error_text }
+                    div { class: "result-box mono",
+                        match response_detail {
+                            Some((appeal_id, takedown_id, decision, decided_at, receipt)) => rsx! {
+                                div { "appeal_id: {appeal_id}" }
+                                div { "takedown_id: {takedown_id}" }
+                                div { "decision: {decision}" }
+                                div { "decided_at: {decided_at}" }
+                                pre { "{receipt}" }
+                            },
+                            None => rsx! { div { class: "muted", "No decision" } },
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
 pub fn AuditPanel(base_url: String, token: String) -> Element {
     let base_url: Rc<str> = Rc::from(base_url);
     let token: Rc<str> = Rc::from(token);
@@ -412,6 +569,7 @@ pub fn AuditPanel(base_url: String, token: String) -> Element {
     let mut error = use_signal(String::new);
     let mut since = use_signal(String::new);
     let mut limit = use_signal(|| "100".to_string());
+    let mut verification = use_signal(Option::<AuditChainVerificationOutcome>::default);
 
     let rows_view = rows();
     let loading_now = loading();
@@ -420,12 +578,15 @@ pub fn AuditPanel(base_url: String, token: String) -> Element {
     let since_value = since();
     let limit_value = limit();
     let row_count = rows_view.len();
+    let verification_view = verification();
 
+    let load_base_url = base_url.clone();
+    let load_token = token.clone();
     let load = move |_| {
         let mut params = vec![("limit", nonempty_or(&limit(), "100"))];
         push_param(&mut params, "since", since());
-        let base_url = base_url.clone();
-        let token = token.clone();
+        let base_url = load_base_url.clone();
+        let token = load_token.clone();
         loading.set(true);
         error.set(String::new());
         status.set("Loading audit feed".to_string());
@@ -439,6 +600,39 @@ pub fn AuditPanel(base_url: String, token: String) -> Element {
                 Err(message) => {
                     error.set(message);
                     status.set("Audit query failed".to_string());
+                }
+            }
+            loading.set(false);
+        });
+    };
+    let verify_base_url = base_url.clone();
+    let verify_token = token.clone();
+    let verify = move |_| {
+        let base_url = verify_base_url.clone();
+        let token = verify_token.clone();
+        loading.set(true);
+        error.set(String::new());
+        status.set("Verifying audit chain".to_string());
+        spawn(async move {
+            match get_admin::<AuditChainVerificationOutcome>(
+                base_url,
+                token,
+                "audit/verify",
+                vec![],
+            )
+            .await
+            {
+                Ok(payload) => {
+                    status.set(if payload.ok {
+                        format!("Audit chain ok: {} rows", payload.chain_rows)
+                    } else {
+                        "Audit chain verification failed".to_string()
+                    });
+                    verification.set(Some(payload));
+                }
+                Err(message) => {
+                    error.set(message);
+                    status.set("Audit chain verify failed".to_string());
                 }
             }
             loading.set(false);
@@ -459,6 +653,13 @@ pub fn AuditPanel(base_url: String, token: String) -> Element {
                         onclick: load,
                         RefreshIcon {}
                         "Load"
+                    }
+                    button {
+                        class: "button",
+                        disabled: loading_now,
+                        onclick: verify,
+                        ListIcon {}
+                        "Verify"
                     }
                 },
             }
@@ -483,7 +684,51 @@ pub fn AuditPanel(base_url: String, token: String) -> Element {
                 }
             }
             StatusLine { status: status_text, error: error_text }
+            if let Some(outcome) = verification_view {
+                AuditChainVerificationBox { outcome }
+            }
             AuditTable { rows: rows_view }
+        }
+    }
+}
+
+#[component]
+fn AuditChainVerificationBox(outcome: AuditChainVerificationOutcome) -> Element {
+    let tone = if outcome.ok {
+        BADGE_NEUTRAL
+    } else {
+        BADGE_WARN
+    };
+    let status_label = if outcome.ok { "ok" } else { "failed" };
+    let head_digest = outcome.head_digest.clone().unwrap_or_default();
+    let first_audit_id = outcome
+        .first_audit_id
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    let last_audit_id = outcome
+        .last_audit_id
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    let failure_text = outcome.failure.as_ref().map(|failure| {
+        format!(
+            "{} at audit_id {} expected={} actual={}",
+            failure.reason,
+            failure.audit_id,
+            failure.expected.as_deref().unwrap_or(""),
+            failure.actual.as_deref().unwrap_or("")
+        )
+    });
+    rsx! {
+        div { class: "result-box mono",
+            div { span { class: tone, "{status_label}" } }
+            div { "checked_rows: {outcome.checked_rows}" }
+            div { "chain_rows: {outcome.chain_rows}" }
+            div { "first_audit_id: {first_audit_id}" }
+            div { "last_audit_id: {last_audit_id}" }
+            div { "head_digest: {head_digest}" }
+            if let Some(failure) = failure_text {
+                div { "{failure}" }
+            }
         }
     }
 }

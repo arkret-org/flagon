@@ -38,17 +38,6 @@ pub fn parse_directory_resource_kind(value: &str) -> Result<DirectoryResourceKin
     })
 }
 
-pub fn directory_discoverability_token(value: &DirectoryDiscoverability) -> &'static str {
-    match value {
-        DirectoryDiscoverability::Public => "public",
-        DirectoryDiscoverability::Listed => "listed",
-        DirectoryDiscoverability::Restricted => "restricted",
-        DirectoryDiscoverability::Unlisted => "unlisted",
-        DirectoryDiscoverability::InviteOnly => "invite_only",
-        DirectoryDiscoverability::Secret => "secret",
-    }
-}
-
 pub fn parse_directory_discoverability(value: &str) -> Result<DirectoryDiscoverability, String> {
     Ok(match value {
         "public" => DirectoryDiscoverability::Public,
@@ -223,4 +212,113 @@ pub struct DirectoryAdminResourceUpsertRequestBody {
     pub discovery_state: Option<DirectoryDiscoveryState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_announce_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DashboardStats {
+    pub directory_resources: i64,
+    pub stale_resources: i64,
+    pub divergent_resources: i64,
+    pub realm_destroyed: i64,
+    pub ingest_announces: i64,
+    pub webhook_subscriptions: i64,
+    pub audit_events: i64,
+    pub allowlist_entries: i64,
+    pub per_kind: Vec<DashboardKindCount>,
+    pub as_of: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DashboardKindCount {
+    pub resource_kind: String,
+    pub count: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResourceList {
+    pub items: Vec<ResourceItem>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResourceItem {
+    pub resource_kind: String,
+    pub resource_id: String,
+    pub principal_server_did: String,
+    pub discovery_state: DirectoryDiscoveryState,
+    pub public_projection: DirectoryPublicProjection,
+    pub discoverability: String,
+    pub as_of: String,
+    pub source_refs: Vec<String>,
+    pub policy_revision: String,
+    pub indexed_at: String,
+    pub effective_ttl_seconds: i32,
+    pub next_revalidation_after: String,
+    pub stale: bool,
+    pub divergent: bool,
+    pub via_services: Vec<String>,
+    pub last_announce_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResourceMutationEnvelope {
+    pub item: ResourceItem,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DeleteCount {
+    pub deleted: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AllowlistEnvelope {
+    pub items: Vec<AllowlistItem>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AllowlistItem {
+    pub resource_did: String,
+    pub added_by: String,
+    pub added_at: String,
+    pub note: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AllowlistMutationEnvelope {
+    pub item: AllowlistItem,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AuditEnvelope {
+    pub events: Vec<AuditEvent>,
+    pub next_since: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub audit_id: i64,
+    pub occurred_at: String,
+    pub kind: String,
+    pub resource_kind: Option<String>,
+    pub resource_id: Option<String>,
+    pub actor: Option<String>,
+    pub detail: JsonValue,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AuditChainVerificationOutcome {
+    pub ok: bool,
+    pub checked_rows: i64,
+    pub chain_rows: i64,
+    pub first_audit_id: Option<i64>,
+    pub last_audit_id: Option<i64>,
+    pub head_digest: Option<String>,
+    pub failure: Option<AuditChainVerificationFailure>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AuditChainVerificationFailure {
+    pub audit_id: i64,
+    pub reason: String,
+    pub expected: Option<String>,
+    pub actual: Option<String>,
 }

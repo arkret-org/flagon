@@ -4,7 +4,9 @@ use crate::api::{audit_badge_class, compact_json};
 use crate::icons::{DatabaseIcon, ShieldIcon};
 use crate::model::{AuditEvent, Tab};
 use crate::panels::dashboard::{DashboardPanel, DiagnosticsPanel};
-use crate::panels::moderation::{AllowlistPanel, AuditPanel, ReviewPanel, TakedownPanel};
+use crate::panels::moderation::{
+    AllowlistPanel, AppealDecisionPanel, AuditPanel, ReviewPanel, TakedownPanel,
+};
 use crate::panels::resources::ResourcesPanel;
 
 #[allow(non_snake_case)]
@@ -86,6 +88,7 @@ fn Workspace(active_tab: Signal<Tab>, base_url: Signal<String>, token: Signal<St
                 Tab::Diagnostics => rsx! { DiagnosticsPanel { base_url: api_base.clone() } },
                 Tab::Allowlist => rsx! { AllowlistPanel { base_url: api_base.clone(), token: api_token.clone() } },
                 Tab::Takedown => rsx! { TakedownPanel { base_url: api_base.clone(), token: api_token.clone() } },
+                Tab::Appeals => rsx! { AppealDecisionPanel { base_url: api_base.clone(), token: api_token.clone() } },
                 Tab::Audit => rsx! { AuditPanel { base_url: api_base.clone(), token: api_token.clone() } },
                 Tab::Review => rsx! { ReviewPanel { base_url: api_base.clone(), token: api_token.clone() } },
             }

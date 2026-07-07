@@ -18,6 +18,7 @@ use voprf::{BlindedElement, Group, Ristretto255, VoprfServer};
 
 use crate::config::AppConfig;
 use crate::error::ApiErrorCode;
+use crate::middleware::AuthenticatedHttpSignature;
 use crate::schema::psi_epoch_keys;
 use crate::state::{AppState, RateLimitOutcome};
 
@@ -117,6 +118,14 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
     if !crate::query::rate_limit::enforce_query_rate_limit(req, res, &state) {
         return;
     }
+    let auth = match depot.get_typed::<AuthenticatedHttpSignature>() {
+        Ok(auth) => auth.clone(),
+        Err(_) => {
+            ApiErrorCode::Unauthenticated.render(res, "PSI requires HTTP Message Signature");
+            return;
+        }
+    };
+
     let body: PsiContactDiscoveryRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
@@ -135,6 +144,17 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             return;
         }
     };
+    let signer_did = match signer_did_from_key_id(&auth.key_id) {
+        Ok(did) => did,
+        Err(message) => {
+            ApiErrorCode::Unauthenticated.render(res, message);
+            return;
+        }
+    };
+    if signer_did != requester_did {
+        ApiErrorCode::Unauthenticated.render(res, "requester must match HTTP signature keyid DID");
+        return;
+    }
 
     // Spec §6.4 anti-enumeration quota: at most `max_psi_queries_per_window`
     // *batches* per requester DID per quota window. A batch is one logical PSI
@@ -161,7 +181,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         // generic query limiter above remains a separate auxiliary hardening
         // dimension; it is not the PSI quota key.
         if let RateLimitOutcome::Limited { retry_after } = state.check_rate_limit_window(
-            psi_quota_key(&requester_did, quota_bucket),
+            psi_quota_key(&signer_did, quota_bucket),
             state.config().max_psi_queries_per_window,
             quota_window,
         ) {
@@ -432,6 +452,18 @@ fn psi_quota_key(requester: &Did, quota_bucket: i64) -> String {
     format!("psi-quota:requester:{}:{quota_bucket}", requester.as_str())
 }
 
+fn signer_did_from_key_id(key_id: &str) -> Result<Did, String> {
+    let did = key_id
+        .split_once('#')
+        .map(|(did, _)| did)
+        .unwrap_or(key_id)
+        .trim();
+    if did.is_empty() || did == key_id {
+        return Err("HTTP signature keyid must be a DID URL for PSI".to_owned());
+    }
+    Did::new(did.to_owned()).map_err(|error| format!("HTTP signature keyid DID invalid: {error}"))
+}
+
 fn random_query_id() -> String {
     URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>())
 }
@@ -530,12 +562,19 @@ mod tests {
     }
 
     #[test]
-    fn psi_quota_key_is_requester_primary() {
+    fn psi_quota_key_is_authenticated_requester_primary() {
         let requester = Did::new("did:web:alice.example".to_owned()).unwrap();
 
         assert_eq!(
             psi_quota_key(&requester, 42),
             "psi-quota:requester:did:web:alice.example:42"
         );
+    }
+
+    #[test]
+    fn psi_signer_keyid_must_be_did_url() {
+        let signer = signer_did_from_key_id("did:web:alice.example#device-1").unwrap();
+        assert_eq!(signer.as_str(), "did:web:alice.example");
+        assert!(signer_did_from_key_id("operator-key-1").is_err());
     }
 }

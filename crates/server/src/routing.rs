@@ -26,7 +26,8 @@ pub struct TeabayOpenApiDoc(pub OpenApi);
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
     let http_sig_middleware = build_http_sig_middleware(&state);
-    let directory = directory_router(http_sig_middleware);
+    let required_http_sig_middleware = build_required_http_sig_middleware(&state);
+    let directory = directory_router(http_sig_middleware, required_http_sig_middleware);
     let admin = admin_router();
     let doc = openapi(&directory);
 
@@ -73,6 +74,11 @@ fn build_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
     }
 }
 
+fn build_required_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
+    let directory: Arc<dyn HttpSigKeyDirectory> = Arc::new(state.config().http_sig_key_directory());
+    HttpSigMiddleware::required_with_postgres_replay_store(directory, state.db().clone())
+}
+
 pub fn service(state: AppState) -> Service {
     Service::new(router(state))
 }
@@ -93,6 +99,7 @@ fn admin_router() -> Router {
         .hoop(crate::middleware::AdminAuthHoop)
         .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
+        .push(Router::with_path("audit/verify").get(query::admin::audit_chain_verify))
         .push(
             Router::with_path("allowlist")
                 .get(query::admin::allowlist_list)
@@ -119,7 +126,10 @@ fn admin_router() -> Router {
         .push(Router::with_path("consent-revoke").post(query::admin::consent_revoke_invalidate))
 }
 
-fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
+fn directory_router(
+    http_sig_middleware: HttpSigMiddleware,
+    required_http_sig_middleware: HttpSigMiddleware,
+) -> Router {
     // Query face — no transport signature required (search/resolve are
     // read-only against the indexed view, and CORS / auth gating is
     // handled per-handler where applicable).
@@ -159,6 +169,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         )
         .push(
             Router::with_path("private-contact-discovery")
+                .hoop(required_http_sig_middleware)
                 .post(query::psi::private_contact_discovery),
         );
 
@@ -511,6 +522,14 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "admin",
             "List Audit Events",
             "Return the append-only directory audit feed for operator dashboards.",
+        ),
+        (
+            "/_teabay/admin/audit/verify",
+            PathItemType::Get,
+            "org.cokret.teabay.admin.audit_chain_verify",
+            "admin",
+            "Verify Audit Chain",
+            "Walk the append-only audit chain and recompute chained SHA-256 digests.",
         ),
         (
             "/_teabay/admin/allowlist",

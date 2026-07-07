@@ -208,6 +208,11 @@ pub struct HttpSigMiddleware {
     enforced: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuthenticatedHttpSignature {
+    pub key_id: String,
+}
+
 impl HttpSigMiddleware {
     /// Build a middleware that rejects every ingest request that does
     /// not produce a valid Ed25519 signature over the canonical RFC
@@ -244,6 +249,13 @@ impl HttpSigMiddleware {
             replay_store: Arc::new(InMemoryReplayStore::default()),
             enforced: false,
         }
+    }
+
+    pub fn required_with_postgres_replay_store(
+        directory: Arc<dyn HttpSigKeyDirectory>,
+        db: Db,
+    ) -> Self {
+        Self::new_with_postgres_replay_store(directory, db)
     }
 
     /// Force-set enforcement mode after construction.
@@ -382,7 +394,7 @@ impl Handler for HttpSigMiddleware {
     async fn handle(
         &self,
         req: &mut Request,
-        _depot: &mut Depot,
+        depot: &mut Depot,
         res: &mut Response,
         ctrl: &mut FlowCtrl,
     ) {
@@ -575,6 +587,9 @@ impl Handler for HttpSigMiddleware {
         // Authenticated. Drop to the next hop in the handler chain —
         // teabay's announce/withdraw/subscribe handlers do their own
         // §8 verify chain on top of this transport guarantee.
+        depot.insert_typed(AuthenticatedHttpSignature {
+            key_id: signature_input.key_id,
+        });
     }
 }
 
