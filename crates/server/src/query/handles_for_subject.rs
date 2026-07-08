@@ -4,7 +4,7 @@
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
 //! known holder/principal DID (the `subject`) plus disclosure context, return
 //! the subject's currently-visible handle claims and (when present) the
-//! subject's primary handle. The mention renderer in yougen / sodmin uses
+//! subject's primary handle. The mention renderer in inkson / sodmin uses
 //! this live-resolve path to turn a known DID into the `@handle` it should
 //! display.
 //!
