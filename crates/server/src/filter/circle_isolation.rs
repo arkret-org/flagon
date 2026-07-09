@@ -142,7 +142,7 @@ fn walk(
 }
 
 fn is_allowed_directory_preview_id(pointer: &str, value: &str) -> bool {
-    if cokret_sdk::CircleId::new(value.to_owned()).is_err() {
+    if arkret_sdk::CircleId::new(value.to_owned()).is_err() {
         return false;
     }
 

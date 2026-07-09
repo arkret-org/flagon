@@ -4,8 +4,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use cokret_sdk::identity::{DidKeyResolver, ResolverPolicy};
-use cokret_sdk::{CompositeDidResolver, HttpDidResolver};
+use arkret_sdk::identity::{DidKeyResolver, ResolverPolicy};
+use arkret_sdk::{CompositeDidResolver, HttpDidResolver};
 use reqwest::Client;
 
 /// Build the production resolver chain for the DID methods accepted by

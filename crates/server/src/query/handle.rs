@@ -11,7 +11,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
+use arkret_sdk::{
     Did, DirectoryHandleResolutionOutcome,
     DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody,
 };
@@ -36,7 +36,7 @@ pub struct ResolveHandleRequestView {
     pub handle: String,
     pub expected_did: Option<String>,
     pub proof_challenge: Option<String>,
-    pub claim_presentations: Vec<cokret_sdk::DirectoryRestrictedClaimPresentation>,
+    pub claim_presentations: Vec<arkret_sdk::DirectoryRestrictedClaimPresentation>,
     /// Why the handle is being resolved. Spec 0a5ab85:
     /// gates audience binding on the response claim and selects the
     /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
@@ -71,7 +71,7 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
 }
 
 /// CKP R3 — extract the localpart from a handle value and run it through
-/// `cokret_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
+/// `arkret_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
 /// confusable skeleton + script-mixed reject).
 ///
 /// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
@@ -91,7 +91,7 @@ pub(crate) fn check_handle_homograph(handle: &str) -> Result<(), String> {
     // suffix. For R3 the wire-level guard is localpart-only because the
     // domain reaches us already lowercased and ASCII-restricted by the
     // ingest path.
-    match cokret_sdk::normalize_handle_localpart(localpart) {
+    match arkret_sdk::normalize_handle_localpart(localpart) {
         Ok(_) => Ok(()),
         Err(_) => Err("handle violates homograph / script-mixed policy".to_owned()),
     }
@@ -719,7 +719,7 @@ fn binding_passes(
 /// Round 4 — drop candidates whose `recipient_service_did` fails the
 /// tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
 fn is_round4_tight_did(did: &str) -> bool {
-    cokret_sdk::Did::new(did.to_owned()).is_ok()
+    arkret_sdk::Did::new(did.to_owned()).is_ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -788,7 +788,7 @@ fn handle_resolution_from_envelope(
     let did_raw = payload
         .get("did")
         .and_then(JsonValue::as_str)
-        .filter(|did| cokret_sdk::Did::new((*did).to_owned()).is_ok())
+        .filter(|did| arkret_sdk::Did::new((*did).to_owned()).is_ok())
         .ok_or_else(|| "handle projection did is missing or invalid".to_owned())?
         .to_owned();
     let did = Did::new(did_raw.clone())
@@ -1184,10 +1184,10 @@ mod tests {
 
     #[test]
     fn audience_authorization_falls_back_to_allowed_discoverers() {
-        let issuer = cokret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
-        let org = cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
-        let requester = cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
-        let claim = cokret_sdk::PresentedClaim::organization_membership(
+        let issuer = arkret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
+        let org = arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
+        let requester = arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
             requester.clone(),
             issuer.clone(),
@@ -1212,10 +1212,10 @@ mod tests {
 
     #[test]
     fn restricted_handle_accepts_verified_claim_presentation() {
-        let issuer = cokret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
-        let org = cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
-        let requester = cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
-        let claim = cokret_sdk::PresentedClaim::organization_membership(
+        let issuer = arkret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
+        let org = arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
+        let requester = arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
             requester.clone(),
             issuer.clone(),

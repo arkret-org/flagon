@@ -361,7 +361,7 @@ fn compute_row_digest(
     // accurate and matches the rest of the stack. Serialization failure is
     // fatal (fail-loud): a silent empty-bytes fallback would let differing
     // rows collide and break the tamper-evident chain.
-    let canonical_bytes = cokret_sdk::canonical::canonical_json_bytes(&canonical)?;
+    let canonical_bytes = arkret_sdk::canonical::canonical_json_bytes(&canonical)?;
     let mut hasher = Sha256::new();
     hasher.update(&canonical_bytes);
     if let Some(prev) = prev_digest {

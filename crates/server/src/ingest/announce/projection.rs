@@ -263,9 +263,9 @@ pub(crate) fn validate_handle_claim_ingest(
 
     // (2) handle-claim subject MUST be a holder/principal DID.
     if let Some(subject) = obj.get("subject").and_then(JsonValue::as_str) {
-        match cokret_sdk::Did::new(subject.to_owned()) {
+        match arkret_sdk::Did::new(subject.to_owned()) {
             Ok(did) => {
-                if cokret_sdk::validate_handle_claim_subject(&did).is_err() {
+                if arkret_sdk::validate_handle_claim_subject(&did).is_err() {
                     return Err((
                         ApiErrorCode::SchemaViolation,
                         format!(

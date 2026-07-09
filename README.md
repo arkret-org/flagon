@@ -124,7 +124,7 @@ diesel setup
 cargo run -p server --release
 ```
 
-The server then exposes `/_cokret/find/directory/*` per the spec. Liveness is
+The server then exposes `/_arkret/find/directory/*` per the spec. Liveness is
 `GET /health`, readiness is `GET /readyz`, and Prometheus metrics are served on
 the separate `TEABAY_METRICS_BIND` listener, default `127.0.0.1:9095`, at
 `GET /metrics`. OpenAPI doc at `GET /.well-known/arkret/openapi.{json,yaml}`.
@@ -206,7 +206,7 @@ and takedown audit through the admin operator surface.
 ```
                         +----------------------------+
 client / SDK  ──────▶   |  Salvo router              |
-                        |  /_cokret/find/directory/* |
+                        |  /_arkret/find/directory/* |
                         +----------------------------+
                           │                │
                           │ query          │ ingest
@@ -265,7 +265,7 @@ checks across the whole fleet (see T8.3 for the cross-service shape).
 ingest signer keys before accepting traffic:
 
 1. For each resource Principal Server that may call
-   `/_cokret/find/directory/{announce,withdraw,push/register}`, obtain the Ed25519
+   `/_arkret/find/directory/{announce,withdraw,push/register}`, obtain the Ed25519
    verifying key that corresponds to the HTTP Message Signature `keyid`.
 2. Encode the raw 32-byte verifying key with unpadded base64url. Standard
    padded base64 is also accepted, but base64url is preferred for env files.

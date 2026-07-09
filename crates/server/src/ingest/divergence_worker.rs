@@ -305,7 +305,7 @@ fn directory_endpoint(base: &str, path: &str) -> anyhow::Result<Url> {
         anyhow::bail!("remote directory endpoint must be HTTPS");
     }
     let base_path = url.path().trim_end_matches('/');
-    url.set_path(&format!("{base_path}/_cokret/find/directory/{path}"));
+    url.set_path(&format!("{base_path}/_arkret/find/directory/{path}"));
     url.set_query(None);
     url.set_fragment(None);
     Ok(url)

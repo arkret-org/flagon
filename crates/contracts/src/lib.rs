@@ -3,7 +3,7 @@
 use std::ops::{Deref, DerefMut};
 
 use chrono::{DateTime, Utc};
-pub use cokret_sdk::{DirectoryResourceKind, Discoverability as DirectoryDiscoverability};
+pub use arkret_sdk::{DirectoryResourceKind, Discoverability as DirectoryDiscoverability};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 

@@ -39,9 +39,9 @@ The service listens on `TEABAY_BIND` and exposes:
 
 - `GET /health`
 - `GET /readyz`
-- `GET /_cokret/find/directory/describe`
-- `POST /_cokret/find/directory/{announce,withdraw,push/register}`
-- `POST /_cokret/find/directory/{search-realms,resolve-realm,...}`
+- `GET /_arkret/find/directory/describe`
+- `POST /_arkret/find/directory/{announce,withdraw,push/register}`
+- `POST /_arkret/find/directory/{search-realms,resolve-realm,...}`
 - `GET /.well-known/arkret/openapi.json`
 - `GET /.well-known/arkret/openapi.yaml`
 

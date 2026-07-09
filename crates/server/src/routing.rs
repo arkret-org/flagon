@@ -1,9 +1,9 @@
-//! Salvo router declaration. All `/_cokret/find/directory/*` endpoints (spec §9)
+//! Salvo router declaration. All `/_arkret/find/directory/*` endpoints (spec §9)
 //! plus `/health` and OpenAPI metadata.
 
 use std::sync::Arc;
 
-use cokret_sdk::DirectoryRealmSearchOutcome;
+use arkret_sdk::DirectoryRealmSearchOutcome;
 use diesel_async::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
@@ -187,7 +187,7 @@ fn directory_router(
         .push(Router::with_path("takedown/appeal").post(ingest::appeal::submit_takedown_appeal))
         .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
 
-    Router::with_path("_cokret/find/directory")
+    Router::with_path("_arkret/find/directory")
         .push(query_routes)
         .push(ingest_routes)
 }
@@ -604,7 +604,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return every operator-takedown audit row within an optional `since` / `until` window.",
         ),
         (
-            "/_cokret/find/directory/describe",
+            "/_arkret/find/directory/describe",
             PathItemType::Get,
             "ck.find.directory.query.describe",
             "directory",
@@ -612,7 +612,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
         ),
         (
-            "/_cokret/find/directory/takedown/appeal",
+            "/_arkret/find/directory/takedown/appeal",
             PathItemType::Post,
             "ck.find.directory.command.takedown_appeal",
             "directory",
@@ -620,7 +620,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Submit a resource-signed operator takedown appeal packet.",
         ),
         (
-            "/_cokret/find/directory/search-realms",
+            "/_arkret/find/directory/search-realms",
             PathItemType::Post,
             "ck.find.directory.query.search_realms",
             "query",
@@ -628,7 +628,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return listed/public Realm directory results using the §9.1 result envelope.",
         ),
         (
-            "/_cokret/find/directory/resolve-realm",
+            "/_arkret/find/directory/resolve-realm",
             PathItemType::Post,
             "ck.find.directory.query.resolve_realm",
             "query",
@@ -641,7 +641,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // client-agnostic shareable object address (Realm / Strand / Message)
             // to a target_kind + preview, binding an invite token to the
             // resolved object. Realm resolution delegates to resolve_realm.
-            "/_cokret/find/directory/resolve-target",
+            "/_arkret/find/directory/resolve-target",
             PathItemType::Post,
             "ck.find.directory.query.resolve_target",
             "query",
@@ -652,7 +652,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              object via the target digest so a token cannot be replayed across objects.",
         ),
         (
-            "/_cokret/find/directory/search-organizations",
+            "/_arkret/find/directory/search-organizations",
             PathItemType::Post,
             "ck.find.directory.query.search_organizations",
             "query",
@@ -660,7 +660,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return public/listed Organization directory results.",
         ),
         (
-            "/_cokret/find/directory/resolve-organization",
+            "/_arkret/find/directory/resolve-organization",
             PathItemType::Post,
             "ck.find.directory.query.resolve_organization",
             "query",
@@ -668,7 +668,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
         ),
         (
-            "/_cokret/find/directory/search-actors",
+            "/_arkret/find/directory/search-actors",
             PathItemType::Post,
             "ck.find.directory.query.search_actors",
             "query",
@@ -676,7 +676,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return public Actor discovery records.",
         ),
         (
-            "/_cokret/find/directory/search-users",
+            "/_arkret/find/directory/search-users",
             PathItemType::Post,
             "ck.find.directory.query.search_users",
             "query",
@@ -684,7 +684,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Realm-gated user search using indexed membership hints.",
         ),
         (
-            "/_cokret/find/directory/resolve-handle",
+            "/_arkret/find/directory/resolve-handle",
             PathItemType::Post,
             "ck.find.directory.query.resolve_handle",
             "query",
@@ -704,7 +704,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle
             // lookup. Response shape `ck.schema.list_handles_for_subject_response.v1`.
-            "/_cokret/find/directory/list-handles-for-subject",
+            "/_arkret/find/directory/list-handles-for-subject",
             PathItemType::Post,
             "ck.find.directory.query.list_handles_for_subject",
             "query",
@@ -714,7 +714,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              subjects (ck:actor:/ck:account:/service DID) with failed_precondition.",
         ),
         (
-            "/_cokret/find/directory/private-contact-discovery",
+            "/_arkret/find/directory/private-contact-discovery",
             PathItemType::Post,
             "ck.find.directory.query.private_contact_discovery",
             "query",
@@ -722,7 +722,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "RFC 9497 VOPRF two-phase private contact discovery.",
         ),
         (
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             PathItemType::Post,
             "ck.find.directory.command.announce",
             "ingest",
@@ -730,7 +730,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Push-mode ingest for signed ck.{kind}.discovery state.",
         ),
         (
-            "/_cokret/find/directory/withdraw",
+            "/_arkret/find/directory/withdraw",
             PathItemType::Post,
             "ck.find.directory.command.withdraw",
             "ingest",
@@ -738,7 +738,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
         ),
         (
-            "/_cokret/find/directory/push/register",
+            "/_arkret/find/directory/push/register",
             PathItemType::Post,
             "ck.find.directory.push.command.register",
             "ingest",

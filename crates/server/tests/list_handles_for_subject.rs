@@ -17,14 +17,14 @@
 //!   5. cursor pagination boundary.
 
 use chrono::{TimeZone, Utc};
-use cokret_sdk::DirectoryListHandlesForSubjectRequestBody;
+use arkret_sdk::DirectoryListHandlesForSubjectRequestBody;
 use serde_json::json;
 use server::filter::discoverers::VerifiedRestrictedClaims;
 use server::ingest::DiscoverabilityDb;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 
-fn subject() -> cokret_sdk::Did {
-    cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()
+fn subject() -> arkret_sdk::Did {
+    arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()
 }
 
 fn req(
@@ -33,9 +33,9 @@ fn req(
 ) -> DirectoryListHandlesForSubjectRequestBody {
     DirectoryListHandlesForSubjectRequestBody {
         subject: subject(),
-        realm_id: realm_id.map(|r| cokret_sdk::RealmId::new(r.to_owned()).unwrap()),
+        realm_id: realm_id.map(|r| arkret_sdk::RealmId::new(r.to_owned()).unwrap()),
         intent: None,
-        requester: requester.map(|r| cokret_sdk::Did::new(r.to_owned()).unwrap()),
+        requester: requester.map(|r| arkret_sdk::Did::new(r.to_owned()).unwrap()),
         proof_challenge: None,
         proofs: Vec::new(),
         as_of: None,

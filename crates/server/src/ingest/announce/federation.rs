@@ -1,6 +1,6 @@
 //! Federation idempotency cache key + round-4 trust-domain triad verifier.
 
-use cokret_sdk::{
+use arkret_sdk::{
     HEADER_DESTINATION_TRUST_DOMAIN, HEADER_REQUEST_CANONICAL_DIGEST, HEADER_SOURCE_TRUST_DOMAIN,
     federation_trust_domain_transcript_fragment,
 };
@@ -25,7 +25,7 @@ use crate::ingest::header_value;
 /// replay the same idempotency key (with the same `origin_key_state_digest`)
 /// into trust domain B. The destination + canonical-hash also feed into
 /// the signing transcript via
-/// [`cokret_sdk::federation_trust_domain_transcript_fragment`].
+/// [`arkret_sdk::federation_trust_domain_transcript_fragment`].
 #[derive(Debug, Clone)]
 pub struct FederationCacheKeyInputs {
     pub source_service_did: String,
@@ -162,14 +162,14 @@ pub(crate) fn verify_federation_trust_domain_headers(
     }
     // Validate trust-domain identifiers via the SDK's typed wrapper so
     // method-name regex tightening + scope-length limits are enforced.
-    let source_td = cokret_sdk::TypedTrustDomainId::new(inputs.source_trust_domain.clone())
+    let source_td = arkret_sdk::TypedTrustDomainId::new(inputs.source_trust_domain.clone())
         .map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ck:trust_domain: {err}"),
             )
         })?;
-    let destination_td = cokret_sdk::TypedTrustDomainId::new(
+    let destination_td = arkret_sdk::TypedTrustDomainId::new(
         inputs.destination_trust_domain.clone(),
     )
     .map_err(|err| {
@@ -212,7 +212,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     // an RFC 9421 envelope — the transcript fragment is emitted so the
     // federation outbound path (when wired) reuses the same value.
     let canonical_hash =
-        cokret_sdk::Hash::new(inputs.request_canonical_digest.clone()).map_err(|err| {
+        arkret_sdk::Hash::new(inputs.request_canonical_digest.clone()).map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_REQUEST_CANONICAL_DIGEST} is not a valid Hash: {err}"),

@@ -1,7 +1,7 @@
 //! Parsed `ck.find.directory.command.announce` request body.
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::DirectoryAnnounceRequestBody;
+use arkret_sdk::DirectoryAnnounceRequestBody;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use teabay_contracts::DirectoryDiscoveryState;

@@ -12,7 +12,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
+use arkret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
     DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
     RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
@@ -288,7 +288,7 @@ fn verified_restricted_claims_for_realm_query(
     state: &AppState,
     requester: Option<&str>,
     proof_challenge: Option<&str>,
-    presentations: &[cokret_sdk::DirectoryRestrictedClaimPresentation],
+    presentations: &[arkret_sdk::DirectoryRestrictedClaimPresentation],
 ) -> VerifiedRestrictedClaims {
     verify_restricted_claim_presentations(
         presentations,
@@ -1002,11 +1002,11 @@ mod tests {
             Some("did:web:alice.example"),
             &VerifiedRestrictedClaims::default(),
         ));
-        let claim = cokret_sdk::PresentedClaim::organization_membership(
+        let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
-            cokret_sdk::Did::new("did:web:bob.example".to_owned()).unwrap(),
-            cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
-            cokret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
+            arkret_sdk::Did::new("did:web:bob.example".to_owned()).unwrap(),
+            arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
+            arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
             vec!["member".to_owned()],
         );
         let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);

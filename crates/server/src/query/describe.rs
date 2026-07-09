@@ -2,7 +2,7 @@
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
-//! [`cokret_sdk::ServerDescription::validate`] BEFORE serialisation; a
+//! [`arkret_sdk::ServerDescription::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
@@ -10,7 +10,7 @@
 //! `accepted_resource_kinds`, `ingest_modes`, `ttl`, etc.) are registered
 //! ServiceDescribe overlay fields, not vendor-specific `x_*` extensions.
 
-use cokret_sdk::{
+use arkret_sdk::{
     AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, DirectoryAcceptPolicyKind,
     DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
     RateLimitPolicy, ServerDescription, SupportedBinding, TypedTrustDomainId, VerifiedProfileEntry,
@@ -159,7 +159,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // directory-scope note rides in an `x_teabay_*` extension key since
     // the object is `additionalProperties: false` apart from `x_*`.
     let mut plaintext_visibility = PlaintextVisibility::none();
-    plaintext_visibility.max_visibility = Some(cokret_sdk::PlaintextMaxVisibility::None);
+    plaintext_visibility.max_visibility = Some(arkret_sdk::PlaintextMaxVisibility::None);
     plaintext_visibility.extra.insert(
         "x_teabay_scope".to_owned(),
         JsonValue::String("directory_resources_only".to_owned()),
@@ -211,7 +211,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         service_did,
         trust_domain,
         service_type: "directory_service".to_owned(),
-        protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
+        protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         supported_operations,
         supported_bindings,
@@ -487,7 +487,7 @@ mod tests {
             service_did: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_type: "directory_service".to_owned(),
-            protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
+            protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ck.profile.directory_service.v1".to_owned()],
             supported_operations: Vec::new(),
             supported_bindings: Vec::new(),
@@ -502,7 +502,7 @@ mod tests {
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
                 profile_id: "ck.profile.directory_service.v1".to_owned(),
-                claim_kind: cokret_sdk::ConformanceVerifiedKind::ConformanceVerified,
+                claim_kind: arkret_sdk::ConformanceVerifiedKind::ConformanceVerified,
                 verification_run_id: "test-run".to_owned(),
                 artifact_digest:
                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"

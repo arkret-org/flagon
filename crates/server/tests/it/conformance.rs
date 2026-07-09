@@ -8,8 +8,8 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration as ChronoDuration, Utc};
-use cokret_sdk::jws::sign_jws_ed25519;
-use cokret_sdk::{
+use arkret_sdk::jws::sign_jws_ed25519;
+use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
     DirectoryRestrictedClaimPresentation, PresentedClaim, canonical,
 };
@@ -142,7 +142,7 @@ async fn install_restricted_realm_claim_selector(
 }
 
 async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::get("http://local/_cokret/find/directory/describe")
+    let mut res = TestClient::get("http://local/_arkret/find/directory/describe")
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -184,7 +184,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
 }
 
 async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
@@ -210,7 +210,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     service: &Service,
 ) -> anyhow::Result<()> {
     async fn resolve_owning_orgs(service: &Service, realm_id: &str) -> Vec<String> {
-        let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+        let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
             .json(&json!({ "realm_id": realm_id }))
             .send(service)
             .await;
@@ -289,7 +289,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
 }
 
 async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyhow::Result<()> {
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1 }))
         .send(service)
         .await;
@@ -316,7 +316,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .as_str()
         .unwrap_or_else(|| panic!("expected next_cursor for first search page: {body}"));
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1, "cursor": cursor }))
         .send(service)
         .await;
@@ -324,7 +324,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realms"].as_array().unwrap().len(), 1);
 
-    let res = TestClient::post("http://local/_cokret/find/directory/search-realms")
+    let res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({ "cursor": "not-base64" }))
         .send(service)
         .await;
@@ -392,7 +392,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     )
     .await?;
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-realms")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({
             "query": "Restricted",
             "requester": subject.as_str(),
@@ -412,7 +412,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
             .any(|result| result["realm_id"] == "ak:realm:restricted")
     );
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-organizations")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-organizations")
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
@@ -423,7 +423,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         "did:web:tea-org.example"
     );
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-organization")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-organization")
         .json(&json!({ "organization_did": "did:web:tea-org.example" }))
         .send(service)
         .await;
@@ -431,7 +431,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["organization_did"], "did:web:tea-org.example");
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-actors")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-actors")
         .json(&json!({ "query": "alice", "limit": 10 }))
         .send(service)
         .await;
@@ -439,7 +439,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["actors"][0]["actor_id"], "did:web:alice.example");
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-users")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-users")
         .json(&json!({
             "query": "alice",
             "requester": "did:web:alice.example",
@@ -452,7 +452,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["users"][0]["actor_id"], "did:web:alice.example");
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-handle")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
         .json(&json!({ "handle": "alice.example" }))
         .send(service)
         .await;
@@ -478,7 +478,7 @@ async fn assert_resolve_realm_status(
     if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
         target.extend(source.clone());
     }
-    let res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+    let res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .json(&body)
         .send(service)
         .await;
@@ -491,7 +491,7 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
     let blind = VoprfClient::<Ristretto255>::blind(b"alice.example", &mut rng)?;
     let blinded_input = URL_SAFE_NO_PAD.encode(blind.message.serialize());
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/private-contact-discovery")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/private-contact-discovery")
         .json(&json!({
             "phase": "blind",
             "requester": "did:web:requester.test",
@@ -509,7 +509,7 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
         .finalize(b"alice.example", &evaluation, &proof, public_key)?;
     let token = URL_SAFE_NO_PAD.encode(token);
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/private-contact-discovery")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/private-contact-discovery")
         .json(&json!({
             "phase": "match",
             "requester": "did:web:requester.test",
@@ -534,7 +534,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     let verification_method = format!("{signer_did}#{public_key}");
     let discovery_state = signed_realm_discovery_state(&verification_method, &signing_key)?;
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/announce")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ak:realm:pushed",
@@ -559,7 +559,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
             .is_some_and(|id| id.starts_with("ak:announce:"))
     );
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ak:realm:pushed" }))
         .send(service)
         .await;
@@ -577,7 +577,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
 
 async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::Result<()> {
     let secret = URL_SAFE_NO_PAD.encode([1_u8; 16]);
-    let mut res = TestClient::post("http://local/_cokret/find/directory/push/register")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/push/register")
         .json(&json!({
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
@@ -617,7 +617,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let mock =
         MockPrincipalServer::spawn_with_discovery_state("evt-pull-realm", pulled_state.clone())?;
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/announce")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ak:realm:pull",
@@ -652,7 +652,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         .run_once_for_tests()
         .await?;
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ak:realm:pull" }))
         .send(service)
         .await;
@@ -688,7 +688,7 @@ async fn assert_freshness_flags_are_exposed(
         .execute(&mut conn)
         .await?;
     }
-    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ak:realm:tea" }))
         .send(service)
         .await;
@@ -717,7 +717,7 @@ async fn assert_three_path_takedown_strand(
     destroyed_state["proof"]["jws"] =
         JsonValue::String(sign_detached_jws(&destroyed_state, &signing_key)?);
     let destroy_mock = MockPrincipalServer::spawn("evt-destroy-realm")?;
-    let res = TestClient::post("http://local/_cokret/find/directory/announce")
+    let res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ak:realm:takedown-state",
@@ -732,7 +732,7 @@ async fn assert_three_path_takedown_strand(
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ak:realm:takedown-state" }))
         .send(service)
         .await;
@@ -746,7 +746,7 @@ async fn assert_three_path_takedown_strand(
     let withdraw_mock = MockPrincipalServer::spawn("evt-withdraw-realm")?;
     let withdraw_state =
         signed_realm_discovery_state_named(&verification_method, &signing_key, "Withdrawable Tea")?;
-    let res = TestClient::post("http://local/_cokret/find/directory/announce")
+    let res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
             "resource_id": "ak:realm:takedown-withdraw",
@@ -768,7 +768,7 @@ async fn assert_three_path_takedown_strand(
         &signing_key,
         "conformance resource withdraw",
     )?;
-    let mut res = TestClient::post("http://local/_cokret/find/directory/withdraw")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/withdraw")
         .json(&withdraw_body)
         .send(service)
         .await;
@@ -780,7 +780,7 @@ async fn assert_three_path_takedown_strand(
             .is_some_and(|id| id.starts_with("teabay:withdraw:"))
     );
 
-    let res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
+    let res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .json(&json!({ "realm_id": "ak:realm:takedown-withdraw" }))
         .send(service)
         .await;
@@ -853,7 +853,7 @@ async fn assert_three_path_takedown_strand(
     let body: JsonValue = res.take_json().await?;
     let operator_withdraw_id = body["withdraw_id"].as_str().expect("withdraw_id");
 
-    let res = TestClient::post("http://local/_cokret/find/directory/resolve-organization")
+    let res = TestClient::post("http://local/_arkret/find/directory/resolve-organization")
         .json(&json!({ "organization_did": operator_resource_id }))
         .send(service)
         .await;
@@ -983,7 +983,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["item"]["resource_id"], managed_resource_id);
     assert_eq!(body["item"]["policy_revision"], "admin-r1");
 
-    let mut res = TestClient::post("http://local/_cokret/find/directory/search-organizations")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-organizations")
         .json(&json!({ "query": "Admin Managed", "limit": 10 }))
         .send(service)
         .await;
@@ -1016,7 +1016,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .is_some_and(|id| id.starts_with("teabay:withdraw:"))
     );
 
-    let res = TestClient::post("http://local/_cokret/find/directory/resolve-handle")
+    let res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
         .json(&json!({ "handle": "alice.example" }))
         .send(service)
         .await;
@@ -1207,14 +1207,14 @@ fn handle_mock_principal_connection(
         "service": [{
             "id": format!("{principal_server_did}#principal"),
             "type": "CokretPrincipalServer",
-            "serviceEndpoint": format!("http://127.0.0.1:{}/_cokret", addr.port()),
+            "serviceEndpoint": format!("http://127.0.0.1:{}/_arkret", addr.port()),
         }]
     });
     let (status, body) = if path == "/.well-known/did.json" {
         ("200 OK", did_doc)
-    } else if path == format!("/_cokret/self/events/{event_id}") {
+    } else if path == format!("/_arkret/self/events/{event_id}") {
         ("200 OK", json!({ "event_id": event_id }))
-    } else if path.starts_with("/_cokret/self/events/query?") {
+    } else if path.starts_with("/_arkret/self/events/query?") {
         match discovery_state {
             Some(state) => (
                 "200 OK",

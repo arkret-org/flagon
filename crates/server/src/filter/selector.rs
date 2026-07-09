@@ -24,7 +24,7 @@
 //!
 //! Discriminator values remain strict lowercase per the protocol registry.
 
-use cokret_sdk::CircleId;
+use arkret_sdk::CircleId;
 use serde_json::Value as JsonValue;
 
 /// True iff the given filter JSON identifies the `circle` selector

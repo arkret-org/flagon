@@ -53,7 +53,7 @@ const QUERY_OPS: &[&str] = &[
     "search-users",
     "resolve-handle",
     // Product-private resolver/index probe. It is intentionally outside
-    // `/_cokret` and outside the well-known signed issuer channel.
+    // `/_arkret` and outside the well-known signed issuer channel.
     "handle-probe",
     // R3.2 (arkret-spec @ b56cab1) — reverse handle lookup.
     "list-handles-for-subject",

@@ -3,12 +3,12 @@
 //! Closes the security gap noted in [`crate::ingest::verify`] (step 1 —
 //! "transport — assumed enforced by middleware"). Before TB-1 this comment
 //! was load-bearing but unbacked: nothing in [`crate::routing`] actually
-//! mounted a transport-signature check on `/_cokret/find/directory/announce`,
+//! mounted a transport-signature check on `/_arkret/find/directory/announce`,
 //! `/withdraw`, or `/push/register`, so the 5-step verify chain ran for any
 //! caller — including ones who never proved control of the resource's
 //! governance key. This module fixes that.
 //!
-//! Wire shape (must match [`cokret_sdk::http_signature`] / floria / soland):
+//! Wire shape (must match [`arkret_sdk::http_signature`] / floria / soland):
 //!
 //! ```text
 //! Signature-Input: sig1=("@method" "@target-uri" "@authority" "content-digest");\
@@ -47,15 +47,15 @@ use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-pub use cokret_sdk::http_signature::Ed25519PublicKey;
-use cokret_sdk::http_signature::{
+pub use arkret_sdk::http_signature::Ed25519PublicKey;
+use arkret_sdk::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
     SignedRequestParts, canonical_message, parse_signature_header, parse_signature_input,
     verify_content_digest, verify_signature,
 };
-use cokret_sdk::identity::DidResolver;
-use cokret_sdk::jws::resolve_ed25519_pubkey;
-use cokret_sdk::{CompositeDidResolver, Did};
+use arkret_sdk::identity::DidResolver;
+use arkret_sdk::jws::resolve_ed25519_pubkey;
+use arkret_sdk::{CompositeDidResolver, Did};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -547,7 +547,7 @@ impl Handler for HttpSigMiddleware {
         // through the same alphabet (standard) the inner-list `:...:`
         // wrapper produced. Cheap, and keeps the verify step inside the
         // SDK's typed-error surface.
-        let signature_b64 = cokret_sdk::http_signature::encode_signature_b64(&signature_bytes);
+        let signature_b64 = arkret_sdk::http_signature::encode_signature_b64(&signature_bytes);
         if let Err(err) = verify_signature(&message, &signature_b64, &public_key) {
             reject_invalid_signature(
                 res,
@@ -710,7 +710,7 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-    use cokret_sdk::http_signature::{
+    use arkret_sdk::http_signature::{
         ContentDigest, ContentDigestAlgorithm, Ed25519SigningKey, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };
@@ -744,7 +744,7 @@ mod tests {
     }
 
     fn router_with_middleware(middleware: HttpSigMiddleware) -> Router {
-        Router::with_path("_cokret/find/directory/announce")
+        Router::with_path("_arkret/find/directory/announce")
             .hoop(middleware)
             .post(ok_handler)
     }
@@ -829,7 +829,7 @@ mod tests {
     }
 
     async fn post_signed(target: impl SendTarget + Send, signed: SignedRequest) -> Response {
-        TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("signature-input", signed.signature_input, true)
             .add_header("signature", signed.signature, true)
@@ -847,9 +847,9 @@ mod tests {
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
@@ -890,9 +890,9 @@ mod tests {
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             &key_id,
             &signing_key,
@@ -911,9 +911,9 @@ mod tests {
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
@@ -949,9 +949,9 @@ mod tests {
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
@@ -978,7 +978,7 @@ mod tests {
     async fn unsigned_request_returns_unauthenticated() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let mut res = TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        let mut res = TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("content-type", "application/json", true)
             .bytes(br#"{"resource_id":"ak:realm:tea"}"#.to_vec())
@@ -1003,14 +1003,14 @@ mod tests {
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
         );
-        let mut res = TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        let mut res = TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("signature-input", signed.signature_input, true)
             .add_header("signature", signed.signature, true)
@@ -1033,14 +1033,14 @@ mod tests {
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
         );
-        let mut res = TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        let mut res = TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("signature-input", signed.signature_input, true)
             .add_header("signature", signed.signature, true)
@@ -1063,9 +1063,9 @@ mod tests {
         let now = unix_now_secs();
         let signed = build_signed_request_with_components_and_window(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
@@ -1089,9 +1089,9 @@ mod tests {
         let now = unix_now_secs();
         let signed = build_signed_request_with_components_and_window(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
@@ -1115,9 +1115,9 @@ mod tests {
         let now = unix_now_secs();
         let signed = build_signed_request_with_components_and_window(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             body,
             TEST_KEY_ID,
             &signing_key(),
@@ -1143,15 +1143,15 @@ mod tests {
         let original = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
             "POST",
-            "http://teabay.test/_cokret/find/directory/announce",
+            "http://teabay.test/_arkret/find/directory/announce",
             "teabay.test",
-            "/_cokret/find/directory/announce",
+            "/_arkret/find/directory/announce",
             original,
             TEST_KEY_ID,
             &signing_key(),
         );
         let tampered_body = br#"{"resource_id":"ak:realm:HIJACKED"}"#.to_vec();
-        let mut res = TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        let mut res = TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("signature-input", signed.signature_input, true)
             .add_header("signature", signed.signature, true)
@@ -1171,7 +1171,7 @@ mod tests {
     async fn malformed_signature_input_returns_signature_invalid() {
         let dir = directory_with_test_key();
         let router = router(dir);
-        let mut res = TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        let mut res = TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header(
                 "signature-input",
@@ -1200,10 +1200,10 @@ mod tests {
         // pass every request through (used by tests / dev-mode harness).
         let dir = directory_with_test_key();
         let mw = HttpSigMiddleware::passthrough(dir);
-        let router = Router::with_path("_cokret/find/directory/announce")
+        let router = Router::with_path("_arkret/find/directory/announce")
             .hoop(mw)
             .post(ok_handler);
-        let mut res = TestClient::post("http://teabay.test/_cokret/find/directory/announce")
+        let mut res = TestClient::post("http://teabay.test/_arkret/find/directory/announce")
             .add_header("host", "teabay.test", true)
             .add_header("content-type", "application/json", true)
             .bytes(br#"{}"#.to_vec())

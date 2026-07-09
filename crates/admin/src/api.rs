@@ -91,7 +91,7 @@ fn admin_url(base_url: &str, path: &str) -> String {
 
 fn directory_url(base_url: &str, path: &str) -> String {
     format!(
-        "{}/_cokret/find/directory/{}",
+        "{}/_arkret/find/directory/{}",
         base_url.trim_end_matches('/'),
         path.trim_start_matches('/')
     )

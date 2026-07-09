@@ -12,7 +12,7 @@ mod projection;
 mod tests;
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome;
+use arkret_sdk::DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome;
 use federation::verify_federation_trust_domain_headers;
 pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
 pub(crate) use ingest_body::{DirectoryAnnounceIngest, DirectoryAnnounceWireBody};
@@ -147,7 +147,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     if matches!(body.resource_kind, DirectoryResourceKindDb::Handle) {
         let localpart =
             crate::query::handle::extract_localpart_public(&body.resource_id).to_owned();
-        if cokret_sdk::normalize_handle_localpart(&localpart).is_err() {
+        if arkret_sdk::normalize_handle_localpart(&localpart).is_err() {
             ingest_metric.set_outcome("handle_homograph_forbidden");
             let _ = audit::record(
                 state.db(),

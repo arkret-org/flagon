@@ -3,7 +3,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
+use arkret_sdk::{
     Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
     DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
     OrganizationPreview,

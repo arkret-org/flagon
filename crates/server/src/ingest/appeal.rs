@@ -1,7 +1,7 @@
 //! Operator takedown appeal and recovery loop.
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::{DirectoryTakedownAppealOutcome, DirectoryTakedownAppealRequestBody};
+use arkret_sdk::{DirectoryTakedownAppealOutcome, DirectoryTakedownAppealRequestBody};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
@@ -176,9 +176,9 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
 /// Snake-case wire token for the spec `requested_outcome` enum
 /// (`overturn` | `reduce_scope` | `reinstate`).
 fn requested_outcome_wire(
-    outcome: cokret_sdk::DirectoryTakedownAppealOutcomeRequest,
+    outcome: arkret_sdk::DirectoryTakedownAppealOutcomeRequest,
 ) -> &'static str {
-    use cokret_sdk::DirectoryTakedownAppealOutcomeRequest as Outcome;
+    use arkret_sdk::DirectoryTakedownAppealOutcomeRequest as Outcome;
     match outcome {
         Outcome::Overturn => "overturn",
         Outcome::ReduceScope => "reduce_scope",
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn appeal_packet_without_jws_keeps_signed_fields() {
-        use cokret_sdk::{Did, DirectoryTakedownAppealOutcomeRequest, Hash};
+        use arkret_sdk::{Did, DirectoryTakedownAppealOutcomeRequest, Hash};
 
         let body = DirectoryTakedownAppealRequestBody {
             takedown_id: "teabay:withdraw:01904100-0000-7000-8000-000000000001".to_owned(),

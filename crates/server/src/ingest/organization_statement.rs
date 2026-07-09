@@ -7,7 +7,7 @@
 //! directory-certifier relationship is only valid once it derives from an
 //! `active`, in-validity-window, scope-covering `ck.realm.organization`
 //! statement that has passed the canonical SDK verifier
-//! ([`cokret_sdk::verify_realm_organization_statement`]).
+//! ([`arkret_sdk::verify_realm_organization_statement`]).
 //!
 //! teabay observes these statements through the Realm `ck.realm.discovery`
 //! announce body: a Realm whose discovery policy lists organization
@@ -20,13 +20,13 @@
 //! The delegation resolver is injected so the directory shares the exact
 //! issuer-role / delegation invariants with soland and cotest. teabay does not
 //! host an organization DID delegation store, so it wires the fail-closed
-//! [`cokret_sdk::NoDelegationResolver`]: a `governance_service` /
+//! [`arkret_sdk::NoDelegationResolver`]: a `governance_service` /
 //! `account_authority` statement that requires a delegation_ref cannot be
 //! verified here and is rejected until soland exposes a delegation resolution
 //! query.
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
+use arkret_sdk::{
     NoDelegationResolver, RealmId, RealmOrganizationControlScope, RealmOrganizationPayload,
     RealmOrganizationRelationship, RealmOrganizationStatus, verify_realm_organization_statement,
 };

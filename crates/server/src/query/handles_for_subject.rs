@@ -38,12 +38,12 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-// NOTE: `cokret_sdk::HandleClaim` resolves to the SDK identity-layer claim
+// NOTE: `arkret_sdk::HandleClaim` resolves to the SDK identity-layer claim
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
 // the crate root. The `ck.schema.list_handles_for_subject_response.v1` body
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
-use cokret_sdk::models::HandleClaim;
-use cokret_sdk::{
+use arkret_sdk::models::HandleClaim;
+use arkret_sdk::{
     DirectoryListHandlesForSubjectRequestBody, DirectoryRestrictedClaimPresentation,
     DirectorySubjectHandleList, Handle, validate_handle_claim_subject,
 };
@@ -559,7 +559,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
     if projection_subject(&row.public_projection) != Some(subject) {
         return None;
     }
-    let subject_did = cokret_sdk::Did::new(subject.to_owned()).ok()?;
+    let subject_did = arkret_sdk::Did::new(subject.to_owned()).ok()?;
     // The handle string must come from the projection's canonical
     // `handle` field. The directory index key may use a dot-form
     // resource_id, so it is intentionally not a fallback.
@@ -592,7 +592,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         subject: Some(subject_did),
         issuer,
         claim_kind,
-        binding_state: verified.then_some(cokret_sdk::HandleBindingState::Verified),
+        binding_state: verified.then_some(arkret_sdk::HandleBindingState::Verified),
         ..Default::default()
     })
 }
@@ -600,10 +600,10 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
 /// Parse the wire `claim_kind` string into the SDK enum. The draft-era
 /// `service_handle` value was removed, so unknown / retired values yield
 /// `None` (the claim still surfaces, just without a typed claim kind).
-fn parse_handle_claim_kind(value: &str) -> Option<cokret_sdk::HandleClaimKind> {
+fn parse_handle_claim_kind(value: &str) -> Option<arkret_sdk::HandleClaimKind> {
     match value {
-        "handle_binding" => Some(cokret_sdk::HandleClaimKind::HandleBinding),
-        "organization_handle" => Some(cokret_sdk::HandleClaimKind::OrganizationHandle),
+        "handle_binding" => Some(arkret_sdk::HandleClaimKind::HandleBinding),
+        "organization_handle" => Some(arkret_sdk::HandleClaimKind::OrganizationHandle),
         _ => None,
     }
 }
@@ -616,7 +616,7 @@ fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
         .find(|c| {
             matches!(
                 c.binding_state,
-                Some(cokret_sdk::HandleBindingState::Verified)
+                Some(arkret_sdk::HandleBindingState::Verified)
             ) && c.handle.is_some()
         })
         .or_else(|| claims.iter().find(|c| c.handle.is_some()))
@@ -836,7 +836,7 @@ mod tests {
         );
         assert!(matches!(
             claim.binding_state,
-            Some(cokret_sdk::HandleBindingState::Verified)
+            Some(arkret_sdk::HandleBindingState::Verified)
         ));
     }
 
@@ -856,11 +856,11 @@ mod tests {
         assert!(parse_handle_claim_kind("service_handle").is_none());
         assert_eq!(
             parse_handle_claim_kind("handle_binding"),
-            Some(cokret_sdk::HandleClaimKind::HandleBinding)
+            Some(arkret_sdk::HandleClaimKind::HandleBinding)
         );
         assert_eq!(
             parse_handle_claim_kind("organization_handle"),
-            Some(cokret_sdk::HandleClaimKind::OrganizationHandle)
+            Some(arkret_sdk::HandleClaimKind::OrganizationHandle)
         );
     }
 
@@ -885,10 +885,10 @@ mod tests {
     #[test]
     fn audience_filter_passes_unpinned_and_matching() {
         let body = DirectoryListHandlesForSubjectRequestBody {
-            subject: cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap(),
+            subject: arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap(),
             realm_id: None,
             intent: None,
-            requester: Some(cokret_sdk::Did::new("did:web:tea-org.example".to_owned()).unwrap()),
+            requester: Some(arkret_sdk::Did::new("did:web:tea-org.example".to_owned()).unwrap()),
             proof_challenge: None,
             proofs: Vec::new(),
             as_of: None,
@@ -922,13 +922,13 @@ mod tests {
     fn primary_handle_prefers_verified() {
         let verified = HandleClaim {
             handle: Some(Handle::parse("zed:example.com").unwrap()),
-            subject: Some(cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()),
-            binding_state: Some(cokret_sdk::HandleBindingState::Verified),
+            subject: Some(arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()),
+            binding_state: Some(arkret_sdk::HandleBindingState::Verified),
             ..Default::default()
         };
         let unverified = HandleClaim {
             handle: Some(Handle::parse("aaa:example.com").unwrap()),
-            subject: Some(cokret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()),
+            subject: Some(arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()),
             ..Default::default()
         };
         let claims = vec![unverified, verified];

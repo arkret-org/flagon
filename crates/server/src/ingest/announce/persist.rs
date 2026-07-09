@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::canonical;
+use arkret_sdk::canonical;
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use serde_json::Value as JsonValue;
@@ -26,7 +26,7 @@ pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Result<Vec<u8>, S
     Ok(h.finalize().to_vec())
 }
 
-/// Arkret canonical JSON string via the SDK's `cokret_sdk::canonical`
+/// Arkret canonical JSON string via the SDK's `arkret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte

@@ -2,8 +2,8 @@
 //!
 //! The query-side uses Arkret canonical codes (`not_found`, `rate_limited`,
 //! `unauthenticated`, etc.). The ingest side adds the §8 / §8.10 ingest-
-//! specific codes that are normative on `/_cokret/find/directory/announce` and
-//! `/_cokret/find/directory/withdraw`.
+//! specific codes that are normative on `/_arkret/find/directory/announce` and
+//! `/_arkret/find/directory/withdraw`.
 
 use salvo::http::StatusCode;
 use salvo::prelude::*;
@@ -25,147 +25,147 @@ impl ApiErrorCode {
 
     // -------- canonical Arkret codes used here --------
     #[allow(non_upper_case_globals)]
-    pub const BadJson: Self = Self::new(cokret_sdk::ERROR_CODE_BAD_JSON, StatusCode::BAD_REQUEST);
+    pub const BadJson: Self = Self::new(arkret_sdk::ERROR_CODE_BAD_JSON, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
-    pub const BadQuery: Self = Self::new(cokret_sdk::ERROR_CODE_BAD_QUERY, StatusCode::BAD_REQUEST);
+    pub const BadQuery: Self = Self::new(arkret_sdk::ERROR_CODE_BAD_QUERY, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
     pub const SchemaViolation: Self = Self::new(
-        cokret_sdk::ERROR_CODE_SCHEMA_VIOLATION,
+        arkret_sdk::ERROR_CODE_SCHEMA_VIOLATION,
         StatusCode::UNPROCESSABLE_ENTITY,
     );
     #[allow(non_upper_case_globals)]
     pub const MissingParam: Self = Self::new(
-        cokret_sdk::ERROR_CODE_MISSING_PARAM,
+        arkret_sdk::ERROR_CODE_MISSING_PARAM,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const InvalidParam: Self = Self::new(
-        cokret_sdk::ERROR_CODE_INVALID_PARAM,
+        arkret_sdk::ERROR_CODE_INVALID_PARAM,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const InvalidSignature: Self = Self::new(
-        cokret_sdk::ERROR_CODE_INVALID_SIGNATURE,
+        arkret_sdk::ERROR_CODE_INVALID_SIGNATURE,
         StatusCode::UNAUTHORIZED,
     );
     #[allow(non_upper_case_globals)]
     pub const Unauthenticated: Self = Self::new(
-        cokret_sdk::ERROR_CODE_UNAUTHENTICATED,
+        arkret_sdk::ERROR_CODE_UNAUTHENTICATED,
         StatusCode::UNAUTHORIZED,
     );
     #[allow(non_upper_case_globals)]
-    pub const NotFound: Self = Self::new(cokret_sdk::ERROR_CODE_NOT_FOUND, StatusCode::NOT_FOUND);
+    pub const NotFound: Self = Self::new(arkret_sdk::ERROR_CODE_NOT_FOUND, StatusCode::NOT_FOUND);
     #[allow(non_upper_case_globals)]
     pub const UnrecognizedEndpoint: Self = Self::new(
-        cokret_sdk::ERROR_CODE_UNRECOGNIZED_ENDPOINT,
+        arkret_sdk::ERROR_CODE_UNRECOGNIZED_ENDPOINT,
         StatusCode::NOT_FOUND,
     );
     #[allow(non_upper_case_globals)]
     pub const MethodNotAllowed: Self = Self::new(
-        cokret_sdk::ERROR_CODE_METHOD_NOT_ALLOWED,
+        arkret_sdk::ERROR_CODE_METHOD_NOT_ALLOWED,
         StatusCode::METHOD_NOT_ALLOWED,
     );
     #[allow(non_upper_case_globals)]
-    pub const Conflict: Self = Self::new(cokret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
+    pub const Conflict: Self = Self::new(arkret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
     #[allow(non_upper_case_globals)]
     pub const PayloadTooLarge: Self = Self::new(
-        cokret_sdk::ERROR_CODE_PAYLOAD_TOO_LARGE,
+        arkret_sdk::ERROR_CODE_PAYLOAD_TOO_LARGE,
         StatusCode::PAYLOAD_TOO_LARGE,
     );
     #[allow(non_upper_case_globals)]
     pub const RateLimited: Self = Self::new(
-        cokret_sdk::ERROR_CODE_RATE_LIMITED,
+        arkret_sdk::ERROR_CODE_RATE_LIMITED,
         StatusCode::TOO_MANY_REQUESTS,
     );
     #[allow(non_upper_case_globals)]
     pub const QuotaExceeded: Self =
-        Self::new(cokret_sdk::ERROR_CODE_QUOTA_EXCEEDED, StatusCode::FORBIDDEN);
+        Self::new(arkret_sdk::ERROR_CODE_QUOTA_EXCEEDED, StatusCode::FORBIDDEN);
     #[allow(non_upper_case_globals)]
     pub const Timeout: Self =
-        Self::new(cokret_sdk::ERROR_CODE_TIMEOUT, StatusCode::GATEWAY_TIMEOUT);
+        Self::new(arkret_sdk::ERROR_CODE_TIMEOUT, StatusCode::GATEWAY_TIMEOUT);
     #[allow(non_upper_case_globals)]
     pub const UnsupportedFeature: Self = Self::new(
-        cokret_sdk::ERROR_CODE_UNSUPPORTED_FEATURE,
+        arkret_sdk::ERROR_CODE_UNSUPPORTED_FEATURE,
         StatusCode::NOT_IMPLEMENTED,
     );
     #[allow(non_upper_case_globals)]
     pub const InternalError: Self = Self::new(
-        cokret_sdk::ERROR_CODE_INTERNAL_ERROR,
+        arkret_sdk::ERROR_CODE_INTERNAL_ERROR,
         StatusCode::INTERNAL_SERVER_ERROR,
     );
     #[allow(non_upper_case_globals)]
     pub const TemporarilyUnavailable: Self = Self::new(
-        cokret_sdk::ERROR_CODE_TEMPORARILY_UNAVAILABLE,
+        arkret_sdk::ERROR_CODE_TEMPORARILY_UNAVAILABLE,
         StatusCode::SERVICE_UNAVAILABLE,
     );
     #[allow(non_upper_case_globals)]
     pub const CrossDomainReplayRejected: Self =
-        Self::new(cokret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
+        Self::new(arkret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
     #[allow(non_upper_case_globals)]
     pub const HistorySharingPolicyMissing: Self = Self::new(
-        cokret_sdk::ERROR_CODE_HISTORY_SHARING_POLICY_MISSING,
+        arkret_sdk::ERROR_CODE_HISTORY_SHARING_POLICY_MISSING,
         StatusCode::UNPROCESSABLE_ENTITY,
     );
     #[allow(non_upper_case_globals)]
     pub const HistoryNotVisible: Self = Self::new(
-        cokret_sdk::ERROR_CODE_HISTORY_NOT_VISIBLE,
+        arkret_sdk::ERROR_CODE_HISTORY_NOT_VISIBLE,
         StatusCode::FORBIDDEN,
     );
     #[allow(non_upper_case_globals)]
     pub const PreviewPolicyDenied: Self = Self::new(
-        cokret_sdk::ERROR_CODE_PREVIEW_POLICY_DENIED,
+        arkret_sdk::ERROR_CODE_PREVIEW_POLICY_DENIED,
         StatusCode::FORBIDDEN,
     );
 
     // -------- directory ingest codes --------
     #[allow(non_upper_case_globals)]
     pub const InvalidResponse: Self = Self::new(
-        cokret_sdk::ERROR_CODE_INVALID_RESPONSE,
+        arkret_sdk::ERROR_CODE_INVALID_RESPONSE,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const DirectoryNotAuthorized: Self = Self::new(
-        cokret_sdk::ERROR_CODE_DIRECTORY_NOT_AUTHORIZED,
+        arkret_sdk::ERROR_CODE_DIRECTORY_NOT_AUTHORIZED,
         StatusCode::FORBIDDEN,
     );
     #[allow(non_upper_case_globals)]
     pub const AcceptPolicyDenied: Self = Self::new(
-        cokret_sdk::ERROR_CODE_ACCEPT_POLICY_DENIED,
+        arkret_sdk::ERROR_CODE_ACCEPT_POLICY_DENIED,
         StatusCode::FORBIDDEN,
     );
     #[allow(non_upper_case_globals)]
     pub const SignatureInvalid: Self = Self::new(
-        cokret_sdk::ERROR_CODE_SIGNATURE_INVALID,
+        arkret_sdk::ERROR_CODE_SIGNATURE_INVALID,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const SignatureStale: Self = Self::new(
-        cokret_sdk::ERROR_CODE_SIGNATURE_STALE,
+        arkret_sdk::ERROR_CODE_SIGNATURE_STALE,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const SourceRefsUnverifiable: Self = Self::new(
-        cokret_sdk::ERROR_CODE_SOURCE_REFS_UNVERIFIABLE,
+        arkret_sdk::ERROR_CODE_SOURCE_REFS_UNVERIFIABLE,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const GovernanceKeyInvalid: Self = Self::new(
-        cokret_sdk::ERROR_CODE_GOVERNANCE_KEY_INVALID,
+        arkret_sdk::ERROR_CODE_GOVERNANCE_KEY_INVALID,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const TtlOutOfRange: Self = Self::new(
-        cokret_sdk::ERROR_CODE_TTL_OUT_OF_RANGE,
+        arkret_sdk::ERROR_CODE_TTL_OUT_OF_RANGE,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
     pub const TakedownInForce: Self = Self::new(
-        cokret_sdk::ERROR_CODE_TAKEDOWN_IN_FORCE,
+        arkret_sdk::ERROR_CODE_TAKEDOWN_IN_FORCE,
         StatusCode::CONFLICT,
     );
     #[allow(non_upper_case_globals)]
     pub const PolicyRevisionRollback: Self = Self::new(
-        cokret_sdk::ERROR_CODE_POLICY_REVISION_ROLLBACK,
+        arkret_sdk::ERROR_CODE_POLICY_REVISION_ROLLBACK,
         StatusCode::CONFLICT,
     );
     // §8.7 — an announce against a Realm that has reached the
@@ -174,17 +174,17 @@ impl ApiErrorCode {
     // earlier than the indexed value, §8.10).
     #[allow(non_upper_case_globals)]
     pub const RealmTerminalState: Self =
-        Self::new(cokret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
+        Self::new(arkret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
 
     // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
     // CKP R3 handle homograph wire-level enforce. Emitted by
     // `ck.find.directory.query.resolve_handle` (query face) and announce ingest
     // when the handle localpart fails the NFC + UTS#39 confusable +
     // script-mixed normalization check provided by
-    // `cokret_sdk::normalize_handle_localpart`.
+    // `arkret_sdk::normalize_handle_localpart`.
     #[allow(non_upper_case_globals)]
     pub const HandleHomographForbidden: Self = Self::new(
-        cokret_sdk::ERROR_CODE_INVALID_PARAM,
+        arkret_sdk::ERROR_CODE_INVALID_PARAM,
         StatusCode::BAD_REQUEST,
     );
 
@@ -198,7 +198,7 @@ impl ApiErrorCode {
     // because the subject is the wrong kind of identifier.
     #[allow(non_upper_case_globals)]
     pub const FailedPrecondition: Self = Self::new(
-        cokret_sdk::error::ERROR_CODE_FAILED_PRECONDITION,
+        arkret_sdk::error::ERROR_CODE_FAILED_PRECONDITION,
         StatusCode::CONFLICT,
     );
 
@@ -207,7 +207,7 @@ impl ApiErrorCode {
     }
 
     pub fn http_status(self) -> StatusCode {
-        cokret_sdk::error_code_http_status(self.code)
+        arkret_sdk::error_code_http_status(self.code)
             .and_then(|status| StatusCode::from_u16(status).ok())
             .unwrap_or(self.fallback_status)
     }

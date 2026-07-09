@@ -6,7 +6,7 @@
 //! the standard `ck.self.events.query.scan` shape:
 //!
 //! ```text
-//! GET /_cokret/self/events/query
+//! GET /_arkret/self/events/query
 //!   ?subject={resource_id}
 //!   &kind=ck.{...}.discovery
 //!   &state_only=true

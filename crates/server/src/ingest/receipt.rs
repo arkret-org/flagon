@@ -3,7 +3,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::canonical;
+use arkret_sdk::canonical;
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::{
@@ -182,7 +182,7 @@ pub(crate) fn takedown_appeal_decision_receipt(
 
 pub(crate) fn takedown_appeal_endpoint(config: &AppConfig) -> String {
     format!(
-        "{}/_cokret/find/directory/takedown/appeal",
+        "{}/_arkret/find/directory/takedown/appeal",
         config.public_base_url.trim_end_matches('/')
     )
 }
@@ -240,7 +240,7 @@ fn sign_receipt_statement(
     }))
 }
 
-/// Arkret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
+/// Arkret canonical JSON bytes via the SDK's `arkret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte

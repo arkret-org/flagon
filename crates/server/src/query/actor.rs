@@ -8,7 +8,7 @@
 //! used for audience gating here.
 
 use chrono::{DateTime, Utc};
-use cokret_sdk::{
+use arkret_sdk::{
     ActorPreview, DirectoryActorSearchOutcome, DirectorySearchActorsRequestBody,
     DirectorySearchUsersRequestBody, DirectoryUserSearchOutcome, UserSearchOutcome,
 };
@@ -61,11 +61,11 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
         body.query.as_deref().unwrap_or_default(),
         body.realm_id
             .as_ref()
-            .map(cokret_sdk::RealmId::as_str)
+            .map(arkret_sdk::RealmId::as_str)
             .unwrap_or_default(),
         body.organization_did
             .as_ref()
-            .map(cokret_sdk::Did::as_str)
+            .map(arkret_sdk::Did::as_str)
             .unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );

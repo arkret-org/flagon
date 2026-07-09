@@ -8,7 +8,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use cokret_sdk::Did;
+use arkret_sdk::Did;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use rand::rngs::OsRng;
