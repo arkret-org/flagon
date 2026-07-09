@@ -119,7 +119,7 @@ pub(crate) fn derive_public_projection(
     // Do not weaken or short-circuit any of these without re-reading §3 / §4.5
     // / the HC-TBY-* requirements.
 
-    // HC-TBY-1/2 (R3.2, cokret-spec @ b56cab1) — handle-claim wire-level
+    // HC-TBY-1/2 (R3.2, arkret-spec @ b56cab1) — handle-claim wire-level
     // scope validation. This runs in `derive_public_projection` so it
     // applies uniformly to BOTH the push-mode announce path and the
     // federation pull-worker / well-known resolver path (both funnel through
@@ -278,8 +278,8 @@ pub(crate) fn validate_handle_claim_ingest(
             Err(_) => {
                 // `ck:actor:` / `ck:account:` / generic resource ids are not
                 // valid DIDs at all — same rejection family.
-                if subject.starts_with("ck:actor:")
-                    || subject.starts_with("ck:account:")
+                if subject.starts_with("ak:actor:")
+                    || subject.starts_with("ak:account:")
                     || !subject.starts_with("did:")
                 {
                     return Err((

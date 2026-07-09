@@ -1,19 +1,19 @@
 # Changelog
 
-All notable changes to teabay (Cokret v1 Directory Service) live here.
+All notable changes to teabay (Arkret v1 Directory Service) live here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## R3.4 — Spec sync 2026-05-31 (cokret-spec @ c2848a4)
+## R3.4 — Spec sync 2026-05-31 (arkret-spec @ c2848a4)
 
 - Synced protocol-facing names and fixtures to `c2848a4`: event envelope schema naming, `_ids` grant constraints, accountability principal vocabulary, `ck:rtc_participant:` media participants, agent session start fields, and key-backup signature algorithm naming where applicable.
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 
-## R3.3 — CKP-0011 (cokret-spec @ cced4b8)
+## R3.3 — CKP-0011 (arkret-spec @ cced4b8)
 
-- New operation `ck.find.directory.query.resolve_target` (`POST /_cokret/find/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+cokret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Strand / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`); `via_services` is a delegation/projection field, not a §9.1 common field.
+- New operation `ck.find.directory.query.resolve_target` (`POST /_cokret/find/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+arkret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Strand / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`); `via_services` is a delegation/projection field, not a §9.1 common field.
 - **Realm resolution DELEGATES** to the existing `resolve_realm` path (`crates/server/src/query/realm.rs::resolve_realm_visible`) so the canonical `realm_id`, `realm_preview`, `via_services`, and the hidden/withdrawn/unknown → blinded `not_found` collapse stay byte-for-byte identical.
 - **Token target binding** (scope-confusion defence): an `lt=invite` address carries an opaque `tok`; the token's embedded `target_descriptor` is compared against the address-derived descriptor via the SDK `verify_token_target` (`sha256:` digest over `realm_id` + `strand_id` + `message_id` + `link_type` only — `via`/`action`/`tok`/`lt` are NOT in the digest). A token minted for object A cannot be replayed onto object B; alias realms are normalized to the canonical `ck:realm:<uuid>` before comparison. Any mismatch → the SAME blinded `not_found`.
 - Anti-enumeration: routed through the SAME latency floor + deterministic jitter + 50ms stochastic resolve jitter as `resolve-realm` / `resolve-handle`; unauthorized and nonexistent are byte- and timing-indistinguishable.
@@ -22,7 +22,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 
-## R3.2 — Spec sync 2026-05-28 (cokret-spec @ b56cab1)
+## R3.2 — Spec sync 2026-05-28 (arkret-spec @ b56cab1)
 
 - New operation `ck.find.directory.query.list_handles_for_subject` (`POST /_cokret/find/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.
 - Ingest validators reject `claim_type=service_handle` (`claim_type_unsupported`) and non-principal-DID subjects (`handle_claim_subject_not_principal_did`).
@@ -30,10 +30,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `as_of` historical replay + full per-claim disclosure engine deferred `TODO(R3.2.1)`.
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
-## R3 — Spec sync 2026-05-27 (cokret-spec @ b47ff6ec)
+## R3 — Spec sync 2026-05-27 (arkret-spec @ b47ff6ec)
 
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
-- WK-1: `POST /_cokret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/cokret/handle` to product-private `GET /_teabay/handle/probe?localpart=<localpart>`.
+- WK-1: `POST /_cokret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/arkret/handle` to product-private `GET /_teabay/handle/probe?localpart=<localpart>`.
 - REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
 - SEL-1: directory query filter now accepts the `circle` selector kind (`ck:circle:<uuid>`).
 
@@ -41,7 +41,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-### circle-rollout · CKP-0007 enforcement (P2E, cokret-spec `2b0d70d`)
+### circle-rollout · CKP-0007 enforcement (P2E, arkret-spec `2b0d70d`)
 
 The Circle primitive lands in the spec as an intra-Realm encrypted
 sub-boundary. teabay does not index Circle as a top-level directory
@@ -99,7 +99,7 @@ reduced to the spec preview/stub forms.
   in_use/max_size > 0.8 alert.
 - **Note** Version stays at 0.1.0; no tag, no release this round.
 
-### Round R4 — protocol review closures (2026-05-20, cokret-spec `2a4d39b..a77b995`)
+### Round R4 — protocol review closures (2026-05-20, arkret-spec `2a4d39b..a77b995`)
 
 Closes the round-4 protocol-review commits on the directory-service
 surface. See [`../_todos.md`](../_todos.md) for the workstream context.
@@ -124,7 +124,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   and `ck:realm:` fixture identifiers; `space` remains available only as the
   separate container resource kind.
 
-### Round R2/R3 (2026-05-20) — 17 P0/P1 tasks closed against cokret-spec
+### Round R2/R3 (2026-05-20) — 17 P0/P1 tasks closed against arkret-spec
 
 #### Added
 
@@ -177,7 +177,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   semantics only matter on the federation replay path.
 - New tombstone webhook payload shape: `{ tombstone: { kind, reason,
   revoked_at }, resource_kind, resource_id, principal_server_did }`
-  delivered with `x-cokret-webhook-event: reachability_tombstone`.
+  delivered with `x-arkret-webhook-event: reachability_tombstone`.
 
 #### Internal markers
 

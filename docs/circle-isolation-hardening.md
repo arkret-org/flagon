@@ -8,7 +8,7 @@ circle-directory tightening.
 
 CKP-0007 narrows the cross-circle resolution surface so that a Principal
 Server in one circle cannot probe membership of a resource in another
-circle without the explicit consent edges spelled out in the Cokret v1
+circle without the explicit consent edges spelled out in the Arkret v1
 discoverability spec. The previous behavior allowed inferred resolution via
 `alsoKnownAs` and `via_services` chains; the hardening removes those paths.
 

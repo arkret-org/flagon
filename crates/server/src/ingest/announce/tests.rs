@@ -36,7 +36,7 @@ fn trust_domain_verifier_skips_non_federation_announce() {
     assert!(!inputs.is_federation_hop());
     let digest = [0u8; 32];
     let outcome =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test");
+        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test");
     assert!(matches!(outcome, Ok(None)));
 }
 
@@ -44,11 +44,11 @@ fn trust_domain_verifier_skips_non_federation_announce() {
 /// headers must reject with `cross_domain_replay_rejected`.
 #[test]
 fn trust_domain_verifier_rejects_partial_triad() {
-    let inputs = inputs_with_triad("ck:trust_domain:other.example", "", "");
+    let inputs = inputs_with_triad("ak:trust_domain:other.example", "", "");
     assert!(inputs.is_federation_hop());
     let digest = [0u8; 32];
     let err =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
+        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
             .unwrap_err();
     assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
 }
@@ -61,12 +61,12 @@ fn trust_domain_verifier_rejects_destination_mismatch() {
     let digest = [0u8; 32];
     let canonical_hash = format!("sha256:{}", hex_lower_sha256(&digest));
     let inputs = inputs_with_triad(
-        "ck:trust_domain:other.example",
-        "ck:trust_domain:wrong.example",
+        "ak:trust_domain:other.example",
+        "ak:trust_domain:wrong.example",
         &canonical_hash,
     );
     let err =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
+        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
             .unwrap_err();
     assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
     assert!(err.1.contains("does not match"));
@@ -76,12 +76,12 @@ fn trust_domain_verifier_rejects_destination_mismatch() {
 fn trust_domain_verifier_rejects_canonical_digest_mismatch() {
     let digest = [0u8; 32];
     let inputs = inputs_with_triad(
-        "ck:trust_domain:other.example",
-        "ck:trust_domain:teabay.test",
+        "ak:trust_domain:other.example",
+        "ak:trust_domain:teabay.test",
         "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     );
     let err =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
+        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
             .unwrap_err();
     assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
     assert!(err.1.contains("does not match canonical body digest"));
@@ -95,19 +95,19 @@ fn trust_domain_verifier_emits_transcript_fragment() {
     let digest = [0u8; 32];
     let canonical_hash = format!("sha256:{}", hex_lower_sha256(&digest));
     let inputs = inputs_with_triad(
-        "ck:trust_domain:other.example",
-        "ck:trust_domain:teabay.test",
+        "ak:trust_domain:other.example",
+        "ak:trust_domain:teabay.test",
         &canonical_hash,
     );
     let fragment =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ck:trust_domain:teabay.test")
+        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
             .expect("triad is valid")
             .expect("fragment emitted for federation hop");
     assert!(fragment.contains("\"source-trust-domain\""));
     assert!(fragment.contains("\"destination-trust-domain\""));
     assert!(fragment.contains("\"request-canonical-digest\""));
-    assert!(fragment.contains("ck:trust_domain:other.example"));
-    assert!(fragment.contains("ck:trust_domain:teabay.test"));
+    assert!(fragment.contains("ak:trust_domain:other.example"));
+    assert!(fragment.contains("ak:trust_domain:teabay.test"));
 }
 
 /// Round 4 — the cache key MUST bind the trust-domain triad: two
@@ -118,13 +118,13 @@ fn trust_domain_verifier_emits_transcript_fragment() {
 fn cache_key_separates_by_trust_domain() {
     let digest = [0u8; 32];
     let a = inputs_with_triad(
-        "ck:trust_domain:a.example",
-        "ck:trust_domain:teabay.test",
+        "ak:trust_domain:a.example",
+        "ak:trust_domain:teabay.test",
         "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     );
     let b = inputs_with_triad(
-        "ck:trust_domain:b.example",
-        "ck:trust_domain:teabay.test",
+        "ak:trust_domain:b.example",
+        "ak:trust_domain:teabay.test",
         "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     );
     assert_ne!(a.key(&digest), b.key(&digest));
@@ -156,9 +156,9 @@ fn handle_claim_ingest_rejects_service_handle_claim_type() {
 #[test]
 fn handle_claim_ingest_rejects_non_principal_subject() {
     for bad in [
-        "ck:actor:tea/alice",
-        "ck:account:server-local-42",
-        "ck:resource:thing",
+        "ak:actor:tea/alice",
+        "ak:account:server-local-42",
+        "ak:resource:thing",
         "not-a-did",
     ] {
         let state = json!({ "subject": bad, "handle": "alice:example.com" });
@@ -239,8 +239,8 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
         "kind": "ck.realm.discovery",
         "title": "Tea Time",
         "circles": [{
-            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
-            "realm_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+            "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
             "title": "Security Council",
             "summary": "private circle summary",
             "display": {
@@ -304,7 +304,7 @@ fn announce_digest_uses_canonical_json_body() {
 
     let first = DirectoryAnnounceIngest {
         resource_kind: DirectoryResourceKindDb::Realm,
-        resource_id: "ck:realm:tea".to_owned(),
+        resource_id: "ak:realm:tea".to_owned(),
         principal_server_did: "did:web:principal.test".to_owned(),
         discovery_state: DirectoryDiscoveryState::from_json(JsonValue::Object(first_state)),
         source_refs: vec!["evt-1".to_owned()],
@@ -329,7 +329,7 @@ fn digest_request_rejects_non_canonical_float_values() {
     let as_of: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
     let request = DirectoryAnnounceIngest {
         resource_kind: DirectoryResourceKindDb::Realm,
-        resource_id: "ck:realm:tea".to_owned(),
+        resource_id: "ak:realm:tea".to_owned(),
         principal_server_did: "did:web:principal.test".to_owned(),
         discovery_state: DirectoryDiscoveryState::from_json(json!({
             "kind": "ck.realm.discovery",

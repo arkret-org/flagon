@@ -86,7 +86,7 @@ impl<'a> VerifyContext<'a> {
         // the announce envelope MUST conform to `^did:[a-z0-9]+:[^\s]+$`
         // (lowercase ASCII method, non-empty whitespace-free method-specific
         // id). We push this check through the SDK `Did::new` parser so the
-        // teabay directory and the rest of the Cokret stack share one
+        // teabay directory and the rest of the Arkret stack share one
         // normative parser. Non-conforming inputs short-circuit with a
         // structured rejection BEFORE any signature / accept-policy work,
         // which keeps audit logs clean and rules out removed actor_id /
@@ -426,12 +426,12 @@ fn canonical_payload_without_jws(
     canonical_json_bytes(&unsigned).map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
-/// Cokret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
+/// Arkret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// This replaces a previously hand-written serializer that sorted object
 /// keys by byte order (`sort_unstable()`) — divergent from the SDK and
-/// every other Cokret service. Errors are flattened to `String` so the
+/// every other Arkret service. Errors are flattened to `String` so the
 /// existing `(ApiErrorCode::SignatureInvalid, _)` call sites are unchanged.
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
     canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
@@ -939,7 +939,7 @@ mod tests {
         assert!(
             enforce_governance_method_binding(
                 DirectoryResourceKindDb::Realm,
-                "ck:realm:tea",
+                "ak:realm:tea",
                 None,
                 "did:web:principal.example#key-1",
             )
@@ -949,7 +949,7 @@ mod tests {
         assert!(
             enforce_governance_method_binding(
                 DirectoryResourceKindDb::Realm,
-                "ck:realm:tea",
+                "ak:realm:tea",
                 Some("did:web:principal.example"),
                 "did:web:attacker.example#key-1",
             )
@@ -959,7 +959,7 @@ mod tests {
         assert!(
             enforce_governance_method_binding(
                 DirectoryResourceKindDb::Realm,
-                "ck:realm:tea",
+                "ak:realm:tea",
                 Some("did:web:principal.example"),
                 "did:web:principal.example#key-1",
             )

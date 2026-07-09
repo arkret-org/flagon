@@ -1,6 +1,6 @@
 //! Circle directory preview and locked-stub projection.
 //!
-//! Cokret v1 keeps Circle membership/history scoped to the parent Realm. The
+//! Arkret v1 keeps Circle membership/history scoped to the parent Realm. The
 //! directory may only surface a tightly bounded directory projection:
 //! non-authorized callers receive a fixed locked stub, while active parent
 //! Realm members may receive the `directory_visibility=realm_members`
@@ -266,8 +266,8 @@ mod tests {
 
     fn circle_entry() -> JsonValue {
         json!({
-            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
-            "realm_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+            "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
             "title": "Security Council",
             "summary": "Must not leak to parent Realm non-members",
             "display": {
@@ -311,11 +311,11 @@ mod tests {
         assert_eq!(object.get("visibility").unwrap(), REALM_MEMBERS_VISIBILITY);
         assert_eq!(
             object.get("circle_id").unwrap(),
-            "ck:circle:01904100-0000-7000-8000-000000000001"
+            "ak:circle:01904100-0000-7000-8000-000000000001"
         );
         assert_eq!(
             object.get("realm_id").unwrap(),
-            "ck:realm:01904100-0000-7000-8000-000000000101"
+            "ak:realm:01904100-0000-7000-8000-000000000101"
         );
         assert_eq!(object.get("member_count_bucket").unwrap(), "1-10");
         assert_eq!(object.get("join_rule").unwrap(), "invite");

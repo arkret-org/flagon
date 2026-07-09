@@ -3,13 +3,13 @@ set -euo pipefail
 
 image_ref="${TEABAY_IMAGE_REF:-teabay:local}"
 out_dir="${TEABAY_ARTIFACT_DIR:-artifacts}"
-sdk_context="${COKRET_SDK_CONTEXT:-../cokret-rust-sdk}"
+sdk_context="${ARKRET_SDK_CONTEXT:-../arkret-rust-sdk}"
 
 mkdir -p "${out_dir}"
 
 if [[ "${TEABAY_BUILD_IMAGE:-0}" == "1" ]]; then
   docker build \
-    --build-context "cokret-rust-sdk=${sdk_context}" \
+    --build-context "arkret-rust-sdk=${sdk_context}" \
     -t "${image_ref}" \
     .
 fi

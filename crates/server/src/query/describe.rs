@@ -364,7 +364,7 @@ mod tests {
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
             service_did: "did:web:directory.test".to_owned(),
-            trust_domain: "ck:trust_domain:local.test".to_owned(),
+            trust_domain: "ak:trust_domain:local.test".to_owned(),
             database_url: "postgres://localhost/teabay".to_owned(),
             cors_allow_origin: None,
             admin_csrf_token: None,
@@ -437,7 +437,7 @@ mod tests {
         }
 
         assert_eq!(value["development_mode"], true);
-        assert_eq!(value["trust_domain"], "ck:trust_domain:local.test");
+        assert_eq!(value["trust_domain"], "ak:trust_domain:local.test");
         assert_eq!(value["service_did"], "did:web:directory.test");
         assert_eq!(value["service_type"], "directory_service");
         // verified_profiles MUST be empty when development_mode = true.
@@ -485,7 +485,7 @@ mod tests {
     fn describe_rejects_dev_mode_with_verified_profiles() {
         let describe_body = ServerDescription {
             service_did: Did::new("did:web:directory.test").unwrap(),
-            trust_domain: TypedTrustDomainId::new("ck:trust_domain:local.test").unwrap(),
+            trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_type: "directory_service".to_owned(),
             protocol_version: cokret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ck.profile.directory_service.v1".to_owned()],

@@ -8,10 +8,10 @@ version = "0.3.0"
 edition = "2024"
 rust-version = "1.96"
 license = "Apache-2.0"
-repository = "https://github.com/cokret/teabay"
-homepage = "https://github.com/cokret/teabay"
+repository = "https://github.com/arkret/teabay"
+homepage = "https://github.com/arkret/teabay"
 readme = "README.md"
-authors = ["Cokret contributors"]
+authors = ["Arkret contributors"]
 
 [workspace.dependencies]
 anyhow = "1.0.102"
@@ -19,7 +19,7 @@ async-trait = "0.1.89"
 base64 = "0.22.1"
 bs58 = "0.5.1"
 chrono = {version = "0.4.45",features = ["serde"]}
-cokret-sdk = {package = "cokret",version = "0.3.0",path = "../cokret-rust-sdk/crates/sdk",default-features = false,features = ["full-surface", "client", "salvo"]}
+arkret-sdk = {package = "arkret",version = "0.3.0",path = "../arkret-rust-sdk/crates/sdk",default-features = false,features = ["full-surface", "client", "salvo"]}
 deadpool = {version = "0.13",features = ["rt_tokio_1"]}
 diesel = {version = "2.3.10",features = ["postgres", "r2d2", "serde_json", "chrono", "uuid", "pq-src"]}
 diesel-async = {version = "0.9",features = ["postgres", "deadpool", "async-connection-wrapper"]}

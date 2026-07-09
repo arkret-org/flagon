@@ -1,9 +1,9 @@
-//! Object-address resolve — R3.3 (CKP-0011, cokret-spec @ cced4b8),
+//! Object-address resolve — R3.3 (CKP-0011, arkret-spec @ cced4b8),
 //! `ck.find.directory.query.resolve_target`.
 //!
 //! This is the object-level generalization of
 //! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
-//! address (`web+cokret:` URI form OR HTTPS-landing fragment form) points at a
+//! address (`web+arkret:` URI form OR HTTPS-landing fragment form) points at a
 //! Realm, a Strand inside a Realm, or a Message inside a Strand; this endpoint
 //! parses the address, resolves the target, and returns a `target_kind` +
 //! (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields.
@@ -218,7 +218,7 @@ async fn resolve(
     //    point: the realm branch and the alias→canonical normalization both go through
     //    resolve_realm's logic.
     let realm_key = match &parsed.realm {
-        RealmRef::RealmId(uuid) => format!("ck:realm:{uuid}"),
+        RealmRef::RealmId(uuid) => format!("ak:realm:{uuid}"),
         RealmRef::Alias(alias) => alias.clone(),
     };
     // 3. Token target binding (security-critical). Applies whenever a token is present OR the
@@ -576,7 +576,7 @@ pub fn verify_preview_token_details_with_methods(
 fn decode_token_json(token: &str) -> Option<JsonValue> {
     let encoded = token
         .trim()
-        .strip_prefix("ck:preview-token:")
+        .strip_prefix("ak:preview-token:")
         .unwrap_or_else(|| token.trim());
     if encoded.starts_with('{') {
         return serde_json::from_str(encoded).ok();
@@ -768,7 +768,7 @@ pub fn verify_address_token_details_with_methods(
 /// rather than the original alias.
 fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> ParsedAddress {
     let bare_uuid = canonical_realm_id
-        .strip_prefix("ck:realm:")
+        .strip_prefix("ak:realm:")
         .unwrap_or(canonical_realm_id)
         .to_owned();
     ParsedAddress {
@@ -784,7 +784,7 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
 /// Normalize a realm id to its bare-uuid form for equality comparison so a
 /// `ck:realm:<uuid>` and the same bare `<uuid>` compare equal.
 fn normalize_realm(realm_id: &str) -> &str {
-    realm_id.strip_prefix("ck:realm:").unwrap_or(realm_id)
+    realm_id.strip_prefix("ak:realm:").unwrap_or(realm_id)
 }
 
 /// Verify the signed invite token and return its embedded [`TargetDescriptor`].
@@ -1036,14 +1036,14 @@ fn preview_object_for_address(
             let strand_id = parsed
                 .strand
                 .as_deref()
-                .map(|strand| format!("ck:strand:{strand}"))?;
+                .map(|strand| format!("ak:strand:{strand}"))?;
             let mut preview = serde_json::Map::new();
             preview.insert("kind".to_owned(), json!(target_kind));
             preview.insert("strand_id".to_owned(), JsonValue::String(strand_id));
             if let Some(message_id) = parsed
                 .message
                 .as_deref()
-                .map(|message| format!("ck:message:{message}"))
+                .map(|message| format!("ak:message:{message}"))
             {
                 preview.insert("message_id".to_owned(), JsonValue::String(message_id));
             }
@@ -1072,13 +1072,13 @@ async fn build_object_response(
     verified_claims: &VerifiedRestrictedClaims,
     invite_authorized: bool,
 ) -> anyhow::Result<Option<DirectoryTargetResolutionOutcome>> {
-    let Some(strand_id) = parsed.strand.as_deref().map(|f| format!("ck:strand:{f}")) else {
+    let Some(strand_id) = parsed.strand.as_deref().map(|f| format!("ak:strand:{f}")) else {
         return Ok(None);
     };
     let message_id = parsed
         .message
         .as_deref()
-        .map(|m| format!("ck:message:{m}"))
+        .map(|m| format!("ak:message:{m}"))
         .unwrap_or_default();
     let object_kind = match target_kind {
         TargetKind::Strand => "strand",
@@ -1281,10 +1281,10 @@ mod tests {
     #[test]
     fn token_binds_to_matching_object() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         let token = mint_token(&addr, &canonical);
         assert_eq!(
             verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
@@ -1296,15 +1296,15 @@ mod tests {
     fn token_replayed_onto_other_object_is_rejected() {
         // Token minted for strand A.
         let addr_a = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         let token = mint_token(&addr_a, &canonical);
 
         // Replayed onto strand B (same realm, different strand).
         let addr_b = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F2}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F2}?via={VIA}&lt=invite"
         ))
         .unwrap();
         assert_eq!(
@@ -1316,10 +1316,10 @@ mod tests {
     #[test]
     fn invite_link_without_token_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         assert_eq!(
             verify_address_token(&addr, None, &canonical, LinkType::Invite),
             TokenCheck::Reject
@@ -1329,10 +1329,10 @@ mod tests {
     #[test]
     fn expired_token_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
         descriptor.link_type = LinkType::Invite;
@@ -1364,10 +1364,10 @@ mod tests {
     #[test]
     fn unsigned_token_with_matching_descriptor_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
         descriptor.link_type = LinkType::Invite;
@@ -1386,13 +1386,13 @@ mod tests {
     #[test]
     fn tampered_signed_token_payload_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         let token = mint_token(&addr, &canonical);
         let mut value: JsonValue = serde_json::from_str(&token).unwrap();
-        value["target_descriptor"]["strand_id"] = json!(format!("ck:strand:{F2}"));
+        value["target_descriptor"]["strand_id"] = json!(format!("ak:strand:{F2}"));
         let tampered = value.to_string();
         assert_eq!(
             verify_address_token(&addr, Some(&tampered), &canonical, LinkType::Invite),
@@ -1406,10 +1406,10 @@ mod tests {
         // canonical id injected. Verification must succeed because the server
         // resolved the alias to the same canonical id.
         let alias_addr = parse_address(&format!(
-            "web+cokret:realm/team.example.com/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/team.example.com/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         let token = mint_token(&alias_addr, &canonical);
         assert_eq!(
             verify_address_token(&alias_addr, Some(&token), &canonical, LinkType::Invite),
@@ -1420,13 +1420,13 @@ mod tests {
     #[test]
     fn token_for_different_realm_is_rejected() {
         let addr = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
         .unwrap();
         let other_realm = "01904100-0000-7000-8000-0000000000ff";
-        let token = mint_token(&addr, &format!("ck:realm:{other_realm}"));
+        let token = mint_token(&addr, &format!("ak:realm:{other_realm}"));
         // Address resolved to realm R, token bound to a different realm.
-        let canonical = format!("ck:realm:{R}");
+        let canonical = format!("ak:realm:{R}");
         assert_eq!(
             verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
             TokenCheck::Reject
@@ -1436,11 +1436,11 @@ mod tests {
     #[test]
     fn realm_response_carries_realm_preview() {
         let resolved = crate::query::realm::ResolvedRealm {
-            realm_id: format!("ck:realm:{R}"),
+            realm_id: format!("ak:realm:{R}"),
             envelope: crate::filter::result::ResultEnvelope::from_row(
-                json!({ "realm_id": format!("ck:realm:{R}"), "title": "Tea Time" }),
+                json!({ "realm_id": format!("ak:realm:{R}"), "title": "Tea Time" }),
                 sample_time(),
-                vec!["ck:event:1".to_owned()],
+                vec!["ak:event:1".to_owned()],
                 "rev-7".to_owned(),
                 false,
                 false,
@@ -1451,7 +1451,7 @@ mod tests {
         let response = build_realm_response(resolved).expect("realm response builds");
         assert_eq!(response.target_kind, TargetKind::Realm);
         let preview = response.realm_preview.expect("realm preview present");
-        assert_eq!(preview.realm_id.as_str(), format!("ck:realm:{R}"));
+        assert_eq!(preview.realm_id.as_str(), format!("ak:realm:{R}"));
         assert_eq!(preview.title.as_deref(), Some("Tea Time"));
         assert_eq!(
             response.join_candidates,
@@ -1466,7 +1466,7 @@ mod tests {
             public_projection: json!({ "title": "Strand" }),
             required_claims: json!([]),
             as_of: sample_time(),
-            source_refs: vec!["ck:event:1".to_owned()],
+            source_refs: vec!["ak:event:1".to_owned()],
             policy_revision: None,
             stale: false,
             divergent: false,
@@ -1514,7 +1514,7 @@ mod tests {
                 "organization": org.as_str(),
             }]),
             as_of: sample_time(),
-            source_refs: vec!["ck:event:1".to_owned()],
+            source_refs: vec!["ak:event:1".to_owned()],
             policy_revision: Some("rev-7".to_owned()),
             stale: false,
             divergent: false,
@@ -1540,7 +1540,7 @@ mod tests {
             public_projection: json!({ "title": "Strand" }),
             required_claims: json!([]),
             as_of: sample_time(),
-            source_refs: vec!["ck:event:1".to_owned()],
+            source_refs: vec!["ak:event:1".to_owned()],
             policy_revision: None,
             stale: false,
             divergent: false,
@@ -1559,7 +1559,7 @@ mod tests {
     #[test]
     fn retired_via_hint_is_ignored_by_parser() {
         let parsed = parse_address(&format!(
-            "web+cokret:realm/{R}/strand/{F}?via={VIA}&via=did:web:extra.example"
+            "web+arkret:realm/{R}/strand/{F}?via={VIA}&via=did:web:extra.example"
         ))
         .unwrap();
         assert!(parsed.is_strand());
@@ -1576,7 +1576,7 @@ mod tests {
             link_type: LinkType::Reference,
             token: None,
         };
-        assert!(build_address(&parsed).starts_with("web+cokret:realm/"));
+        assert!(build_address(&parsed).starts_with("web+arkret:realm/"));
     }
 
     fn sample_time() -> DateTime<Utc> {

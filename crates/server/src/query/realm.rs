@@ -764,7 +764,7 @@ fn candidate_seal_basis(row: &RealmRow, service_did: &str) -> Option<SealBasis> 
     let control = candidate_digest(row, service_did, "control_event_set_root");
     let state = candidate_digest(row, service_did, "state_root");
     Some(SealBasis {
-        leaves: vec![SealId::new(format!("ck:seal:sha256:{leaf}")).ok()?],
+        leaves: vec![SealId::new(format!("ak:seal:sha256:{leaf}")).ok()?],
         control_event_set_root: Hash::new(format!("sha256:{control}")).ok()?,
         state_root: Hash::new(format!("sha256:{state}")).ok()?,
     })
@@ -1025,11 +1025,11 @@ mod tests {
     #[test]
     fn unlisted_realm_is_not_search_visible() {
         let row = RealmRow {
-            resource_id: "ck:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+            resource_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
             public_projection: json!({ "title": "Tea" }),
             discoverability: DiscoverabilityDb::Unlisted,
             as_of: chrono::Utc::now(),
-            source_refs: vec!["ck:event:1".to_owned()],
+            source_refs: vec!["ak:event:1".to_owned()],
             policy_revision: "rev-1".to_owned(),
             stale: false,
             divergent: false,

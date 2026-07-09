@@ -1,8 +1,8 @@
 {
   "profile": "ck.profile.directory_service.v1",
   "issued": "2026-05-10",
-  "source": "cokret-spec sync cab459d (conformance-profiles.json#/profile_requirements/ck.profile.directory_service.v1)",
-  "description": "Cokret v1 Directory Service profile baseline. Directory Services index resource-signed discovery state, expose blinded search/resolve endpoints, and support at least one §8 ingest mode without becoming a source of truth.",
+  "source": "arkret-spec sync cab459d (conformance-profiles.json#/profile_requirements/ck.profile.directory_service.v1)",
+  "description": "Arkret v1 Directory Service profile baseline. Directory Services index resource-signed discovery state, expose blinded search/resolve endpoints, and support at least one §8 ingest mode without becoming a source of truth.",
   "required_endpoints": [
     "ck.find.directory.query.describe",
     "ck.find.directory.query.search_realms",

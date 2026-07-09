@@ -146,7 +146,7 @@ pub struct OperatorTakedownOutcome {
 }
 
 // `ck.find.directory.command.takedown_appeal` wire types live in
-// `cokret-rust-sdk` (`DirectoryTakedownAppealRequestBody` /
+// `arkret-rust-sdk` (`DirectoryTakedownAppealRequestBody` /
 // `DirectoryTakedownAppealOutcome`). The directory consumes those spec types
 // directly — see `crates/server/src/ingest/appeal.rs`. The local
 // admin-side decision command types below (teabay product surface, not a spec

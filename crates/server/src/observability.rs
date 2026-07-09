@@ -55,9 +55,9 @@ const QUERY_OPS: &[&str] = &[
     // Product-private resolver/index probe. It is intentionally outside
     // `/_cokret` and outside the well-known signed issuer channel.
     "handle-probe",
-    // R3.2 (cokret-spec @ b56cab1) — reverse handle lookup.
+    // R3.2 (arkret-spec @ b56cab1) — reverse handle lookup.
     "list-handles-for-subject",
-    // R3.3 (CKP-0011, cokret-spec @ cced4b8) — object-level resolve.
+    // R3.3 (CKP-0011, arkret-spec @ cced4b8) — object-level resolve.
     "resolve-target",
 ];
 const PULL_OUTCOMES: &[&str] = &["success", "failure"];

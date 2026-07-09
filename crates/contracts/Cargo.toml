@@ -7,6 +7,6 @@ publish = false
 
 [dependencies]
 chrono = {workspace = true}
-cokret-sdk = {workspace = true}
+arkret-sdk = {workspace = true}
 serde = {workspace = true}
 serde_json = {workspace = true}

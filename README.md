@@ -1,10 +1,10 @@
 # teabay
 
-> **Spec target**: [cokret-spec @ c2848a4](../cokret-spec) (R3.4 sync 2026-05-31)
+> **Spec target**: [arkret-spec @ c2848a4](../arkret-spec) (R3.4 sync 2026-05-31)
 
-Reference Cokret v1 **Directory Service** implementation.
+Reference Arkret v1 **Directory Service** implementation.
 
-teabay is the *discovery entry layer* of the Cokret protocol stack: it accepts
+teabay is the *discovery entry layer* of the Arkret protocol stack: it accepts
 signed `ck.{realm,organization,actor,applet,handle}.discovery` state from
 resource Principal Servers, indexes the public-metadata projection, and
 serves authorized search / resolve queries — all while enforcing the
@@ -12,7 +12,7 @@ spec's anti-enumeration filter.
 
 It is **not** a source of truth, an authorization decision point, a join
 executor, an identity resolver, a content mirror, a service-topology
-authority, nor a global crawler. See `cokret-spec/spec/v1/zh/discovery/discovery-directory.md`
+authority, nor a global crawler. See `arkret-spec/spec/v1/zh/discovery/discovery-directory.md`
 §7.2 for the precise role boundary.
 
 ## Realm vs Space
@@ -31,7 +31,7 @@ not independently announced to teabay.
 
 ## Round R4 (protocol review closures)
 
-Spec round 4 (`cokret-spec` range `2a4d39b..a77b995`, 8 commits) adds
+Spec round 4 (`arkret-spec` range `2a4d39b..a77b995`, 8 commits) adds
 three directory-service items. See [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and [`../_todos.md`](../_todos.md) for the canonical
 wire-breaking list.
@@ -54,7 +54,7 @@ key on `ck.find.directory.command.announce`. The cache key now includes
 `Source-Service-DID` / `verification_method` / `service_binding_ref` /
 `origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and
-[`../cokret-spec/CHANGELOG.md`](../cokret-spec/CHANGELOG.md) (T14)
+[`../arkret-spec/CHANGELOG.md`](../arkret-spec/CHANGELOG.md) (T14)
 for the normative source.
 
 **Operator action on upgrade:** any stale idempotency cache built
@@ -68,7 +68,7 @@ columns to `ingest_announces` and the `realm_destroyed_at` /
 ## Conformance scope
 
 This implementation targets the `ck.profile.directory_service.v1` profile
-defined by the Cokret v1 spec — concretely:
+defined by the Arkret v1 spec — concretely:
 
 - **§7** Directory Service Role (3-responsibility positioning, 6 invariants)
 - **§8** Discovery Ingest Protocol (push announce + pull subscribe, 5-step
@@ -100,7 +100,7 @@ listed contact rows and returns `limited=true` when capped.
 | HTTP        | [Salvo](https://salvo.rs) 0.93                             |
 | ORM         | [Diesel](https://diesel.rs) 2.3 + r2d2 pool                |
 | Database    | PostgreSQL 14+                                             |
-| Crypto      | `ed25519-dalek`, plus the verify chain from `cokret-sdk`  |
+| Crypto      | `ed25519-dalek`, plus the verify chain from `arkret-sdk`  |
 | Migrations  | `diesel_migrations` (auto-applied at boot)                 |
 | Admin UI    | Dioxus 0.7 web console in `crates/admin/`                  |
 
@@ -127,12 +127,12 @@ cargo run -p server --release
 The server then exposes `/_cokret/find/directory/*` per the spec. Liveness is
 `GET /health`, readiness is `GET /readyz`, and Prometheus metrics are served on
 the separate `TEABAY_METRICS_BIND` listener, default `127.0.0.1:9095`, at
-`GET /metrics`. OpenAPI doc at `GET /.well-known/cokret/openapi.{json,yaml}`.
+`GET /metrics`. OpenAPI doc at `GET /.well-known/arkret/openapi.{json,yaml}`.
 
 Container builds use the local SDK path dependency as a named context:
 
 ```bash
-docker build --build-context cokret-rust-sdk=../cokret-rust-sdk -t teabay .
+docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -t teabay .
 ```
 
 Local release-hygiene commands are artifact-only. They build and scan local
@@ -332,5 +332,5 @@ Apache-2.0.
 
 <!-- circle-rollout milestone pointer -->
 > **Active milestone tracking** (local-only, gitignored): see
-> `_teabay_todos.md` in the parent `cokret/` directory for the
+> `_teabay_todos.md` in the parent `arkret/` directory for the
 > circle-rollout (CKP-0007) work item list and per-stage checkpoints.

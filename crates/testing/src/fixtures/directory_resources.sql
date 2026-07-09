@@ -160,7 +160,7 @@ INSERT INTO directory_resources (
     'did:web:alice.example',
     'did:web:principal.test',
     '{"kind":"ck.actor.discovery","discoverability":"public"}'::jsonb,
-    '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["ck:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
+    '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["ak:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-actor-alice'],

@@ -6,7 +6,7 @@
 //!
 //! ## CKP-0007 `ck:circle:` tolerance (P2E.7)
 //!
-//! `ck:circle:` is a recognised typed-id prefix in the wider Cokret
+//! `ck:circle:` is a recognised typed-id prefix in the wider Arkret
 //! identifier space, but teabay MUST NOT generate or store Circle as a
 //! top-level directory resource. teabay deliberately **does not** add a
 //! `Circle` variant to [`IdClass`]: Circle directory preview/stub handling is
@@ -29,7 +29,7 @@ pub enum IdClass {
 impl IdClass {
     fn prefix(self) -> &'static str {
         match self {
-            Self::Announce => "ck:announce:",
+            Self::Announce => "ak:announce:",
             Self::Withdraw => "teabay:withdraw:",
             Self::Appeal => "teabay:appeal:",
             Self::Subscription => "teabay:subscription:",
@@ -86,6 +86,6 @@ mod tests {
 
     #[test]
     fn parse_rejects_non_uuidv7_suffix() {
-        assert_eq!(parse("ck:announce:not-a-uuid"), None);
+        assert_eq!(parse("ak:announce:not-a-uuid"), None);
     }
 }

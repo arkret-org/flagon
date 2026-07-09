@@ -19,7 +19,7 @@
 //! Wire shape per `resource-selector.schema.json` (R3 delta):
 //!
 //! ```json
-//! { "kind": "circle", "circle_id": "ck:circle:<uuid>" }
+//! { "kind": "circle", "circle_id": "ak:circle:<uuid>" }
 //! ```
 //!
 //! Discriminator values remain strict lowercase per the protocol registry.
@@ -73,14 +73,14 @@ mod tests {
     fn recognises_flat_kind_circle() {
         assert!(is_circle_selector(&json!({"kind": "circle"})));
         assert!(is_circle_selector(
-            &json!({"kind": "circle", "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"})
+            &json!({"kind": "circle", "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001"})
         ));
     }
 
     #[test]
     fn recognises_nested_resource_selector() {
         assert!(is_circle_selector(&json!({
-            "resource_selector": {"kind": "circle", "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"}
+            "resource_selector": {"kind": "circle", "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001"}
         })));
     }
 
@@ -99,10 +99,10 @@ mod tests {
     #[test]
     fn typed_id_prefix_detected() {
         assert!(looks_like_circle_id(
-            "ck:circle:01904100-0000-7000-8000-000000000001"
+            "ak:circle:01904100-0000-7000-8000-000000000001"
         ));
         assert!(!looks_like_circle_id(
-            "ck:realm:01904100-0000-7000-8000-000000000001"
+            "ak:realm:01904100-0000-7000-8000-000000000001"
         ));
     }
 }

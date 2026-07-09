@@ -1,4 +1,4 @@
-//! Reverse handle lookup — R3.2 (cokret-spec @ b56cab1),
+//! Reverse handle lookup — R3.2 (arkret-spec @ b56cab1),
 //! `ck.find.directory.query.list_handles_for_subject`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a

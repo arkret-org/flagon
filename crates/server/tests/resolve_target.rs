@@ -1,5 +1,5 @@
 //! Conformance suite for `ck.find.directory.query.resolve_target` (R3.3 / CKP-0011,
-//! cokret-spec @ cced4b8).
+//! arkret-spec @ cced4b8).
 //!
 //! These exercise the directory's object-address resolution semantics against
 //! the pure, Postgres-free cores: the SDK address parser
@@ -171,14 +171,14 @@ fn verify_preview_token(
 /// + join_candidates come from resolve_realm, unchanged).
 #[test]
 fn realm_address_classifies_as_realm_target() {
-    let parsed = parse_address(&format!("web+cokret:realm/{R}")).expect("realm address parses");
+    let parsed = parse_address(&format!("web+arkret:realm/{R}")).expect("realm address parses");
     assert!(parsed.is_realm());
     assert!(!parsed.is_strand());
     assert!(!parsed.is_message());
 
     // The HTTPS-landing fragment form parses to the identical address.
     let landing =
-        parse_address(&format!("https://share.cokret.example/#realm/{R}")).expect("landing parses");
+        parse_address(&format!("https://share.arkret.example/#realm/{R}")).expect("landing parses");
     assert_eq!(parsed, landing);
 }
 
@@ -188,8 +188,8 @@ fn realm_address_classifies_as_realm_target() {
 /// nonexistent resource.
 #[test]
 fn invite_token_replayed_onto_other_object_is_rejected() {
-    let addr_a = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=invite")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr_a = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     let token = mint_token(&addr_a, &canonical);
 
     // Sanity: the token validates against its own object.
@@ -199,7 +199,7 @@ fn invite_token_replayed_onto_other_object_is_rejected() {
     );
 
     // Replayed onto object B → reject (digest differs; identity tuple changed).
-    let addr_b = parse_address(&format!("web+cokret:realm/{R}/strand/{F2}?lt=invite")).unwrap();
+    let addr_b = parse_address(&format!("web+arkret:realm/{R}/strand/{F2}?lt=invite")).unwrap();
     assert_eq!(
         verify_address_token(&addr_b, Some(&token), &canonical, LinkType::Invite),
         TokenCheck::Reject
@@ -210,28 +210,28 @@ fn invite_token_replayed_onto_other_object_is_rejected() {
 /// (`space/`, `thread/`), so the handler returns the blinded not_found.
 #[test]
 fn unknown_path_keyword_fails_closed() {
-    assert!(parse_address(&format!("web+cokret:space/{R}")).is_err());
-    assert!(parse_address(&format!("web+cokret:realm/{R}/thread/{F}?via={VIA}")).is_err());
+    assert!(parse_address(&format!("web+arkret:space/{R}")).is_err());
+    assert!(parse_address(&format!("web+arkret:realm/{R}/thread/{F}?via={VIA}")).is_err());
     // Wrong order also fails closed.
-    assert!(parse_address(&format!("web+cokret:strand/{F}/realm/{R}?via={VIA}")).is_err());
+    assert!(parse_address(&format!("web+arkret:strand/{F}/realm/{R}?via={VIA}")).is_err());
 }
 
 /// Case (d) — a Strand address missing `via` fails closed (a global strand_id is
 /// never guessed), so the handler returns the blinded not_found.
 #[test]
 fn strand_address_without_via_parses() {
-    assert!(parse_address(&format!("web+cokret:realm/{R}/strand/{F}")).is_ok());
+    assert!(parse_address(&format!("web+arkret:realm/{R}/strand/{F}")).is_ok());
     // A message address without via is likewise routable through the Realm.
     let msg = "01904100-0000-7000-8000-0000000000dd";
-    assert!(parse_address(&format!("web+cokret:realm/{R}/strand/{F}/m/{msg}")).is_ok());
+    assert!(parse_address(&format!("web+arkret:realm/{R}/strand/{F}/m/{msg}")).is_ok());
 }
 
 /// Extra — an invite link with no token at all is rejected (an invite link MUST
 /// carry a token), mapping to the same blinded not_found.
 #[test]
 fn invite_link_without_token_is_rejected() {
-    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=invite")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     assert_eq!(
         verify_address_token(&addr, None, &canonical, LinkType::Invite),
         TokenCheck::Reject
@@ -241,8 +241,8 @@ fn invite_link_without_token_is_rejected() {
 #[test]
 fn preview_token_matching_current_policy_digest_is_accepted() {
     let now = Utc::now();
-    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     let policy = preview_policy(Vec::new());
     let digest = canonical::canonical_sha256(&policy).unwrap();
     let token = mint_preview_token(
@@ -271,9 +271,9 @@ fn preview_token_matching_current_policy_digest_is_accepted() {
 #[test]
 fn preview_token_replayed_onto_other_object_is_rejected() {
     let now = Utc::now();
-    let addr_a = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
-    let addr_b = parse_address(&format!("web+cokret:realm/{R}/strand/{F2}?lt=preview")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr_a = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let addr_b = parse_address(&format!("web+arkret:realm/{R}/strand/{F2}?lt=preview")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     let policy = preview_policy(Vec::new());
     let digest = canonical::canonical_sha256(&policy).unwrap();
     let token = mint_preview_token(
@@ -302,8 +302,8 @@ fn preview_token_replayed_onto_other_object_is_rejected() {
 #[test]
 fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
     let now = Utc::now();
-    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     let previous_digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let policy = preview_policy(vec![json!({
         "preview_policy_digest": previous_digest,
@@ -361,8 +361,8 @@ fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
 #[test]
 fn malformed_preview_token_lifecycle_fields_are_rejected() {
     let now = Utc::now();
-    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=preview")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     let policy = preview_policy(Vec::new());
     let digest = canonical::canonical_sha256(&policy).unwrap();
     let missing_nonce = mint_preview_token(
@@ -408,8 +408,8 @@ fn malformed_preview_token_lifecycle_fields_are_rejected() {
 
 #[test]
 fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
-    let addr = parse_address(&format!("web+cokret:realm/{R}/strand/{F}?lt=invite")).unwrap();
-    let canonical = format!("ck:realm:{R}");
+    let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
+    let canonical = format!("ak:realm:{R}");
     let mut descriptor = TargetDescriptor::from_parsed(&addr);
     descriptor.set_realm_id(&canonical);
     descriptor.link_type = LinkType::Invite;

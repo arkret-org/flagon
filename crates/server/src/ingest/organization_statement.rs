@@ -369,7 +369,7 @@ mod tests {
 
     use super::*;
 
-    const REALM: &str = "ck:realm:0196419b-0000-7000-8000-000000000010";
+    const REALM: &str = "ak:realm:0196419b-0000-7000-8000-000000000010";
     const ORG: &str = "did:webvh:example.test:orgs:org1";
 
     fn now() -> DateTime<Utc> {
@@ -441,7 +441,7 @@ mod tests {
         });
         let outcome = verify_announced_statements(
             &discovery,
-            "ck:realm:0196419b-0000-7000-8000-000000000099",
+            "ak:realm:0196419b-0000-7000-8000-000000000099",
             now(),
         );
         assert!(outcome.verified.is_empty());
@@ -464,7 +464,7 @@ mod tests {
         let mut statement = active_statement("governance", &["official_badge"]);
         statement["authorization"]["issuer_role"] = json!("governance_service");
         statement["authorization"]["delegation_ref"] =
-            json!("ck:grant:01904100-0000-7000-8000-000000000001");
+            json!("ak:grant:01904100-0000-7000-8000-000000000001");
         let discovery = json!({ ORGANIZATION_STATEMENTS_FIELD: [statement] });
         let outcome = verify_announced_statements(&discovery, REALM, now());
         assert!(outcome.verified.is_empty());

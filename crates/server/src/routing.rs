@@ -40,14 +40,14 @@ pub fn router(state: AppState) -> Router {
         .push(Router::with_path("readyz").get(readyz))
         .push(directory)
         .push(admin)
-        .push(doc.clone().into_router(".well-known/cokret/openapi.json"))
+        .push(doc.clone().into_router(".well-known/arkret/openapi.json"))
         .push(
-            Router::with_path(".well-known/cokret/openapi.yaml")
+            Router::with_path(".well-known/arkret/openapi.yaml")
                 .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
         .push(
-            // Product-private resolver probe. `/.well-known/cokret/handle`
+            // Product-private resolver probe. `/.well-known/arkret/handle`
             // is reserved by the spec for signed issuer claims, so teabay's
             // unsigned directory index probe must stay under `/_teabay`.
             Router::with_path("_teabay/handle/probe").get(query::handle::private_handle_probe),
@@ -137,7 +137,7 @@ fn directory_router(
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
         .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
-        // R3.3 (CKP-0011, cokret-spec @ cced4b8) — object-level resolve.
+        // R3.3 (CKP-0011, arkret-spec @ cced4b8) — object-level resolve.
         // Generalization of resolve-realm to a client-agnostic shareable
         // address (Realm / Strand / Message). Realm resolution DELEGATES to the
         // resolve_realm logic; invite tokens are bound to the resolved object
@@ -156,7 +156,7 @@ fn directory_router(
         .push(Router::with_path("search-actors").post(query::actor::search_actors))
         .push(Router::with_path("search-users").post(query::actor::search_users))
         .push(Router::with_path("resolve-handle").post(query::handle::resolve_handle))
-        // R3.2 (DIR-TBY-1, cokret-spec @ b56cab1) — reverse handle lookup.
+        // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle lookup.
         // Inverse of `resolve-handle`: known holder/principal DID + context
         // → currently-visible handle claims + primary handle. Read-only
         // against the indexed view; visibility is decided per-claim by the
@@ -478,10 +478,10 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
 pub fn openapi(router: &Router) -> OpenApi {
     let mut doc = OpenApi::new("teabay", env!("CARGO_PKG_VERSION"))
         .add_extension(
-            "x-cokret-profile",
+            "x-arkret-profile",
             json!({
                 "profile": "ck.profile.directory_service.v1",
-                "spec": "cokret-spec/spec/v1/zh/discovery/discovery-directory.md",
+                "spec": "arkret-spec/spec/v1/zh/discovery/discovery-directory.md",
             }),
         )
         .merge_router(router);
@@ -494,7 +494,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/health",
             PathItemType::Get,
-            "org.cokret.teabay.health",
+            "org.arkret.teabay.health",
             "health",
             "Health check",
             "Process liveness probe.",
@@ -502,7 +502,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/readyz",
             PathItemType::Get,
-            "org.cokret.teabay.readyz",
+            "org.arkret.teabay.readyz",
             "health",
             "Readiness check",
             "PostgreSQL and background-worker readiness probe.",
@@ -510,7 +510,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/dashboard",
             PathItemType::Get,
-            "org.cokret.teabay.admin.dashboard_stats",
+            "org.arkret.teabay.admin.dashboard_stats",
             "admin",
             "Directory Dashboard Stats",
             "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
@@ -518,7 +518,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/audit",
             PathItemType::Get,
-            "org.cokret.teabay.admin.audit_feed",
+            "org.arkret.teabay.admin.audit_feed",
             "admin",
             "List Audit Events",
             "Return the append-only directory audit feed for operator dashboards.",
@@ -526,7 +526,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/audit/verify",
             PathItemType::Get,
-            "org.cokret.teabay.admin.audit_chain_verify",
+            "org.arkret.teabay.admin.audit_chain_verify",
             "admin",
             "Verify Audit Chain",
             "Walk the append-only audit chain and recompute chained SHA-256 digests.",
@@ -534,7 +534,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/allowlist",
             PathItemType::Get,
-            "org.cokret.teabay.admin.allowlist_list",
+            "org.arkret.teabay.admin.allowlist_list",
             "admin",
             "List Allowlist Entries",
             "Return operator-managed accept-policy allowlist entries.",
@@ -542,7 +542,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/allowlist",
             PathItemType::Post,
-            "org.cokret.teabay.admin.allowlist_upsert",
+            "org.arkret.teabay.admin.allowlist_upsert",
             "admin",
             "Upsert Allowlist Entry",
             "Add or update an operator-managed accept-policy allowlist entry.",
@@ -550,7 +550,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/allowlist",
             PathItemType::Delete,
-            "org.cokret.teabay.admin.allowlist_delete",
+            "org.arkret.teabay.admin.allowlist_delete",
             "admin",
             "Delete Allowlist Entry",
             "Remove an operator-managed accept-policy allowlist entry.",
@@ -558,7 +558,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/resources",
             PathItemType::Get,
-            "org.cokret.teabay.admin.resources_browser",
+            "org.arkret.teabay.admin.resources_browser",
             "admin",
             "Browse Directory Resources",
             "Return indexed resources with kind, stale, divergent, and text filters.",
@@ -566,7 +566,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/resources",
             PathItemType::Post,
-            "org.cokret.teabay.admin.resource_upsert",
+            "org.arkret.teabay.admin.resource_upsert",
             "admin",
             "Upsert Directory Resource",
             "Create or update an indexed directory resource directly from the operator console.",
@@ -574,7 +574,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/resources",
             PathItemType::Delete,
-            "org.cokret.teabay.admin.resource_delete",
+            "org.arkret.teabay.admin.resource_delete",
             "admin",
             "Delete Directory Resource",
             "Remove an indexed directory resource directly from the operator console.",
@@ -582,7 +582,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/takedown",
             PathItemType::Post,
-            "org.cokret.teabay.admin.operator_takedown",
+            "org.arkret.teabay.admin.operator_takedown",
             "admin",
             "Operator Takedown",
             "Admin-only operator takedown path for §8.7 path 3.",
@@ -590,7 +590,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/takedown/appeals/decision",
             PathItemType::Post,
-            "org.cokret.teabay.admin.takedown_appeal_decision",
+            "org.arkret.teabay.admin.takedown_appeal_decision",
             "admin",
             "Decide Takedown Appeal",
             "Return a signed decision receipt and clear takedown_in_force when overturned.",
@@ -598,7 +598,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/takedowns",
             PathItemType::Get,
-            "org.cokret.teabay.admin.takedown_audit_export",
+            "org.arkret.teabay.admin.takedown_audit_export",
             "admin",
             "Export Takedown Audit",
             "Return every operator-takedown audit row within an optional `since` / `until` window.",
@@ -636,7 +636,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
         ),
         (
-            // R3.3 (CKP-0011, cokret-spec @ cced4b8) — object-level resolve.
+            // R3.3 (CKP-0011, arkret-spec @ cced4b8) — object-level resolve.
             // The object-level generalization of resolve-realm: resolves a
             // client-agnostic shareable object address (Realm / Strand / Message)
             // to a target_kind + preview, binding an invite token to the
@@ -694,15 +694,15 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/handle/probe",
             PathItemType::Get,
-            "org.cokret.teabay.handle_probe",
+            "org.arkret.teabay.handle_probe",
             "query",
             "Private Handle Probe",
             "Product-private resolver/index probe by `?localpart=<localpart>` and optional \
              `?domain=<domain>`. This endpoint returns the Directory result envelope and is \
-             not the spec-pinned signed issuer channel `/.well-known/cokret/handle`.",
+             not the spec-pinned signed issuer channel `/.well-known/arkret/handle`.",
         ),
         (
-            // R3.2 (DIR-TBY-1, cokret-spec @ b56cab1) — reverse handle
+            // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle
             // lookup. Response shape `ck.schema.list_handles_for_subject_response.v1`.
             "/_cokret/find/directory/list-handles-for-subject",
             PathItemType::Post,
@@ -803,8 +803,8 @@ mod tests {
         let yaml = doc.to_yaml().expect("OpenAPI serializes");
 
         assert!(yaml.contains("/_teabay/handle/probe:"));
-        assert!(yaml.contains("org.cokret.teabay.handle_probe"));
-        assert!(!yaml.contains("/.well-known/cokret/handle:"));
-        assert!(!yaml.contains("org.cokret.teabay.well_known_handle"));
+        assert!(yaml.contains("org.arkret.teabay.handle_probe"));
+        assert!(!yaml.contains("/.well-known/arkret/handle:"));
+        assert!(!yaml.contains("org.arkret.teabay.well_known_handle"));
     }
 }

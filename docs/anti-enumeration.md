@@ -144,7 +144,7 @@ rate-limit token accounting runs.
 Companion documentation:
 
 - [`starid/docs/operations.md` → Handle homograph workflow](../../starid/docs/operations.md#handle-homograph-workflow) for triage and audit.
-- [`cokret-rust-sdk/docs/architecture.md`](../../cokret-rust-sdk/docs/architecture.md) for the SDK normalize helper.
+- [`arkret-rust-sdk/docs/architecture.md`](../../arkret-rust-sdk/docs/architecture.md) for the SDK normalize helper.
 - [`inkson/docs/user-manual/r3-error-codes.md` → handle_homograph_forbidden](../../inkson/docs/user-manual/r3-error-codes.md#handle_homograph_forbidden) for the user-facing message.
 
 ### Wire-level order vs application-level order

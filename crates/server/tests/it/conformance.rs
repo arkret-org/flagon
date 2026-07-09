@@ -195,7 +195,7 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
             .as_array()
             .unwrap()
             .iter()
-            .any(|result| result["realm_id"] == "ck:realm:tea")
+            .any(|result| result["realm_id"] == "ak:realm:tea")
     );
     Ok(())
 }
@@ -227,7 +227,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     }
 
     // (1) active owner relationship ⇒ verified owning organization surfaces.
-    let verified = resolve_owning_orgs(service, "ck:realm:org-verified").await;
+    let verified = resolve_owning_orgs(service, "ak:realm:org-verified").await;
     assert_eq!(
         verified,
         vec!["did:web:tea-org.example".to_owned()],
@@ -235,14 +235,14 @@ async fn assert_official_badge_is_verified_relationship_driven(
     );
 
     // (2) declared-only org hint (no statement) ⇒ no verified owning org.
-    let declared_only = resolve_owning_orgs(service, "ck:realm:org-declared-only").await;
+    let declared_only = resolve_owning_orgs(service, "ak:realm:org-declared-only").await;
     assert!(
         declared_only.is_empty(),
         "declared owning_organizations / organization_did hint MUST NOT yield a verified badge"
     );
 
     // (3) relationship mismatch: sponsor is NOT owner/governance ⇒ no owning org.
-    let sponsor_only = resolve_owning_orgs(service, "ck:realm:tea").await;
+    let sponsor_only = resolve_owning_orgs(service, "ak:realm:tea").await;
     assert!(
         sponsor_only.is_empty(),
         "sponsor relationship MUST NOT be usable as a verified owner/governance badge"
@@ -258,7 +258,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
         .execute(&mut conn)
         .await?;
     }
-    let after_revoke = resolve_owning_orgs(service, "ck:realm:org-verified").await;
+    let after_revoke = resolve_owning_orgs(service, "ak:realm:org-verified").await;
     assert!(
         after_revoke.is_empty(),
         "revoking the ck.realm.organization statement MUST remove the verified badge"
@@ -279,7 +279,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
         .execute(&mut conn)
         .await?;
     }
-    let after_expiry = resolve_owning_orgs(service, "ck:realm:org-verified").await;
+    let after_expiry = resolve_owning_orgs(service, "ak:realm:org-verified").await;
     assert!(
         after_expiry.is_empty(),
         "expired ck.realm.organization statement MUST NOT surface a verified badge"
@@ -333,12 +333,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         StatusCode::BAD_REQUEST
     );
 
-    assert_resolve_realm_status(service, "ck:realm:tea", StatusCode::OK, json!({})).await?;
-    assert_resolve_realm_status(service, "ck:realm:secret", StatusCode::NOT_FOUND, json!({}))
+    assert_resolve_realm_status(service, "ak:realm:tea", StatusCode::OK, json!({})).await?;
+    assert_resolve_realm_status(service, "ak:realm:secret", StatusCode::NOT_FOUND, json!({}))
         .await?;
     assert_resolve_realm_status(
         service,
-        "ck:realm:restricted",
+        "ak:realm:restricted",
         StatusCode::NOT_FOUND,
         json!({}),
     )
@@ -371,7 +371,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
 
     assert_resolve_realm_status(
         service,
-        "ck:realm:restricted",
+        "ak:realm:restricted",
         StatusCode::NOT_FOUND,
         json!({
             "requester": subject.as_str(),
@@ -382,7 +382,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     .await?;
     assert_resolve_realm_status(
         service,
-        "ck:realm:restricted",
+        "ak:realm:restricted",
         StatusCode::OK,
         json!({
             "requester": subject.as_str(),
@@ -409,7 +409,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
             .as_array()
             .unwrap()
             .iter()
-            .any(|result| result["realm_id"] == "ck:realm:restricted")
+            .any(|result| result["realm_id"] == "ak:realm:restricted")
     );
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/search-organizations")
@@ -443,7 +443,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .json(&json!({
             "query": "alice",
             "requester": "did:web:alice.example",
-            "realm_id": "ck:realm:tea",
+            "realm_id": "ak:realm:tea",
             "limit": 10
         }))
         .send(service)
@@ -537,7 +537,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     let mut res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "ck:realm:pushed",
+            "resource_id": "ak:realm:pushed",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": discovery_state,
             "source_refs": ["evt-announce-realm"],
@@ -556,16 +556,16 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     assert!(
         body["announce_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("ck:announce:"))
+            .is_some_and(|id| id.starts_with("ak:announce:"))
     );
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ck:realm:pushed" }))
+        .json(&json!({ "realm_id": "ak:realm:pushed" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["realm_id"], "ck:realm:pushed");
+    assert_eq!(body["realm_id"], "ak:realm:pushed");
     assert_eq!(body["member_count_bucket"], "11-50");
     assert_eq!(body["source_refs"][0], "evt-announce-realm");
     assert_eq!(
@@ -582,7 +582,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
             "subscriber_did": "did:web:subscriber.example",
             "resource_filter": {
                 "resource_kinds": ["realm"],
-                "resource_ids": ["ck:realm:pushed"]
+                "resource_ids": ["ak:realm:pushed"]
             },
             "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
             "secret": secret
@@ -620,7 +620,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let mut res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "ck:realm:pull",
+            "resource_id": "ak:realm:pull",
             "principal_server_did": mock.principal_server_did(),
             "discovery_state": pulled_state,
             "source_refs": ["evt-pull-realm"],
@@ -653,7 +653,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         .await?;
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ck:realm:pull" }))
+        .json(&json!({ "realm_id": "ak:realm:pull" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -689,7 +689,7 @@ async fn assert_freshness_flags_are_exposed(
         .await?;
     }
     let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ck:realm:tea" }))
+        .json(&json!({ "realm_id": "ak:realm:tea" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -720,7 +720,7 @@ async fn assert_three_path_takedown_strand(
     let res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "ck:realm:takedown-state",
+            "resource_id": "ak:realm:takedown-state",
             "principal_server_did": destroy_mock.principal_server_did(),
             "discovery_state": destroyed_state,
             "source_refs": ["evt-destroy-realm"],
@@ -733,7 +733,7 @@ async fn assert_three_path_takedown_strand(
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
     let mut res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ck:realm:takedown-state" }))
+        .json(&json!({ "realm_id": "ak:realm:takedown-state" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -749,7 +749,7 @@ async fn assert_three_path_takedown_strand(
     let res = TestClient::post("http://local/_cokret/find/directory/announce")
         .json(&json!({
             "resource_kind": "realm",
-            "resource_id": "ck:realm:takedown-withdraw",
+            "resource_id": "ak:realm:takedown-withdraw",
             "principal_server_did": withdraw_mock.principal_server_did(),
             "discovery_state": withdraw_state,
             "source_refs": ["evt-withdraw-realm"],
@@ -763,7 +763,7 @@ async fn assert_three_path_takedown_strand(
 
     let withdraw_body = signed_withdraw_body(
         "realm",
-        "ck:realm:takedown-withdraw",
+        "ak:realm:takedown-withdraw",
         &verification_method,
         &signing_key,
         "conformance resource withdraw",
@@ -781,7 +781,7 @@ async fn assert_three_path_takedown_strand(
     );
 
     let res = TestClient::post("http://local/_cokret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ck:realm:takedown-withdraw" }))
+        .json(&json!({ "realm_id": "ak:realm:takedown-withdraw" }))
         .send(service)
         .await;
     assert_eq!(
@@ -791,7 +791,7 @@ async fn assert_three_path_takedown_strand(
     let resource_receipt = withdrawal_proof(
         db,
         "realm",
-        "ck:realm:takedown-withdraw",
+        "ak:realm:takedown-withdraw",
         "resource_withdraw",
     )
     .await?;
@@ -811,7 +811,7 @@ async fn assert_three_path_takedown_strand(
     );
     assert_eq!(
         resource_receipt.proof["signed_payload"]["resource_id"],
-        "ck:realm:takedown-withdraw"
+        "ak:realm:takedown-withdraw"
     );
 
     // Path 3: operator takedown signs a service receipt over the full

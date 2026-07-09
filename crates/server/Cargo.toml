@@ -3,12 +3,12 @@ name = "server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Reference Cokret v1 Directory Service: ingest (push announce + pull subscribe), search/resolve, anti-enumeration filter."
+description = "Reference Arkret v1 Directory Service: ingest (push announce + pull subscribe), search/resolve, anti-enumeration filter."
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-keywords = ["cokret", "directory", "discovery", "salvo", "diesel"]
+keywords = ["arkret", "directory", "discovery", "salvo", "diesel"]
 categories = ["network-programming", "web-programming::http-server"]
 authors.workspace = true
 
@@ -18,7 +18,7 @@ async-trait = {workspace = true}
 base64 = {workspace = true}
 bs58 = {workspace = true}
 chrono = {workspace = true}
-cokret-sdk = {workspace = true}
+arkret-sdk = {workspace = true}
 deadpool = {workspace = true}
 diesel = {workspace = true}
 diesel-async = {workspace = true}

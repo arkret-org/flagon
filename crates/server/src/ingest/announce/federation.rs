@@ -190,7 +190,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     }
     // Verify the request-canonical-digest matches the request digest the
     // handler computed over the parsed body. `digest_request` is the
-    // SHA-256 of the Cokret canonical JSON announce body, matching the
+    // SHA-256 of the Arkret canonical JSON announce body, matching the
     // SDK federation transport's `Request-Canonical-Digest` domain.
     let computed_hash = format!("sha256:{}", hex_lower_sha256(request_digest));
     if !inputs

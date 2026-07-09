@@ -11,12 +11,12 @@ git config core.hooksPath .githooks
 The hook runs `cargo +nightly fmt --all -- --check` and
 `cargo clippy --no-deps -- -D warnings` on staged Rust changes. If
 `.githooks/pre-commit` is missing, copy it from
-[`cokret-rust-sdk`](https://github.com/cokret/cokret-rust-sdk) and
+[`arkret-rust-sdk`](https://github.com/arkret/arkret-rust-sdk) and
 adapt to your local toolchain.
 
 ## Scope
 
-teabay is the reference Cokret Directory Service. Keep changes focused on this
+teabay is the reference Arkret Directory Service. Keep changes focused on this
 repository and preserve the Directory Service boundary: source Principal Servers
 remain authoritative for identity, authorization, membership, and source event
 state.
@@ -28,7 +28,7 @@ Prerequisites:
 - Rust 1.88 or newer.
 - PostgreSQL 14 or newer.
 - `diesel_cli` with Postgres support.
-- A sibling `../cokret-rust-sdk` checkout matching the version required by
+- A sibling `../arkret-rust-sdk` checkout matching the version required by
   `Cargo.toml`.
 - Dioxus CLI 0.7.9 or newer for the admin SPA.
 

@@ -1,7 +1,7 @@
-//! Wire constants for Cokret v1 Directory Service event kinds and operations.
+//! Wire constants for Arkret v1 Directory Service event kinds and operations.
 //!
-//! These constants are **re-exported from `cokret-sdk`** (which mirrors the
-//! canonical `cokret-spec` registry). Teabay does NOT maintain a parallel
+//! These constants are **re-exported from `arkret-sdk`** (which mirrors the
+//! canonical `arkret-spec` registry). Teabay does NOT maintain a parallel
 //! copy of the strings; this file only adds aliases (`EVENT_KIND_*_DISCOVERY`)
 //! and the ordered slices (`DISCOVERY_EVENT_KINDS`, `DIRECTORY_OPERATIONS`)
 //! that the profile self-declaration / anti-drift guard
@@ -55,7 +55,7 @@ pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_H
 /// the profile's `required_endpoints`, but published by teabay and advertised
 /// in [`SUPPORTED_OPERATIONS`].
 pub const OP_DIRECTORY_RESOLVE_TARGET: &str = cokret_sdk::OP_DIRECTORY_RESOLVE_TARGET;
-/// R3.2 (cokret-spec @ b56cab1) — reverse handle lookup
+/// R3.2 (arkret-spec @ b56cab1) — reverse handle lookup
 /// (`ck.find.directory.query.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
 pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =

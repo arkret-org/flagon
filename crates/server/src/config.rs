@@ -208,7 +208,7 @@ impl AcceptPolicyKind {
             "allowlist" => Ok(Self::Allowlist),
             "trust_root_signed" => Err(anyhow::anyhow!(
                 "TEABAY_ACCEPT_POLICY_KIND=trust_root_signed is reserved until the directory \
-                 trust-seal envelope is defined in cokret-spec and cokret-rust-sdk"
+                 trust-seal envelope is defined in arkret-spec and arkret-rust-sdk"
             )),
             "operator_review" => Ok(Self::OperatorReview),
             other => Err(anyhow::anyhow!(
@@ -300,7 +300,7 @@ impl AppConfig {
         // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
         // exists so the in-process conformance harness keeps booting.
         let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")
-            .unwrap_or_else(|_| "ck:trust_domain:local.test".to_owned());
+            .unwrap_or_else(|_| "ak:trust_domain:local.test".to_owned());
         if cokret_sdk::TypedTrustDomainId::new(trust_domain.clone()).is_err() {
             anyhow::bail!(
                 "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `ck:trust_domain:` identifier"

@@ -2,7 +2,7 @@
 
 ## Reporting Vulnerabilities
 
-Report suspected vulnerabilities privately to the Cokret maintainers. Do not
+Report suspected vulnerabilities privately to the Arkret maintainers. Do not
 open a public issue with exploit details, credentials, private keys, admin
 tokens, or production resource identifiers.
 

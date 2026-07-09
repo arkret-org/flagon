@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: teabay
-          image: ghcr.io/cokret/teabay:latest
+          image: ghcr.io/arkret/teabay:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

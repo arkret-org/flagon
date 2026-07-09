@@ -22,7 +22,7 @@ x-teabay-signature: sha256=<hex>
 {
   "pending_id": "...",
   "resource_kind": "realm",
-  "resource_id": "ck:realm:...",
+  "resource_id": "ak:realm:...",
   "reason": "...",
   "proposed_by": "did:web:operator.example",
   "proposed_at": "2026-05-27T08:00:00Z"

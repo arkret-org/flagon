@@ -240,11 +240,11 @@ fn sign_receipt_statement(
     }))
 }
 
-/// Cokret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
+/// Arkret canonical JSON bytes via the SDK's `cokret_sdk::canonical`
 /// implementation (UTF-16 key ordering, integer-only number profile).
 ///
 /// Replaces a hand-written serializer that sorted object keys by byte
-/// order — divergent from the SDK and every other Cokret service. The
+/// order — divergent from the SDK and every other Arkret service. The
 /// receipt JWS signing input therefore now hashes byte-identical canonical
 /// bytes to the rest of the federation.
 fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {

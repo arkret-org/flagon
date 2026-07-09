@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
 # teabay admin SPA image — Dioxus WASM build served by nginx. Build
-# from the cokret root with:
+# from the arkret root with:
 #
 #   docker build \
-#     --build-context cokret-rust-sdk=../cokret-rust-sdk \
+#     --build-context arkret-rust-sdk=../arkret-rust-sdk \
 #     -f Dockerfile.admin -t teabay-admin .
 #
 # P2E.4 — splits the admin SPA out of the server image so operators
@@ -15,11 +15,11 @@ FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
 
 WORKDIR /workspace
 
-# teabay depends on the local Cokret SDK by path; admin currently
+# teabay depends on the local Arkret SDK by path; admin currently
 # does NOT import the SDK directly but we keep the build context
 # stable so a future shared module (e.g. typed wire structs) does not
 # need a separate build wiring.
-COPY --from=cokret-rust-sdk . ./cokret-rust-sdk
+COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
 COPY . ./teabay
 
 WORKDIR /workspace/teabay

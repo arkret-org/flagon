@@ -316,11 +316,11 @@ pub(crate) async fn resolve_withdraw_resource_kind(
 }
 
 fn infer_resource_kind(resource_id: &str) -> Option<DirectoryResourceKindDb> {
-    if resource_id.starts_with("ck:realm:") {
+    if resource_id.starts_with("ak:realm:") {
         Some(DirectoryResourceKindDb::Realm)
-    } else if resource_id.starts_with("ck:applet:") {
+    } else if resource_id.starts_with("ak:applet:") {
         Some(DirectoryResourceKindDb::Applet)
-    } else if resource_id.starts_with("ck:handle:") {
+    } else if resource_id.starts_with("ak:handle:") {
         Some(DirectoryResourceKindDb::Handle)
     } else {
         None

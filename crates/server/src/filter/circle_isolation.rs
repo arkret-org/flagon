@@ -33,7 +33,7 @@ use crate::filter::circle_directory::is_circle_directory_container_key;
 /// string value carrying this prefix anywhere in the payload is a
 /// hard reject — this is the parser-tolerance plank from P2E.7: we
 /// recognise the typed id only to refuse it.
-pub const CIRCLE_TYPED_ID_PREFIX: &str = "ck:circle:";
+pub const CIRCLE_TYPED_ID_PREFIX: &str = "ak:circle:";
 
 /// Outcome of [`reject_circle_payload`]. The caller maps each variant
 /// to its preferred `ApiErrorCode`, typically `SchemaViolation` for
@@ -236,7 +236,7 @@ mod tests {
     fn rejects_top_level_typed_circle_id_value() {
         let value = json!({
             "kind": "ck.realm.discovery",
-            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -247,13 +247,13 @@ mod tests {
         let value = json!({
             "kind": "ck.realm.discovery",
             "circles": [{
-                "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
-                "realm_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+                "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+                "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
                 "directory_visibility": "realm_members",
             }],
             "circle_directory": {
                 "entries": [{
-                    "id": "ck:circle:01904100-0000-7000-8000-000000000002"
+                    "id": "ak:circle:01904100-0000-7000-8000-000000000002"
                 }]
             }
         });
@@ -266,7 +266,7 @@ mod tests {
         let value = json!({
             "kind": "ck.realm.discovery",
             "circles": [{
-                "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001 extra"
+                "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001 extra"
             }]
         });
         let err = reject_circle_payload_allowing_directory_preview(&value).unwrap_err();
@@ -278,7 +278,7 @@ mod tests {
         let value = json!({
             "kind": "ck.realm.discovery",
             "circles": [{
-                "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+                "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
                 "summary": "see ck:circle:01904100-0000-7000-8000-000000000002",
             }]
         });
@@ -290,12 +290,12 @@ mod tests {
     fn announce_preview_mode_rejects_top_level_resource_id() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+            "resource_id": "ak:circle:01904100-0000-7000-8000-000000000001",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {
                 "kind": "ck.realm.discovery",
                 "circles": [{
-                    "circle_id": "ck:circle:01904100-0000-7000-8000-000000000002"
+                    "circle_id": "ak:circle:01904100-0000-7000-8000-000000000002"
                 }]
             },
         });
@@ -307,14 +307,14 @@ mod tests {
     fn announce_preview_mode_allows_discovery_state_path_in_full_envelope() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ck:realm:01904100-0000-7000-8000-000000000101",
+            "resource_id": "ak:realm:01904100-0000-7000-8000-000000000101",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {
                 "kind": "ck.realm.discovery",
                 "payload": {
                     "circle_directory": {
                         "entries": [{
-                            "circle_id": "ck:circle:01904100-0000-7000-8000-000000000001"
+                            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001"
                         }]
                     }
                 }
@@ -341,8 +341,8 @@ mod tests {
         let value = json!({
             "kind": "ck.realm.discovery",
             "related": [
-                "ck:realm:01904100-0000-7000-8000-000000000101",
-                "ck:circle:01904100-0000-7000-8000-000000000001",
+                "ak:realm:01904100-0000-7000-8000-000000000101",
+                "ak:circle:01904100-0000-7000-8000-000000000001",
             ],
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -358,7 +358,7 @@ mod tests {
     fn rejects_cx_circle_in_resource_id_field() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ck:circle:01904100-0000-7000-8000-000000000001",
+            "resource_id": "ak:circle:01904100-0000-7000-8000-000000000001",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {"kind": "ck.realm.discovery"},
         });
@@ -382,7 +382,7 @@ mod tests {
     fn safe_message_does_not_leak_field_name_or_id() {
         let id_err = CircleRejection::ForbiddenTypedId("/summary".into());
         assert!(!id_err.safe_message().contains("summary"));
-        assert!(!id_err.safe_message().contains("ck:circle:"));
+        assert!(!id_err.safe_message().contains("ak:circle:"));
     }
 
     /// Property-style test (small fixed seed): random injection of
@@ -398,21 +398,21 @@ mod tests {
         let injections: &[(&str, JsonValue)] = &[
             (
                 "circle_id",
-                JsonValue::String("ck:circle:01904100-0000-7000-8000-000000000001".into()),
+                JsonValue::String("ak:circle:01904100-0000-7000-8000-000000000001".into()),
             ),
             (
                 "scope_circle_id",
-                JsonValue::String("ck:circle:01904100-0000-7000-8000-000000000001".into()),
+                JsonValue::String("ak:circle:01904100-0000-7000-8000-000000000001".into()),
             ),
             (
                 "circle_members",
                 JsonValue::Array(vec![JsonValue::String(
-                    "ck:circle:01904100-0000-7000-8000-000000000001".into(),
+                    "ak:circle:01904100-0000-7000-8000-000000000001".into(),
                 )]),
             ),
             (
                 "default_scope_circle_id",
-                JsonValue::String("ck:circle:01904100-0000-7000-8000-000000000001".into()),
+                JsonValue::String("ak:circle:01904100-0000-7000-8000-000000000001".into()),
             ),
         ];
         for base in bases {

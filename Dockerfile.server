@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1.7
 #
-# teabay server image — Rust workspace built against the local Cokret
-# SDK by path. Build from the cokret root with:
+# teabay server image — Rust workspace built against the local Arkret
+# SDK by path. Build from the arkret root with:
 #
 #   docker build \
-#     --build-context cokret-rust-sdk=../cokret-rust-sdk \
+#     --build-context arkret-rust-sdk=../arkret-rust-sdk \
 #     -f Dockerfile.server -t teabay-server .
 #
 # P2E.4 — split out from the previous monolithic `Dockerfile` so the
@@ -14,8 +14,8 @@ FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
 
 WORKDIR /workspace
 
-# teabay depends on the local Cokret SDK by path.
-COPY --from=cokret-rust-sdk . ./cokret-rust-sdk
+# teabay depends on the local Arkret SDK by path.
+COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
 COPY . ./teabay
 
 WORKDIR /workspace/teabay

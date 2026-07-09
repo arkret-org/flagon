@@ -1,5 +1,5 @@
 //! Conformance suite for `ck.find.directory.query.list_handles_for_subject` (DIR-TBY-5,
-//! R3.2 / cokret-spec @ b56cab1).
+//! R3.2 / arkret-spec @ b56cab1).
 //!
 //! These exercise the directory's reverse-handle-lookup response assembly
 //! (disclosure / issuer-trust / audience / subject-mismatch filters, cursor
@@ -252,7 +252,7 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
 
     let accepted = vec!["did:web:issuer.tea".to_owned()];
     // RealmId is a strict typed id (canonical lowercase UUIDv7 suffix).
-    let body = req(Some("ck:realm:0196419b-0000-7000-8000-000000000000"), None);
+    let body = req(Some("ak:realm:0196419b-0000-7000-8000-000000000000"), None);
     let response = assemble_response(
         &body,
         rows,

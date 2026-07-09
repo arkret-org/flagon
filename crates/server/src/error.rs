@@ -1,6 +1,6 @@
 //! Wire-form error codes for teabay.
 //!
-//! The query-side uses Cokret canonical codes (`not_found`, `rate_limited`,
+//! The query-side uses Arkret canonical codes (`not_found`, `rate_limited`,
 //! `unauthenticated`, etc.). The ingest side adds the §8 / §8.10 ingest-
 //! specific codes that are normative on `/_cokret/find/directory/announce` and
 //! `/_cokret/find/directory/withdraw`.
@@ -23,7 +23,7 @@ impl ApiErrorCode {
         }
     }
 
-    // -------- canonical Cokret codes used here --------
+    // -------- canonical Arkret codes used here --------
     #[allow(non_upper_case_globals)]
     pub const BadJson: Self = Self::new(cokret_sdk::ERROR_CODE_BAD_JSON, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
@@ -188,7 +188,7 @@ impl ApiErrorCode {
         StatusCode::BAD_REQUEST,
     );
 
-    // -------- R3.2 spec-sync 2026-05-28 (cokret-spec @ b56cab1) --------
+    // -------- R3.2 spec-sync 2026-05-28 (arkret-spec @ b56cab1) --------
     // `ck.find.directory.query.list_handles_for_subject` input validation. A
     // `subject` that is not a holder/principal DID (a `ck:actor:` Realm
     // actor_id, a `ck:account:` server-local account id, a service DID,

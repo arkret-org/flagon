@@ -24,11 +24,11 @@ jobs:
         with:
           path: teabay
 
-      - name: Checkout Cokret Rust SDK
+      - name: Checkout Arkret Rust SDK
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/cokret-rust-sdk
-          path: cokret-rust-sdk
+          repository: ${{ github.repository_owner }}/arkret-rust-sdk
+          path: arkret-rust-sdk
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
 
       - name: Install Rust

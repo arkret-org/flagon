@@ -75,7 +75,7 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
 /// confusable skeleton + script-mixed reject).
 ///
 /// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
-/// (cokret-spec @ 7157ee8 — 2026-05-27).
+/// (arkret-spec @ 7157ee8 — 2026-05-27).
 /// The directory's own dot-separated index key `<localpart>.<domain>`
 /// is still accepted because it remains the row's `resource_id` shape
 /// in storage.
@@ -105,7 +105,7 @@ fn extract_localpart(handle: &str) -> &str {
 /// localpart-extraction rule before the SDK homograph normalizer. Kept
 /// in this module so the two faces stay in lock-step.
 ///
-/// R3.1 wire form (cokret-spec @ 7157ee8): `<localpart>:<domain>(:<port>)?`
+/// R3.1 wire form (arkret-spec @ 7157ee8): `<localpart>:<domain>(:<port>)?`
 /// — the colon separator is taken first because it is the canonical
 /// shape the SDK `Handle::parse` emits. The directory's internal index
 /// shape `<localpart>.<domain>` is still accepted for back-compat with
@@ -130,7 +130,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
 ///
 /// We resolve against the directory's indexed Handle rows and return
 /// the same `ResultEnvelope` shape that the POST `resolve-handle` face
-/// emits. This deliberately lives outside `/.well-known/cokret/handle`:
+/// emits. This deliberately lives outside `/.well-known/arkret/handle`:
 /// the spec reserves that well-known path for signed issuer claims, while
 /// teabay is a resolver/index and cannot answer as the handle issuer.
 ///
@@ -216,7 +216,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
 
     let outcome = pad_to_budget_observed(
         budget,
-        "org.cokret.teabay.handle_probe",
+        "org.arkret.teabay.handle_probe",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad("handle-probe", target),
         async {
@@ -920,8 +920,8 @@ mod tests {
 
     #[test]
     fn extract_localpart_accepts_canonical_and_index_forms() {
-        // R3.1 canonical wire form `<localpart>:<domain>` (cokret-spec
-        // @ 7157ee8). The retired `cokret://` URI form is no longer
+        // R3.1 canonical wire form `<localpart>:<domain>` (arkret-spec
+        // @ 7157ee8). The retired `arkret://` URI form is no longer
         // parsed — feeding it now treats the whole string as a bare
         // localpart (which the SDK normalizer will then reject).
         assert_eq!(extract_localpart_public("alice:example.com"), "alice");
@@ -975,7 +975,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
@@ -999,7 +999,7 @@ mod tests {
                 "binding_source": "join_policy"
             }
         }));
-        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
@@ -1038,7 +1038,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ck:realm:tea", "did:web:eve.example");
+        let body = member_add_request("ak:realm:tea", "did:web:eve.example");
         let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
@@ -1062,7 +1062,7 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
@@ -1113,9 +1113,9 @@ mod tests {
         let warmup = 256;
         let iters = 4096;
 
-        let found_body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
-        let unauthorized_body = member_add_request("ck:realm:tea", "did:web:eve.example");
-        let filtered_body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
+        let found_body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        let unauthorized_body = member_add_request("ak:realm:tea", "did:web:eve.example");
+        let filtered_body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
 
         // Warm caches / branch predictor.
         for _ in 0..warmup {
@@ -1282,7 +1282,7 @@ mod tests {
                 "trusted_audiences": ["did:web:tea-org.example"],
             },
         }));
-        let body = member_add_request("ck:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
 
         let outcome = evaluate_handle_disclosure(
             row,
