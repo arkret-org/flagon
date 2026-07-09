@@ -1,30 +1,30 @@
 {
-  "profile": "ck.profile.directory_service.v1",
+  "profile": "ak.profile.directory_service.v1",
   "issued": "2026-05-10",
   "source": "arkret-spec sync cab459d (conformance-profiles.json#/profile_requirements/ck.profile.directory_service.v1)",
   "description": "Arkret v1 Directory Service profile baseline. Directory Services index resource-signed discovery state, expose blinded search/resolve endpoints, and support at least one §8 ingest mode without becoming a source of truth.",
   "required_endpoints": [
-    "ck.find.directory.query.describe",
-    "ck.find.directory.query.search_realms",
-    "ck.find.directory.query.resolve_realm",
-    "ck.find.directory.query.search_organizations",
-    "ck.find.directory.query.resolve_organization",
-    "ck.find.directory.query.search_actors",
-    "ck.find.directory.query.search_users",
-    "ck.find.directory.query.resolve_handle",
-    "ck.find.directory.command.announce",
-    "ck.find.directory.command.withdraw",
-    "ck.find.directory.push.command.register"
+    "ak.find.directory.query.describe",
+    "ak.find.directory.query.search_realms",
+    "ak.find.directory.query.resolve_realm",
+    "ak.find.directory.query.search_organizations",
+    "ak.find.directory.query.resolve_organization",
+    "ak.find.directory.query.search_actors",
+    "ak.find.directory.query.search_users",
+    "ak.find.directory.query.resolve_handle",
+    "ak.find.directory.command.announce",
+    "ak.find.directory.command.withdraw",
+    "ak.find.directory.push.command.register"
   ],
   "required_event_kinds": [
-    "ck.realm.discovery",
-    "ck.organization.discovery",
-    "ck.actor.discovery",
-    "ck.applet.discovery",
-    "ck.handle.discovery"
+    "ak.realm.discovery",
+    "ak.organization.discovery",
+    "ak.actor.discovery",
+    "ak.applet.discovery",
+    "ak.handle.discovery"
   ],
   "optional_extensions": [
-    "ck.private_contact_discovery.v1",
+    "ak.private_contact_discovery.v1",
     "pull_mode_ingest",
     "webhook_fanout",
     "restricted_query_proofs",

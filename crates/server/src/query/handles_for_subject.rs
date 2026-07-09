@@ -166,7 +166,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let metrics = state.metrics().clone();
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.list_handles_for_subject",
+        "ak.find.directory.query.list_handles_for_subject",
         &privacy_key,
         |target| {
             state

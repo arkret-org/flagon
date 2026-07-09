@@ -71,7 +71,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.search_actors",
+        "ak.find.directory.query.search_actors",
         &privacy_key,
         |target| {
             state
@@ -151,7 +151,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     let privacy_key = format!("q={needle};realm={};limit={limit}", realm_id.as_str());
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.search_users",
+        "ak.find.directory.query.search_users",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad("search-users", target),
         async { run_user_search(&state, &needle, realm_id.as_str(), limit + 1).await },

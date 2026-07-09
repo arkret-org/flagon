@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn accepts_realm_only_announce_state() {
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "discoverability": "public",
             "directory_services": ["did:web:directory.test"],
             "member_count_bucket": "11-50",
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn rejects_top_level_typed_circle_id_value() {
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn announce_preview_mode_allows_exact_circle_directory_ids() {
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "circles": [{
                 "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
                 "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn announce_preview_mode_rejects_embedded_circle_id_text() {
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "circles": [{
                 "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001 extra"
             }]
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn announce_preview_mode_rejects_circle_id_in_free_text_inside_directory() {
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "circles": [{
                 "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
                 "summary": "see ck:circle:01904100-0000-7000-8000-000000000002",
@@ -293,7 +293,7 @@ mod tests {
             "resource_id": "ak:circle:01904100-0000-7000-8000-000000000001",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {
-                "kind": "ck.realm.discovery",
+                "kind": "ak.realm.discovery",
                 "circles": [{
                     "circle_id": "ak:circle:01904100-0000-7000-8000-000000000002"
                 }]
@@ -310,7 +310,7 @@ mod tests {
             "resource_id": "ak:realm:01904100-0000-7000-8000-000000000101",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {
-                "kind": "ck.realm.discovery",
+                "kind": "ak.realm.discovery",
                 "payload": {
                     "circle_directory": {
                         "entries": [{
@@ -329,7 +329,7 @@ mod tests {
         // value either — the walker catches `ck:circle:` no matter
         // which key it lives under.
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "summary": "see also ck:circle:01904100-0000-7000-8000-000000000001 for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn rejects_circle_id_array_element() {
         let value = json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "related": [
                 "ak:realm:01904100-0000-7000-8000-000000000101",
                 "ak:circle:01904100-0000-7000-8000-000000000001",
@@ -360,7 +360,7 @@ mod tests {
             "resource_kind": "realm",
             "resource_id": "ak:circle:01904100-0000-7000-8000-000000000001",
             "principal_server_did": "did:web:principal.test",
-            "discovery_state": {"kind": "ck.realm.discovery"},
+            "discovery_state": {"kind": "ak.realm.discovery"},
         });
         let err = reject_circle_payload(&envelope).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -390,8 +390,8 @@ mod tests {
     #[test]
     fn property_random_circle_injection_is_always_caught() {
         let bases = [
-            json!({"kind": "ck.realm.discovery"}),
-            json!({"kind": "ck.realm.discovery", "directory_services": []}),
+            json!({"kind": "ak.realm.discovery"}),
+            json!({"kind": "ak.realm.discovery", "directory_services": []}),
             json!({"nested": {"a": {"b": {"c": 1}}}}),
             json!({"list": [1, 2, {"deep": "ok"}]}),
         ];
@@ -450,13 +450,13 @@ mod tests {
     #[test]
     fn property_clean_realm_payloads_are_accepted() {
         let payloads = [
-            json!({"kind": "ck.realm.discovery", "discoverability": "public"}),
-            json!({"kind": "ck.realm.discovery", "directory_services": ["did:web:d.test"], "policy_revision": "r-42"}),
-            json!({"kind": "ck.realm.discovery", "as_of": "2026-05-26T00:00:00Z"}),
-            json!({"kind": "ck.actor.discovery", "handle": "did:web:alice"}),
+            json!({"kind": "ak.realm.discovery", "discoverability": "public"}),
+            json!({"kind": "ak.realm.discovery", "directory_services": ["did:web:d.test"], "policy_revision": "r-42"}),
+            json!({"kind": "ak.realm.discovery", "as_of": "2026-05-26T00:00:00Z"}),
+            json!({"kind": "ak.actor.discovery", "handle": "did:web:alice"}),
             // member_count_bucket is allowed — the bucket grid is the
             // anti-enumeration sanctioned projection.
-            json!({"kind": "ck.realm.discovery", "member_count_bucket": "11-50"}),
+            json!({"kind": "ak.realm.discovery", "member_count_bucket": "11-50"}),
         ];
         for payload in payloads {
             assert!(

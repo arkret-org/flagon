@@ -133,7 +133,7 @@ async fn install_restricted_realm_claim_selector(
     diesel::sql_query(
         "UPDATE directory_resources \
          SET public_projection = jsonb_set(public_projection, '{allowed_discoverers}', $1::jsonb, true) \
-         WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ck:realm:restricted'",
+         WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak.realm:restricted'",
     )
     .bind::<Jsonb, _>(discoverers)
     .execute(&mut conn)
@@ -148,11 +148,11 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     let profiles = body["supported_profiles"].as_array().unwrap();
-    assert!(profiles.contains(&json!("ck.profile.directory_service.v1")));
-    assert!(profiles.contains(&json!("ck.private_contact_discovery.v1")));
+    assert!(profiles.contains(&json!("ak.profile.directory_service.v1")));
+    assert!(profiles.contains(&json!("ak.private_contact_discovery.v1")));
     let discovery_profiles = body["discovery_profiles"].as_array().unwrap();
-    assert!(discovery_profiles.contains(&json!("ck.profile.directory_service.v1")));
-    assert!(discovery_profiles.contains(&json!("ck.private_contact_discovery.v1")));
+    assert!(discovery_profiles.contains(&json!("ak.profile.directory_service.v1")));
+    assert!(discovery_profiles.contains(&json!("ak.private_contact_discovery.v1")));
     assert_eq!(body["service_did"], "did:web:directory.test");
     assert_eq!(body["service_type"], "directory_service");
     assert!(
@@ -253,7 +253,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
         let mut conn = db.get().await?;
         diesel::sql_query(
             "DELETE FROM verified_realm_organizations \
-             WHERE realm_id = 'ck:realm:org-verified'",
+             WHERE realm_id = 'ak.realm:org-verified'",
         )
         .execute(&mut conn)
         .await?;
@@ -272,9 +272,9 @@ async fn assert_official_badge_is_verified_relationship_driven(
                (realm_id, organization_did, relationship, control_scopes, statement_id, \
                 statement_issued_at, not_before, expires_at, realm_frontier_digest, stale, \
                 verified_at, source_announce_id) \
-             VALUES ('ck:realm:org-verified', 'did:web:tea-org.example', 'owner', \
+             VALUES ('ak.realm:org-verified', 'did:web:tea-org.example', 'owner', \
                      ARRAY['official_badge'], 'org-stmt-expired', now() - interval '2 hours', \
-                     NULL, now() - interval '1 hour', NULL, false, now(), 'ck:announce:expired')",
+                     NULL, now() - interval '1 hour', NULL, false, now(), 'ak.announce:expired')",
         )
         .execute(&mut conn)
         .await?;
@@ -641,7 +641,7 @@ async fn assert_pull_worker_refreshes_due_entry(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET next_revalidation_after = now() - interval '1 second' \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ck:realm:pull'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak.realm:pull'",
         )
         .execute(&mut conn)
         .await?;
@@ -664,7 +664,7 @@ async fn assert_pull_worker_refreshes_due_entry(
     let pull_count: i64 = diesel::sql_query(
         "SELECT count(*) FROM ingest_announces \
          WHERE resource_kind = 'realm'::resource_kind \
-           AND resource_id = 'ck:realm:pull' \
+           AND resource_id = 'ak.realm:pull' \
            AND ingest_mode = 'pull'::ingest_mode",
     )
     .get_result::<CountRow>(&mut conn)
@@ -683,7 +683,7 @@ async fn assert_freshness_flags_are_exposed(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET stale = true \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ck:realm:tea'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak.realm:tea'",
         )
         .execute(&mut conn)
         .await?;
@@ -1222,7 +1222,7 @@ fn handle_mock_principal_connection(
                     "events": [{
                         "event": {
                             "event_id": event_id,
-                            "kind": "ck.realm.discovery",
+                            "kind": "ak.realm.discovery",
                             "created_at": Utc::now(),
                             "content": state,
                         }
@@ -1259,7 +1259,7 @@ fn signed_realm_discovery_state_named(
     name: &str,
 ) -> anyhow::Result<JsonValue> {
     let mut state = json!({
-        "kind": "ck.realm.discovery",
+        "kind": "ak.realm.discovery",
         "discoverability": "public",
         "directory_services": ["did:web:directory.test"],
         "name": name,

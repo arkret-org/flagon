@@ -59,9 +59,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // Round 4 — `supported_profiles` is the union of the directory
     // baseline profile and (optionally) the private-contact-discovery
     // extension profile. Empty array is valid; missing is not.
-    let mut supported_profiles = vec!["ck.profile.directory_service.v1".to_owned()];
+    let mut supported_profiles = vec!["ak.profile.directory_service.v1".to_owned()];
     if cfg.private_contact_discovery_enabled {
-        supported_profiles.push("ck.private_contact_discovery.v1".to_owned());
+        supported_profiles.push("ak.private_contact_discovery.v1".to_owned());
     }
     let directory_discovery_profiles = supported_profiles.clone();
 
@@ -72,7 +72,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(|op| (*op).to_owned())
         .collect();
     if cfg.private_contact_discovery_enabled {
-        supported_operations.push("ck.find.directory.query.private_contact_discovery".to_owned());
+        supported_operations.push("ak.find.directory.query.private_contact_discovery".to_owned());
     }
 
     // Transport / encoding bindings this service speaks. Strongly typed
@@ -345,7 +345,7 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     limitations.push(json!({
         "feature": "webhook_fanout_delivery",
         "status": "best_effort",
-        "detail": "ck.find.directory.push.command.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
+        "detail": "ak.find.directory.push.command.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
     limitations
 }
@@ -466,7 +466,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|op| op == "ck.find.directory.query.describe")
+                .any(|op| op == "ak.find.directory.query.describe")
         );
         let limitation_features: std::collections::BTreeSet<_> = value["x_teabay_limitations"]
             .as_array()
@@ -488,7 +488,7 @@ mod tests {
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_type: "directory_service".to_owned(),
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
-            supported_profiles: vec!["ck.profile.directory_service.v1".to_owned()],
+            supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             supported_operations: Vec::new(),
             supported_bindings: Vec::new(),
             supported_features: Vec::new(),
@@ -501,7 +501,7 @@ mod tests {
             implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
-                profile_id: "ck.profile.directory_service.v1".to_owned(),
+                profile_id: "ak.profile.directory_service.v1".to_owned(),
                 claim_kind: arkret_sdk::ConformanceVerifiedKind::ConformanceVerified,
                 verification_run_id: "test-run".to_owned(),
                 artifact_digest:
@@ -520,7 +520,7 @@ mod tests {
             rate_limit_policy: Some(RateLimitPolicy::unspecified()),
             rate_limit_policy_id: None,
             resource_types: all_directory_resource_kinds(),
-            discovery_profiles: vec!["ck.profile.directory_service.v1".to_owned()],
+            discovery_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             restricted_query_proof: Some(true),
             ingest_modes: vec![DirectoryIngestMode::Push],
             accept_policy_kind: Some(DirectoryAcceptPolicyKind::Open),
@@ -674,14 +674,14 @@ mod tests {
         assert!(
             !supported
                 .iter()
-                .any(|p| p == "ck.private_contact_discovery.v1"),
+                .any(|p| p == "ak.private_contact_discovery.v1"),
             "PCD must not appear in supported_profiles when disabled"
         );
         let claimed = value["claimed_profiles"].as_array().unwrap();
         assert!(
             !claimed
                 .iter()
-                .any(|p| p["profile_id"] == "ck.private_contact_discovery.v1"),
+                .any(|p| p["profile_id"] == "ak.private_contact_discovery.v1"),
             "PCD must not be claimed when disabled"
         );
     }

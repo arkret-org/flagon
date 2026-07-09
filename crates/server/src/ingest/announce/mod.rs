@@ -568,7 +568,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
             principal_server_did: body.principal_server_did.clone(),
-            reason: "ck.realm.destroy".into(),
+            reason: "ak.realm.destroy".into(),
             revoked_at: destroyed_at,
         };
         let _ =

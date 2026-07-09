@@ -131,7 +131,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.resolve_target",
+        "ak.find.directory.query.resolve_target",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad(OP, target),
         resolve(
@@ -588,7 +588,7 @@ fn decode_token_json(token: &str) -> Option<JsonValue> {
 fn preview_token_kind_allowed(value: &JsonValue) -> bool {
     matches!(
         value.get("kind").and_then(JsonValue::as_str),
-        None | Some("preview_token" | "ck.directory.preview_token" | "ck.realm.preview_token")
+        None | Some("preview_token" | "ak.directory.preview_token" | "ck.realm.preview_token")
     )
 }
 
@@ -806,7 +806,7 @@ fn parse_token_descriptor(
     let mut value: JsonValue = serde_json::from_str(token).ok()?;
     if !matches!(
         value.get("kind").and_then(JsonValue::as_str),
-        Some("invite_token" | "ck.directory.invite_token")
+        Some("invite_token" | "ak.directory.invite_token")
     ) {
         return None;
     }

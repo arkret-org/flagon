@@ -107,7 +107,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.search_realms",
+        "ak.find.directory.query.search_realms",
         &privacy_key,
         |target| {
             state
@@ -235,7 +235,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.resolve_realm",
+        "ak.find.directory.query.resolve_realm",
         &key,
         |target| {
             state
@@ -571,7 +571,7 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
             "tombstone": {
                 "kind": "realm_destroyed",
                 "destroyed_at": destroyed_at,
-                "via_event_kind": "ck.realm.destroy",
+                "via_event_kind": "ak.realm.destroy",
             },
         });
         return ResultEnvelope::from_row(
@@ -738,7 +738,7 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
                     RealmJoinCandidateRole::Mirror
                 },
                 endpoint: None,
-                operations: vec!["ck.self.events.command.submit".to_owned()],
+                operations: vec!["ak.self.events.command.submit".to_owned()],
                 join_methods: vec![
                     RealmJoinMethod::InviteAccept,
                     RealmJoinMethod::MemberJoin,

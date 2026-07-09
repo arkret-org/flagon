@@ -71,7 +71,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES (\
-                 'realm'::resource_kind, 'ck:realm:expired', 'did:web:expired.test', \
+                 'realm'::resource_kind, 'ak.realm:expired', 'did:web:expired.test', \
                  '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '50 hours', \
                  ARRAY['evt-expired'], 'rev-expired', now() - interval '50 hours', 60, now() + interval '1 minute', \
                  true, false, ARRAY[]::text[], now() - interval '50 hours', now() - interval '48 hours')",
@@ -91,7 +91,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
     let mut conn = state.db().get().await?;
     let count: i64 = diesel::sql_query(
         "SELECT count(*)::BIGINT AS count FROM directory_resources \
-         WHERE resource_id = 'ck:realm:expired'",
+         WHERE resource_id = 'ak.realm:expired'",
     )
     .get_result::<CountRow>(&mut conn)
     .await?
@@ -120,11 +120,11 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES \
-                 ('realm'::resource_kind, 'ck:realm:within-grace', 'did:web:fresh.test', \
+                 ('realm'::resource_kind, 'ak.realm:within-grace', 'did:web:fresh.test', \
                   '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '2 hours', \
                   ARRAY['evt-within-grace'], 'rev-within-grace', now() - interval '2 hours', 60, now() - interval '30 minutes', \
                   false, false, ARRAY[]::text[], now() - interval '2 hours', now() - interval '30 minutes'), \
-                 ('realm'::resource_kind, 'ck:realm:past-grace', 'did:web:stale.test', \
+                 ('realm'::resource_kind, 'ak.realm:past-grace', 'did:web:stale.test', \
                   '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '3 hours', \
                   ARRAY['evt-past-grace'], 'rev-past-grace', now() - interval '3 hours', 60, now() - interval '2 hours', \
                   false, false, ARRAY[]::text[], now() - interval '3 hours', now() - interval '2 hours')",
@@ -150,7 +150,7 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
     assert_eq!(stale_count, 1);
     let within_grace_count: i64 = diesel::sql_query(
         "SELECT count(*)::BIGINT AS count FROM directory_resources \
-         WHERE resource_id = 'ck:realm:within-grace' AND stale = false",
+         WHERE resource_id = 'ak.realm:within-grace' AND stale = false",
     )
     .get_result::<CountRow>(&mut conn)
     .await?
@@ -215,7 +215,7 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
                  pending_id, resource_kind, resource_id, reason, proposed_by, \
                  quorum, status, expires_at) \
              VALUES (\
-                 'pt-test', 'realm'::resource_kind, 'ck:realm:dlq', 'spam', \
+                 'pt-test', 'realm'::resource_kind, 'ak.realm:dlq', 'spam', \
                  'did:web:operator.test', 1, 'pending', now() + interval '1 day')",
         )
         .execute(&mut conn)

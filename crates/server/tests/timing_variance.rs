@@ -11,7 +11,7 @@ use server::filter::enumeration::LatencyBudget;
 
 const FLOOR_MS: u64 = 5;
 const JITTER_MS: u64 = 3;
-const ROUTE: &str = "ck.find.directory.query.resolve_handle";
+const ROUTE: &str = "ak.find.directory.query.resolve_handle";
 
 #[test]
 fn latency_budget_targets_are_branch_independent_and_bounded() {

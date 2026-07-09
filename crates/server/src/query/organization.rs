@@ -82,7 +82,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let result = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.search_organizations",
+        "ak.find.directory.query.search_organizations",
         &privacy_key,
         |target| {
             state
@@ -212,7 +212,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let row = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.resolve_organization",
+        "ak.find.directory.query.resolve_organization",
         &key,
         |target| {
             state

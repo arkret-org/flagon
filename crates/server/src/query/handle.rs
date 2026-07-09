@@ -317,7 +317,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ck.find.directory.query.resolve_handle",
+        "ak.find.directory.query.resolve_handle",
         &privacy_key,
         |target| {
             state

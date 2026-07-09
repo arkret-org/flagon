@@ -18,11 +18,11 @@ INSERT INTO directory_resources (
 ) VALUES
 (
     'realm'::resource_kind,
-    'ck:realm:tea',
+    'ak.realm:tea',
     'did:web:principal.test',
     -- Round 4 (spec a77b995): the §3 discovery event kind for the
     -- Realm security boundary is `ck.realm.discovery`.
-    '{"kind":"ck.realm.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
@@ -38,13 +38,13 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-realm'
+    'ak.announce:test-realm'
 ),
 (
     'realm'::resource_kind,
-    'ck:realm:tea-lab',
+    'ak.realm:tea-lab',
     'did:web:principal.test',
-    '{"kind":"ck.realm.discovery","discoverability":"listed"}'::jsonb,
+    '{"kind":"ak.realm.discovery","discoverability":"listed"}'::jsonb,
     '{"name":"Tea Protocol Lab","summary":"Second public conformance realm","member_count_bucket":"11-50"}'::jsonb,
     'listed'::discoverability,
     now() - interval '1 minute',
@@ -56,13 +56,13 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-realm-lab'
+    'ak.announce:test-realm-lab'
 ),
 (
     'realm'::resource_kind,
-    'ck:realm:restricted',
+    'ak.realm:restricted',
     'did:web:principal.test',
-    '{"kind":"ck.realm.discovery","discoverability":"restricted"}'::jsonb,
+    '{"kind":"ak.realm.discovery","discoverability":"restricted"}'::jsonb,
     '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
     'restricted'::discoverability,
     now(),
@@ -74,13 +74,13 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-realm-restricted'
+    'ak.announce:test-realm-restricted'
 ),
 (
     'realm'::resource_kind,
-    'ck:realm:secret',
+    'ak.realm:secret',
     'did:web:principal.test',
-    '{"kind":"ck.realm.discovery","discoverability":"secret"}'::jsonb,
+    '{"kind":"ak.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
     'secret'::discoverability,
     now(),
@@ -92,7 +92,7 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-realm-secret'
+    'ak.announce:test-realm-secret'
 ),
 (
     -- TBY-ORG-02/04 — a Realm that DECLARES an owning organization in its
@@ -100,9 +100,9 @@ INSERT INTO directory_resources (
     -- NOT surface an official verified `owning_organizations` set (declared-only
     -- ⇒ no badge).
     'realm'::resource_kind,
-    'ck:realm:org-declared-only',
+    'ak.realm:org-declared-only',
     'did:web:principal.test',
-    '{"kind":"ck.realm.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_did":"did:web:tea-org.example","owning_organizations":["did:web:tea-org.example"]}'::jsonb,
     'public'::discoverability,
     now(),
@@ -114,16 +114,16 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-realm-org-declared'
+    'ak.announce:test-realm-org-declared'
 ),
 (
     -- TBY-ORG-02/04 — a Realm with an ACTIVE verified owner relationship (see
     -- verified_realm_organizations.sql). It MUST surface the verified org as an
     -- official `owning_organizations` member.
     'realm'::resource_kind,
-    'ck:realm:org-verified',
+    'ak.realm:org-verified',
     'did:web:principal.test',
-    '{"kind":"ck.realm.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Verified Org Realm","summary":"Has an active ck.realm.organization owner statement"}'::jsonb,
     'public'::discoverability,
     now(),
@@ -135,13 +135,13 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-realm-org-verified'
+    'ak.announce:test-realm-org-verified'
 ),
 (
     'organization'::resource_kind,
     'did:web:tea-org.example',
     'did:web:principal.test',
-    '{"kind":"ck.organization.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ak.organization.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Tea Org","handle":"tea-org","summary":"Organization conformance fixture"}'::jsonb,
     'public'::discoverability,
     now(),
@@ -153,13 +153,13 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-org'
+    'ak.announce:test-org'
 ),
 (
     'actor'::resource_kind,
     'did:web:alice.example',
     'did:web:principal.test',
-    '{"kind":"ck.actor.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ak.actor.discovery","discoverability":"public"}'::jsonb,
     '{"handle":"alice.example","display_name":"Alice Tea","realm_ids":["ak:realm:tea"],"organization_did":"did:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
@@ -171,13 +171,13 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-actor'
+    'ak.announce:test-actor'
 ),
 (
     'handle'::resource_kind,
     'alice.example',
     'did:web:principal.test',
-    '{"kind":"ck.handle.discovery","discoverability":"public"}'::jsonb,
+    '{"kind":"ak.handle.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
     -- carries `member_delivery_binding.recipient_service_did` + binding_source
     -- so `resolve_handle(intent=member_add)` can run the Realm policy filter.
@@ -192,5 +192,5 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['did:web:principal.test'],
-    'ck:announce:test-handle'
+    'ak.announce:test-handle'
 );

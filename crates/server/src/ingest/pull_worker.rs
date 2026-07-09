@@ -638,7 +638,7 @@ mod tests {
         };
         let pulled = PulledEvent {
             event_id: "evt-1".to_owned(),
-            kind: "ck.realm.discovery".to_owned(),
+            kind: "ak.realm.discovery".to_owned(),
             created_at: Utc.timestamp_opt(0, 0).unwrap(),
             content: json!({
                 "proof": {

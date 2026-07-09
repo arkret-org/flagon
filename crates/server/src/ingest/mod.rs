@@ -82,11 +82,11 @@ impl DirectoryResourceKindDb {
     /// `resource_kind=space` is rejected at deserialization.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
-            Self::Realm => "ck.realm.discovery",
-            Self::Organization => "ck.organization.discovery",
-            Self::Actor => "ck.actor.discovery",
-            Self::Applet => "ck.applet.discovery",
-            Self::Handle => "ck.handle.discovery",
+            Self::Realm => "ak.realm.discovery",
+            Self::Organization => "ak.organization.discovery",
+            Self::Actor => "ak.actor.discovery",
+            Self::Applet => "ak.applet.discovery",
+            Self::Handle => "ak.handle.discovery",
         }
     }
 }
@@ -252,7 +252,7 @@ mod tests {
     fn db_resource_kind_emits_discovery_event_kind() {
         assert_eq!(
             DirectoryResourceKindDb::Realm.discovery_event_kind(),
-            "ck.realm.discovery"
+            "ak.realm.discovery"
         );
     }
 

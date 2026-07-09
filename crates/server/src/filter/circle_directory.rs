@@ -17,8 +17,8 @@ pub const LOCKED_VISIBILITY: &str = "locked";
 pub const REALM_MEMBERS_VISIBILITY: &str = "realm_members";
 pub const MEMBERS_VISIBILITY: &str = "members";
 
-const COMMITMENT_DOMAIN_LOCKED: &str = "ck.circle.directory.locked_stub.v1";
-const COMMITMENT_DOMAIN_PREVIEW: &str = "ck.circle.directory.realm_members_preview.v1";
+const COMMITMENT_DOMAIN_LOCKED: &str = "ak.circle.directory.locked_stub.v1";
+const COMMITMENT_DOMAIN_PREVIEW: &str = "ak.circle.directory.realm_members_preview.v1";
 
 const DIRECTORY_CONTAINER_KEYS: &[&str] = &[
     "circle_directory",

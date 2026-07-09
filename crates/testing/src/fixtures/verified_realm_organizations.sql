@@ -22,7 +22,7 @@ INSERT INTO verified_realm_organizations (
     source_announce_id
 ) VALUES
 (
-    'ck:realm:org-verified',
+    'ak.realm:org-verified',
     'did:web:tea-org.example',
     'owner',
     ARRAY['official_badge', 'realm_admin'],
@@ -33,12 +33,12 @@ INSERT INTO verified_realm_organizations (
     NULL,
     false,
     now(),
-    'ck:announce:test-realm-org-verified'
+    'ak.announce:test-realm-org-verified'
 ),
 (
     -- Sponsor is NOT an owning / governance relationship: it MUST NOT yield an
     -- official owning organization even though it carries official_badge scope.
-    'ck:realm:tea',
+    'ak.realm:tea',
     'did:web:tea-org.example',
     'sponsor',
     ARRAY['official_badge'],
@@ -49,5 +49,5 @@ INSERT INTO verified_realm_organizations (
     NULL,
     false,
     now(),
-    'ck:announce:test-realm-sponsor'
+    'ak.announce:test-realm-sponsor'
 );

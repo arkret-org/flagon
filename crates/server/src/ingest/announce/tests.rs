@@ -135,7 +135,7 @@ fn cache_key_separates_by_trust_domain() {
 #[test]
 fn handle_claim_ingest_rejects_service_handle_claim_type() {
     let state = json!({
-        "kind": "ck.handle.discovery",
+        "kind": "ak.handle.discovery",
         "claim_kind": "service_handle",
         "subject": "did:web:alice.example",
     });
@@ -179,7 +179,7 @@ fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
     assert!(validate_handle_claim_ingest(&ok).is_ok());
 
     // A realm announce with no handle-claim fields is untouched.
-    let realm = json!({ "kind": "ck.realm.discovery", "discoverability": "public" });
+    let realm = json!({ "kind": "ak.realm.discovery", "discoverability": "public" });
     assert!(validate_handle_claim_ingest(&realm).is_ok());
 
     // And the whole projection path accepts the principal-DID claim.
@@ -189,14 +189,14 @@ fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
 #[test]
 fn public_projection_separates_directory_preview_from_private_search() {
     let state = json!({
-        "kind": "ck.realm.discovery",
+        "kind": "ak.realm.discovery",
         "title": "Tea Time",
         "member_count": 42,
         "anti_enumeration": {
             "member_count_mode": "bucketed"
         },
         "search_policy": {
-            "enabled_profile_refs": ["ck.profile.search.blind_index.v1"],
+            "enabled_profile_refs": ["ak.profile.search.blind_index.v1"],
             "allowed_service_dids": ["did:web:search.example"],
             "data_classes": ["encrypted_index", "blind_tokens"],
             "index_retention_ms": 3600,
@@ -210,7 +210,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
         },
         "service_capabilities": [{
             "service_did": "did:web:search.example",
-            "profile": "ck.profile.search.blind_index.v1",
+            "profile": "ak.profile.search.blind_index.v1",
             "blind_tokens": ["tok"]
         }]
     });
@@ -236,7 +236,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
 #[test]
 fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
     let state = json!({
-        "kind": "ck.realm.discovery",
+        "kind": "ak.realm.discovery",
         "title": "Tea Time",
         "circles": [{
             "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
@@ -287,7 +287,7 @@ fn announce_digest_uses_canonical_json_body() {
         .unwrap()
         .with_timezone(&Utc);
     let mut first_state = serde_json::Map::new();
-    first_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
+    first_state.insert("kind".to_owned(), json!("ak.realm.discovery"));
     first_state.insert("discoverability".to_owned(), json!("public"));
     first_state.insert(
         "directory_services".to_owned(),
@@ -300,7 +300,7 @@ fn announce_digest_uses_canonical_json_body() {
         json!(["did:web:directory.test"]),
     );
     second_state.insert("discoverability".to_owned(), json!("public"));
-    second_state.insert("kind".to_owned(), json!("ck.realm.discovery"));
+    second_state.insert("kind".to_owned(), json!("ak.realm.discovery"));
 
     let first = DirectoryAnnounceIngest {
         resource_kind: DirectoryResourceKindDb::Realm,
@@ -332,7 +332,7 @@ fn digest_request_rejects_non_canonical_float_values() {
         resource_id: "ak:realm:tea".to_owned(),
         principal_server_did: "did:web:principal.test".to_owned(),
         discovery_state: DirectoryDiscoveryState::from_json(json!({
-            "kind": "ck.realm.discovery",
+            "kind": "ak.realm.discovery",
             "discoverability": "public",
             "directory_services": ["did:web:directory.test"],
             "non_canonical": 1.5
