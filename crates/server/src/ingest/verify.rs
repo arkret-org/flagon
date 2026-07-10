@@ -659,13 +659,13 @@ pub(crate) async fn resolve_principal_server_endpoint(
     // Principal Server services; teabay keeps that deterministic convention.
     let service = services
         .iter()
-        .find(|service| service_type_matches(service, "CokretPrincipalServer"))
-        .ok_or_else(|| anyhow::anyhow!("DID document has no CokretPrincipalServer service"))?;
+        .find(|service| service_type_matches(service, "ArkretPrincipalServer"))
+        .ok_or_else(|| anyhow::anyhow!("DID document has no ArkretPrincipalServer service"))?;
     let endpoint = service
         .get("serviceEndpoint")
         .and_then(JsonValue::as_str)
         .filter(|endpoint| !endpoint.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("CokretPrincipalServer serviceEndpoint is missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("ArkretPrincipalServer serviceEndpoint is missing"))?;
     service_endpoint_url(&doc_url, endpoint, config.development_mode)
 }
 

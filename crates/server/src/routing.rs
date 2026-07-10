@@ -727,7 +727,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ak.find.directory.command.announce",
             "ingest",
             "Announce Discovery State",
-            "Push-mode ingest for signed ck.{kind}.discovery state.",
+            "Push-mode ingest for signed ak.{kind}.discovery state.",
         ),
         (
             "/_arkret/find/directory/withdraw",

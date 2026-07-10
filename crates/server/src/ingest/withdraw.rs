@@ -28,7 +28,7 @@ pub struct DirectoryWithdrawInput {
     #[serde(skip)]
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    /// Same proof envelope used in `ck.{kind}.discovery.proof` — must be
+    /// Same proof envelope used in `ak.{kind}.discovery.proof` — must be
     /// signed by the resource's governance key. Verification follows §8.5
     /// step 2.
     pub governance_proof: JsonValue,
@@ -287,7 +287,7 @@ async fn persist_withdraw(
 
 /// Resolve the `resource_kind` for a `resource_id` that does not carry the
 /// kind on the wire (withdraw, takedown appeal): prefer the indexed
-/// directory row, fall back to ck-id prefix inference. Shared with the appeal
+/// directory row, fall back to ak-id prefix inference. Shared with the appeal
 /// ingest handler.
 pub(crate) async fn resolve_withdraw_resource_kind(
     state: &AppState,

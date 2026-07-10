@@ -13,7 +13,7 @@ use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 
 /// Round R2/R3 T07 — detect a realm terminal state from the verified
 /// discovery_state. The directory accepts the destroy anchor either as
-/// `terminal_state: "destroyed"` (preferred, anchored via the `ck.realm.
+/// `terminal_state: "destroyed"` (preferred, anchored via the `ak.realm.
 /// destroy` event kind) or as a `realm_destroyed: true` shorthand. The
 /// returned timestamp is `as_of_destroyed` if present, else `as_of`.
 pub(crate) fn derive_realm_terminal_state(

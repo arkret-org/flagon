@@ -49,7 +49,7 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     }
 
     // `resource_kind` is not on the wire (spec `resource_id` self-describes
-    // its type); resolve it from the indexed row or ck-id prefix.
+    // its type); resolve it from the indexed row or ak-id prefix.
     let resource_kind = match resolve_withdraw_resource_kind(&state, &body.resource_id).await {
         Ok(resource_kind) => resource_kind,
         Err(message) => {

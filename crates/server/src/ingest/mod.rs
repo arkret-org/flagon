@@ -74,7 +74,7 @@ pub enum DirectoryResourceKindDb {
 }
 
 impl DirectoryResourceKindDb {
-    /// Spec `ck.{kind}.discovery` event kind for this resource.
+    /// Spec `ak.{kind}.discovery` event kind for this resource.
     ///
     /// Realm is the security boundary. Container Spaces are authorization
     /// transparent and are NOT a directory resource kind (`§8.3` enum:

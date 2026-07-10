@@ -2,13 +2,13 @@
 //!
 //! Wakes every `TEABAY_PULL_INTERVAL_SECONDS`, scans for entries whose
 //! `next_revalidation_after` has passed, and re-pulls their signed
-//! `ck.{kind}.discovery` state from the resource Principal Server using
+//! `ak.{kind}.discovery` state from the resource Principal Server using
 //! the standard `ak.self.events.query.scan` shape:
 //!
 //! ```text
 //! GET /_arkret/self/events/query
 //!   ?subject={resource_id}
-//!   &kind=ck.{...}.discovery
+//!   &kind=ak.{...}.discovery
 //!   &state_only=true
 //!   &after_revision={last_known_revision}
 //! ```

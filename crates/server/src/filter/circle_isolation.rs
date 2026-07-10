@@ -370,7 +370,7 @@ mod tests {
     /// caught (typed-id parsers are case-insensitive per spec
     /// §id-format).
     #[test]
-    fn rejects_mixed_case_ck_circle_prefix() {
+    fn rejects_mixed_case_ak_circle_prefix() {
         let envelope = json!({
             "discovery_state": {"note": "Ck:CIRCLE:01904100-0000-7000-8000-000000000001"},
         });

@@ -1206,7 +1206,7 @@ fn handle_mock_principal_connection(
         "id": principal_server_did,
         "service": [{
             "id": format!("{principal_server_did}#principal"),
-            "type": "CokretPrincipalServer",
+            "type": "ArkretPrincipalServer",
             "serviceEndpoint": format!("http://127.0.0.1:{}/_arkret", addr.port()),
         }]
     });

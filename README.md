@@ -5,7 +5,7 @@
 Reference Arkret v1 **Directory Service** implementation.
 
 teabay is the *discovery entry layer* of the Arkret protocol stack: it accepts
-signed `ck.{realm,organization,actor,applet,handle}.discovery` state from
+signed `ak.{realm,organization,actor,applet,handle}.discovery` state from
 resource Principal Servers, indexes the public-metadata projection, and
 serves authorized search / resolve queries — all while enforcing the
 spec's anti-enumeration filter.
@@ -232,7 +232,7 @@ client / SDK  ──────▶   |  Salvo router              |
                           │          +-----------+
                           │                │
                           │     pull-mode  │
-                          │   (ck.events.  │
+                          │   (ak.events.  │
                           │   query)       │
                           ▼                ▼
                   resource Principal Server (soland / other)

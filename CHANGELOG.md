@@ -128,7 +128,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
 
 #### Added
 
-- **T14 — Federation idempotency cache key extension.** The `ck.directory.
+- **T14 — Federation idempotency cache key extension.** The `ak.directory.
   announce` replay cache key now includes the four federation-identity
   fields: `Source-Service-DID` header, `verification_method` (from the
   discovery proof), `service_binding_ref` header, and
