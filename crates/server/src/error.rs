@@ -169,7 +169,7 @@ impl ApiErrorCode {
         StatusCode::CONFLICT,
     );
     // §8.7 — an announce against a Realm that has reached the
-    // `ck.realm.destroy` terminal state. Distinct from
+    // `ak.realm.destroy` terminal state. Distinct from
     // `policy_revision_rollback` (which means an `as_of`/`policy_revision`
     // earlier than the indexed value, §8.10).
     #[allow(non_upper_case_globals)]
@@ -177,8 +177,8 @@ impl ApiErrorCode {
         Self::new(arkret_sdk::ERROR_CODE_CONFLICT, StatusCode::CONFLICT);
 
     // -------- R3 spec-sync 2026-05-27 (commit b47ff6e) --------
-    // CKP R3 handle homograph wire-level enforce. Emitted by
-    // `ck.find.directory.query.resolve_handle` (query face) and announce ingest
+    // AKP R3 handle homograph wire-level enforce. Emitted by
+    // `ak.find.directory.query.resolve_handle` (query face) and announce ingest
     // when the handle localpart fails the NFC + UTS#39 confusable +
     // script-mixed normalization check provided by
     // `arkret_sdk::normalize_handle_localpart`.
@@ -189,9 +189,9 @@ impl ApiErrorCode {
     );
 
     // -------- R3.2 spec-sync 2026-05-28 (arkret-spec @ b56cab1) --------
-    // `ck.find.directory.query.list_handles_for_subject` input validation. A
-    // `subject` that is not a holder/principal DID (a `ck:actor:` Realm
-    // actor_id, a `ck:account:` server-local account id, a service DID,
+    // `ak.find.directory.query.list_handles_for_subject` input validation. A
+    // `subject` that is not a holder/principal DID (a `ak:actor:` Realm
+    // actor_id, a `ak:account:` server-local account id, a service DID,
     // or a non-DID resource id) is rejected with `failed_precondition`
     // carrying the `invalid_subject_kind` reason in the message — the
     // request is structurally well-formed JSON but cannot be satisfied

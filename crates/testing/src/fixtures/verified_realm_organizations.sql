@@ -1,11 +1,11 @@
--- TBY-ORG-04 — verified `ck.realm.organization` relationship fixtures.
+-- TBY-ORG-04 — verified `ak.realm.organization` relationship fixtures.
 --
 -- These rows simulate the post-verification state of the
 -- `verified_realm_organizations` index (the SDK verifier output is exercised
 -- by the unit tests in `ingest::organization_statement`). They drive the
 -- directory-side acceptance cases:
---   * `ck:realm:org-verified`  — active owner w/ official_badge ⇒ badge shown.
---   * `ck:realm:tea`           — active sponsor relationship (NOT owner /
+--   * `ak:realm:org-verified`  — active owner w/ official_badge ⇒ badge shown.
+--   * `ak:realm:tea`           — active sponsor relationship (NOT owner /
 --                                governance) ⇒ no official owning organization.
 INSERT INTO verified_realm_organizations (
     realm_id,

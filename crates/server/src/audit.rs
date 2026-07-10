@@ -41,7 +41,7 @@ pub enum AuditEventKind {
     /// T17 — soland broadcast a `consent_revoke{scope=any}` and the
     /// directory invalidated the actor's reachability projection.
     ConsentRevokeInvalidation,
-    /// T07 — a `ck.realm.destroy` anchor was observed; the row was
+    /// T07 — a `ak.realm.destroy` anchor was observed; the row was
     /// flipped to its tombstone projection.
     RealmDestroyed,
     /// T14 — a federation announce request hit the cache after the

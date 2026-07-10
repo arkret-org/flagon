@@ -1,12 +1,12 @@
 //! UUIDv7-prefixed identifiers used by teabay.
 //!
-//! `ck:announce:` is a registered protocol typed id. Other teabay-issued
+//! `ak:announce:` is a registered protocol typed id. Other teabay-issued
 //! ids are Directory-local references and deliberately stay outside the
-//! reserved `ck:` namespace.
+//! reserved `ak:` namespace.
 //!
-//! ## CKP-0007 `ck:circle:` tolerance (P2E.7)
+//! ## AKP-0007 `ak:circle:` tolerance (P2E.7)
 //!
-//! `ck:circle:` is a recognised typed-id prefix in the wider Arkret
+//! `ak:circle:` is a recognised typed-id prefix in the wider Arkret
 //! identifier space, but teabay MUST NOT generate or store Circle as a
 //! top-level directory resource. teabay deliberately **does not** add a
 //! `Circle` variant to [`IdClass`]: Circle directory preview/stub handling is

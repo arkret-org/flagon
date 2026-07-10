@@ -21,7 +21,7 @@ INSERT INTO directory_resources (
     'ak.realm:tea',
     'did:web:principal.test',
     -- Round 4 (spec a77b995): the §3 discovery event kind for the
-    -- Realm security boundary is `ck.realm.discovery`.
+    -- Realm security boundary is `ak.realm.discovery`.
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
@@ -96,7 +96,7 @@ INSERT INTO directory_resources (
 ),
 (
     -- TBY-ORG-02/04 — a Realm that DECLARES an owning organization in its
-    -- projection but has NO verified `ck.realm.organization` statement. It MUST
+    -- projection but has NO verified `ak.realm.organization` statement. It MUST
     -- NOT surface an official verified `owning_organizations` set (declared-only
     -- ⇒ no badge).
     'realm'::resource_kind,

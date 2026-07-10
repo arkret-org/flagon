@@ -1,5 +1,5 @@
 //! Reverse handle lookup — R3.2 (arkret-spec @ b56cab1),
-//! `ck.find.directory.query.list_handles_for_subject`.
+//! `ak.find.directory.query.list_handles_for_subject`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
 //! known holder/principal DID (the `subject`) plus disclosure context, return
@@ -21,7 +21,7 @@
 //!
 //! ## Output invariant
 //!
-//! Per `ck.schema.list_handles_for_subject_response.v1`, every
+//! Per `ak.schema.list_handles_for_subject_response.v1`, every
 //! `claims[].subject` MUST byte-equal `response.subject`. We fail closed:
 //! any claim whose derived subject does not equal the request subject is
 //! DROPPED before the response is built, and the assembled response is run
@@ -40,7 +40,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 // NOTE: `arkret_sdk::HandleClaim` resolves to the SDK identity-layer claim
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
-// the crate root. The `ck.schema.list_handles_for_subject_response.v1` body
+// the crate root. The `ak.schema.list_handles_for_subject_response.v1` body
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
 use arkret_sdk::models::HandleClaim;
 use arkret_sdk::{
@@ -97,7 +97,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     };
 
     // Input validator (DIR-TBY-2): the subject MUST be a holder/principal
-    // DID. Reject `ck:actor:` Realm actor ids, `ck:account:` server-local
+    // DID. Reject `ak:actor:` Realm actor ids, `ak:account:` server-local
     // account ids, service DIDs, and any non-DID resource id with
     // `failed_precondition` carrying the `invalid_subject_kind` reason. We
     // reuse the SDK's `validate_handle_claim_subject` so the reverse-lookup

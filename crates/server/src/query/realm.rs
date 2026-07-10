@@ -1,12 +1,12 @@
 //! Realm search and resolve. Spec §9.
 //!
-//! `ck.find.directory.query.search_realms` and `ck.find.directory.query.resolve_realm`. Both
+//! `ak.find.directory.query.search_realms` and `ak.find.directory.query.resolve_realm`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
 //!
 //! The security boundary resource on this surface is a **Realm**
-//! (`ck:realm:` URI prefix). Container Spaces are a separate
+//! (`ak:realm:` URI prefix). Container Spaces are a separate
 //! `resource_kind=space` row type and are intentionally not returned here.
 
 use base64::Engine as _;
@@ -301,10 +301,10 @@ fn verified_restricted_claims_for_realm_query(
     .unwrap_or_default()
 }
 
-// ---- shared resolution helper (CKP-0011 reuse) --------------------------
+// ---- shared resolution helper (AKP-0011 reuse) --------------------------
 
 /// The canonical realm-resolution outcome, extracted so the object-level
-/// `ck.find.directory.query.resolve_target` handler (CKP-0011,
+/// `ak.find.directory.query.resolve_target` handler (AKP-0011,
 /// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
 /// semantics — same key load, same visibility / blinding rules, same
 /// `via_services` and §9.1 common fields — instead of reinventing them.
@@ -312,7 +312,7 @@ fn verified_restricted_claims_for_realm_query(
 /// `realm.rs` stays the single source of truth for what "resolving a Realm"
 /// means; `target.rs` builds its `realm_preview` branch entirely from this.
 pub(crate) struct ResolvedRealm {
-    /// Canonical `ck:realm:<uuid>` resource id (resolved from an alias when
+    /// Canonical `ak:realm:<uuid>` resource id (resolved from an alias when
     /// the caller supplied an alias key).
     pub realm_id: String,
     /// The §9.1 result envelope (public-projection payload + as_of /
@@ -353,7 +353,7 @@ pub(crate) async fn resolve_realm_visible(
 
 /// Resolve a Realm for a token-scoped preview link. This deliberately skips
 /// the ordinary discoverability gate: the preview token and effective
-/// `ck.realm.preview_policy` are the authorization boundary for this path.
+/// `ak.realm.preview_policy` are the authorization boundary for this path.
 pub(crate) async fn resolve_realm_for_preview_link(
     state: &AppState,
     key: &str,
@@ -558,7 +558,7 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
 }
 
 fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
-    // Round R2/R3 T07 — once `ck.realm.destroy` has anchored, the row's
+    // Round R2/R3 T07 — once `ak.realm.destroy` has anchored, the row's
     // projection collapses to a deterministic tombstone so the resolve
     // / search face surfaces `[erased]` instead of leaking the historical
     // governance state.
@@ -933,7 +933,7 @@ WITH ranked AS (
       -- this is a declared-hint filter (a cheap pre-filter / discovery aid). It
       -- is NOT a verified-relationship filter: each returned preview's
       -- `owning_organizations` is re-derived from the verified
-      -- `ck.realm.organization` index by `apply_verified_organizations`, so the
+      -- `ak.realm.organization` index by `apply_verified_organizations`, so the
       -- client distinguishes "claims this org" (matched here) from "verified
       -- official relationship" (present in the preview's owning_organizations).
       AND (

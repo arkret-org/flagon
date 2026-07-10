@@ -1,6 +1,6 @@
 //! Environment-driven configuration.
 //!
-//! Mirrors the spec `ck.find.directory.query.describe` ingest fields (§8.9) so the
+//! Mirrors the spec `ak.find.directory.query.describe` ingest fields (§8.9) so the
 //! runtime can both honor and advertise them coherently.
 
 use std::collections::HashMap;
@@ -30,7 +30,7 @@ pub struct AppConfig {
     /// Round 4 — typed trust domain advertised in
     /// `/directory/describe` and required on every cross-trust-domain
     /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
-    /// to `ck:trust_domain:local.test` so the in-process conformance
+    /// to `ak:trust_domain:local.test` so the in-process conformance
     /// harness keeps working without operator hand-holding.
     pub trust_domain: String,
     pub database_url: String,
@@ -72,7 +72,7 @@ pub struct AppConfig {
 
     pub rate_limit_per_resource_per_min: u32,
     /// Query-face rate limit (per IP, per 60s window). Applies to every
-    /// `ck.directory.search_*` / `ck.directory.resolve_*` endpoint. 0
+    /// `ak.directory.search_*` / `ak.directory.resolve_*` endpoint. 0
     /// means disabled. Env: `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`.
     pub query_max_queries_per_ip_per_min: u32,
     /// Per-`resource_id` resolve rate limit. Cools off enumeration
@@ -303,7 +303,7 @@ impl AppConfig {
             .unwrap_or_else(|_| "ak:trust_domain:local.test".to_owned());
         if arkret_sdk::TypedTrustDomainId::new(trust_domain.clone()).is_err() {
             anyhow::bail!(
-                "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `ck:trust_domain:` identifier"
+                "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `ak:trust_domain:` identifier"
             );
         }
 

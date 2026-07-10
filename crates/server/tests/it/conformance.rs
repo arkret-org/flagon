@@ -201,7 +201,7 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
 }
 
 /// TBY-ORG-02/03/04 — the official verified badge / owning-organization surface
-/// is driven exclusively by the verified `ck.realm.organization` index, never by
+/// is driven exclusively by the verified `ak.realm.organization` index, never by
 /// a declared projection hint. Covers: active owner ⇒ badge; declared-only ⇒ no
 /// badge; relationship mismatch (sponsor ≠ owner) ⇒ no badge; revoke removes
 /// badge; expiry removes badge.
@@ -707,7 +707,7 @@ async fn assert_three_path_takedown_strand(
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
 
-    // Path 1: resource state-change (`ck.realm.destroy`) collapses the
+    // Path 1: resource state-change (`ak.realm.destroy`) collapses the
     // indexed Realm into a tombstone projection.
     let mut destroyed_state =
         signed_realm_discovery_state_named(&verification_method, &signing_key, "Destroyable Tea")?;

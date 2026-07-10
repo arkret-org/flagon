@@ -20,13 +20,13 @@ authority, nor a global crawler. See `arkret-spec/spec/v1/zh/discovery/discovery
 Discovery projections target the **Realm** as the unit of public metadata:
 
 - **Realm:** security boundary — membership, capability, E2EE, federation;
-  the unit on which `ck.realm.discovery` announces and `ck.realm.link`
+  the unit on which `ak.realm.discovery` announces and `ak.realm.link`
   edges (governed_by / discoverable_from / mirror_of) operate.
 - **Space:** navigation container — board, list, section, calendar bucket
   inside a Realm. Spaces are not directly discoverable; they ride along
   their parent Realm.
 
-Per spec, directory discovery uses `ck.realm.discovery`; Space containers are
+Per spec, directory discovery uses `ak.realm.discovery`; Space containers are
 not independently announced to teabay.
 
 ## Round R4 (protocol review closures)
@@ -50,7 +50,7 @@ wire-breaking list.
 ## Round R2/R3 operator notes
 
 Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
-key on `ck.find.directory.command.announce`. The cache key now includes
+key on `ak.find.directory.command.announce`. The cache key now includes
 `Source-Service-DID` / `verification_method` / `service_binding_ref` /
 `origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and
@@ -67,7 +67,7 @@ columns to `ingest_announces` and the `realm_destroyed_at` /
 
 ## Conformance scope
 
-This implementation targets the `ck.profile.directory_service.v1` profile
+This implementation targets the `ak.profile.directory_service.v1` profile
 defined by the Arkret v1 spec — concretely:
 
 - **§7** Directory Service Role (3-responsibility positioning, 6 invariants)
@@ -84,11 +84,11 @@ Section 6 (Private Contact Discovery) is implemented with RFC 9497 VOPRF
 blind / match strands. Parent Space semantics are represented through scope
 filters and membership hints where the Directory profile needs them.
 
-`ck.directory.describe.limitations` is populated at runtime for conformance
+`ak.directory.describe.limitations` is populated at runtime for conformance
 honesty. Current limitations are: pull-mode ingest is declared disabled when
 `TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown webhook fanout is
 HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
-from `ck.find.directory.push.command.register` is HMAC-signed best-effort delivery without a
+from `ak.find.directory.push.command.register` is HMAC-signed best-effort delivery without a
 durable retry queue; PSI match indexing is capped at 10,000 eligible public or
 listed contact rows and returns `limited=true` when capped.
 
@@ -197,7 +197,7 @@ scripts/local-artifacts.sh
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
-behavior, `ck.find.directory.push.command.register`, signed push announce against a mock
+behavior, `ak.find.directory.push.command.register`, signed push announce against a mock
 Principal Server, pull-mode revalidation, freshness flags, PSI blind / match,
 and takedown audit through the admin operator surface.
 
@@ -333,4 +333,4 @@ Apache-2.0.
 <!-- circle-rollout milestone pointer -->
 > **Active milestone tracking** (local-only, gitignored): see
 > `_teabay_todos.md` in the parent `arkret/` directory for the
-> circle-rollout (CKP-0007) work item list and per-stage checkpoints.
+> circle-rollout (AKP-0007) work item list and per-stage checkpoints.

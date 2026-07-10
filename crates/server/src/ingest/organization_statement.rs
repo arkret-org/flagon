@@ -1,17 +1,17 @@
-//! TBY-ORG-01/03 — ingest, verify, and lifecycle of `ck.realm.organization`
+//! TBY-ORG-01/03 — ingest, verify, and lifecycle of `ak.realm.organization`
 //! relationship statements.
 //!
 //! The directory never trusts a bare `organization_did` /
 //! `owning_organizations` projection hint as an official organization
 //! relationship. An official badge, organization scoping, or
 //! directory-certifier relationship is only valid once it derives from an
-//! `active`, in-validity-window, scope-covering `ck.realm.organization`
+//! `active`, in-validity-window, scope-covering `ak.realm.organization`
 //! statement that has passed the canonical SDK verifier
 //! ([`arkret_sdk::verify_realm_organization_statement`]).
 //!
-//! teabay observes these statements through the Realm `ck.realm.discovery`
+//! teabay observes these statements through the Realm `ak.realm.discovery`
 //! announce body: a Realm whose discovery policy lists organization
-//! relationships carries the verified `ck.realm.organization` payloads under
+//! relationships carries the verified `ak.realm.organization` payloads under
 //! `discovery_state.organization_statements[]`. Each payload is verified
 //! independently and, on success, projected into the
 //! `verified_realm_organizations` index keyed by `(realm_id, organization_did,
@@ -37,7 +37,7 @@ use serde_json::Value as JsonValue;
 use crate::db::Db;
 
 /// Wire field on a Realm `discovery_state` that carries verified
-/// `ck.realm.organization` relationship statements awaiting directory-side
+/// `ak.realm.organization` relationship statements awaiting directory-side
 /// re-verification.
 pub(crate) const ORGANIZATION_STATEMENTS_FIELD: &str = "organization_statements";
 
@@ -67,7 +67,7 @@ fn control_scope_as_str(scope: RealmOrganizationControlScope) -> &'static str {
     }
 }
 
-/// A `ck.realm.organization` statement that passed the SDK verifier and is
+/// A `ak.realm.organization` statement that passed the SDK verifier and is
 /// ready to be projected into (or removed from) the verified index.
 #[derive(Debug, Clone)]
 pub(crate) struct VerifiedStatement {
@@ -99,7 +99,7 @@ pub(crate) struct StatementIngestOutcome {
     pub rejected: Vec<RejectedStatement>,
 }
 
-/// Parse + verify the `ck.realm.organization` statements embedded in a Realm
+/// Parse + verify the `ak.realm.organization` statements embedded in a Realm
 /// `discovery_state`. Statements that are missing proof, expired, not-yet
 /// valid, replay an inconsistent revocation flag, or whose issuer-role
 /// requires an unresolvable delegation are rejected fail-closed and never
@@ -115,7 +115,7 @@ pub(crate) fn verify_announced_statements(
     let mut outcome = StatementIngestOutcome::default();
 
     let Ok(realm_id) = RealmId::new(expected_realm_id.to_owned()) else {
-        // Only canonical `ck:realm:` resources can own a verified relationship.
+        // Only canonical `ak:realm:` resources can own a verified relationship.
         return outcome;
     };
 

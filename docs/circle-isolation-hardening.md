@@ -1,12 +1,12 @@
-# Circle Directory Isolation Hardening (CKP-0007)
+# Circle Directory Isolation Hardening (AKP-0007)
 
 This document captures the operator-visible reject list, preview/stub
-projection rules, and audit-log markers that ship with the CKP-0007
+projection rules, and audit-log markers that ship with the AKP-0007
 circle-directory tightening.
 
 ## Background
 
-CKP-0007 narrows the cross-circle resolution surface so that a Principal
+AKP-0007 narrows the cross-circle resolution surface so that a Principal
 Server in one circle cannot probe membership of a resource in another
 circle without the explicit consent edges spelled out in the Arkret v1
 discoverability spec. The previous behavior allowed inferred resolution via
@@ -15,7 +15,7 @@ discoverability spec. The previous behavior allowed inferred resolution via
 ## Directory Preview / Stub Rule
 
 teabay does not index Circle as a top-level directory resource. Announce may
-carry exact `ck:circle:<uuid>` values only under recognized Realm
+carry exact `ak:circle:<uuid>` values only under recognized Realm
 Circle-directory preview containers; every such subtree is collapsed in public
 projection/fanout to a fixed locked envelope unless an internal caller is
 building the parent-Realm-member preview whitelist. The whitelist is limited to
@@ -78,7 +78,7 @@ sustained per-circle reject rate above the steady-state baseline.
 
 R3 introduces a `circle` variant on the `ResourceSelector` enum
 (matching SDK `ResourceSelector::Circle(CircleId)`, wire pattern
-`^ck:circle:[0-9a-f]{8}-...$`). teabay's ingest filter extends to
+`^ak:circle:[0-9a-f]{8}-...$`). teabay's ingest filter extends to
 accept the new selector kind as a first-class membership scope.
 
 ### Behavior table: ingest vs query
@@ -87,7 +87,7 @@ accept the new selector kind as a first-class membership scope.
 |---|---|---|
 | **Ingest accept** — event submitted with `effective_scope = circle(...)` | No such surface (events lacked a circle-scoped form) | Accepted iff submitter is a current member of the named circle; rejected with `isolation_rejected` otherwise. The ingest filter consults `circle_membership` (FSM-backed) at write time and refuses any event whose `effective_scope.circle_id` the submitter is not a member of. |
 | **Ingest project** — event projected into the audit/event-log table | N/A | Row stored with `effective_scope_kind = "circle"` and `effective_scope_circle_id = <CircleId>`. The B-Tree index `projection_events_effective_scope_idx` covers this column (see `soland/DEPLOYMENT.md` operational notes for sizing). |
-| **Query accept** — caller queries `ck.query.list` with `selector = circle(...)` | N/A | Accepted iff caller is a current member of the named circle. Selector validation matches the canonical `ck:circle:<uuid>` pattern. |
+| **Query accept** — caller queries `ak.query.list` with `selector = circle(...)` | N/A | Accepted iff caller is a current member of the named circle. Selector validation matches the canonical `ak:circle:<uuid>` pattern. |
 | **Query result** — projection rows returned to the caller | Realm-scoped or organization-scoped only | Filtered to rows where `effective_scope_kind = "circle" AND effective_scope_circle_id = caller's-circle-id`. No realm-scoped or organization-scoped rows leak into a circle query (and vice versa). |
 | **Query result** — `prev_digest` / `audit_digest` chain | Realm-/org-scoped chain | Per-circle chain; circles maintain their own independent digest chain to prevent cross-circle digest correlation. |
 | **Ingest reject reason** | `isolation_rejected` with `detail.rule = "<rule#>"` | Same scheme; `detail.rule = "circle-member"` for circle-scoped rejects, with `detail.circle_id` masked to SHA-256 prefix in production redaction. |
@@ -100,7 +100,7 @@ accept the new selector kind as a first-class membership scope.
   Cross-realm circle references are hard rejected with
   `isolation_rejected` (rule `circle-cross-realm`).
 - The circle membership FSM lives on the durable event log
-  (`ck.circle.membership.{add,remove}`). teabay reads from a projection;
+  (`ak.circle.membership.{add,remove}`). teabay reads from a projection;
   if the projection is behind the durable log (replica lag), the
   ingest filter fails closed: writes against a circle the projection
   doesn't yet show membership for are rejected, not silently accepted.

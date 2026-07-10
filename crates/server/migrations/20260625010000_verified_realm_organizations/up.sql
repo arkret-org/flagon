@@ -1,10 +1,10 @@
--- TBY-ORG-01/02/03 — verified `ck.realm.organization` relationship index.
+-- TBY-ORG-01/02/03 — verified `ak.realm.organization` relationship index.
 --
 -- The directory MUST NOT treat a bare `organization_did` /
 -- `owning_organizations` projection hint as an official organization
 -- relationship. An official badge, organization scoping, or
 -- directory-certifier relationship is only valid when it derives from an
--- `active`, in-validity-window, scope-covering `ck.realm.organization`
+-- `active`, in-validity-window, scope-covering `ak.realm.organization`
 -- statement that passed the SDK verifier
 -- (`verify_realm_organization_statement`).
 --

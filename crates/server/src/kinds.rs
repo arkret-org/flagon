@@ -51,18 +51,18 @@ pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = arkret_sdk::OP_DIRECTORY_RES
 pub const OP_DIRECTORY_SEARCH_ACTORS: &str = arkret_sdk::OP_DIRECTORY_SEARCH_ACTORS;
 pub const OP_DIRECTORY_SEARCH_USERS: &str = arkret_sdk::OP_DIRECTORY_SEARCH_USERS;
 pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = arkret_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
-/// Generalized target resolution (`ck.find.directory.query.resolve_target`). Not part of
+/// Generalized target resolution (`ak.find.directory.query.resolve_target`). Not part of
 /// the profile's `required_endpoints`, but published by teabay and advertised
 /// in [`SUPPORTED_OPERATIONS`].
 pub const OP_DIRECTORY_RESOLVE_TARGET: &str = arkret_sdk::OP_DIRECTORY_RESOLVE_TARGET;
 /// R3.2 (arkret-spec @ b56cab1) — reverse handle lookup
-/// (`ck.find.directory.query.list_handles_for_subject`). Given a holder/principal
+/// (`ak.find.directory.query.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
 pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =
     arkret_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
 
 /// The profile's **required** operations, in the same order as
-/// `ck.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte
+/// `ak.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte
 /// against the embedded baseline JSON by [`crate::profile::verify_or_panic`].
 pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_DESCRIBE,
@@ -78,7 +78,7 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
     OP_DIRECTORY_PUSH_REGISTER,
 ];
 
-/// Every operation `ck.find.directory.query.describe` advertises, in wire order. This is
+/// Every operation `ak.find.directory.query.describe` advertises, in wire order. This is
 /// the single source of truth for the describe overlay's `supported_operations`
 /// (the conditional `private_contact_discovery` op is appended at runtime when
 /// enabled). It is a superset of [`DIRECTORY_OPERATIONS`] — the required

@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Anti-drift guard: panic at startup if the wire surface declared in
     // `server::kinds` no longer matches the embedded baseline profile
-    // (`ck.profile.directory_service.v1`). This is a hard precondition for
+    // (`ak.profile.directory_service.v1`). This is a hard precondition for
     // running teabay — see crates/server/src/profile/mod.rs.
     profile::verify_or_panic();
 

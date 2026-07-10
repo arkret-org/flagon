@@ -1,6 +1,6 @@
 //! Profile self-declaration and anti-drift guard.
 //!
-//! teabay publishes `ck.profile.directory_service.v1`. To keep the live
+//! teabay publishes `ak.profile.directory_service.v1`. To keep the live
 //! wire surface honest, we embed the spec baseline JSON at compile time
 //! (`include_str!`) and verify on startup that the operations and event
 //! kinds the code actually exposes (via `crate::kinds`) match the baseline
@@ -10,7 +10,7 @@
 //!
 //! Source baseline: `teabay-directory-service-baseline-2026-05-10.json`,
 //! synthesized from arkret-spec sync dc01ad7
-//! (`conformance-profiles.json#/profiles/ck.profile.directory_service.v1`).
+//! (`conformance-profiles.json#/profiles/ak.profile.directory_service.v1`).
 
 use serde::Deserialize;
 

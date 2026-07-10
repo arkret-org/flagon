@@ -137,7 +137,7 @@ fn directory_router(
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
         .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
-        // R3.3 (CKP-0011, arkret-spec @ cced4b8) — object-level resolve.
+        // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
         // Generalization of resolve-realm to a client-agnostic shareable
         // address (Realm / Strand / Message). Realm resolution DELEGATES to the
         // resolve_realm logic; invite tokens are bound to the resolved object
@@ -636,7 +636,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
         ),
         (
-            // R3.3 (CKP-0011, arkret-spec @ cced4b8) — object-level resolve.
+            // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
             // The object-level generalization of resolve-realm: resolves a
             // client-agnostic shareable object address (Realm / Strand / Message)
             // to a target_kind + preview, binding an invite token to the
@@ -703,7 +703,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         ),
         (
             // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle
-            // lookup. Response shape `ck.schema.list_handles_for_subject_response.v1`.
+            // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
             "/_arkret/find/directory/list-handles-for-subject",
             PathItemType::Post,
             "ak.find.directory.query.list_handles_for_subject",
@@ -711,7 +711,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
              and primary handle (inverse of resolve-handle). Rejects non-principal \
-             subjects (ck:actor:/ck:account:/service DID) with failed_precondition.",
+             subjects (ak:actor:/ak:account:/service DID) with failed_precondition.",
         ),
         (
             "/_arkret/find/directory/private-contact-discovery",

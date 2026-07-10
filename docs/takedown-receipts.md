@@ -14,7 +14,7 @@ teabay.withdrawal_receipt.v1
 
 ## Resource Withdraw
 
-`ck.find.directory.command.withdraw` persists:
+`ak.find.directory.command.withdraw` persists:
 
 - `kind = resource_withdraw`
 - `statement`: server receipt facts, including `withdraw_id`, resource,

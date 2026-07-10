@@ -1,6 +1,6 @@
 //! Circle isolation guard for ingest/subscribe payloads.
 //!
-//! Circle (CKP-0007, spec b7d35be / 2b0d70d) is an **intra-Realm**
+//! Circle (AKP-0007, spec b7d35be / 2b0d70d) is an **intra-Realm**
 //! encrypted sub-boundary: a Circle's existence, member list, and
 //! routing metadata MUST NEVER appear in the public directory. teabay's
 //! anti-enumeration story is built on the directory only indexing
@@ -21,7 +21,7 @@
 //! only that a Circle reference was found.
 //!
 //! The walker is intentionally scoped to Circle leakage:
-//!  - by default, any string value containing `ck:circle:` is a hard reject;
+//!  - by default, any string value containing `ak:circle:` is a hard reject;
 //!  - in the announce-only preview mode, the only exception is an exact canonical Circle id under a
 //!    recognized Circle directory container's `circle_id` / `id` field.
 
@@ -29,7 +29,7 @@ use serde_json::Value as JsonValue;
 
 use crate::filter::circle_directory::is_circle_directory_container_key;
 
-/// Canonical typed-id prefix for a Circle (`ck:circle:<uuid>`). Any
+/// Canonical typed-id prefix for a Circle (`ak:circle:<uuid>`). Any
 /// string value carrying this prefix anywhere in the payload is a
 /// hard reject — this is the parser-tolerance plank from P2E.7: we
 /// recognise the typed id only to refuse it.
@@ -40,7 +40,7 @@ pub const CIRCLE_TYPED_ID_PREFIX: &str = "ak:circle:";
 /// Circle typed-id violations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircleRejection {
-    /// A string value carrying `ck:circle:<...>` was found. The
+    /// A string value carrying `ak:circle:<...>` was found. The
     /// caller MUST NOT echo the actual id back to the attacker; the
     /// returned string is the JSON pointer where the value was found.
     ForbiddenTypedId(String),
@@ -49,7 +49,7 @@ pub enum CircleRejection {
 impl CircleRejection {
     /// Stable, low-information wire message. We deliberately do NOT
     /// echo back any typed id, because the directory
-    /// is anti-enumeration: an attacker probing for "is `ck:circle:X`
+    /// is anti-enumeration: an attacker probing for "is `ak:circle:X`
     /// known here?" must not be able to read that back from the
     /// error body.
     pub fn safe_message(&self) -> &'static str {
@@ -117,7 +117,7 @@ fn walk(
             Ok(())
         }
         JsonValue::String(s) => {
-            // We match `ck:circle:` anywhere in the string — not just
+            // We match `ak:circle:` anywhere in the string — not just
             // as a prefix — because an attacker can embed a typed id
             // inside a free-form `summary` / `description` / `note`
             // field and the directory MUST still refuse to index it.
@@ -279,7 +279,7 @@ mod tests {
             "kind": "ak.realm.discovery",
             "circles": [{
                 "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
-                "summary": "see ck:circle:01904100-0000-7000-8000-000000000002",
+                "summary": "see ak:circle:01904100-0000-7000-8000-000000000002",
             }]
         });
         let err = reject_circle_payload_allowing_directory_preview(&value).unwrap_err();
@@ -326,11 +326,11 @@ mod tests {
     #[test]
     fn rejects_typed_circle_id_embedded_in_free_text_field() {
         // An attacker can't smuggle a Circle id through a free-form
-        // value either — the walker catches `ck:circle:` no matter
+        // value either — the walker catches `ak:circle:` no matter
         // which key it lives under.
         let value = json!({
             "kind": "ak.realm.discovery",
-            "summary": "see also ck:circle:01904100-0000-7000-8000-000000000001 for the back-channel",
+            "summary": "see also ak:circle:01904100-0000-7000-8000-000000000001 for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -349,7 +349,7 @@ mod tests {
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
-    /// P2E.7 — the parser-tolerance plank: a `ck:circle:<uuid>`
+    /// P2E.7 — the parser-tolerance plank: a `ak:circle:<uuid>`
     /// living in the `resource_id` field of an announce envelope (i.e.
     /// the attacker tries to "announce a Circle into the directory")
     /// MUST be recognised and rejected. The directory never adds an
@@ -386,7 +386,7 @@ mod tests {
     }
 
     /// Property-style test (small fixed seed): random injection of
-    /// `ck:circle:` into otherwise-clean payloads is always caught.
+    /// `ak:circle:` into otherwise-clean payloads is always caught.
     #[test]
     fn property_random_circle_injection_is_always_caught() {
         let bases = [
@@ -438,7 +438,7 @@ mod tests {
                 );
                 assert!(
                     reject_circle_payload(&victim2).is_err(),
-                    "injection of ck:circle: literal must be rejected"
+                    "injection of ak:circle: literal must be rejected"
                 );
             }
         }

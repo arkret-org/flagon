@@ -1,4 +1,4 @@
-//! Parsed `ck.find.directory.command.announce` request body.
+//! Parsed `ak.find.directory.command.announce` request body.
 
 use chrono::{DateTime, Utc};
 use arkret_sdk::DirectoryAnnounceRequestBody;

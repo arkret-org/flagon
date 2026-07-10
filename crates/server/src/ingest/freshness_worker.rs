@@ -97,7 +97,7 @@ impl FreshnessWorker {
             );
         }
 
-        // TBY-ORG-03 — sweep expired `ck.realm.organization` relationships out of
+        // TBY-ORG-03 — sweep expired `ak.realm.organization` relationships out of
         // the verified index so an expired official badge disappears on the next
         // directory refresh. The query layer also filters expiry at read time
         // (`load_verified_relationships`), but purging keeps the index bounded

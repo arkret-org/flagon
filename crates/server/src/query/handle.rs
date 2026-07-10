@@ -1,7 +1,7 @@
-//! Handle resolution. Spec §9 (`ck.find.directory.query.resolve_handle`).
+//! Handle resolution. Spec §9 (`ak.find.directory.query.resolve_handle`).
 //!
 //! Spec sync 0a5ab85 / governance/join-policy §5.1.3:
-//! `ck.find.directory.query.resolve_handle` MUST gate `intent=member_add | invite`
+//! `ak.find.directory.query.resolve_handle` MUST gate `intent=member_add | invite`
 //! requests on the target **Realm**'s `delivery_binding_policy`
 //! (`allowed_recipient_services`, `allow_binding_sources`) and on the
 //! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
@@ -70,7 +70,7 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
     }
 }
 
-/// CKP R3 — extract the localpart from a handle value and run it through
+/// AKP R3 — extract the localpart from a handle value and run it through
 /// `arkret_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
 /// confusable skeleton + script-mixed reject).
 ///
@@ -262,7 +262,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
     }
-    // CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+    // AKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
     // §17 — wire-level canonical compare MUST apply Unicode NFC +
     // UTS#39 confusable skeleton + script-mixed reject before any
     // database lookup. The SDK helper centralises the rule set so the
@@ -279,7 +279,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {
         return;
     }
-    // Defence in depth: a bare `ck:circle:` typed id smuggled into the
+    // Defence in depth: a bare `ak:circle:` typed id smuggled into the
     // `handle` field is also collapsed to `not_found` rather than
     // routed into the DB lookup.
     if crate::filter::selector::looks_like_circle_id(&body.handle) {
@@ -896,7 +896,7 @@ mod tests {
         RealmDeliveryBindingPolicy::from_projection(projection)
     }
 
-    /// CKP R3 — the homograph guard MUST reject Cyrillic look-alikes
+    /// AKP R3 — the homograph guard MUST reject Cyrillic look-alikes
     /// before any DB lookup. We test the helper directly so the
     /// assertion does not depend on a live AppState.
     #[test]

@@ -145,7 +145,7 @@ pub struct OperatorTakedownOutcome {
     pub notification_status: String,
 }
 
-// `ck.find.directory.command.takedown_appeal` wire types live in
+// `ak.find.directory.command.takedown_appeal` wire types live in
 // `arkret-rust-sdk` (`DirectoryTakedownAppealRequestBody` /
 // `DirectoryTakedownAppealOutcome`). The directory consumes those spec types
 // directly — see `crates/server/src/ingest/appeal.rs`. The local

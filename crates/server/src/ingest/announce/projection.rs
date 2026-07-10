@@ -143,7 +143,7 @@ pub(crate) fn derive_public_projection(
         // (spec §4.5). Strip it so it never enters the index or search SQL;
         // organization scoping uses the canonical `organization_did`.
         obj.remove("official_organizations");
-        // TBY-ORG-01/02 — the `ck.realm.organization` statements are verified
+        // TBY-ORG-01/02 — the `ak.realm.organization` statements are verified
         // and projected into a separate `verified_realm_organizations` index;
         // they MUST NOT leak verbatim into the public projection (which is
         // served to unauthenticated callers and indexed for search).
@@ -227,7 +227,7 @@ fn member_count_disclosure_omitted(
 ///
 /// 1. `claim_type` / `class` == `service_handle` is rejected (the draft-era value was removed in
 ///    R3.2). Audit reason `claim_type_unsupported`.
-/// 2. A handle-claim `subject` that is a `ck:actor:` Realm actor id, a `ck:account:` server-local
+/// 2. A handle-claim `subject` that is a `ak:actor:` Realm actor id, a `ak:account:` server-local
 ///    account id, a service DID, or any non-DID resource id is rejected. Audit reason
 ///    `handle_claim_subject_not_principal_did`. The structural DID check is delegated to the SDK's
 ///    `validate_handle_claim_subject` so the directory and the rest of the stack share one rule.
@@ -276,7 +276,7 @@ pub(crate) fn validate_handle_claim_ingest(
                 }
             }
             Err(_) => {
-                // `ck:actor:` / `ck:account:` / generic resource ids are not
+                // `ak:actor:` / `ak:account:` / generic resource ids are not
                 // valid DIDs at all — same rejection family.
                 if subject.starts_with("ak:actor:")
                     || subject.starts_with("ak:account:")

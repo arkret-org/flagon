@@ -1,13 +1,13 @@
-//! CKP R3 spec-sync 2026-05-27 (commit b47ff6e), authz/resource-
+//! AKP R3 spec-sync 2026-05-27 (commit b47ff6e), authz/resource-
 //! selector-grammar — accept the `circle` selector kind on directory
 //! query filters.
 //!
 //! The directory MUST NEVER index Circle as a top-level resource
-//! (CKP-0007), but a Realm discovery event may carry a spec-bounded Circle
+//! (AKP-0007), but a Realm discovery event may carry a spec-bounded Circle
 //! directory preview/stub subtree. Upstream callers — SDK clients running a
 //! unified resource-selector evaluator, capability engines, governance bridges
 //! — now legitimately emit selector envelopes that include `kind="circle"` and
-//! a `ck:circle:<uuid>` target. The directory's job on the generic query face
+//! a `ak:circle:<uuid>` target. The directory's job on the generic query face
 //! is to **recognise** the selector (so the request validates, doesn't crash)
 //! and then respond with the same privacy-preserving `not_found`/locked-stub
 //! class used for every unauthorized Circle probe.
@@ -55,7 +55,7 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
     false
 }
 
-/// True iff `value` carries a `ck:circle:<uuid>` typed id. This is a
+/// True iff `value` carries a `ak:circle:<uuid>` typed id. This is a
 /// thinner check than [`is_circle_selector`]: it answers "does the
 /// caller want to point at a Circle?" regardless of which surrounding
 /// envelope field carries the id.

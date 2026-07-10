@@ -33,7 +33,7 @@ pub struct FederationCacheKeyInputs {
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,
     /// Round 4 — `Source-Trust-Domain` header value (lowercased per
-    /// RFC 9421 §2.2 — `ck:trust_domain:<scope>` is already lowercase).
+    /// RFC 9421 §2.2 — `ak:trust_domain:<scope>` is already lowercase).
     /// Empty when the request is not a cross-trust-domain federation
     /// hop.
     pub source_trust_domain: String,
@@ -127,7 +127,7 @@ impl FederationCacheKeyInputs {
 /// accept a body whose:
 /// - `Destination-Trust-Domain` is not this directory's configured `trust_domain`, OR
 /// - `Request-Canonical-Digest` does not match the canonical SHA-256 digest of the request body, OR
-/// - `Source-Trust-Domain` is malformed (not a `ck:trust_domain:` identifier).
+/// - `Source-Trust-Domain` is malformed (not a `ak:trust_domain:` identifier).
 ///
 /// Non-federation announces (no headers present) short-circuit OK —
 /// unsigned announces continue through the downstream authorization
@@ -166,7 +166,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
         .map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
-                format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ck:trust_domain: {err}"),
+                format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ak:trust_domain: {err}"),
             )
         })?;
     let destination_td = arkret_sdk::TypedTrustDomainId::new(
@@ -175,7 +175,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     .map_err(|err| {
         (
             ApiErrorCode::CrossDomainReplayRejected,
-            format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid ck:trust_domain: {err}"),
+            format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid ak:trust_domain: {err}"),
         )
     })?;
     if destination_td.as_str() != expected_destination_trust_domain {
@@ -239,7 +239,7 @@ pub(crate) fn hex_lower_sha256(bytes: &[u8]) -> String {
 /// Round R2/R3 T14 — extra federation cache fields persisted alongside
 /// the `ingest_announces` row. Push-mode pulls them from request headers
 /// and discovery proof; pull-mode pulls them from the upstream
-/// `ck.self.events.query.scan` response headers/envelope plus the same proof.
+/// `ak.self.events.query.scan` response headers/envelope plus the same proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
     pub source_service_did: String,

@@ -1,4 +1,4 @@
-//! `ck.find.directory.command.announce` handler — push-mode ingest.
+//! `ak.find.directory.command.announce` handler — push-mode ingest.
 //!
 //! Spec: discovery-directory.md §8.3 (request shape), §8.5 (verify chain),
 //! §8.6 (TTL), §8.10 (anti-abuse / replay).
@@ -111,7 +111,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // Defence in depth: a few top-level announce fields are free-form
     // strings (`resource_id`, `principal_server_did`,
     // `supersedes_announce_id`) and could carry a smuggled
-    // `ck:circle:` id if a caller is misbehaving. Re-run the typed-id
+    // `ak:circle:` id if a caller is misbehaving. Re-run the typed-id
     // sentinel over the whole request envelope while preserving the same
     // narrow `/discovery_state/...circle_id` exception.
     if let Ok(envelope) = serde_json::to_value(&body)
@@ -136,7 +136,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         return;
     }
 
-    // CKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
+    // AKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
     // §17 — wire-level handle homograph guard. When a handle resource
     // is announced, the localpart of `resource_id` MUST pass the SDK's
     // `normalize_handle_localpart` rule (NFC + UTS#39 confusable
@@ -424,7 +424,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
 
     // Round R2/R3 T07 — discovery_state can carry a `terminal_state`
-    // marker after `ck.realm.destroy` anchors. Surface it as a row-level
+    // marker after `ak.realm.destroy` anchors. Surface it as a row-level
     // tombstone so the resolve / search projections collapse to a
     // placeholder. See `derive_realm_terminal_state`.
     let realm_terminal = derive_realm_terminal_state(body.resource_kind, &body.discovery_state);
@@ -460,7 +460,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    // TBY-ORG-01/03 — verify and project any `ck.realm.organization` relationship
+    // TBY-ORG-01/03 — verify and project any `ak.realm.organization` relationship
     // statements the Realm announce carries. Only `active`, in-validity-window,
     // proof-bearing, scope-covering statements that pass the SDK verifier enter
     // the verified index; a bare `organization_did` / `owning_organizations`

@@ -1,4 +1,4 @@
-//! Conformance suite for `ck.find.directory.query.resolve_target` (R3.3 / CKP-0011,
+//! Conformance suite for `ak.find.directory.query.resolve_target` (R3.3 / AKP-0011,
 //! arkret-spec @ cced4b8).
 //!
 //! These exercise the directory's object-address resolution semantics against

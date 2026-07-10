@@ -1,6 +1,6 @@
 -- Round R2/R3 (2026-05-20) schema extensions.
 --
--- T07 Realm terminal state — `ck.realm.destroy` anchor marker. Resolve /
+-- T07 Realm terminal state — `ak.realm.destroy` anchor marker. Resolve /
 --      search projections collapse to a tombstone once `realm_destroyed_at`
 --      is non-null.
 -- T17 Consent revoke scope=any directory reachability invalidation — soft

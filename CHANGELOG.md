@@ -7,15 +7,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## R3.4 — Spec sync 2026-05-31 (arkret-spec @ c2848a4)
 
-- Synced protocol-facing names and fixtures to `c2848a4`: event envelope schema naming, `_ids` grant constraints, accountability principal vocabulary, `ck:rtc_participant:` media participants, agent session start fields, and key-backup signature algorithm naming where applicable.
+- Synced protocol-facing names and fixtures to `c2848a4`: event envelope schema naming, `_ids` grant constraints, accountability principal vocabulary, `ak:rtc_participant:` media participants, agent session start fields, and key-backup signature algorithm naming where applicable.
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 
-## R3.3 — CKP-0011 (arkret-spec @ cced4b8)
+## R3.3 — AKP-0011 (arkret-spec @ cced4b8)
 
-- New operation `ck.find.directory.query.resolve_target` (`POST /_arkret/find/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+arkret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Strand / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`); `via_services` is a delegation/projection field, not a §9.1 common field.
+- New operation `ak.find.directory.query.resolve_target` (`POST /_arkret/find/directory/resolve-target`, `Directory/ResolveTarget`): the object-level generalization of `resolve_realm`. Resolves a client-agnostic shareable object address (`web+arkret:` URI form or HTTPS-landing fragment form) pointing at a Realm / Strand / Message into `target_kind` + (`realm_preview` | `object_preview`) + `join_rule` + the §9.1 common fields (`as_of`, `source_refs`); `via_services` is a delegation/projection field, not a §9.1 common field.
 - **Realm resolution DELEGATES** to the existing `resolve_realm` path (`crates/server/src/query/realm.rs::resolve_realm_visible`) so the canonical `realm_id`, `realm_preview`, `via_services`, and the hidden/withdrawn/unknown → blinded `not_found` collapse stay byte-for-byte identical.
-- **Token target binding** (scope-confusion defence): an `lt=invite` address carries an opaque `tok`; the token's embedded `target_descriptor` is compared against the address-derived descriptor via the SDK `verify_token_target` (`sha256:` digest over `realm_id` + `strand_id` + `message_id` + `link_type` only — `via`/`action`/`tok`/`lt` are NOT in the digest). A token minted for object A cannot be replayed onto object B; alias realms are normalized to the canonical `ck:realm:<uuid>` before comparison. Any mismatch → the SAME blinded `not_found`.
+- **Token target binding** (scope-confusion defence): an `lt=invite` address carries an opaque `tok`; the token's embedded `target_descriptor` is compared against the address-derived descriptor via the SDK `verify_token_target` (`sha256:` digest over `realm_id` + `strand_id` + `message_id` + `link_type` only — `via`/`action`/`tok`/`lt` are NOT in the digest). A token minted for object A cannot be replayed onto object B; alias realms are normalized to the canonical `ak:realm:<uuid>` before comparison. Any mismatch → the SAME blinded `not_found`.
 - Anti-enumeration: routed through the SAME latency floor + deterministic jitter + 50ms stochastic resolve jitter as `resolve-realm` / `resolve-handle`; unauthorized and nonexistent are byte- and timing-indistinguishable.
 - `/metrics`: `teabay_directory_query_total{op="resolve-target",outcome=...}` with a new `token_reject` outcome (metrics-only split from `not_found`); anti-enum pad histogram for the op. 6-case conformance suite (`tests/resolve_target.rs`): realm classification, invite-token scope-confusion replay reject, unknown keyword fail-closed, strand-missing-`via` fail-closed, invite-without-token reject.
 - **Deferred `TODO(R3.3.1)`**: the per-object Strand / Message access-gate returns a deterministic `object_preview` placeholder (the enclosing Realm is fully resolved + visibility-gated). Invite tokens now perform target-digest binding, `exp`/`aud` checks, Ed25519 detached-JWS signature verification, and join-policy revocation lookup. Admin SPA "resolve target" diagnostic tab + docs section deferred.
@@ -24,7 +24,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## R3.2 — Spec sync 2026-05-28 (arkret-spec @ b56cab1)
 
-- New operation `ck.find.directory.query.list_handles_for_subject` (`POST /_arkret/find/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.
+- New operation `ak.find.directory.query.list_handles_for_subject` (`POST /_arkret/find/directory/list-handles-for-subject`, `Directory/ListHandlesForSubject`): subject DID → current visible handle claims with disclosure/issuer-trust/audience filtering, cursor pagination, fail-closed `claims[].subject == subject`.
 - Ingest validators reject `claim_type=service_handle` (`claim_type_unsupported`) and non-principal-DID subjects (`handle_claim_subject_not_principal_did`).
 - `/metrics` now exposes directory query/filter-drop/cardinality-guard counters. Anti-enumeration jitter + latency floor applied to the new endpoint. 8-case conformance suite.
 - `as_of` historical replay + full per-claim disclosure engine deferred `TODO(R3.2.1)`.
@@ -35,20 +35,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
 - WK-1: `POST /_arkret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/arkret/handle` to product-private `GET /_teabay/handle/probe?localpart=<localpart>`.
 - REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
-- SEL-1: directory query filter now accepts the `circle` selector kind (`ck:circle:<uuid>`).
+- SEL-1: directory query filter now accepts the `circle` selector kind (`ak:circle:<uuid>`).
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 
 ## [Unreleased]
 
-### circle-rollout · CKP-0007 enforcement (P2E, arkret-spec `2b0d70d`)
+### circle-rollout · AKP-0007 enforcement (P2E, arkret-spec `2b0d70d`)
 
 The Circle primitive lands in the spec as an intra-Realm encrypted
 sub-boundary. teabay does not index Circle as a top-level directory
 resource; Realm announcements that carry Circle directory material are
 reduced to the spec preview/stub forms.
 
-- **Changed** Ingest still rejects `ck:circle:` outside recognized Circle
+- **Changed** Ingest still rejects `ak:circle:` outside recognized Circle
   directory preview-entry id fields, but a Realm announcement may now carry
   exact Circle ids under the Circle directory preview container. Public
   projection/fanout collapses those subtrees to a fixed locked envelope, and
@@ -81,7 +81,7 @@ reduced to the spec preview/stub forms.
   `directory_resources.last_refreshed_at` and
   `directory_resources.expires_at`, backfilled from the existing
   `indexed_at` + `effective_ttl_seconds` pair. Freshness is refreshed
-  by re-submitting `ck.find.directory.command.announce` for the current
+  by re-submitting `ak.find.directory.command.announce` for the current
   discovery state. The background freshness worker sweeps on
   `expires_at` instead of the pull worker's
   `next_revalidation_after` cadence.
@@ -121,7 +121,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   (`^did:[a-z0-9]+:[^\s]+$`); fixture SQL refreshed.
 - **BREAKING** Realm rows are now distinct from container Space rows:
   Realm query surfaces use `resource_kind=realm`, `realm_id` projection keys,
-  and `ck:realm:` fixture identifiers; `space` remains available only as the
+  and `ak:realm:` fixture identifiers; `space` remains available only as the
   separate container resource kind.
 
 ### Round R2/R3 (2026-05-20) — 17 P0/P1 tasks closed against arkret-spec
@@ -148,10 +148,10 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   audit-preserving UPDATE, never DELETE. Search face hides revoked rows;
   resolve still surfaces them so in-flight callers can observe the
   tombstone. Best-effort tombstone webhook fanout reuses the
-  `ck.find.directory.push.command.register` channel. New audit kind
+  `ak.find.directory.push.command.register` channel. New audit kind
   `consent_revoke_invalidation`.
 - **T07 — Realm terminal state.** When the ingest face observes a
-  `ck.realm.destroy` anchor (signalled either by `terminal_state:
+  `ak.realm.destroy` anchor (signalled either by `terminal_state:
   "destroyed"` or `realm_destroyed: true` on the verified
   `discovery_state`), the directory marks the row with
   `realm_destroyed_at`. Resolve and search project the row as a

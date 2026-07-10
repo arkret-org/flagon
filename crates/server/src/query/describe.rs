@@ -1,4 +1,4 @@
-//! `ck.find.directory.query.describe` — service capability advertisement.
+//! `ak.find.directory.query.describe` — service capability advertisement.
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
@@ -52,7 +52,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     let service_did = Did::new(cfg.service_did.clone())
         .map_err(|err| format!("TEABAY_SERVICE_DID is not a valid DID: {err}"))?;
     let trust_domain = TypedTrustDomainId::new(cfg.trust_domain.clone())
-        .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ck:trust_domain: {err}"))?;
+        .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
 
     let development_mode = cfg.development_mode;
 

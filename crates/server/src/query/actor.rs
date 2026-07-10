@@ -1,6 +1,6 @@
 //! Actor / user search. Spec §9.
 //!
-//! `ck.find.directory.query.search_actors` and `ck.find.directory.query.search_users` (mention
+//! `ak.find.directory.query.search_actors` and `ak.find.directory.query.search_users` (mention
 //! autocomplete).
 //!
 //! `realm_id` scopes `search_users` / `search_actors` to the security

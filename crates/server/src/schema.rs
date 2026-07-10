@@ -307,7 +307,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    // TBY-ORG-01/02/03 — verified `ck.realm.organization` relationships. See
+    // TBY-ORG-01/02/03 — verified `ak.realm.organization` relationships. See
     // migration 20260625010000_verified_realm_organizations.
     verified_realm_organizations (realm_id, organization_did, relationship) {
         realm_id -> Text,

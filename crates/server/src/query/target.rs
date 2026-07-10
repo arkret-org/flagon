@@ -1,5 +1,5 @@
-//! Object-address resolve — R3.3 (CKP-0011, arkret-spec @ cced4b8),
-//! `ck.find.directory.query.resolve_target`.
+//! Object-address resolve — R3.3 (AKP-0011, arkret-spec @ cced4b8),
+//! `ak.find.directory.query.resolve_target`.
 //!
 //! This is the object-level generalization of
 //! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
@@ -686,7 +686,7 @@ fn expected_preview_target_digest(
 ///      be compared) and call `verify_token_target`, which recomputes & compares the digest. Any
 ///      mismatch → reject.
 ///
-/// `canonical_realm_id` is the `ck:realm:<uuid>` the realm resolution produced
+/// `canonical_realm_id` is the `ak:realm:<uuid>` the realm resolution produced
 /// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
 /// mismatch hole.
 pub fn verify_address_token_with_methods(
@@ -763,7 +763,7 @@ pub fn verify_address_token_details_with_methods(
 }
 
 /// Rebuild a [`ParsedAddress`] whose realm segment is the canonical
-/// `ck:realm:<uuid>` (sigil-stripped to the bare uuid the grammar expects) so
+/// `ak:realm:<uuid>` (sigil-stripped to the bare uuid the grammar expects) so
 /// the SDK's `verify_token_target` recomputes the digest over a uuid realm
 /// rather than the original alias.
 fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> ParsedAddress {
@@ -782,7 +782,7 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
 }
 
 /// Normalize a realm id to its bare-uuid form for equality comparison so a
-/// `ck:realm:<uuid>` and the same bare `<uuid>` compare equal.
+/// `ak:realm:<uuid>` and the same bare `<uuid>` compare equal.
 fn normalize_realm(realm_id: &str) -> &str {
     realm_id.strip_prefix("ak:realm:").unwrap_or(realm_id)
 }

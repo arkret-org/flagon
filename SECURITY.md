@@ -29,13 +29,13 @@ line unless a release owner declares a supported release branch.
 - Private Contact Discovery rate limits and epoch key retention.
 - Pull-mode revalidation and stale-row deletion.
 - Audit log integrity for ingest, takedown, and admin resource edits.
-- **Circle isolation (CKP-0007).** See "Hard Invariants" below.
+- **Circle isolation (AKP-0007).** See "Hard Invariants" below.
 
 ## Hard Invariants
 
 ### Circle is intra-Realm only — directory output is preview/stub only
 
-CKP-0007 introduces `ck:circle:` as an intra-Realm encrypted
+AKP-0007 introduces `ak:circle:` as an intra-Realm encrypted
 sub-boundary. teabay must never index Circle as a top-level directory
 resource, and any Circle directory material inside a Realm announcement
 is reduced to the spec preview/stub forms before it reaches public
