@@ -13,6 +13,13 @@ AttributeIDSupressMenu = "AttributeIDSupressMenu"
 teh = "teh"
 Hashi = "Hashi"
 consts = "consts"
+# "UPDATEs" / "DELETEs" tokenize as UPDAT + Es / DELET + Es
+UPDAT = "UPDAT"
+DELET = "DELET"
+# accepted variant spelling
+unparseable = "unparseable"
+# "look-alikes"
+alikes = "alikes"
 
 [files]
 extend-exclude = ["**/*.js", "**/*.css", "**/*.html", "examples/*/static/**/*.*"]
