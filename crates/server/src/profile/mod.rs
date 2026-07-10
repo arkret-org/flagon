@@ -51,7 +51,7 @@ pub fn verify_or_panic() {
 
     assert_eq!(
         baseline.profile, "ak.profile.directory_service.v1",
-        "teabay baseline profile JSON declares profile {:?} but this binary only implements ck.profile.directory_service.v1",
+        "teabay baseline profile JSON declares profile {:?} but this binary only implements ak.profile.directory_service.v1",
         baseline.profile,
     );
 

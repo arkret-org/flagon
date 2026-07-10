@@ -136,7 +136,7 @@ pub(crate) fn verify_announced_statements(
                         .get("statement_id")
                         .and_then(JsonValue::as_str)
                         .map(str::to_owned),
-                    reason: format!("malformed ck.realm.organization payload: {error}"),
+                    reason: format!("malformed ak.realm.organization payload: {error}"),
                 });
                 continue;
             }

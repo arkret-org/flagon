@@ -231,7 +231,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     assert_eq!(
         verified,
         vec!["did:web:tea-org.example".to_owned()],
-        "active owner ck.realm.organization MUST surface verified owning org"
+        "active owner ak.realm.organization MUST surface verified owning org"
     );
 
     // (2) declared-only org hint (no statement) ⇒ no verified owning org.
@@ -261,7 +261,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     let after_revoke = resolve_owning_orgs(service, "ak:realm:org-verified").await;
     assert!(
         after_revoke.is_empty(),
-        "revoking the ck.realm.organization statement MUST remove the verified badge"
+        "revoking the ak.realm.organization statement MUST remove the verified badge"
     );
 
     // (5) expired relationship ⇒ not surfaced even before purge.
@@ -282,7 +282,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     let after_expiry = resolve_owning_orgs(service, "ak:realm:org-verified").await;
     assert!(
         after_expiry.is_empty(),
-        "expired ck.realm.organization statement MUST NOT surface a verified badge"
+        "expired ak.realm.organization statement MUST NOT surface a verified badge"
     );
 
     Ok(())

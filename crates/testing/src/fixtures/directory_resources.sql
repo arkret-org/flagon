@@ -124,7 +124,7 @@ INSERT INTO directory_resources (
     'ak.realm:org-verified',
     'did:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
-    '{"name":"Verified Org Realm","summary":"Has an active ck.realm.organization owner statement"}'::jsonb,
+    '{"name":"Verified Org Realm","summary":"Has an active ak.realm.organization owner statement"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-org-verified'],

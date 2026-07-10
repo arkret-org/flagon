@@ -151,7 +151,7 @@ pub(crate) fn derive_public_projection(
         // TBY-ORG-02 — `owning_organizations` / `organization_did` that survive
         // here are DECLARED hints only (realm.schema: "This field alone is not a
         // verified ownership/governance endorsement; directories MUST require an
-        // active ck.realm.organization statement"). They are retained for
+        // active ak.realm.organization statement"). They are retained for
         // org-scoped *search* filtering, but a caller MUST NOT be able to inject
         // an official verified badge through the projection — the query layer
         // re-derives the verified `owning_organizations` from the verified index

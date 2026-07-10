@@ -588,7 +588,7 @@ fn decode_token_json(token: &str) -> Option<JsonValue> {
 fn preview_token_kind_allowed(value: &JsonValue) -> bool {
     matches!(
         value.get("kind").and_then(JsonValue::as_str),
-        None | Some("preview_token" | "ak.directory.preview_token" | "ck.realm.preview_token")
+        None | Some("preview_token" | "ak.directory.preview_token" | "ak.realm.preview_token")
     )
 }
 
