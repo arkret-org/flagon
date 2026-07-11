@@ -44,6 +44,7 @@ uuid = {workspace = true}
 voprf = {workspace = true}
 
 [dev-dependencies]
+salvo = {workspace = true,features = ["test"]}
 teabay-testing = {workspace = true}
 testcontainers-modules = {workspace = true}
 tokio = {workspace = true,features = ["test-util"]}
