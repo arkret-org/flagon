@@ -51,8 +51,8 @@ pub struct FederationCacheKeyInputs {
 
 impl FederationCacheKeyInputs {
     pub fn extract(req: &Request, body: &DirectoryAnnounceIngest) -> Self {
-        let source_service_id = header_value(req, "source-service-did")
-            .or_else(|| header_value(req, "x-source-service-did"))
+        let source_service_id = header_value(req, "source-service-id")
+            .or_else(|| header_value(req, "x-source-service-id"))
             .unwrap_or_default();
         let verification_method = body
             .discovery_state

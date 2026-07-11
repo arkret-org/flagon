@@ -20,10 +20,10 @@
 //!   (c) an unknown path keyword → fail-closed (parse error → not_found);
 //!   (d) a strand address missing `via` → fail-closed (parse error → not_found).
 
-use chrono::{Duration, Utc};
 use arkret_sdk::canonical;
 use arkret_sdk::jws::sign_jws_ed25519;
 use arkret_sdk::models::{LinkType, ParsedAddress, TargetDescriptor, parse_address, target_digest};
+use chrono::{Duration, Utc};
 use ed25519_dalek::SigningKey;
 use serde_json::{Value as JsonValue, json};
 use server::query::target::{

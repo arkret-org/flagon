@@ -366,7 +366,7 @@ impl PullWorker {
         if !response.status().is_success() {
             anyhow::bail!("events query returned {}", response.status());
         }
-        let source_service_id = response_header_value(response.headers(), "source-service-did");
+        let source_service_id = response_header_value(response.headers(), "source-service-id");
         let service_binding_ref = response_header_value(response.headers(), "service-binding-ref");
         let origin_key_state_digest =
             response_header_value(response.headers(), "origin-key-state-digest");

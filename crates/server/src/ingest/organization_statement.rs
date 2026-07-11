@@ -25,11 +25,11 @@
 //! verified here and is rejected until soland exposes a delegation resolution
 //! query.
 
-use chrono::{DateTime, Utc};
 use arkret_sdk::{
     NoDelegationResolver, RealmId, RealmOrganizationControlScope, RealmOrganizationPayload,
     RealmOrganizationRelationship, RealmOrganizationStatus, verify_realm_organization_statement,
 };
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use serde_json::Value as JsonValue;

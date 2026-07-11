@@ -7,8 +7,8 @@
 //!   * write a `Withdrawal` audit row
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
-use chrono::Utc;
 use arkret_sdk::DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome;
+use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;

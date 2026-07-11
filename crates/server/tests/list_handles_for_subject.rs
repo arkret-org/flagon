@@ -16,8 +16,8 @@
 //!   4. issuer not in the Realm's `accepted_issuers` is filtered.
 //!   5. cursor pagination boundary.
 
-use chrono::{TimeZone, Utc};
 use arkret_sdk::DirectoryListHandlesForSubjectRequestBody;
+use chrono::{TimeZone, Utc};
 use serde_json::json;
 use server::filter::discoverers::VerifiedRestrictedClaims;
 use server::ingest::DiscoverabilityDb;

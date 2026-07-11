@@ -3,10 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use arkret_sdk::{DirectoryPushRegisterOutcome, DirectoryPushRegisterRequestBody};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use arkret_sdk::{DirectoryPushRegisterOutcome, DirectoryPushRegisterRequestBody};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use hmac::{Hmac, KeyInit, Mac};

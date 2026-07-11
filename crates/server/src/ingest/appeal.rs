@@ -1,7 +1,7 @@
 //! Operator takedown appeal and recovery loop.
 
-use chrono::{DateTime, Utc};
 use arkret_sdk::{DirectoryTakedownAppealOutcome, DirectoryTakedownAppealRequestBody};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;

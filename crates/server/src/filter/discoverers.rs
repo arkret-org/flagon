@@ -9,7 +9,6 @@
 
 use std::collections::BTreeSet;
 
-use chrono::{DateTime, Utc};
 use arkret_sdk::identity::DidKeyResolver;
 use arkret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::{
@@ -18,6 +17,7 @@ use arkret_sdk::{
     DirectoryRestrictedClaimPresentation, PresentationRequestBody, PresentedClaim, canonical,
     validate_presentation,
 };
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -313,8 +313,8 @@ impl ClaimSelectorValue for PresentedClaim {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
     use arkret_sdk::jws::sign_jws_ed25519;
+    use chrono::Duration;
     use ed25519_dalek::SigningKey;
     use serde_json::json;
 

@@ -46,7 +46,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Utc};
 pub use arkret_sdk::http_signature::Ed25519PublicKey;
 use arkret_sdk::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
@@ -56,6 +55,7 @@ use arkret_sdk::http_signature::{
 use arkret_sdk::identity::DidResolver;
 use arkret_sdk::jws::resolve_ed25519_pubkey;
 use arkret_sdk::{CompositeDidResolver, Did};
+use chrono::{DateTime, Utc};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -708,12 +708,12 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 
 #[cfg(test)]
 mod tests {
-    use base64::Engine;
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use arkret_sdk::http_signature::{
         ContentDigest, ContentDigestAlgorithm, Ed25519SigningKey, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use salvo::http::StatusCode;
     use salvo::test::{ResponseExt, SendTarget, TestClient};
     use serde_json::{Value as JsonValue, json};

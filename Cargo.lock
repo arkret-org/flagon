@@ -119,6 +119,191 @@ dependencies = [
 ]
 
 [[package]]
+name = "arkret"
+version = "0.3.0"
+dependencies = [
+ "argon2",
+ "arkret-core",
+ "arkret-crypto",
+ "arkret-ffi",
+ "arkret-html",
+ "arkret-http-client",
+ "arkret-keystore",
+ "arkret-server",
+ "arkret-signatures",
+ "arkret-state",
+ "base64",
+ "chacha20poly1305",
+ "chrono",
+ "chrono-tz",
+ "ed25519-dalek",
+ "getrandom 0.4.2",
+ "hex",
+ "hkdf 0.13.0",
+ "hpke",
+ "parking_lot",
+ "rand_core 0.9.5",
+ "regex",
+ "reqwest 0.13.4",
+ "salvo",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
+ "uuid",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "arkret-core"
+version = "0.3.0"
+dependencies = [
+ "arkret-identifiers",
+ "base64",
+ "blake3",
+ "bs58",
+ "chrono",
+ "chrono-tz",
+ "getrandom 0.4.2",
+ "hex",
+ "hmac 0.13.0",
+ "regex",
+ "salvo",
+ "salvo-oapi",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
+ "thiserror 2.0.18",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "arkret-crypto"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "arkret-signatures",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "arkret-ffi"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "arkret-html"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "arkret-http-client"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "arkret-signatures",
+ "arkret-state",
+ "base64",
+ "chrono",
+ "futures-util",
+ "getrandom 0.4.2",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "arkret-identifiers"
+version = "0.3.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "getrandom 0.4.2",
+ "hex",
+ "salvo",
+ "salvo-oapi",
+ "serde",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "arkret-keystore"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "tracing",
+]
+
+[[package]]
+name = "arkret-server"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "arkret-signatures",
+ "arkret-state",
+ "chrono",
+ "salvo",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "arkret-signatures"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "base64",
+ "chrono",
+ "ed25519-dalek",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
+ "thiserror 2.0.18",
+ "url",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "arkret-state"
+version = "0.3.0"
+dependencies = [
+ "arkret-core",
+ "chrono",
+ "hex",
+ "salvo",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -719,169 +904,6 @@ name = "cmov"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f88a43d011fc4a6876cb7344703e297c71dda42494fee094d5f7c76bf13f746"
-
-[[package]]
-name = "arkret"
-version = "0.3.0"
-dependencies = [
- "argon2",
- "base64",
- "chacha20poly1305",
- "chrono",
- "chrono-tz",
- "arkret-core",
- "arkret-crypto",
- "arkret-ffi",
- "arkret-html",
- "arkret-http-client",
- "arkret-keystore",
- "arkret-server",
- "arkret-signatures",
- "ed25519-dalek",
- "getrandom 0.4.2",
- "hex",
- "hkdf 0.13.0",
- "hpke",
- "parking_lot",
- "rand_core 0.9.5",
- "regex",
- "reqwest 0.13.4",
- "salvo",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "subtle",
- "thiserror 2.0.18",
- "tokio",
- "uuid",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "arkret-core"
-version = "0.3.0"
-dependencies = [
- "base64",
- "blake3",
- "bs58",
- "chrono",
- "chrono-tz",
- "arkret-identifiers",
- "getrandom 0.4.2",
- "hex",
- "hmac 0.13.0",
- "regex",
- "salvo",
- "salvo-oapi",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.18",
- "tracing",
- "unicode-normalization",
- "url",
- "zeroize",
-]
-
-[[package]]
-name = "arkret-crypto"
-version = "0.3.0"
-dependencies = [
- "chrono",
- "arkret-core",
- "arkret-signatures",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "arkret-ffi"
-version = "0.3.0"
-dependencies = [
- "arkret-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "arkret-html"
-version = "0.3.0"
-dependencies = [
- "arkret-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "arkret-http-client"
-version = "0.3.0"
-dependencies = [
- "chrono",
- "arkret-core",
- "arkret-signatures",
- "futures-util",
- "getrandom 0.4.2",
- "reqwest 0.13.4",
- "serde",
- "serde_json",
- "tokio",
- "tokio-util",
- "url",
-]
-
-[[package]]
-name = "arkret-identifiers"
-version = "0.3.0"
-dependencies = [
- "getrandom 0.2.17",
- "getrandom 0.4.2",
- "hex",
- "salvo",
- "salvo-oapi",
- "serde",
- "sha2 0.11.0",
- "thiserror 2.0.18",
- "uuid",
-]
-
-[[package]]
-name = "arkret-keystore"
-version = "0.3.0"
-dependencies = [
- "arkret-core",
- "tracing",
-]
-
-[[package]]
-name = "arkret-server"
-version = "0.3.0"
-dependencies = [
- "arkret-core",
- "arkret-signatures",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "arkret-signatures"
-version = "0.3.0"
-dependencies = [
- "base64",
- "chrono",
- "arkret-core",
- "ed25519-dalek",
- "rand_core 0.6.4",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "subtle",
- "thiserror 2.0.18",
- "url",
- "zeroize",
-]
 
 [[package]]
 name = "combine"
@@ -4264,6 +4286,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -4967,11 +4990,11 @@ name = "server"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "arkret",
  "async-trait",
  "base64",
  "bs58",
  "chrono",
- "arkret",
  "deadpool",
  "diesel",
  "diesel-async",
@@ -5321,8 +5344,8 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 name = "teabay-contracts"
 version = "0.3.0"
 dependencies = [
- "chrono",
  "arkret",
+ "chrono",
  "serde",
  "serde_json",
 ]
