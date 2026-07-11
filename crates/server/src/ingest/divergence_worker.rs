@@ -230,7 +230,7 @@ impl DivergenceWorker {
             AuditEventKind::RevalidationFailed,
             Some(candidate.resource_kind),
             Some(&candidate.resource_id),
-            Some(&self.state.config().service_did),
+            Some(&self.state.config().service_id),
             json!({
                 "reason": "cross_directory_divergence",
                 "local_policy_revision": candidate.policy_revision,
@@ -265,7 +265,7 @@ impl DivergenceWorker {
             AuditEventKind::RevalidationSucceeded,
             Some(candidate.resource_kind),
             Some(&candidate.resource_id),
-            Some(&self.state.config().service_did),
+            Some(&self.state.config().service_id),
             json!({ "reason": "cross_directory_divergence_cleared" }),
         )
         .await
@@ -273,7 +273,7 @@ impl DivergenceWorker {
 }
 
 fn is_remote_https_service(state: &AppState, service: &str) -> bool {
-    service != state.config().service_did
+    service != state.config().service_id
         && service != state.config().public_base_url
         && service.starts_with("https://")
 }

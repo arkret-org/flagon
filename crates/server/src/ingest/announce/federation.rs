@@ -28,7 +28,7 @@ use crate::ingest::header_value;
 /// [`arkret_sdk::federation_trust_domain_transcript_fragment`].
 #[derive(Debug, Clone)]
 pub struct FederationCacheKeyInputs {
-    pub source_service_did: String,
+    pub source_service_id: String,
     pub verification_method: String,
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,
@@ -51,7 +51,7 @@ pub struct FederationCacheKeyInputs {
 
 impl FederationCacheKeyInputs {
     pub fn extract(req: &Request, body: &DirectoryAnnounceIngest) -> Self {
-        let source_service_did = header_value(req, "source-service-did")
+        let source_service_id = header_value(req, "source-service-did")
             .or_else(|| header_value(req, "x-source-service-did"))
             .unwrap_or_default();
         let verification_method = body
@@ -78,7 +78,7 @@ impl FederationCacheKeyInputs {
             header_value(req, &HEADER_REQUEST_CANONICAL_DIGEST.to_ascii_lowercase())
                 .unwrap_or_default();
         Self {
-            source_service_did,
+            source_service_id,
             verification_method,
             service_binding_ref,
             origin_key_state_digest,
@@ -101,7 +101,7 @@ impl FederationCacheKeyInputs {
         let mut h = Sha256::new();
         h.update(request_digest);
         h.update(b"\x1fSSD\x1e");
-        h.update(self.source_service_did.as_bytes());
+        h.update(self.source_service_id.as_bytes());
         h.update(b"\x1fVM\x1e");
         h.update(self.verification_method.as_bytes());
         h.update(b"\x1fSBR\x1e");
@@ -242,7 +242,7 @@ pub(crate) fn hex_lower_sha256(bytes: &[u8]) -> String {
 /// `ak.self.events.query.scan` response headers/envelope plus the same proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
-    pub source_service_did: String,
+    pub source_service_id: String,
     pub verification_method: String,
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,

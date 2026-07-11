@@ -2,8 +2,8 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use arkret_sdk::canonical;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use serde_json::Value as JsonValue;
@@ -154,7 +154,7 @@ pub(crate) async fn upsert_resource_and_audit(
                     a::effective_ttl_seconds.eq(effective_ttl as i32),
                     a::supersedes_announce_id.eq(body.supersedes_announce_id.as_deref()),
                     a::request_digest.eq(&request_digest),
-                    a::source_service_did.eq(&federation_cache.source_service_did),
+                    a::source_service_id.eq(&federation_cache.source_service_id),
                     a::verification_method.eq(&federation_cache.verification_method),
                     a::service_binding_ref.eq(&federation_cache.service_binding_ref),
                     a::origin_key_state_digest.eq(&federation_cache.origin_key_state_digest),

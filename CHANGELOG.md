@@ -130,14 +130,14 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
 
 - **T14 — Federation idempotency cache key extension.** The `ak.directory.
   announce` replay cache key now includes the four federation-identity
-  fields: `Source-Service-DID` header, `verification_method` (from the
+  fields: `Source-Service-ID` header, `verification_method` (from the
   discovery proof), `service_binding_ref` header, and
   `origin_key_state_digest` header. On a cache hit the announce handler
   re-runs the §8.5 capability chain; if the new check fails (e.g. the
   source service key has been revoked) the cached body is served with
   `historical_only=true` and no new side effects are triggered. New audit
   kind `ingest_historical_only` records the replay-after-revocation path.
-  `ingest_announces` grew matching columns (`source_service_did`,
+  `ingest_announces` grew matching columns (`source_service_id`,
   `verification_method`, `service_binding_ref`, `origin_key_state_digest`,
   `historical_only`) so the audit trail captures the full cache key.
 - **T17 — `consent_revoke{scope=any}` directory reachability
@@ -187,6 +187,6 @@ Closed in the Phase 2 `§1`-`§3` slice:
   JSON body hash, matching `Request-Canonical-Digest`.
 - `round23-T07` — Realm discovery rows use the dedicated `realm`
   `resource_kind`; `space` is rejected at the wire boundary.
-- `round23-T14` — the pull worker records `Source-Service-DID` and
+- `round23-T14` — the pull worker records `Source-Service-ID` and
   origin key state digest inputs so pull-mode replays align with push-mode
   cache keys.

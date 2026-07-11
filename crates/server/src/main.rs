@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     info!(
         bind = %config.bind,
         public_base_url = %config.public_base_url,
-        service_did = %config.service_did,
+        service_id = %config.service_id,
         accept_policy = ?config.accept_policy_kind,
         development_mode = config.development_mode,
         "teabay starting"

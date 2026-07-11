@@ -35,9 +35,6 @@
 //! directory-visibility gate, issuer-trust ordering, audience scope filter, and
 //! historical `as_of` replay for the indexed handle projections.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
 // NOTE: `arkret_sdk::HandleClaim` resolves to the SDK identity-layer claim
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
 // the crate root. The `ak.schema.list_handles_for_subject_response.v1` body
@@ -47,6 +44,9 @@ use arkret_sdk::{
     DirectoryListHandlesForSubjectRequestBody, DirectoryRestrictedClaimPresentation,
     DirectorySubjectHandleList, Handle, validate_handle_claim_subject,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Jsonb, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
@@ -379,7 +379,7 @@ fn verified_restricted_claims_for_body(
         &presentations,
         body.requester.as_ref().map(|did| did.as_str()),
         body.proof_challenge.as_deref(),
-        &state.config().service_did,
+        &state.config().service_id,
         &state.config().accepted_did_methods,
         crate::egress::private_networks_allowed(state.config().development_mode),
     )
@@ -739,7 +739,7 @@ fn issuer_in_accepted(projection: &JsonValue, accepted: &[String]) -> bool {
         .and_then(JsonValue::as_str)
         .or_else(|| {
             projection
-                .get("issuer_service_did")
+                .get("issuer_service_id")
                 .and_then(JsonValue::as_str)
         }) {
         Some(issuer) => accepted.iter().any(|a| a == issuer),

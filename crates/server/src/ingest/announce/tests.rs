@@ -17,7 +17,7 @@ fn inputs_with_triad(
     request_canonical_digest: &str,
 ) -> FederationCacheKeyInputs {
     FederationCacheKeyInputs {
-        source_service_did: "did:web:peer.example".to_owned(),
+        source_service_id: "did:web:peer.example".to_owned(),
         verification_method: "did:web:peer.example#key-1".to_owned(),
         service_binding_ref: "binding-1".to_owned(),
         origin_key_state_digest: vec![1, 2, 3],
@@ -197,7 +197,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
         },
         "search_policy": {
             "enabled_profile_refs": ["ak.profile.search.blind_index.v1"],
-            "allowed_service_dids": ["did:web:search.example"],
+            "allowed_service_ids": ["did:web:search.example"],
             "data_classes": ["encrypted_index", "blind_tokens"],
             "index_retention_ms": 3600,
             "revocation_behavior": "drop_stale"
@@ -209,7 +209,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
             "epoch_id": 7
         },
         "service_capabilities": [{
-            "service_did": "did:web:search.example",
+            "service_id": "did:web:search.example",
             "profile": "ak.profile.search.blind_index.v1",
             "blind_tokens": ["tok"]
         }]
@@ -223,7 +223,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
     assert!(projected.get("search_index_manifest").is_none());
     assert!(
         projected["service_capabilities"][0]
-            .get("service_did")
+            .get("service_id")
             .is_some()
     );
     assert!(

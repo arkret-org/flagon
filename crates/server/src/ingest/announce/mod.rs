@@ -11,8 +11,8 @@ mod projection;
 #[cfg(test)]
 mod tests;
 
-use chrono::{DateTime, Utc};
 use arkret_sdk::DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome;
+use chrono::{DateTime, Utc};
 use federation::verify_federation_trust_domain_headers;
 pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
 pub(crate) use ingest_body::{DirectoryAnnounceIngest, DirectoryAnnounceWireBody};
@@ -197,7 +197,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
     // Round R2/R3 T14 — federation idempotency cache key is the
-    // SHA-256 over (request_digest || Source-Service-DID ||
+    // SHA-256 over (request_digest || Source-Service-ID ||
     // verification_method || service_binding_ref ||
     // origin_key_state_digest || Source-Trust-Domain ||
     // Destination-Trust-Domain || Request-Canonical-Digest). On hit we
@@ -265,7 +265,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                         "code": c.wire_code(),
                         "message": m,
                     })),
-                    "source_service_did": cache_inputs.source_service_did,
+                    "source_service_id": cache_inputs.source_service_id,
                     "verification_method": cache_inputs.verification_method,
                     "service_binding_ref": cache_inputs.service_binding_ref,
                 }),
@@ -441,7 +441,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         request_digest.clone(),
         public_projection,
         FederationCachePersist {
-            source_service_did: cache_inputs.source_service_did.clone(),
+            source_service_id: cache_inputs.source_service_id.clone(),
             verification_method: cache_inputs.verification_method.clone(),
             service_binding_ref: cache_inputs.service_binding_ref.clone(),
             origin_key_state_digest: cache_inputs.origin_key_state_digest.clone(),

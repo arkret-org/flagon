@@ -25,7 +25,7 @@ CREATE INDEX directory_resources_reachability_revoked_idx
     WHERE reachability_revoked_at IS NOT NULL;
 
 ALTER TABLE ingest_announces
-    ADD COLUMN source_service_did TEXT NOT NULL DEFAULT '',
+    ADD COLUMN source_service_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN verification_method TEXT NOT NULL DEFAULT '',
     ADD COLUMN service_binding_ref TEXT NOT NULL DEFAULT '',
     ADD COLUMN origin_key_state_digest BYTEA NOT NULL DEFAULT '\x'::bytea,
@@ -33,7 +33,7 @@ ALTER TABLE ingest_announces
 
 CREATE INDEX ingest_announces_cache_key_idx
     ON ingest_announces (
-        source_service_did,
+        source_service_id,
         verification_method,
         service_binding_ref,
         origin_key_state_digest

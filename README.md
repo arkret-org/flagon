@@ -51,7 +51,7 @@ wire-breaking list.
 
 Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
 key on `ak.find.directory.command.announce`. The cache key now includes
-`Source-Service-DID` / `verification_method` / `service_binding_ref` /
+`Source-Service-ID` / `verification_method` / `service_binding_ref` /
 `origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and
 [`../arkret-spec/CHANGELOG.md`](../arkret-spec/CHANGELOG.md) (T14)
@@ -117,7 +117,7 @@ cargo install diesel_cli --no-default-features --features postgres
 # 2. Provision the database
 createdb teabay
 cp .env.example .env
-# Edit .env: at minimum set DATABASE_URL and TEABAY_SERVICE_DID
+# Edit .env: at minimum set DATABASE_URL and TEABAY_SERVICE_ID
 
 # 3. Run migrations and start
 diesel setup
@@ -306,7 +306,7 @@ active `admin_tokens` row. `/health.hardening.admin_auth_mode` reports
 withdrawals store the resource governance detached JWS and signed payload.
 Operator takedowns store a service-signed detached JWS receipt and require
 `TEABAY_RECEIPT_SIGNING_KEY_B64`; the verification method is
-`TEABAY_RECEIPT_KEY_ID` or `$TEABAY_SERVICE_DID#teabay-receipt-1`.
+`TEABAY_RECEIPT_KEY_ID` or `$TEABAY_SERVICE_ID#teabay-receipt-1`.
 
 - [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
 - [ ] TLS enabled at the reverse proxy (or `TEABAY_TLS_CERT_PATH` / `TEABAY_TLS_KEY_PATH` when terminated in-process)

@@ -30,7 +30,7 @@ Manual setup:
 ```bash
 createdb teabay
 cp .env.example .env
-# Edit .env for DATABASE_URL and TEABAY_SERVICE_DID.
+# Edit .env for DATABASE_URL and TEABAY_SERVICE_ID.
 diesel setup
 cargo run -p server
 ```
@@ -82,7 +82,7 @@ Set these for every deployment:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `TEABAY_SERVICE_DID` | Directory service DID advertised to resources. |
+| `TEABAY_SERVICE_ID` | Directory service DID advertised to resources. |
 | `TEABAY_PUBLIC_BASE_URL` | Public URL used in service metadata. |
 | `TEABAY_TRUST_DOMAIN` | Typed trust domain advertised by describe. |
 | `TEABAY_METRICS_BIND` | Separate Prometheus listener; default `127.0.0.1:9095`. |
@@ -261,7 +261,7 @@ captured now that handle-homograph wire-level checks are mandatory.
   ingest routes return `503 read_only` on a secondary node.
 - **Federation peers** — other Arkret Directory deployments. Bilateral
   `directory_peer_links` rows configure pull-subscribe / push-announce
-  destinations; each peer's `service_did` MUST be on the local
+  destinations; each peer's `service_id` MUST be on the local
   `directory_peer_trust` allowlist before subscription is honored.
 
 ### DR / backup

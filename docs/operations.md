@@ -46,7 +46,7 @@ masked by default in structured logs:
 
 - `resource_id` — emitted as the first 16 characters followed by `...` when the
   value exceeds 16 chars.
-- `service_did` — emitted as the DID method (`did:web`, `did:webvh`, etc.) plus
+- `service_id` — emitted as the DID method (`did:web`, `did:webvh`, etc.) plus
   a SHA-256 prefix; the bare identifier is never logged.
 
 Set `TEABAY_DEVELOPMENT_MODE=true` to disable masking for local debugging. The

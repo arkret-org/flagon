@@ -9,7 +9,7 @@ ALTER TABLE ingest_announces
     DROP COLUMN IF EXISTS origin_key_state_digest,
     DROP COLUMN IF EXISTS service_binding_ref,
     DROP COLUMN IF EXISTS verification_method,
-    DROP COLUMN IF EXISTS source_service_did;
+    DROP COLUMN IF EXISTS source_service_id;
 
 ALTER TABLE directory_resources
     DROP COLUMN IF EXISTS reachability_revoked_reason,

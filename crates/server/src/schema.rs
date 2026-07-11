@@ -86,7 +86,7 @@ diesel::table! {
         supersedes_announce_id -> Nullable<Text>,
         request_digest -> Bytea,
         // Round R2/R3 T14 — federation idempotency cache key extension.
-        source_service_did -> Text,
+        source_service_id -> Text,
         verification_method -> Text,
         service_binding_ref -> Text,
         origin_key_state_digest -> Bytea,

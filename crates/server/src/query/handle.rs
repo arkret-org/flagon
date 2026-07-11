@@ -8,13 +8,13 @@
 //! the underlying subject / service DID — they collapse to `not_found` with
 //! the same response shape and latency tier as a genuine miss (§10).
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
 use arkret_sdk::{
     Did, DirectoryHandleResolutionOutcome,
     DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -377,7 +377,7 @@ fn verified_restricted_claims_for_handle_query(
         &body.claim_presentations,
         body.requester.as_deref(),
         body.proof_challenge.as_deref(),
-        &state.config().service_did,
+        &state.config().service_id,
         &state.config().accepted_did_methods,
         crate::egress::private_networks_allowed(state.config().development_mode),
     )
@@ -694,11 +694,11 @@ fn binding_passes(
     unrestricted_recipient: bool,
     unrestricted_source: bool,
 ) -> bool {
-    let recipient_ok = match obj.get("recipient_service_did").and_then(JsonValue::as_str) {
+    let recipient_ok = match obj.get("recipient_service_id").and_then(JsonValue::as_str) {
         // Round 4 (spec a77b995, commit f9bd7eb) — the DID regex was
         // tightened to `^did:[a-z0-9]+:[^\s]+$`. The SDK `Did::new`
         // newtype enforces it; projections whose
-        // `recipient_service_did` uses dot/dash/underscore/colon in
+        // `recipient_service_id` uses dot/dash/underscore/colon in
         // the method segment MUST be dropped as if absent, not allowed
         // through unconditionally.
         Some(did) => {
@@ -716,7 +716,7 @@ fn binding_passes(
     recipient_ok && source_ok
 }
 
-/// Round 4 — drop candidates whose `recipient_service_did` fails the
+/// Round 4 — drop candidates whose `recipient_service_id` fails the
 /// tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
 fn is_round4_tight_did(did: &str) -> bool {
     arkret_sdk::Did::new(did.to_owned()).is_ok()
@@ -971,7 +971,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.other",
+                "recipient_service_id": "did:web:principal.other",
                 "binding_source": "join_policy",
             },
         }));
@@ -995,7 +995,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.tea",
+                "recipient_service_id": "did:web:principal.tea",
                 "binding_source": "join_policy"
             }
         }));
@@ -1019,7 +1019,7 @@ mod tests {
             .expect("member_delivery_binding surface");
         assert_eq!(
             binding
-                .get("recipient_service_did")
+                .get("recipient_service_id")
                 .and_then(JsonValue::as_str),
             Some("did:web:principal.tea")
         );
@@ -1034,7 +1034,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.tea",
+                "recipient_service_id": "did:web:principal.tea",
                 "binding_source": "join_policy",
             },
         }));
@@ -1058,7 +1058,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.anywhere",
+                "recipient_service_id": "did:web:principal.anywhere",
                 "binding_source": "join_policy",
             },
         }));
@@ -1080,7 +1080,7 @@ mod tests {
                 .payload
                 .get("member_delivery_binding")
                 .and_then(JsonValue::as_object)
-                .and_then(|binding| binding.get("recipient_service_did"))
+                .and_then(|binding| binding.get("recipient_service_id"))
                 .and_then(JsonValue::as_str),
             Some("did:web:principal.anywhere")
         );
@@ -1097,7 +1097,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.tea",
+                "recipient_service_id": "did:web:principal.tea",
                 "binding_source": "join_policy",
             },
         }));
@@ -1105,7 +1105,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.other",
+                "recipient_service_id": "did:web:principal.other",
                 "binding_source": "join_policy",
             },
         }));
@@ -1271,7 +1271,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_did": "did:web:principal.tea",
+                "recipient_service_id": "did:web:principal.tea",
                 "binding_source": "explicit",
             }
         }));

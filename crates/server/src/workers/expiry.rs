@@ -115,7 +115,7 @@ impl ExpiryWorker {
                     AuditEventKind::ExpiryPurged,
                     Some(resource_kind),
                     Some(&resource_id),
-                    Some(self.state.config().service_did.as_str()),
+                    Some(self.state.config().service_id.as_str()),
                     json!({
                         "resource_kind": resource_kind.as_pg(),
                         "resource_id": resource_id,

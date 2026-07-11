@@ -240,7 +240,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
         .added_by
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&state.config().service_did);
+        .unwrap_or(&state.config().service_id);
 
     match upsert_allowlist(&state, &body, actor).await {
         Ok(item) => {
@@ -293,7 +293,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
                     AuditEventKind::AllowlistRemoved,
                     None,
                     Some(resource_did),
-                    Some(&state.config().service_did),
+                    Some(&state.config().service_id),
                     json!({ "deleted": deleted }),
                 )
                 .await;
@@ -421,7 +421,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
                 AuditEventKind::AdminResourceUpserted,
                 Some(resource_kind),
                 Some(&body.resource_id),
-                Some(&state.config().service_did),
+                Some(&state.config().service_id),
                 json!({
                     "principal_server_did": body.principal_server_did.as_str(),
                     "discoverability": discoverability.as_pg(),
@@ -478,7 +478,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
                 AuditEventKind::AdminResourceDeleted,
                 Some(resource_kind),
                 Some(resource_id),
-                Some(&state.config().service_did),
+                Some(&state.config().service_id),
                 json!({
                     "principal_server_did": detail.principal_server_did,
                     "policy_revision": detail.policy_revision,
@@ -581,7 +581,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         AuditEventKind::ConsentRevokeInvalidation,
         None,
         Some(&body.actor_id),
-        Some(&state.config().service_did),
+        Some(&state.config().service_id),
         json!({
             "actor_id": body.actor_id,
             "scope": scope,

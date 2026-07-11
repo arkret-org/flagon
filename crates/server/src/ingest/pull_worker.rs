@@ -366,7 +366,7 @@ impl PullWorker {
         if !response.status().is_success() {
             anyhow::bail!("events query returned {}", response.status());
         }
-        let source_service_did = response_header_value(response.headers(), "source-service-did");
+        let source_service_id = response_header_value(response.headers(), "source-service-did");
         let service_binding_ref = response_header_value(response.headers(), "service-binding-ref");
         let origin_key_state_digest =
             response_header_value(response.headers(), "origin-key-state-digest");
@@ -378,8 +378,8 @@ impl PullWorker {
             .next()
             .map(|envelope| envelope.event)
             .ok_or_else(|| anyhow::anyhow!("events query returned no discovery state"))?;
-        if event.source_service_did.is_empty() {
-            event.source_service_did = source_service_did.unwrap_or_default();
+        if event.source_service_id.is_empty() {
+            event.source_service_id = source_service_id.unwrap_or_default();
         }
         if event.service_binding_ref.is_none() {
             event.service_binding_ref = service_binding_ref.map(JsonValue::String);
@@ -570,7 +570,7 @@ struct PulledEvent {
     created_at: DateTime<Utc>,
     content: JsonValue,
     #[serde(default)]
-    source_service_did: String,
+    source_service_id: String,
     #[serde(default)]
     service_binding_ref: Option<JsonValue>,
     #[serde(default)]
@@ -579,10 +579,10 @@ struct PulledEvent {
 
 impl FederationCachePersist {
     fn from_pull_event(entry: &DueEntry, pulled: &PulledEvent) -> Self {
-        let source_service_did = if pulled.source_service_did.trim().is_empty() {
+        let source_service_id = if pulled.source_service_id.trim().is_empty() {
             entry.principal_server_did.clone()
         } else {
-            pulled.source_service_did.trim().to_owned()
+            pulled.source_service_id.trim().to_owned()
         };
         let verification_method = pulled
             .content
@@ -597,7 +597,7 @@ impl FederationCachePersist {
             .unwrap_or_default();
         let origin_key_state_digest = pulled.origin_key_state_digest.trim().as_bytes().to_vec();
         Self {
-            source_service_did,
+            source_service_id,
             verification_method,
             service_binding_ref,
             origin_key_state_digest,
@@ -645,7 +645,7 @@ mod tests {
                     "verification_method": "did:web:principal.example#key-1"
                 }
             }),
-            source_service_did: "did:web:source-service.example".to_owned(),
+            source_service_id: "did:web:source-service.example".to_owned(),
             service_binding_ref: Some(json!({
                 "realm_id": "ak:realm:tea",
                 "frontier": ["evt-0"]
@@ -655,7 +655,7 @@ mod tests {
 
         let cache = FederationCachePersist::from_pull_event(&entry, &pulled);
 
-        assert_eq!(cache.source_service_did, "did:web:source-service.example");
+        assert_eq!(cache.source_service_id, "did:web:source-service.example");
         assert_eq!(cache.verification_method, "did:web:principal.example#key-1");
         assert!(cache.service_binding_ref.contains("\"frontier\""));
         assert_eq!(cache.origin_key_state_digest, b"sha256:abc123");

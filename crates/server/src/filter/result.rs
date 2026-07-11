@@ -4,8 +4,8 @@
 //! wrapper that handlers populate from the `directory_resources` row plus
 //! the per-query freshness check.
 
-use chrono::{DateTime, Utc};
 use arkret_sdk::RealmJoinCandidate;
+use chrono::{DateTime, Utc};
 use serde::ser::{Error as _, SerializeMap};
 use serde::{Serialize, Serializer};
 use serde_json::Value as JsonValue;
@@ -38,7 +38,7 @@ impl ResultEnvelope {
     ///
     /// Note: `via_services` is accepted but intentionally NOT stored as an
     /// envelope field — §9.1 has no `via_services` field; that information is
-    /// expressed via `join_candidates[].service_did` (see
+    /// expressed via `join_candidates[].service_id` (see
     /// [`Self::with_join_candidates`]). The parameter is kept so callers can
     /// pass the row column uniformly across resource kinds.
     #[allow(clippy::too_many_arguments)]

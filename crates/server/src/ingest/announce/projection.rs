@@ -170,7 +170,7 @@ fn strip_private_search_projection_fields(obj: &mut serde_json::Map<String, Json
         "search_policy",
         "search_index_manifest",
         "enabled_profile_refs",
-        "allowed_service_dids",
+        "allowed_service_ids",
         "data_classes",
         "index_retention_ms",
         "revocation_behavior",

@@ -38,9 +38,6 @@
 //! unauthorized requester. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, TimeZone, Utc};
 use arkret_sdk::identity::DidKeyResolver;
 use arkret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::models::{
@@ -51,6 +48,9 @@ use arkret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
     DirectoryTargetResolutionOutcome, RealmPreview, TargetKind, canonical,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, TimeZone, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -181,7 +181,7 @@ fn verified_restricted_claims_for_target_query(
         presentations,
         requester,
         proof_challenge,
-        &state.config().service_did,
+        &state.config().service_id,
         &state.config().accepted_did_methods,
         crate::egress::private_networks_allowed(state.config().development_mode),
     )
@@ -1214,9 +1214,9 @@ fn opt_bool(value: bool) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::DateTime;
     use arkret_sdk::jws::sign_jws_ed25519;
     use arkret_sdk::models::{AddressAction, build_address};
+    use chrono::DateTime;
     use ed25519_dalek::SigningKey;
 
     use super::*;

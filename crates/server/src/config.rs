@@ -26,7 +26,7 @@ pub struct AppConfig {
     pub bind: SocketAddr,
     pub metrics_bind: SocketAddr,
     pub public_base_url: String,
-    pub service_did: String,
+    pub service_id: String,
     /// Round 4 — typed trust domain advertised in
     /// `/directory/describe` and required on every cross-trust-domain
     /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
@@ -293,8 +293,8 @@ impl AppConfig {
         let public_base_url =
             std::env::var("TEABAY_PUBLIC_BASE_URL").unwrap_or_else(|_| format!("http://{bind}"));
 
-        let service_did = std::env::var("TEABAY_SERVICE_DID")
-            .map_err(|_| anyhow::anyhow!("TEABAY_SERVICE_DID is required"))?;
+        let service_id = std::env::var("TEABAY_SERVICE_ID")
+            .map_err(|_| anyhow::anyhow!("TEABAY_SERVICE_ID is required"))?;
 
         // Round 4 — required trust domain on ServiceDescribe. Operators
         // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
@@ -467,7 +467,7 @@ impl AppConfig {
                 .as_deref(),
             std::env::var("TEABAY_RECEIPT_KEY_ID")
                 .ok()
-                .unwrap_or_else(|| format!("{service_did}#teabay-receipt-1")),
+                .unwrap_or_else(|| format!("{service_id}#teabay-receipt-1")),
         )?;
         if psi_epoch_seconds == 0 {
             anyhow::bail!("TEABAY_PSI_EPOCH_SECONDS must be > 0");
@@ -544,7 +544,7 @@ impl AppConfig {
             bind,
             metrics_bind,
             public_base_url,
-            service_did,
+            service_id,
             trust_domain,
             database_url,
             cors_allow_origin,

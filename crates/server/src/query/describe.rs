@@ -49,8 +49,8 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
-    let service_did = Did::new(cfg.service_did.clone())
-        .map_err(|err| format!("TEABAY_SERVICE_DID is not a valid DID: {err}"))?;
+    let service_id = Did::new(cfg.service_id.clone())
+        .map_err(|err| format!("TEABAY_SERVICE_ID is not a valid DID: {err}"))?;
     let trust_domain = TypedTrustDomainId::new(cfg.trust_domain.clone())
         .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
 
@@ -208,7 +208,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     let compat_surfaces: Vec<CompatSurfaceEntry> = Vec::new();
 
     let describe_body = ServerDescription {
-        service_did,
+        service_id,
         trust_domain,
         service_type: "directory_service".to_owned(),
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
@@ -363,7 +363,7 @@ mod tests {
             bind: "127.0.0.1:0".parse().unwrap(),
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
-            service_did: "did:web:directory.test".to_owned(),
+            service_id: "did:web:directory.test".to_owned(),
             trust_domain: "ak:trust_domain:local.test".to_owned(),
             database_url: "postgres://localhost/teabay".to_owned(),
             cors_allow_origin: None,
@@ -412,7 +412,7 @@ mod tests {
         let value = build_describe_response_value(&cfg(true, true)).expect("describe builds");
 
         for required in [
-            "service_did",
+            "service_id",
             "trust_domain",
             "service_type",
             "protocol_version",
@@ -438,7 +438,7 @@ mod tests {
 
         assert_eq!(value["development_mode"], true);
         assert_eq!(value["trust_domain"], "ak:trust_domain:local.test");
-        assert_eq!(value["service_did"], "did:web:directory.test");
+        assert_eq!(value["service_id"], "did:web:directory.test");
         assert_eq!(value["service_type"], "directory_service");
         // verified_profiles MUST be empty when development_mode = true.
         assert!(
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn describe_rejects_dev_mode_with_verified_profiles() {
         let describe_body = ServerDescription {
-            service_did: Did::new("did:web:directory.test").unwrap(),
+            service_id: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_type: "directory_service".to_owned(),
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
@@ -552,7 +552,7 @@ mod tests {
     fn describe_top_level_keys_are_canonical_or_x_namespaced() {
         // Canonical ServiceDescribe top-level properties (required + optional).
         const CANONICAL: &[&str] = &[
-            "service_did",
+            "service_id",
             "trust_domain",
             "service_type",
             "protocol_version",

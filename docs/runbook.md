@@ -79,7 +79,7 @@ and `consecutive_failures`.
 
 **Logs.** teabay uses `tracing` to stdout/stderr; set `RUST_LOG` (e.g.
 `RUST_LOG=info`, `debug` only for short investigations). In production
-(`TEABAY_DEVELOPMENT_MODE=false`) `resource_id` and `service_did` are redacted.
+(`TEABAY_DEVELOPMENT_MODE=false`) `resource_id` and `service_id` are redacted.
 
 **Metrics.** Scrape `http://<TEABAY_METRICS_BIND>/metrics` (default
 `127.0.0.1:9095`). Key series:

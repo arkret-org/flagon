@@ -1,13 +1,13 @@
 //! Organization search and resolve. Spec §9.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
 use arkret_sdk::{
     Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
     DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
     OrganizationPreview,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -292,7 +292,7 @@ fn verified_restricted_claims_for_org_query(
         presentations,
         requester,
         proof_challenge,
-        &state.config().service_did,
+        &state.config().service_id,
         &state.config().accepted_did_methods,
         crate::egress::private_networks_allowed(state.config().development_mode),
     )

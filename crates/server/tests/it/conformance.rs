@@ -5,14 +5,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{Duration as ChronoDuration, Utc};
 use arkret_sdk::jws::sign_jws_ed25519;
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
     DirectoryRestrictedClaimPresentation, PresentedClaim, canonical,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{Duration as ChronoDuration, Utc};
 use diesel::sql_types::{BigInt, Jsonb, Text};
 use diesel_async::RunQueryDsl;
 use ed25519_dalek::SigningKey;
@@ -60,7 +60,7 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     unsafe {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
         std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
-        std::env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
+        std::env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
         std::env::set_var("DATABASE_URL", &database_url);
         std::env::set_var("TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED", "true");
         std::env::set_var("TEABAY_ADMIN_TOKEN", "cotest-admin");
@@ -153,7 +153,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
     let discovery_profiles = body["discovery_profiles"].as_array().unwrap();
     assert!(discovery_profiles.contains(&json!("ak.profile.directory_service.v1")));
     assert!(discovery_profiles.contains(&json!("ak.private_contact_discovery.v1")));
-    assert_eq!(body["service_did"], "did:web:directory.test");
+    assert_eq!(body["service_id"], "did:web:directory.test");
     assert_eq!(body["service_type"], "directory_service");
     assert!(
         body["accepted_resource_kinds"]
@@ -569,7 +569,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     assert_eq!(body["member_count_bucket"], "11-50");
     assert_eq!(body["source_refs"][0], "evt-announce-realm");
     assert_eq!(
-        body["join_candidates"][0]["service_did"],
+        body["join_candidates"][0]["service_id"],
         mock.principal_server_did()
     );
     Ok(())

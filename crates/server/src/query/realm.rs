@@ -9,15 +9,15 @@
 //! (`ak:realm:` URI prefix). Container Spaces are a separate
 //! `resource_kind=space` row type and are intentionally not returned here.
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
 use arkret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
     DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
     RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
     RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
 };
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
@@ -294,7 +294,7 @@ fn verified_restricted_claims_for_realm_query(
         presentations,
         requester,
         proof_challenge,
-        &state.config().service_did,
+        &state.config().service_id,
         &state.config().accepted_did_methods,
         crate::egress::private_networks_allowed(state.config().development_mode),
     )
@@ -726,11 +726,11 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
         .filter_map(|service| Did::new(service.clone()).ok())
         .take(limit)
         .enumerate()
-        .filter_map(|(index, service_did)| {
-            let seal_basis = candidate_seal_basis(row, service_did.as_str())?;
+        .filter_map(|(index, service_id)| {
+            let seal_basis = candidate_seal_basis(row, service_id.as_str())?;
             Some(RealmJoinCandidate {
                 realm_id: realm_id.clone(),
-                service_did,
+                service_id,
                 service_type: RealmJoinCandidateServiceType::PrincipalServer,
                 role: if index == 0 {
                     RealmJoinCandidateRole::Primary
@@ -759,10 +759,10 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
         .collect()
 }
 
-fn candidate_seal_basis(row: &RealmRow, service_did: &str) -> Option<SealBasis> {
-    let leaf = candidate_digest(row, service_did, "leaf");
-    let control = candidate_digest(row, service_did, "control_event_set_root");
-    let state = candidate_digest(row, service_did, "state_root");
+fn candidate_seal_basis(row: &RealmRow, service_id: &str) -> Option<SealBasis> {
+    let leaf = candidate_digest(row, service_id, "leaf");
+    let control = candidate_digest(row, service_id, "control_event_set_root");
+    let state = candidate_digest(row, service_id, "state_root");
     Some(SealBasis {
         leaves: vec![SealId::new(format!("ak:seal:sha256:{leaf}")).ok()?],
         control_event_set_root: Hash::new(format!("sha256:{control}")).ok()?,
@@ -770,13 +770,13 @@ fn candidate_seal_basis(row: &RealmRow, service_did: &str) -> Option<SealBasis> 
     })
 }
 
-fn candidate_digest(row: &RealmRow, service_did: &str, label: &str) -> String {
+fn candidate_digest(row: &RealmRow, service_id: &str, label: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(label.as_bytes());
     hasher.update([0]);
     hasher.update(row.resource_id.as_bytes());
     hasher.update([0]);
-    hasher.update(service_did.as_bytes());
+    hasher.update(service_id.as_bytes());
     hasher.update([0]);
     hasher.update(row.policy_revision.as_bytes());
     hasher.update([0]);

@@ -1,9 +1,9 @@
 //! Verifiable withdrawal receipt material stored in `withdrawals.proof`.
 
+use arkret_sdk::canonical;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
-use arkret_sdk::canonical;
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::{
@@ -40,7 +40,7 @@ pub(crate) fn resource_withdrawal_proof(
         "governance_proof": body.governance_proof.clone(),
         "verification": {
             "status": "verified",
-            "verified_by": config.service_did.as_str(),
+            "verified_by": config.service_id.as_str(),
             "verified_at": acked_at,
         },
     }))
@@ -69,7 +69,7 @@ pub(crate) fn operator_takedown_proof(
             "operator": operator,
             "evidence": body.evidence.clone(),
             "notification_status": notification_status,
-            "service_did": config.service_did.as_str(),
+            "service_id": config.service_id.as_str(),
             "appeal_endpoint": takedown_appeal_endpoint(config),
         })),
     );
@@ -114,7 +114,7 @@ pub(crate) fn takedown_appeal_received_receipt(
         "argument_digest": argument_digest,
         "decision": "pending",
         "received_at": received_at,
-        "service_did": config.service_did.as_str(),
+        "service_id": config.service_id.as_str(),
     });
     let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
         anyhow::anyhow!("TEABAY_RECEIPT_SIGNING_KEY_B64 is required for takedown appeal receipts")
@@ -158,7 +158,7 @@ pub(crate) fn takedown_appeal_decision_receipt(
         "decided_by": decided_by,
         "reason": reason,
         "decided_at": decided_at,
-        "service_did": config.service_did.as_str(),
+        "service_id": config.service_id.as_str(),
     });
     if let Some(decision_evidence_digest) = decision_evidence_digest
         && let Some(object) = statement.as_object_mut()
