@@ -245,7 +245,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         accept_policy_ref: cfg
             .accept_policy_ref
             .as_ref()
-            .map(|reference| json!({ "ref": reference })),
+            .map(|reference| json!({ "policy_ref": reference })),
         default_ttl_seconds: Some(cfg.default_ttl.as_secs()),
         max_ttl_seconds: Some(cfg.max_ttl.as_secs()),
         revalidation_grace_seconds: Some(cfg.revalidation_grace.as_secs()),
