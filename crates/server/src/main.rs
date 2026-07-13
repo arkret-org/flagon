@@ -8,9 +8,15 @@ use server::{AppConfig, AppState, Db, metrics_service, profile, service};
 use tokio::signal;
 use tracing::{info, warn};
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    dotenvy::dotenv().ok();
+fn main() -> anyhow::Result<()> {
+    server::config::prepare_process_environment()?;
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
