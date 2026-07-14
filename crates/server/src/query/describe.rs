@@ -10,10 +10,13 @@
 //! `accepted_resource_kinds`, `ingest_modes`, `ttl`, etc.) are registered
 //! ServiceDescribe overlay fields, not vendor-specific `x_*` extensions.
 
+use std::collections::BTreeMap;
+
 use arkret_sdk::{
     AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, DirectoryAcceptPolicyKind,
     DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
-    RateLimitPolicy, ServerDescription, SupportedBinding, TypedTrustDomainId, VerifiedProfileEntry,
+    RateLimitPolicy, ServerDescription, ServerLimits, SupportedBinding, TypedTrustDomainId,
+    VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -129,19 +132,45 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         }),
     );
 
-    let limits: arkret_sdk::ServerLimits = serde_json::from_value(json!({
-        "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
-        "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
-        "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
-        "psi_epoch_seconds": cfg.psi_epoch_seconds,
-        "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
-        "query_latency_floor_ms": cfg.query_latency_floor.as_millis() as u64,
-        "query_latency_jitter_ms": cfg.query_latency_jitter.as_millis() as u64,
-        "default_ttl_seconds": cfg.default_ttl.as_secs(),
-        "max_ttl_seconds": cfg.max_ttl.as_secs(),
-        "revalidation_grace_seconds": cfg.revalidation_grace.as_secs(),
-    }))
-    .map_err(|error| format!("invalid server limits: {error}"))?;
+    let limits = ServerLimits {
+        max_get_query_selectors: None,
+        extensions: BTreeMap::from([
+            (
+                "per_resource_per_min".to_owned(),
+                json!(cfg.rate_limit_per_resource_per_min),
+            ),
+            (
+                "max_psi_queries_per_window".to_owned(),
+                json!(cfg.max_psi_queries_per_window),
+            ),
+            (
+                "psi_quota_window_seconds".to_owned(),
+                json!(cfg.psi_quota_window_seconds),
+            ),
+            ("psi_epoch_seconds".to_owned(), json!(cfg.psi_epoch_seconds)),
+            (
+                "psi_key_retention_seconds".to_owned(),
+                json!(cfg.psi_key_retention_seconds),
+            ),
+            (
+                "query_latency_floor_ms".to_owned(),
+                json!(cfg.query_latency_floor.as_millis() as u64),
+            ),
+            (
+                "query_latency_jitter_ms".to_owned(),
+                json!(cfg.query_latency_jitter.as_millis() as u64),
+            ),
+            (
+                "default_ttl_seconds".to_owned(),
+                json!(cfg.default_ttl.as_secs()),
+            ),
+            ("max_ttl_seconds".to_owned(), json!(cfg.max_ttl.as_secs())),
+            (
+                "revalidation_grace_seconds".to_owned(),
+                json!(cfg.revalidation_grace.as_secs()),
+            ),
+        ]),
+    };
     let directory_rate_limits = json!({
         "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
         "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
@@ -161,11 +190,13 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // the object is `additionalProperties: false` apart from `x_*`.
     let mut plaintext_visibility = PlaintextVisibility::none();
     plaintext_visibility.max_visibility = Some(arkret_sdk::PlaintextMaxVisibility::None);
-    plaintext_visibility.extra.insert(
-        "x_teabay_scope".to_owned(),
-        JsonValue::String("directory_resources_only".to_owned()),
-    )
-    .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
+    plaintext_visibility
+        .extra
+        .insert(
+            "x_teabay_scope".to_owned(),
+            JsonValue::String("directory_resources_only".to_owned()),
+        )
+        .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
 
     let implemented_features: Vec<String> = vec![
         "directory.search",
@@ -495,7 +526,7 @@ mod tests {
             supported_bindings: Vec::new(),
             supported_features: Vec::new(),
             auth_metadata: AuthMetadata::minimal("service_transport"),
-            limits: json!({}),
+            limits: ServerLimits::default(),
             egress_network_policy: None,
             plaintext_visibility: PlaintextVisibility::none(),
             privacy_derivation: None,

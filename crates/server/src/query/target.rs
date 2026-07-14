@@ -1149,8 +1149,7 @@ async fn build_object_response(
         return Ok(None);
     };
 
-    let object_id = object_preview_id(parsed, target_kind)
-        .map_err(anyhow::Error::msg)?;
+    let object_id = object_preview_id(parsed, target_kind).map_err(anyhow::Error::msg)?;
     let object_source_refs = row
         .source_refs
         .iter()
