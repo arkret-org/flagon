@@ -164,7 +164,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     plaintext_visibility.extra.insert(
         "x_teabay_scope".to_owned(),
         JsonValue::String("directory_resources_only".to_owned()),
-    );
+    )
+    .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
 
     let implemented_features: Vec<String> = vec![
         "directory.search",
