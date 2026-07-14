@@ -386,12 +386,13 @@ fn verified_restricted_claims_for_body(
 }
 
 fn parse_restricted_claim_presentations(
-    proofs: &[JsonValue],
+    proofs: &[arkret_sdk::Proof],
 ) -> Result<Vec<DirectoryRestrictedClaimPresentation>, String> {
     proofs
         .iter()
         .map(|proof| {
-            serde_json::from_value(proof.clone())
+            serde_json::to_value(proof)
+                .and_then(serde_json::from_value)
                 .map_err(|error| format!("restricted claim presentation invalid: {error}"))
         })
         .collect()

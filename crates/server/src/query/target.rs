@@ -46,7 +46,8 @@ use arkret_sdk::models::{
 };
 use arkret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
-    DirectoryTargetResolutionOutcome, RealmPreview, TargetKind, canonical,
+    DirectoryTargetResolutionOutcome, EventId, MessageId, NonEmptyString, ObjectPreview,
+    ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -955,9 +956,8 @@ fn build_realm_response(
         as_of: resolved.envelope.as_of,
         source_refs: resolved.envelope.source_refs.clone(),
         join_candidates: resolved.join_candidates.clone(),
-        policy_revision: Some(resolved.envelope.policy_revision.clone()),
-        stale: opt_bool(resolved.envelope.stale),
-        divergent: opt_bool(resolved.envelope.divergent),
+        policy_revision: NonEmptyString::new(resolved.envelope.policy_revision.clone())
+            .map_err(str::to_owned)?,
     })
 }
 
@@ -975,14 +975,20 @@ fn build_preview_response(
     Ok(DirectoryTargetResolutionOutcome {
         target_kind,
         realm_preview: Some(realm_preview),
-        object_preview: preview_object_for_address(parsed, target_kind),
+        object_preview: preview_object_for_address(
+            parsed,
+            target_kind,
+            resolved.envelope.as_of,
+            &resolved.envelope.source_refs,
+            preview_policy_digest,
+            resolved.envelope.stale,
+            resolved.envelope.divergent,
+        )?,
         join_rule: None,
         as_of: resolved.envelope.as_of,
         source_refs: resolved.envelope.source_refs.clone(),
         join_candidates: Vec::new(),
-        policy_revision: Some(preview_policy_digest.to_owned()),
-        stale: opt_bool(resolved.envelope.stale),
-        divergent: opt_bool(resolved.envelope.divergent),
+        policy_revision: NonEmptyString::new(preview_policy_digest).map_err(str::to_owned)?,
     })
 }
 
@@ -1029,26 +1035,65 @@ fn preview_policy_field_allowed(policy: &JsonValue, field: &str) -> bool {
 fn preview_object_for_address(
     parsed: &ParsedAddress,
     target_kind: TargetKind,
-) -> Option<JsonValue> {
+    as_of: DateTime<Utc>,
+    source_refs: &[String],
+    policy_revision: &str,
+    stale: bool,
+    divergent: bool,
+) -> Result<Option<ObjectPreview>, String> {
+    let source_refs = source_refs
+        .iter()
+        .cloned()
+        .map(EventId::new)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("invalid object preview source reference: {error}"))?;
     match target_kind {
-        TargetKind::Realm => None,
+        TargetKind::Realm => Ok(None),
         TargetKind::Strand | TargetKind::Message => {
-            let strand_id = parsed
-                .strand
-                .as_deref()
-                .map(|strand| format!("ak:strand:{strand}"))?;
-            let mut preview = serde_json::Map::new();
-            preview.insert("kind".to_owned(), json!(target_kind));
-            preview.insert("strand_id".to_owned(), JsonValue::String(strand_id));
-            if let Some(message_id) = parsed
-                .message
-                .as_deref()
-                .map(|message| format!("ak:message:{message}"))
-            {
-                preview.insert("message_id".to_owned(), JsonValue::String(message_id));
-            }
-            Some(JsonValue::Object(preview))
+            let object_id = object_preview_id(parsed, target_kind)?;
+            Ok(Some(ObjectPreview {
+                object_id,
+                object_kind: target_kind_name(target_kind).to_owned(),
+                title: None,
+                summary: None,
+                as_of,
+                source_refs,
+                policy_revision: policy_revision.to_owned(),
+                stale: opt_bool(stale),
+                divergent: opt_bool(divergent),
+            }))
         }
+    }
+}
+
+fn object_preview_id(
+    parsed: &ParsedAddress,
+    target_kind: TargetKind,
+) -> Result<ObjectPreviewId, String> {
+    match target_kind {
+        TargetKind::Realm => Err("realm target has no object preview id".to_owned()),
+        TargetKind::Strand => parsed
+            .strand
+            .as_deref()
+            .map(|strand| format!("ak:strand:{strand}"))
+            .ok_or_else(|| "strand target is missing strand id".to_owned())
+            .and_then(|id| StrandId::new(id).map_err(|error| error.to_string()))
+            .map(ObjectPreviewId::Strand),
+        TargetKind::Message => parsed
+            .message
+            .as_deref()
+            .map(|message| format!("ak:message:{message}"))
+            .ok_or_else(|| "message target is missing message id".to_owned())
+            .and_then(|id| MessageId::new(id).map_err(|error| error.to_string()))
+            .map(ObjectPreviewId::Message),
+    }
+}
+
+fn target_kind_name(target_kind: TargetKind) -> &'static str {
+    match target_kind {
+        TargetKind::Realm => "realm",
+        TargetKind::Strand => "strand",
+        TargetKind::Message => "message",
     }
 }
 
@@ -1104,18 +1149,34 @@ async fn build_object_response(
         return Ok(None);
     };
 
-    let mut object_preview = row.public_projection;
-    if let Some(obj) = object_preview.as_object_mut() {
-        obj.insert(
-            "realm_id".to_owned(),
-            JsonValue::String(canonical_realm_id.to_owned()),
-        );
-        obj.insert("strand_id".to_owned(), JsonValue::String(strand_id));
-        if !message_id.is_empty() {
-            obj.insert("message_id".to_owned(), JsonValue::String(message_id));
-        }
-        obj.insert("kind".to_owned(), JsonValue::String(object_kind.to_owned()));
-    }
+    let object_id = object_preview_id(parsed, target_kind)
+        .map_err(anyhow::Error::msg)?;
+    let object_source_refs = row
+        .source_refs
+        .iter()
+        .cloned()
+        .map(EventId::new)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| anyhow::anyhow!("invalid object preview source reference: {error}"))?;
+    let object_preview = ObjectPreview {
+        object_id,
+        object_kind: object_kind.to_owned(),
+        title: row
+            .public_projection
+            .get("title")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned),
+        summary: row
+            .public_projection
+            .get("summary")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned),
+        as_of: row.as_of,
+        source_refs: object_source_refs,
+        policy_revision: policy_revision.clone(),
+        stale: opt_bool(row.stale),
+        divergent: opt_bool(row.divergent),
+    };
 
     Ok(Some(DirectoryTargetResolutionOutcome {
         target_kind,
@@ -1125,9 +1186,8 @@ async fn build_object_response(
         as_of: row.as_of,
         source_refs: row.source_refs,
         join_candidates: Vec::new(),
-        policy_revision: Some(policy_revision),
-        stale: opt_bool(row.stale),
-        divergent: opt_bool(row.divergent),
+        policy_revision: NonEmptyString::new(policy_revision)
+            .map_err(|error| anyhow::anyhow!(error))?,
     }))
 }
 

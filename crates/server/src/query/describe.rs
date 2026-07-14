@@ -129,7 +129,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         }),
     );
 
-    let limits = json!({
+    let limits: arkret_sdk::ServerLimits = serde_json::from_value(json!({
         "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
         "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
         "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
@@ -140,7 +140,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "default_ttl_seconds": cfg.default_ttl.as_secs(),
         "max_ttl_seconds": cfg.max_ttl.as_secs(),
         "revalidation_grace_seconds": cfg.revalidation_grace.as_secs(),
-    });
+    }))
+    .map_err(|error| format!("invalid server limits: {error}"))?;
     let directory_rate_limits = json!({
         "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
         "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
