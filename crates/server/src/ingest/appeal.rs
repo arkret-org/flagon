@@ -517,6 +517,8 @@ async fn persist_appeal_decision(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[test]
@@ -533,11 +535,14 @@ mod tests {
             .expect("digest"),
             requested_outcome: DirectoryTakedownAppealOutcomeRequest::Overturn,
             created_at: Utc::now(),
-            governance_proof: json!({
-                "kind": "detached_jws",
-                "verification_method": "did:webvh:realm.example#key-1",
-                "jws": "placeholder"
-            }),
+            governance_proof: BTreeMap::from([
+                ("kind".to_owned(), json!("detached_jws")),
+                (
+                    "verification_method".to_owned(),
+                    json!("did:webvh:realm.example#key-1"),
+                ),
+                ("jws".to_owned(), json!("placeholder")),
+            ]),
         };
 
         let unsigned = appeal_packet_without_jws(&body).expect("unsigned packet");

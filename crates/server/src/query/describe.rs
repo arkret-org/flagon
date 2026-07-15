@@ -584,7 +584,7 @@ mod tests {
             accepted_resource_kinds: all_directory_resource_kinds(),
             accepted_did_methods: vec!["did:web".to_owned()],
             takedown_contact: None,
-            rate_limits: Some(json!({})),
+            rate_limits: Some(BTreeMap::new()),
             supported_reducer_profiles: Vec::new(),
             supported_schema_profiles: Vec::new(),
             frontier: Vec::new(),
