@@ -554,5 +554,6 @@ mod tests {
         );
         assert_eq!(unsigned["requested_outcome"], "overturn");
         assert!(unsigned.get("argument").is_none(), "no plaintext argument");
+        assert!(unsigned["governance_proof"].is_object());
     }
 }

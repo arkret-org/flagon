@@ -593,6 +593,7 @@ mod tests {
             last_materialized_at: None,
         };
         assert!(describe_body.validate().is_err());
+        assert!(serde_json::to_value(&describe_body).unwrap()["rate_limits"].is_object());
     }
 
     /// TEABAY-01 regression — the describe response MUST conform to the
