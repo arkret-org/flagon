@@ -15,7 +15,7 @@ use arkret_sdk::DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome;
 use chrono::{DateTime, Utc};
 use federation::verify_federation_trust_domain_headers;
 pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
-pub(crate) use ingest_body::{DirectoryAnnounceIngest, DirectoryAnnounceWireBody};
+pub(crate) use ingest_body::DirectoryAnnounceIngest;
 use persist::find_announce_by_natural_key;
 pub(crate) use persist::{
     canonical_json_string, digest_request, latest_policy_revision_for, policy_revision_seen_before,
@@ -66,7 +66,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("announce");
 
-    let wire_body: DirectoryAnnounceWireBody = match req.parse_json().await {
+    let wire_body: arkret_sdk::DirectoryAnnounceRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("bad_json");

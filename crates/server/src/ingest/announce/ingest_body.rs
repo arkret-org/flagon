@@ -23,14 +23,14 @@ pub struct DirectoryAnnounceIngest {
     pub supersedes_announce_id: Option<String>,
 }
 
-pub type DirectoryAnnounceWireBody = DirectoryAnnounceRequestBody;
-
-impl TryFrom<DirectoryAnnounceWireBody> for DirectoryAnnounceIngest {
+impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
     type Error = String;
 
-    fn try_from(value: DirectoryAnnounceWireBody) -> Result<Self, Self::Error> {
-        let discovery_state =
-            DirectoryDiscoveryState::from_json_object(value.discovery_state, "discovery_state")?;
+    fn try_from(value: DirectoryAnnounceRequestBody) -> Result<Self, Self::Error> {
+        let discovery_state = DirectoryDiscoveryState::from_json_object(
+            JsonValue::Object(value.discovery_state.into_iter().collect()),
+            "discovery_state",
+        )?;
         let policy_revision = discovery_state
             .get("policy_revision")
             .and_then(JsonValue::as_str)

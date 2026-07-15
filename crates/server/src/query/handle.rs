@@ -809,7 +809,13 @@ fn handle_resolution_from_envelope(
         .get("verified")
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
-    let claims = payload.get("claims").cloned().unwrap_or(JsonValue::Null);
+    let claims: Option<Vec<arkret_sdk::HandleClaim>> = payload
+        .get("claims")
+        .filter(|value| !value.is_null())
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("handle projection claims are invalid: {error}"))?;
     let audience = payload
         .get("audience")
         .and_then(JsonValue::as_str)

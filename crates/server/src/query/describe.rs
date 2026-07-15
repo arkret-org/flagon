@@ -1,8 +1,8 @@
 //! `ak.find.directory.query.describe` — service capability advertisement.
 //!
-//! Round 4 (spec a77b995) — the response is the canonical `ServerDescription`
+//! Round 4 (spec a77b995) — the response is the canonical `ServiceDescribe`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
-//! [`arkret_sdk::ServerDescription::validate`] BEFORE serialisation; a
+//! [`arkret_sdk::ServiceDescribe::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use arkret_sdk::{
     AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, DirectoryAcceptPolicyKind,
     DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
-    RateLimitPolicy, ServerDescription, ServerLimits, SupportedBinding, TypedTrustDomainId,
+    RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding, TypedTrustDomainId,
     VerifiedProfileEntry,
 };
 use salvo::prelude::*;
@@ -48,7 +48,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 
 /// Round 4 — build the `ServiceDescribe` v2 envelope plus the registered
 /// directory-service overlay fields. Runs
-/// [`ServerDescription::validate`] before returning so a misconfigured
+/// [`ServiceDescribe::validate`] before returning so a misconfigured
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
@@ -171,15 +171,33 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             ),
         ]),
     };
-    let directory_rate_limits = json!({
-        "per_resource_per_min": cfg.rate_limit_per_resource_per_min,
-        "max_psi_queries_per_window": cfg.max_psi_queries_per_window,
-        "psi_quota_window_seconds": cfg.psi_quota_window_seconds,
-        "psi_epoch_seconds": cfg.psi_epoch_seconds,
-        "psi_key_retention_seconds": cfg.psi_key_retention_seconds,
-        "query_latency_floor_ms": cfg.query_latency_floor.as_millis() as u64,
-        "query_latency_jitter_ms": cfg.query_latency_jitter.as_millis() as u64,
-    });
+    let directory_rate_limits = BTreeMap::from([
+        (
+            "per_resource_per_min".to_owned(),
+            json!(cfg.rate_limit_per_resource_per_min),
+        ),
+        (
+            "max_psi_queries_per_window".to_owned(),
+            json!(cfg.max_psi_queries_per_window),
+        ),
+        (
+            "psi_quota_window_seconds".to_owned(),
+            json!(cfg.psi_quota_window_seconds),
+        ),
+        ("psi_epoch_seconds".to_owned(), json!(cfg.psi_epoch_seconds)),
+        (
+            "psi_key_retention_seconds".to_owned(),
+            json!(cfg.psi_key_retention_seconds),
+        ),
+        (
+            "query_latency_floor_ms".to_owned(),
+            json!(cfg.query_latency_floor.as_millis() as u64),
+        ),
+        (
+            "query_latency_jitter_ms".to_owned(),
+            json!(cfg.query_latency_jitter.as_millis() as u64),
+        ),
+    ]);
 
     // `plaintext_visibility` advertises that the directory does NOT
     // surface plaintext message bodies — directory entries are
@@ -217,7 +235,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // profile the directory advertises is self-claimed. `verified_profiles`
     // is empty until a cotest verifier is wired in; the
     // `development_mode=true ⇒ verified_profiles=[]` invariant is
-    // enforced by `ServerDescription::validate`.
+    // enforced by `ServiceDescribe::validate`.
     //
     // Round 4 — `claimed_profiles` / `verified_profiles` / `compat_surfaces`
     // are typed entries in the SDK (`ClaimedProfileEntry` /
@@ -240,7 +258,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // shims (e.g. a future pre-round-4 frontier-shape adapter).
     let compat_surfaces: Vec<CompatSurfaceEntry> = Vec::new();
 
-    let describe_body = ServerDescription {
+    let describe_body = ServiceDescribe {
         service_id,
         trust_domain,
         service_type: "directory_service".to_owned(),
@@ -275,10 +293,12 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         restricted_query_proof: Some(true),
         ingest_modes: cfg.ingest_modes.iter().map(directory_ingest_mode).collect(),
         accept_policy_kind: Some(directory_accept_policy_kind(cfg.accept_policy_kind)),
-        accept_policy_ref: cfg
-            .accept_policy_ref
-            .as_ref()
-            .map(|reference| json!({ "policy_ref": reference })),
+        accept_policy_ref: cfg.accept_policy_ref.as_ref().map(|reference| {
+            BTreeMap::from([(
+                "policy_ref".to_owned(),
+                JsonValue::String(reference.clone()),
+            )])
+        }),
         default_ttl_seconds: Some(cfg.default_ttl.as_secs()),
         max_ttl_seconds: Some(cfg.max_ttl.as_secs()),
         revalidation_grace_seconds: Some(cfg.revalidation_grace.as_secs()),
@@ -309,7 +329,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     // Teabay-private describe fields stay namespaced under `x_teabay_*`.
     // The standard directory overlay fields are already emitted by
-    // `ServerDescription` as bare top-level fields.
+    // `ServiceDescribe` as bare top-level fields.
     object.insert(
         "x_teabay_public_base_url".to_owned(),
         JsonValue::String(cfg.public_base_url.clone()),
@@ -439,7 +459,7 @@ mod tests {
     }
 
     /// Round 4 — the describe response MUST carry every one of the 17
-    /// required `ServerDescription` v2 fields, including `trust_domain`.
+    /// required `ServiceDescribe` v2 fields, including `trust_domain`.
     #[test]
     fn describe_emits_v2_required_fields() {
         let value = build_describe_response_value(&cfg(true, true)).expect("describe builds");
@@ -516,7 +536,7 @@ mod tests {
     /// validator directly to assert the contract.
     #[test]
     fn describe_rejects_dev_mode_with_verified_profiles() {
-        let describe_body = ServerDescription {
+        let describe_body = ServiceDescribe {
             service_id: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_type: "directory_service".to_owned(),

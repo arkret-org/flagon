@@ -1,5 +1,7 @@
 //! Organization search and resolve. Spec §9.
 
+use std::collections::BTreeMap;
+
 use arkret_sdk::{
     Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
     DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
@@ -275,11 +277,15 @@ struct OrganizationResolveRequestView {
     claim_presentations: Vec<DirectoryRestrictedClaimPresentation>,
 }
 
-fn parse_org_restricted_claims(value: &JsonValue) -> OrganizationRestrictedClaims {
-    if value.is_null() {
-        return OrganizationRestrictedClaims::default();
-    }
-    serde_json::from_value(value.clone()).unwrap_or_default()
+fn parse_org_restricted_claims(
+    value: &Option<BTreeMap<String, JsonValue>>,
+) -> OrganizationRestrictedClaims {
+    value
+        .as_ref()
+        .and_then(|claims| {
+            serde_json::from_value(JsonValue::Object(claims.clone().into_iter().collect())).ok()
+        })
+        .unwrap_or_default()
 }
 
 fn verified_restricted_claims_for_org_query(

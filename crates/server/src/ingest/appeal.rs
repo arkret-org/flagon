@@ -148,6 +148,16 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
+    let decision_receipt = match serde_json::from_value(decision_receipt) {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(
+                res,
+                format!("appeal received receipt must be an object: {error}"),
+            );
+            return;
+        }
+    };
 
     let _ = audit::record(
         state.db(),
@@ -337,12 +347,6 @@ fn validate_appeal_body(
     // `appellant_did` (Did), `argument_digest` (Hash), and `requested_outcome`
     // (closed enum) are validated structurally by the SDK types during
     // deserialization, so no further string checks are needed here.
-    if !body.governance_proof.is_object() {
-        return Err((
-            ApiErrorCode::SchemaViolation,
-            "governance_proof must be an object".to_owned(),
-        ));
-    }
     Ok(())
 }
 

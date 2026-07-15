@@ -7,6 +7,8 @@
 //!   * write a `Withdrawal` audit row
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
+use std::collections::BTreeMap;
+
 use arkret_sdk::DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome;
 use chrono::Utc;
 use diesel::prelude::*;
@@ -31,7 +33,7 @@ pub struct DirectoryWithdrawInput {
     /// Same proof envelope used in `ak.{kind}.discovery.proof` — must be
     /// signed by the resource's governance key. Verification follows §8.5
     /// step 2.
-    pub governance_proof: JsonValue,
+    pub governance_proof: BTreeMap<String, JsonValue>,
     pub reason: String,
     /// If absent the directory uses `now()`.
     #[serde(default)]
@@ -41,7 +43,7 @@ pub struct DirectoryWithdrawInput {
 #[derive(Debug, Deserialize)]
 struct DirectoryWithdrawWireBody {
     pub resource_id: String,
-    pub governance_proof: JsonValue,
+    pub governance_proof: BTreeMap<String, JsonValue>,
     #[serde(default)]
     pub reason: Option<String>,
     #[serde(default)]
@@ -75,11 +77,6 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     }
     if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id, None) {
         ingest_metric.set_outcome("rate_limited");
-        return;
-    }
-    if !wire_body.governance_proof.is_object() {
-        ingest_metric.set_outcome("schema_rejected");
-        ApiErrorCode::SchemaViolation.render(res, "governance_proof must be an object");
         return;
     }
     let resource_kind = match resolve_withdraw_resource_kind(&state, &wire_body.resource_id).await {

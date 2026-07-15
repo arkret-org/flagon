@@ -16,6 +16,7 @@
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
 
+use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -327,7 +328,7 @@ pub(crate) fn verify_discovery_proof(
 
 pub(crate) fn verify_governance_proof_payload(
     canonical_payload_without_jws: &JsonValue,
-    proof: &JsonValue,
+    proof: &BTreeMap<String, JsonValue>,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     expected_controller_did: Option<&str>,
@@ -335,9 +336,10 @@ pub(crate) fn verify_governance_proof_payload(
 ) -> Result<(), (ApiErrorCode, String)> {
     let canonical = canonical_json_bytes(canonical_payload_without_jws)
         .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))?;
+    let proof = JsonValue::Object(proof.clone().into_iter().collect());
     verify_detached_jws_payload(
         &canonical,
-        proof,
+        &proof,
         resource_kind,
         resource_id,
         expected_controller_did,
