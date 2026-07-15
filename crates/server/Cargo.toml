@@ -25,17 +25,14 @@ diesel-async = {workspace = true}
 diesel_migrations = {workspace = true}
 dotenvy = {workspace = true}
 ed25519-dalek = {workspace = true}
-futures-util = {workspace = true}
 hmac = {workspace = true}
 rand = {workspace = true}
 reqwest = {workspace = true}
 salvo = {workspace = true}
-salvo-oapi = {workspace = true}
 serde = {workspace = true}
 serde_json = {workspace = true}
 sha2 = {workspace = true}
 teabay-contracts = {workspace = true}
-thiserror = {workspace = true}
 tokio = {workspace = true}
 tracing = {workspace = true}
 tracing-subscriber = {workspace = true}
