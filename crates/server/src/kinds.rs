@@ -9,17 +9,11 @@
 //! `teabay-directory-service-baseline-2026-05-10.json`.
 //!
 //! Source of truth:
-//!   * §3 discovery event kinds → `arkret_sdk::events::{REALM_DISCOVERY, ORGANIZATION_DISCOVERY,
-//!     ACTOR_DISCOVERY, APPLET_DISCOVERY, HANDLE_DISCOVERY}`
+//!   * §3 discovery event kinds → `arkret_sdk::events::{arkret_sdk::events::EventKind::REALM_DISCOVERY, arkret_sdk::events::EventKind::ORGANIZATION_DISCOVERY,
+//!     arkret_sdk::events::EventKind::ACTOR_DISCOVERY, arkret_sdk::events::EventKind::APPLET_DISCOVERY, arkret_sdk::events::EventKind::HANDLE_DISCOVERY}`
 //!   * §8/§9 directory operations → `arkret_sdk::{OP_DIRECTORY_*}`
 
 // ---- §3 discovery event kinds (wire scope: directory_signed_event) ------
-
-pub const EVENT_KIND_REALM_DISCOVERY: &str = arkret_sdk::events::REALM_DISCOVERY;
-pub const EVENT_KIND_ORGANIZATION_DISCOVERY: &str = arkret_sdk::events::ORGANIZATION_DISCOVERY;
-pub const EVENT_KIND_ACTOR_DISCOVERY: &str = arkret_sdk::events::ACTOR_DISCOVERY;
-pub const EVENT_KIND_APPLET_DISCOVERY: &str = arkret_sdk::events::APPLET_DISCOVERY;
-pub const EVENT_KIND_HANDLE_DISCOVERY: &str = arkret_sdk::events::HANDLE_DISCOVERY;
 
 /// All discovery event kinds this directory service indexes.
 ///
@@ -27,55 +21,38 @@ pub const EVENT_KIND_HANDLE_DISCOVERY: &str = arkret_sdk::events::HANDLE_DISCOVE
 /// `required_event_kinds` array byte-for-byte so the anti-drift guard can
 /// detect rearrangement.
 pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
-    EVENT_KIND_REALM_DISCOVERY,
-    EVENT_KIND_ORGANIZATION_DISCOVERY,
-    EVENT_KIND_ACTOR_DISCOVERY,
-    EVENT_KIND_APPLET_DISCOVERY,
-    EVENT_KIND_HANDLE_DISCOVERY,
+    arkret_sdk::events::EventKind::REALM_DISCOVERY,
+    arkret_sdk::events::EventKind::ORGANIZATION_DISCOVERY,
+    arkret_sdk::events::EventKind::ACTOR_DISCOVERY,
+    arkret_sdk::events::EventKind::APPLET_DISCOVERY,
+    arkret_sdk::events::EventKind::HANDLE_DISCOVERY,
 ];
 
 // ---- §8 ingest operations -----------------------------------------------
 
-pub const OP_DIRECTORY_ANNOUNCE: &str = arkret_sdk::OP_DIRECTORY_ANNOUNCE;
-pub const OP_DIRECTORY_WITHDRAW: &str = arkret_sdk::OP_DIRECTORY_WITHDRAW;
-pub const OP_DIRECTORY_PUSH_REGISTER: &str = arkret_sdk::OP_DIRECTORY_PUSH_REGISTER;
-pub const OP_DIRECTORY_TAKEDOWN_APPEAL: &str = arkret_sdk::OP_DIRECTORY_TAKEDOWN_APPEAL;
-
 // ---- §9 query operations (declared for profile self-check) --------------
 
-pub const OP_DIRECTORY_DESCRIBE: &str = arkret_sdk::OP_DIRECTORY_DESCRIBE;
-pub const OP_DIRECTORY_SEARCH_REALMS: &str = arkret_sdk::OP_DIRECTORY_SEARCH_REALMS;
-pub const OP_DIRECTORY_RESOLVE_REALM: &str = arkret_sdk::OP_DIRECTORY_RESOLVE_REALM;
-pub const OP_DIRECTORY_SEARCH_ORGANIZATIONS: &str = arkret_sdk::OP_DIRECTORY_SEARCH_ORGANIZATIONS;
-pub const OP_DIRECTORY_RESOLVE_ORGANIZATION: &str = arkret_sdk::OP_DIRECTORY_RESOLVE_ORGANIZATION;
-pub const OP_DIRECTORY_SEARCH_ACTORS: &str = arkret_sdk::OP_DIRECTORY_SEARCH_ACTORS;
-pub const OP_DIRECTORY_SEARCH_USERS: &str = arkret_sdk::OP_DIRECTORY_SEARCH_USERS;
-pub const OP_DIRECTORY_RESOLVE_HANDLE: &str = arkret_sdk::OP_DIRECTORY_RESOLVE_HANDLE;
 /// Generalized target resolution (`ak.find.directory.query.resolve_target`). Not part of
 /// the profile's `required_endpoints`, but published by teabay and advertised
 /// in [`SUPPORTED_OPERATIONS`].
-pub const OP_DIRECTORY_RESOLVE_TARGET: &str = arkret_sdk::OP_DIRECTORY_RESOLVE_TARGET;
 /// R3.2 (arkret-spec @ b56cab1) — reverse handle lookup
 /// (`ak.find.directory.query.list_handles_for_subject`). Given a holder/principal
 /// DID + context, returns the subject's currently-visible handle claims.
-pub const OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT: &str =
-    arkret_sdk::OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT;
-
 /// The profile's **required** operations, in the same order as
 /// `ak.profile.directory_service.v1#/required_endpoints`. Guarded byte-for-byte
 /// against the embedded baseline JSON by [`crate::profile::verify_or_panic`].
 pub const DIRECTORY_OPERATIONS: &[&str] = &[
-    OP_DIRECTORY_DESCRIBE,
-    OP_DIRECTORY_SEARCH_REALMS,
-    OP_DIRECTORY_RESOLVE_REALM,
-    OP_DIRECTORY_SEARCH_ORGANIZATIONS,
-    OP_DIRECTORY_RESOLVE_ORGANIZATION,
-    OP_DIRECTORY_SEARCH_ACTORS,
-    OP_DIRECTORY_SEARCH_USERS,
-    OP_DIRECTORY_RESOLVE_HANDLE,
-    OP_DIRECTORY_ANNOUNCE,
-    OP_DIRECTORY_WITHDRAW,
-    OP_DIRECTORY_PUSH_REGISTER,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_DESCRIBE,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_REALMS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_REALM,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_ORGANIZATIONS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_ORGANIZATION,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_ACTORS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_USERS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_WITHDRAW,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER,
 ];
 
 /// Every operation `ak.find.directory.query.describe` advertises, in wire order. This is
@@ -86,20 +63,20 @@ pub const DIRECTORY_OPERATIONS: &[&str] = &[
 /// (`resolve_target`, `list_handles_for_subject`). The superset relationship is
 /// enforced at startup by [`crate::profile::verify_or_panic`].
 pub const SUPPORTED_OPERATIONS: &[&str] = &[
-    OP_DIRECTORY_DESCRIBE,
-    OP_DIRECTORY_SEARCH_REALMS,
-    OP_DIRECTORY_RESOLVE_REALM,
-    OP_DIRECTORY_RESOLVE_TARGET,
-    OP_DIRECTORY_SEARCH_ORGANIZATIONS,
-    OP_DIRECTORY_RESOLVE_ORGANIZATION,
-    OP_DIRECTORY_SEARCH_ACTORS,
-    OP_DIRECTORY_SEARCH_USERS,
-    OP_DIRECTORY_RESOLVE_HANDLE,
-    OP_DIRECTORY_LIST_HANDLES_FOR_SUBJECT,
-    OP_DIRECTORY_ANNOUNCE,
-    OP_DIRECTORY_WITHDRAW,
-    OP_DIRECTORY_PUSH_REGISTER,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_DESCRIBE,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_REALMS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_REALM,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_TARGET,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_ORGANIZATIONS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_ORGANIZATION,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_ACTORS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_SEARCH_USERS,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_QUERY_LIST_HANDLES_FOR_SUBJECT,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_WITHDRAW,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER,
     // Implemented but non-required (G-3): broadcast appeal support so
     // capability discovery via describe does not rely on out-of-band knowledge.
-    OP_DIRECTORY_TAKEDOWN_APPEAL,
+    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL,
 ];

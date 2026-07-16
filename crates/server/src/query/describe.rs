@@ -261,7 +261,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     let describe_body = ServiceDescribe {
         service_id,
         trust_domain,
-        service_type: "directory_service".to_owned(),
+        service_type: arkret_sdk::ServiceType::DirectoryService,
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         supported_operations,
@@ -539,7 +539,7 @@ mod tests {
         let describe_body = ServiceDescribe {
             service_id: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
-            service_type: "directory_service".to_owned(),
+            service_type: arkret_sdk::ServiceType::DirectoryService,
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             supported_operations: Vec::new(),
