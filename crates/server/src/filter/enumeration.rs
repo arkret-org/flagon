@@ -240,16 +240,15 @@ pub fn apply_member_count_residency(
     }
 }
 
-/// Floor for query / resolve latency. We pad responses up to this floor to
-/// reduce the side channel between "not found" and "found-but-hidden".
+/// Latency floor + jitter applied to query / resolve responses, so the real
+/// completion time does not leak the difference between "not found" and
+/// "found-but-hidden".
 ///
-/// The exact value is operator-tunable; spec §10 / §3 only requires that
-/// "不存在" and "未授权访问的隐藏资源" responses have **the same status,
-/// same latency tier, and same response shape." 25 ms is a conservative
-/// default for a Postgres-backed implementation.
-pub const MIN_RESPONSE_LATENCY: Duration = Duration::from_millis(25);
-pub const DEFAULT_RESPONSE_JITTER: Duration = Duration::from_millis(10);
-
+/// The values are operator-tunable and come from `AppConfig`
+/// (`TEABAY_QUERY_LATENCY_FLOOR_MS` / `TEABAY_QUERY_LATENCY_JITTER_MS`);
+/// spec §10 / §3 only requires that a missing resource and an
+/// unauthorized hidden resource share the same status, latency tier, and
+/// response shape.
 #[derive(Clone, Copy, Debug)]
 pub struct LatencyBudget {
     pub floor: Duration,

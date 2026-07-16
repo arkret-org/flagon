@@ -72,18 +72,6 @@ impl AppState {
             .check(key.into(), max_requests, window)
     }
 
-    pub fn cached_announce_replay(&self, digest: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
-        self.inner.announce_replay_cache.get(digest)
-    }
-
-    pub fn remember_announce_replay(
-        &self,
-        digest: Vec<u8>,
-        response: CachedDirectoryAnnounceOutcome,
-    ) {
-        self.inner.announce_replay_cache.put(digest, response);
-    }
-
     /// Round R2/R3 T14 — look up the federation idempotency cache by the
     /// extended four-field key. `digest` is SHA-256 over `(request_digest
     /// || source_service_id || verification_method ||

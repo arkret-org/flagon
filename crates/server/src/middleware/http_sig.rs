@@ -258,11 +258,6 @@ impl HttpSigMiddleware {
         Self::new_with_postgres_replay_store(directory, db)
     }
 
-    /// Force-set enforcement mode after construction.
-    pub fn set_enforced(&mut self, enforced: bool) {
-        self.enforced = enforced;
-    }
-
     async fn remember_signature(
         &self,
         replay_key: ReplayKey,

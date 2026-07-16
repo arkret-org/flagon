@@ -73,10 +73,6 @@ macro_rules! json_boundary {
                 &self.0
             }
 
-            pub fn as_value_mut(&mut self) -> &mut JsonValue {
-                &mut self.0
-            }
-
             pub fn into_value(self) -> JsonValue {
                 self.0
             }

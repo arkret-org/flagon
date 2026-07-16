@@ -26,10 +26,6 @@ use crate::ingest::DirectoryResourceKindDb;
 use crate::observability::PURGE_TABLE_DIRECTORY_RESOURCES;
 use crate::state::AppState;
 
-/// Default tick interval if `TEABAY_EXPIRY_INTERVAL_SECONDS` is unset.
-/// 30 minutes balances eager cleanup against pool/IO cost.
-pub const DEFAULT_EXPIRY_TICK: Duration = Duration::from_secs(1_800);
-
 /// Grace window beyond `expires_at` before a row is deleted. 24h
 /// protects against transient clock skew and gives the operator a
 /// one-day window to rescue a row that was wrongly expired.

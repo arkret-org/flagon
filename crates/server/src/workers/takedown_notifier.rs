@@ -40,11 +40,6 @@ use crate::state::AppState;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Default tick interval if `TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS`
-/// is unset. 60s keeps notification latency low without hammering the
-/// DB when there are no pending rows.
-pub const DEFAULT_TAKEDOWN_NOTIFIER_TICK: Duration = Duration::from_secs(60);
-
 /// Minimum number of attempts before a row is DLQed. Matches the
 /// 1m / 5m / 15m backoff schedule.
 pub const TAKEDOWN_MIN_ATTEMPTS: i32 = 3;
