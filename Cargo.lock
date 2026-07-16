@@ -185,9 +185,6 @@ dependencies = [
  "arkret-state",
  "arkret-wire-base",
  "arkret-wire-edge",
- "base64",
- "blake3",
- "bs58",
  "chrono",
  "chrono-tz",
  "getrandom 0.4.2",
@@ -201,7 +198,6 @@ dependencies = [
  "sha2 0.11.0",
  "subtle",
  "thiserror 2.0.18",
- "tracing",
  "unicode-normalization",
  "url",
  "zeroize",
@@ -242,7 +238,6 @@ dependencies = [
  "arkret-core",
  "arkret-signatures",
  "arkret-state",
- "base64",
  "chrono",
  "futures-util",
  "getrandom 0.4.2",
@@ -273,7 +268,6 @@ name = "arkret-keystore"
 version = "0.3.0"
 dependencies = [
  "arkret-core",
- "tracing",
 ]
 
 [[package]]
@@ -284,17 +278,14 @@ dependencies = [
  "arkret-wire-base",
  "chrono",
  "chrono-tz",
- "salvo",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "arkret-schema"
 version = "0.3.0"
 dependencies = [
- "arkret-canonical",
  "arkret-wire-base",
  "chrono",
  "regex",
@@ -5108,7 +5099,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid",
  "voprf",
 ]
 

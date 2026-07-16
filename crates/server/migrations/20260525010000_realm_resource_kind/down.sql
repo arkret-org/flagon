@@ -1,2 +1,0 @@
--- Postgres enum values cannot be dropped safely. The `realm` value remains
--- available after rollback.

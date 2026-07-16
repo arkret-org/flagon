@@ -1,3 +1,0 @@
-# `ALTER TYPE ... ADD VALUE` is safest outside a transaction. A follow-up
-# migration uses the committed enum value for data backfill and indexes.
-run_in_transaction = false
