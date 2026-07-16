@@ -13,7 +13,7 @@
 //! discovery event can carry a spec-bounded Circle directory entry id, while
 //! every other Circle typed-id occurrence remains rejected before indexing.
 //! The reject deliberately uses
-//! `ERROR_CODE_SCHEMA_VIOLATION` with the
+//! `arkret::ErrorCode::SCHEMA_VIOLATION` with the
 //! `circle_isolation_violation` reason sub-code (the closest
 //! spec-registered code; see SDK
 //! `KNOWN_REASON_CODES_CKP_0007`). It does NOT leak which field or
