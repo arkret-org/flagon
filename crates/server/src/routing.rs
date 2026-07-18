@@ -451,10 +451,13 @@ async fn cors_preflight(res: &mut Response) {
 #[handler]
 async fn api_not_found(res: &mut Response) {
     res.status_code(StatusCode::NOT_FOUND);
-    res.render(Json(json!({
-        "ok": false,
-        "error": { "code": "unrecognized_endpoint", "message": "no such directory route" }
-    })));
+    res.render(Json(
+        arkret_sdk::ErrorEnvelope::new(
+            arkret_sdk::ErrorCode::UNRECOGNIZED_ENDPOINT,
+            "no such directory route",
+        )
+        .with_request_id(arkret_sdk::new_prefixed_uuid7("ak:request:")),
+    ));
 }
 
 fn cors_handler_for_origin(origin: String) -> CorsHandler {

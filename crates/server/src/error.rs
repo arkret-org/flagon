@@ -7,7 +7,6 @@
 
 use salvo::http::StatusCode;
 use salvo::prelude::*;
-use serde_json::json;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ApiErrorCode {
@@ -212,16 +211,12 @@ impl ApiErrorCode {
             .unwrap_or(self.fallback_status)
     }
 
-    /// Render `{ ok: false, error: { code, message } }` and set the
-    /// canonical HTTP status. Same shape as soland's util::render_error.
+    /// Render the canonical Arkret error envelope and set its HTTP status.
     pub fn render(self, res: &mut Response, message: impl Into<String>) {
         res.status_code(self.http_status());
-        res.render(Json(json!({
-            "ok": false,
-            "error": {
-                "code": self.wire_code(),
-                "message": message.into(),
-            },
-        })));
+        res.render(Json(
+            arkret_sdk::ErrorEnvelope::new(self.wire_code(), message)
+                .with_request_id(arkret_sdk::new_prefixed_uuid7("ak:request:")),
+        ));
     }
 }

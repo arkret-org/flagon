@@ -449,6 +449,9 @@ impl Handler for HttpSigMiddleware {
                 SignaturePolicyError::CreatedInFuture => {
                     "HTTP Message Signature created timestamp is in the future"
                 }
+                SignaturePolicyError::CreatedTooOld => {
+                    "HTTP Message Signature created timestamp is too old"
+                }
                 SignaturePolicyError::Expired => "HTTP Message Signature has expired",
             };
             reject_invalid_signature(res, ctrl, message);

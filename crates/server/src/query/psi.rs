@@ -453,15 +453,11 @@ fn psi_quota_key(requester: &Did, quota_bucket: i64) -> String {
 }
 
 fn signer_did_from_key_id(key_id: &str) -> Result<Did, String> {
-    let did = key_id
-        .split_once('#')
-        .map(|(did, _)| did)
-        .unwrap_or(key_id)
-        .trim();
-    if did.is_empty() || did == key_id {
+    if !key_id.contains('#') {
         return Err("HTTP signature keyid must be a DID URL for PSI".to_owned());
     }
-    Did::new(did.to_owned()).map_err(|error| format!("HTTP signature keyid DID invalid: {error}"))
+    arkret_sdk::verification_method_did(key_id)
+        .map_err(|error| format!("HTTP signature keyid DID invalid: {error}"))
 }
 
 fn random_query_id() -> String {
