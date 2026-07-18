@@ -265,6 +265,7 @@ impl TakedownNotifier {
         let http = target
             .apply_to_client_builder(
                 Client::builder()
+                    .https_only(!self.state.config().development_mode)
                     .timeout(Duration::from_secs(10))
                     .redirect(Policy::none()),
             )

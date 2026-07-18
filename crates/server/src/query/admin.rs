@@ -16,6 +16,7 @@ use teabay_contracts::{
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::ingest::announce::effective_ttl_seconds;
+use crate::ingest::subscribe::{ReachabilityTombstone, TombstoneKind};
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::middleware::{require_admin_csrf, verify_admin_credential};
 use crate::state::AppState;
@@ -603,41 +604,6 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         revoked_at,
         tombstoned_subscriptions,
     }));
-}
-
-/// Round R2/R3 T17 — descriptor for a single reachability invalidation.
-/// Public so the ingest/subscribe fanout helper can accept slices of
-/// these from any direction (consent revoke admin path, announce-side
-/// realm-destroy detection).
-#[derive(Debug, Clone)]
-pub struct ReachabilityTombstone {
-    pub kind: TombstoneKind,
-    pub resource_kind: DirectoryResourceKindDb,
-    pub resource_id: String,
-    pub principal_server_did: String,
-    pub reason: String,
-    pub revoked_at: DateTime<Utc>,
-}
-
-/// Discriminator for tombstone webhook bodies. These are two semantically
-/// distinct events that previously shared the `reachability_revoked` kind:
-/// a permanent Realm destruction (T07) vs. a recoverable consent revocation
-/// (T17). Subscribers dispatch on `kind`, not on the free-text `reason`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TombstoneKind {
-    /// T07 — the Realm has been irreversibly destroyed (`ak.realm.destroy`).
-    RealmDestroyed,
-    /// T17 — an actor's reachability was revoked (recoverable).
-    ReachabilityRevoked,
-}
-
-impl TombstoneKind {
-    pub fn as_wire(self) -> &'static str {
-        match self {
-            Self::RealmDestroyed => "realm_destroyed",
-            Self::ReachabilityRevoked => "reachability_revoked",
-        }
-    }
 }
 
 async fn invalidate_reachability(

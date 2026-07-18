@@ -189,7 +189,7 @@ impl DivergenceWorker {
         let target = crate::egress::resolve_url_for_egress(
             &url,
             "divergence worker directory resolve",
-            crate::egress::private_networks_allowed(self.state.config().development_mode),
+            crate::egress::local_development_enabled(self.state.config().development_mode),
         )
         .map_err(|error| anyhow::anyhow!(error))?;
         let http = strict_http_client_for_egress(&target)?;

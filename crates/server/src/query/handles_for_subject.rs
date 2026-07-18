@@ -41,8 +41,9 @@
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
 use arkret_sdk::models::HandleClaim;
 use arkret_sdk::{
-    DirectoryListHandlesForSubjectRequestBody, DirectoryRestrictedClaimPresentation,
-    DirectorySubjectHandleList, Handle, validate_handle_claim_subject,
+    CursorBindingContext, DirectoryListHandlesForSubjectRequestBody,
+    DirectoryRestrictedClaimPresentation, DirectorySubjectHandleList, Handle,
+    validate_handle_claim_subject,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -134,7 +135,44 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             .metrics()
             .record_cardinality_guard("page_limit_clamped", 1);
     }
-    let cursor_offset = decode_cursor(body.cursor.as_deref());
+    let filter_digest = match arkret_sdk::cursor_filter_digest(&serde_json::json!({
+        "operation": "ak.find.directory.query.list_handles_for_subject",
+        "realm_id": body.realm_id.as_ref(),
+        "intent": body.intent.as_deref(),
+        "requester": body.requester.as_ref(),
+        "as_of": body.as_of,
+    })) {
+        Ok(digest) => digest,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("handle cursor filter: {error}"));
+            return;
+        }
+    };
+    let cursor_context = CursorBindingContext::new(
+        body.subject.as_str(),
+        None,
+        state.config().service_id.clone(),
+        filter_digest,
+    );
+    let cursor_offset = match body.cursor.as_deref() {
+        Some(token) => match state
+            .cursor_authority()
+            .resolve_stream(token, &cursor_context)
+            .and_then(|positions| {
+                positions
+                    .get("offset")
+                    .and_then(JsonValue::as_u64)
+                    .and_then(|offset| usize::try_from(offset).ok())
+                    .ok_or(arkret_sdk::CursorAuthorityError::IntegrityInvalid)
+            }) {
+            Ok(offset) => offset,
+            Err(error) => {
+                super::render_cursor_error(res, error);
+                return;
+            }
+        },
+        None => 0,
+    };
 
     let budget = LatencyBudget::new(
         state.config().query_latency_floor,
@@ -181,7 +219,24 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     apply_resolve_response_jitter().await;
 
     match outcome {
-        ListOutcome::Ok(response) => {
+        ListOutcome::Ok(mut response) => {
+            if response.has_more {
+                let next_offset = cursor_offset.saturating_add(response.claims.len());
+                response.next_cursor = match state.cursor_authority().mint_stream(
+                    cursor_context,
+                    serde_json::json!({ "offset": next_offset }),
+                    60 * 60 * 1000,
+                ) {
+                    Ok(cursor) => Some(cursor),
+                    Err(error) => {
+                        state
+                            .metrics()
+                            .record_query_outcome("list-handles-for-subject", "internal_error");
+                        ApiErrorCode::InternalError.render(res, format!("handle cursor: {error}"));
+                        return;
+                    }
+                };
+            }
             state
                 .metrics()
                 .record_query_outcome("list-handles-for-subject", "ok");
@@ -347,14 +402,12 @@ pub fn assemble_response(
         .collect();
     let next_offset = cursor_offset + page.len();
     let has_more = next_offset < total;
-    let next_cursor = has_more.then(|| encode_cursor(next_offset));
-
     let response = DirectorySubjectHandleList {
         subject: body.subject.clone(),
         claims: page,
         primary_handle,
         as_of,
-        next_cursor,
+        next_cursor: None,
         has_more,
     };
 
@@ -381,7 +434,7 @@ fn verified_restricted_claims_for_body(
         body.proof_challenge.as_deref(),
         &state.config().service_id,
         &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
+        crate::egress::local_development_enabled(state.config().development_mode),
     )
 }
 
@@ -769,30 +822,6 @@ fn audience_compatible(
     Some(claim_audience) == requester || Some(claim_audience) == realm
 }
 
-// ---- Opaque cursor (offset-encoded) -------------------------------------
-//
-// The cursor is an opaque, URL-safe base64 of the next offset. It is an
-// implementation detail; clients MUST pass it back verbatim. A malformed
-// cursor decodes to offset 0 (start) rather than erroring — fail-open on the
-// cursor only, never on the subject.
-
-fn encode_cursor(offset: usize) -> String {
-    URL_SAFE_NO_PAD.encode(format!("o:{offset}").as_bytes())
-}
-
-fn decode_cursor(cursor: Option<&str>) -> usize {
-    let Some(cursor) = cursor.filter(|c| !c.is_empty()) else {
-        return 0;
-    };
-    URL_SAFE_NO_PAD
-        .decode(cursor)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|s| s.strip_prefix("o:").map(str::to_owned))
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -908,15 +937,6 @@ mod tests {
             &json!({"audience":"did:web:someone-else.example"}),
             &body
         ));
-    }
-
-    #[test]
-    fn cursor_round_trips_and_tolerates_garbage() {
-        assert_eq!(decode_cursor(Some(&encode_cursor(40))), 40);
-        assert_eq!(decode_cursor(None), 0);
-        assert_eq!(decode_cursor(Some("")), 0);
-        // Garbage cursor fails open to offset 0 (never errors the subject).
-        assert_eq!(decode_cursor(Some("!!!not-base64!!!")), 0);
     }
 
     #[test]

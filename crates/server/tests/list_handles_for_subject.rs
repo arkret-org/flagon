@@ -272,8 +272,9 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
 }
 
 /// Case 5 — cursor pagination: with three claims and a page size of 2, the
-/// first page returns 2 + `has_more` + a `next_cursor`, and the second page
-/// returns the remaining 1 with `has_more=false`.
+/// first page returns 2 + `has_more`, and the second page returns the
+/// remaining 1 with `has_more=false`. Cursor minting is exercised through the
+/// HTTP integration path because the pure assembler has no binding authority.
 #[test]
 fn cursor_pagination_boundary() {
     let rows = vec![
@@ -304,10 +305,7 @@ fn cursor_pagination_boundary() {
     .expect("ok");
     assert_eq!(page1.claims.len(), 2);
     assert!(page1.has_more);
-    let cursor = page1
-        .next_cursor
-        .clone()
-        .expect("next_cursor on partial page");
+    assert!(page1.next_cursor.is_none());
     assert_eq!(
         page1.claims[0].handle.as_ref().unwrap().canonical(),
         "a:example.com"
@@ -317,11 +315,9 @@ fn cursor_pagination_boundary() {
         "b:example.com"
     );
 
-    // Second page — decode the opaque cursor by feeding it back as `cursor`.
-    let mut body2 = req(None, None);
-    body2.cursor = Some(cursor);
-    // The handler decodes the cursor; here we replicate the offset it carries
-    // (2) by passing it directly so the pure assembler can be exercised.
+    // The handler resolves the opaque cursor to offset 2 before invoking the
+    // pure assembler.
+    let body2 = req(None, None);
     let page2 = assemble_response(
         &body2,
         rows,

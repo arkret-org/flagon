@@ -237,9 +237,8 @@ pub(crate) fn hex_lower_sha256(bytes: &[u8]) -> String {
 }
 
 /// Round R2/R3 T14 — extra federation cache fields persisted alongside
-/// the `ingest_announces` row. Push-mode pulls them from request headers
-/// and discovery proof; pull-mode pulls them from the upstream
-/// `ak.self.events.query.scan` response headers/envelope plus the same proof.
+/// the `ingest_announces` row. Push-mode reads them from request headers and
+/// discovery proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
     pub source_service_id: String,

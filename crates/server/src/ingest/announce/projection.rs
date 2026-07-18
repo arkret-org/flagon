@@ -121,10 +121,8 @@ pub(crate) fn derive_public_projection(
 
     // HC-TBY-1/2 (R3.2, arkret-spec @ b56cab1) — handle-claim wire-level
     // scope validation. This runs in `derive_public_projection` so it
-    // applies uniformly to BOTH the push-mode announce path and the
-    // federation pull-worker / well-known resolver path (both funnel through
-    // this function), satisfying HC-TBY-2's "all reject paths also act on
-    // pulled-back claims" requirement.
+    // applies uniformly to the push-mode announce and well-known resolver
+    // paths, which both funnel through this function.
     validate_handle_claim_ingest(discovery_state)?;
 
     // The effective `member_count_mode` is read from the *original*

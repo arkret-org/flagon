@@ -44,6 +44,31 @@ pub struct AcceptedIngestEvent {
     pub public_projection: DirectoryPublicProjection,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReachabilityTombstone {
+    pub kind: TombstoneKind,
+    pub resource_kind: DirectoryResourceKindDb,
+    pub resource_id: String,
+    pub principal_server_did: String,
+    pub reason: String,
+    pub revoked_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TombstoneKind {
+    RealmDestroyed,
+    ReachabilityRevoked,
+}
+
+impl TombstoneKind {
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::RealmDestroyed => "realm_destroyed",
+            Self::ReachabilityRevoked => "reachability_revoked",
+        }
+    }
+}
+
 #[handler]
 pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.get_typed::<AppState>() {
@@ -162,7 +187,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
 /// subscriptions matched (delivery itself runs in the background).
 pub async fn fanout_reachability_tombstone(
     state: AppState,
-    tombstones: &[crate::query::admin::ReachabilityTombstone],
+    tombstones: &[ReachabilityTombstone],
 ) -> usize {
     let mut delivered = 0usize;
     let now = Utc::now();
@@ -217,7 +242,7 @@ pub async fn fanout_reachability_tombstone(
 
 async fn deliver_tombstone(
     subscription: WebhookSubscriptionRow,
-    tombstone: crate::query::admin::ReachabilityTombstone,
+    tombstone: ReachabilityTombstone,
     development_mode: bool,
 ) -> anyhow::Result<()> {
     let body = json!({
@@ -316,7 +341,7 @@ fn validate_endpoint(endpoint: &str, development_mode: bool) -> Result<(), Strin
     crate::egress::validate_url_for_egress(
         &url,
         "webhook_endpoint",
-        crate::egress::private_networks_allowed(development_mode),
+        crate::egress::local_development_enabled(development_mode),
     )
 }
 

@@ -129,6 +129,7 @@ dependencies = [
  "arkret-ffi",
  "arkret-http-client",
  "arkret-keystore",
+ "arkret-network-policy",
  "arkret-server",
  "arkret-signatures",
  "arkret-state",
@@ -268,6 +269,14 @@ name = "arkret-keystore"
 version = "0.3.0"
 dependencies = [
  "arkret-core",
+]
+
+[[package]]
+name = "arkret-network-policy"
+version = "0.3.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]
@@ -5075,6 +5084,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "arkret",
+ "arkret-network-policy",
  "async-trait",
  "base64",
  "bs58",

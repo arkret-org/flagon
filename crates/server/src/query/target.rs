@@ -184,7 +184,7 @@ fn verified_restricted_claims_for_target_query(
         proof_challenge,
         &state.config().service_id,
         &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
+        crate::egress::local_development_enabled(state.config().development_mode),
     )
     .unwrap_or_default()
 }
@@ -261,7 +261,7 @@ async fn resolve(
             requester,
             Utc::now(),
             &state.config().accepted_did_methods,
-            crate::egress::private_networks_allowed(state.config().development_mode),
+            crate::egress::local_development_enabled(state.config().development_mode),
         ) {
             Ok(_) => verified_preview = Some(preview_policy),
             Err(TokenCheck::Reject) => return ResolveOutcome::TokenReject,
@@ -279,7 +279,7 @@ async fn resolve(
             &canonical_realm_id,
             effective_link_type,
             &state.config().accepted_did_methods,
-            crate::egress::private_networks_allowed(state.config().development_mode),
+            crate::egress::local_development_enabled(state.config().development_mode),
         ) {
             Ok(verified) => match invite_token_revoked(state, &verified).await {
                 Ok(false) => verified_invite_token = Some(verified),

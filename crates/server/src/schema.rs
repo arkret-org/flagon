@@ -116,22 +116,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::ResourceKind;
-
-    pull_subscriptions (resource_kind, resource_id) {
-        resource_kind -> ResourceKind,
-        resource_id -> Text,
-        principal_server_did -> Text,
-        last_revision -> Nullable<Text>,
-        last_pulled_at -> Nullable<Timestamptz>,
-        next_pull_after -> Timestamptz,
-        consecutive_failures -> Int4,
-        last_error -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
     webhook_subscriptions (subscription_id) {
         subscription_id -> Text,
         subscriber_did -> Text,
@@ -146,7 +130,7 @@ diesel::table! {
 diesel::table! {
     psi_epoch_keys (epoch) {
         epoch -> Text,
-        profile -> Text,
+        ciphersuite -> Text,
         server_key -> Bytea,
         public_key -> Bytea,
         created_at -> Timestamptz,
@@ -162,9 +146,33 @@ diesel::table! {
     psi_contact_tokens (epoch, resource_kind, resource_id, token) {
         epoch -> Text,
         token -> Bytea,
+        token_prefix -> Bytea,
         resource_kind -> ResourceKind,
         resource_id -> Text,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    psi_batches (batch_id) {
+        batch_id -> Text,
+        credential_key_id -> Text,
+        key_epoch -> Int8,
+        blind_request_digest -> Bytea,
+        element_count -> Int4,
+        match_request_digest -> Nullable<Bytea>,
+        match_outcome -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    psi_quota_windows (credential_key_id, quota_bucket) {
+        credential_key_id -> Text,
+        quota_bucket -> Int8,
+        query_count -> Int4,
+        expires_at -> Timestamptz,
     }
 }
 
@@ -329,10 +337,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
     ingest_announces,
     withdrawals,
-    pull_subscriptions,
     webhook_subscriptions,
     psi_epoch_keys,
     psi_contact_tokens,
+    psi_batches,
+    psi_quota_windows,
     directory_object_access,
     directory_invite_revocations,
     accept_allowlist,

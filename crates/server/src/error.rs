@@ -43,6 +43,14 @@ impl ApiErrorCode {
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
+    pub const CursorExpired: Self =
+        Self::new(arkret_sdk::ErrorCode::CURSOR_EXPIRED, StatusCode::GONE);
+    #[allow(non_upper_case_globals)]
+    pub const CursorIntegrityInvalid: Self = Self::new(
+        arkret_sdk::ErrorCode::CURSOR_INTEGRITY_INVALID,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
     pub const InvalidSignature: Self = Self::new(
         arkret_sdk::ErrorCode::INVALID_SIGNATURE,
         StatusCode::UNAUTHORIZED,

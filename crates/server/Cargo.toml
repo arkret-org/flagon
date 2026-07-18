@@ -19,6 +19,7 @@ base64 = {workspace = true}
 bs58 = {workspace = true}
 chrono = {workspace = true}
 arkret-sdk = {workspace = true}
+arkret-network-policy = {workspace = true}
 deadpool = {workspace = true}
 diesel = {workspace = true}
 diesel-async = {workspace = true}

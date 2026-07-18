@@ -379,7 +379,7 @@ fn verified_restricted_claims_for_handle_query(
         body.proof_challenge.as_deref(),
         &state.config().service_id,
         &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
+        crate::egress::local_development_enabled(state.config().development_mode),
     )
     .unwrap_or_default()
 }

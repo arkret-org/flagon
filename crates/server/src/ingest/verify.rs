@@ -1,17 +1,16 @@
 //! 5-step verify chain for ingest (spec §8.5).
 //!
-//! 1. Transport layer — HTTP Message Signature for push, or service binding + TLS for pull. We
-//!    surface a hook here; the actual RFC 9421 HTTP signature check lives in
-//!    [`crate::middleware::http_sig`] (mounted on the ingest sub-router by
-//!    [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`) so the handler
-//!    always sees an already-authenticated transport. TB-1 (this comment block) closed the prior
-//!    gap where the middleware was advertised but not actually mounted.
+//! 1. Transport layer — HTTP Message Signature for push. We surface a hook here; the actual RFC
+//!    9421 HTTP signature check lives in [`crate::middleware::http_sig`] (mounted on the ingest
+//!    sub-router by [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`)
+//!    so the handler always sees an already-authenticated transport. TB-1 (this comment block)
+//!    closed the prior gap where the middleware was advertised but not actually mounted.
 //! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against the resource governance
 //!    key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_services` contains *this* directory's
 //!    service DID.
-//! 4. Source-ref sanity — for first ingest, MAY pull at least one anchor from the resource's
-//!    Principal Server to confirm `source_refs[0]` is resolvable.
+//! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Principal Server
+//!    to confirm `source_refs[0]` is resolvable.
 //! 5. Accept policy — local accept_policy (open / allowlist / operator_review) decision.
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
@@ -447,7 +446,7 @@ fn verify_jws_ed25519(
 ) -> Result<(), String> {
     let resolver = did_resolver_chain(
         &config.accepted_did_methods,
-        crate::egress::private_networks_allowed(config.development_mode),
+        crate::egress::local_development_enabled(config.development_mode),
     )?;
     let issuer = verification_method
         .split_once('#')
@@ -569,7 +568,7 @@ async fn verify_first_source_ref_resolves(
     let target = crate::egress::resolve_url_for_egress(
         &url,
         "source-ref fetch",
-        crate::egress::private_networks_allowed(config.development_mode),
+        crate::egress::local_development_enabled(config.development_mode),
     )
     .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error))?;
     let locked_http = strict_http_client_for_egress(&target).map_err(|e| {
@@ -641,7 +640,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
     } else {
         let resolver = did_resolver_chain(
             &config.accepted_did_methods,
-            crate::egress::private_networks_allowed(config.development_mode),
+            crate::egress::local_development_enabled(config.development_mode),
         )
         .map_err(|e| anyhow::anyhow!(e))?;
         resolver
@@ -727,7 +726,7 @@ async fn fetch_did_document_json(
     let target = crate::egress::resolve_url_for_egress(
         &url,
         "principal DID document fetch",
-        crate::egress::private_networks_allowed(development_mode),
+        crate::egress::local_development_enabled(development_mode),
     )
     .map_err(|error| anyhow::anyhow!(error))?;
     let http = strict_http_client_for_egress(&target)?;
@@ -789,7 +788,7 @@ fn service_endpoint_url(
     crate::egress::validate_url_for_egress(
         &parsed,
         "principal serviceEndpoint",
-        crate::egress::private_networks_allowed(development_mode),
+        crate::egress::local_development_enabled(development_mode),
     )
     .map_err(|error| anyhow::anyhow!(error))?;
     Ok(parsed)

@@ -6,7 +6,6 @@ pub mod divergence_worker;
 pub mod freshness_worker;
 pub mod operator;
 pub mod organization_statement;
-pub mod pull_worker;
 pub mod rate_limit;
 pub mod receipt;
 pub mod subscribe;
@@ -121,7 +120,7 @@ impl DirectoryResourceKindDb {
     }
 }
 
-// ---- Ingest mode (push / pull) ------------------------------------------
+// ---- Ingest mode ---------------------------------------------------------
 
 #[derive(
     Debug,
@@ -138,12 +137,10 @@ impl DirectoryResourceKindDb {
 #[serde(rename_all = "snake_case")]
 pub enum IngestModeWire {
     Push,
-    Pull,
 }
 
 crate::db_enum::impl_pg_enum!(IngestModeWire, crate::schema::sql_types::IngestMode, {
     IngestModeWire::Push => "push",
-    IngestModeWire::Pull => "pull",
 });
 
 // ---- Withdrawal kind ----------------------------------------------------

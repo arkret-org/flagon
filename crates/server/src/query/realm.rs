@@ -10,13 +10,11 @@
 //! `resource_kind=space` row type and are intentionally not returned here.
 
 use arkret_sdk::{
-    Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
+    CursorBindingContext, Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
     DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
     RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
     RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
 };
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -76,12 +74,39 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         body.proof_challenge.as_deref(),
         &body.claim_presentations,
     );
-    let cursor = match body.cursor.as_deref().map(decode_cursor).transpose() {
-        Ok(cursor) => cursor,
-        Err(message) => {
-            ApiErrorCode::BadQuery.render(res, message);
+    let filter_digest = match arkret_sdk::cursor_filter_digest(&serde_json::json!({
+        "operation": "ak.find.directory.query.search_realms",
+        "query": &needle,
+        "organization_did": scope.organization_did.as_ref(),
+        "source_realm_id": scope.source_realm_id.as_ref(),
+    })) {
+        Ok(digest) => digest,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("realm cursor filter: {error}"));
             return;
         }
+    };
+    let cursor_context = CursorBindingContext::new(
+        requester.as_ref().map(Did::as_str).unwrap_or("anonymous"),
+        None,
+        state.config().service_id.clone(),
+        filter_digest,
+    );
+    let cursor = match body.cursor.as_deref() {
+        Some(token) => match state
+            .cursor_authority()
+            .resolve_stream(token, &cursor_context)
+            .and_then(|positions| {
+                serde_json::from_value::<RealmCursor>(positions)
+                    .map_err(|_| arkret_sdk::CursorAuthorityError::IntegrityInvalid)
+            }) {
+            Ok(cursor) => Some(cursor),
+            Err(error) => {
+                super::render_cursor_error(res, error);
+                return;
+            }
+        },
+        None => None,
     };
 
     let budget = LatencyBudget::new(
@@ -137,7 +162,17 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
             let has_more = rows.len() > limit as usize;
             let next_cursor = if has_more {
                 rows.truncate(limit as usize);
-                rows.last().map(encode_cursor).transpose()
+                rows.last()
+                    .map(|row| {
+                        state.cursor_authority().mint_stream(
+                            cursor_context.clone(),
+                            serde_json::to_value(cursor_from_row(row)).map_err(|error| {
+                                arkret_sdk::CursorAuthorityError::InvalidParam(error.to_string())
+                            })?,
+                            60 * 60 * 1000,
+                        )
+                    })
+                    .transpose()
             } else {
                 Ok(None)
             };
@@ -296,7 +331,7 @@ fn verified_restricted_claims_for_realm_query(
         proof_challenge,
         &state.config().service_id,
         &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
+        crate::egress::local_development_enabled(state.config().development_mode),
     )
     .unwrap_or_default()
 }
@@ -873,23 +908,12 @@ impl From<RealmStoredRow> for RealmRow {
     }
 }
 
-fn encode_cursor(row: &RealmRow) -> anyhow::Result<String> {
-    Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor_from_row(row))?))
-}
-
 fn cursor_from_row(row: &RealmRow) -> RealmCursor {
     RealmCursor {
         score: row.score,
         indexed_at: row.indexed_at,
         resource_id: row.resource_id.clone(),
     }
-}
-
-fn decode_cursor(cursor: &str) -> Result<RealmCursor, String> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(cursor)
-        .map_err(|e| format!("invalid cursor encoding: {e}"))?;
-    serde_json::from_slice(&bytes).map_err(|e| format!("invalid cursor body: {e}"))
 }
 
 const REALM_SEARCH_SQL: &str = r#"

@@ -10,7 +10,7 @@
 --   * `expires_at`        — explicit row-level expiry. Equals
 --     `last_refreshed_at + effective_ttl_seconds`. A background
 --     worker treats rows past `expires_at` as stale and ultimately
---     evicts them (`crate::ingest::pull_worker` already runs on a
+--     evicts them (the expiry worker runs on a
 --     timer; the eviction job is layered on top).
 --
 -- Both columns are populated from the existing

@@ -18,6 +18,7 @@ pub struct AppState {
 struct Inner {
     config: AppConfig,
     db: Db,
+    cursor_authority: arkret_sdk::MemoryCursorAuthority,
     rate_limiter: RateLimiter,
     announce_replay_cache: AnnounceReplayCache,
     metrics: Metrics,
@@ -31,6 +32,7 @@ impl AppState {
             inner: Arc::new(Inner {
                 config,
                 db,
+                cursor_authority: arkret_sdk::MemoryCursorAuthority::default(),
                 rate_limiter: RateLimiter::default(),
                 announce_replay_cache: AnnounceReplayCache::default(),
                 metrics: Metrics::default(),
@@ -45,6 +47,10 @@ impl AppState {
 
     pub fn db(&self) -> &Db {
         &self.inner.db
+    }
+
+    pub fn cursor_authority(&self) -> &arkret_sdk::MemoryCursorAuthority {
+        &self.inner.cursor_authority
     }
 
     pub fn metrics(&self) -> &Metrics {
@@ -103,7 +109,6 @@ impl AppState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackgroundWorker {
-    Pull,
     Divergence,
 }
 
@@ -151,7 +156,6 @@ struct CachedAnnounceCacheRow {
 }
 
 struct WorkerRuntime {
-    pull: Mutex<WorkerSlot>,
     divergence: Mutex<WorkerSlot>,
 }
 
@@ -165,11 +169,6 @@ struct WorkerSlot {
 impl WorkerRuntime {
     fn from_config(config: &AppConfig) -> Self {
         Self {
-            pull: Mutex::new(WorkerSlot {
-                enabled: config.pull_interval.is_some(),
-                period: config.pull_interval,
-                last_seen: None,
-            }),
             divergence: Mutex::new(WorkerSlot {
                 enabled: config.divergence_interval.is_some(),
                 period: config.divergence_interval,
@@ -230,7 +229,6 @@ impl WorkerRuntime {
 
     fn slot(&self, worker: BackgroundWorker) -> &Mutex<WorkerSlot> {
         match worker {
-            BackgroundWorker::Pull => &self.pull,
             BackgroundWorker::Divergence => &self.divergence,
         }
     }

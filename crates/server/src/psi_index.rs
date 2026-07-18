@@ -17,6 +17,7 @@ use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::schema::psi_contact_tokens;
 
 const PSI_INDEX_BATCH_SIZE: i64 = 1_024;
+pub(crate) const PSI_DIGEST_PREFIX_LENGTH: usize = 16;
 
 type PsiServer = VoprfServer<Ristretto255>;
 
@@ -25,6 +26,7 @@ type PsiServer = VoprfServer<Ristretto255>;
 struct NewPsiContactToken<'a> {
     epoch: &'a str,
     token: &'a [u8],
+    token_prefix: &'a [u8],
     resource_kind: DirectoryResourceKindDb,
     resource_id: &'a str,
     created_at: DateTime<Utc>,
@@ -75,7 +77,7 @@ pub(crate) async fn sync_resource_tokens_on_conn(
     let now = Utc::now();
     let epoch_keys: Vec<(String, Vec<u8>)> = k::psi_epoch_keys
         .filter(k::expires_at.gt(now))
-        .filter(k::profile.eq(crate::query::psi::VOPRF_PROFILE))
+        .filter(k::ciphersuite.eq(crate::query::psi::VOPRF_CIPHERSUITE))
         .select((k::epoch, k::server_key))
         .load(conn)
         .await?;
@@ -88,10 +90,12 @@ pub(crate) async fn sync_resource_tokens_on_conn(
                 .evaluate(candidate.as_bytes())
                 .map_err(|error| anyhow::anyhow!("VOPRF evaluate `{candidate}`: {error}"))?;
             let token = token.to_vec();
+            let token_prefix = &token[..PSI_DIGEST_PREFIX_LENGTH];
             diesel::insert_into(p::psi_contact_tokens)
                 .values(NewPsiContactToken {
                     epoch: &epoch,
                     token: token.as_slice(),
+                    token_prefix,
                     resource_kind: kind,
                     resource_id,
                     created_at: now,
@@ -180,10 +184,12 @@ pub(crate) async fn rebuild_epoch_tokens_on_conn(
                         anyhow::anyhow!("VOPRF evaluate `{candidate}`: {error}")
                     })?;
                     let token = token.to_vec();
+                    let token_prefix = &token[..PSI_DIGEST_PREFIX_LENGTH];
                     diesel::insert_into(p::psi_contact_tokens)
                         .values(NewPsiContactToken {
                             epoch,
                             token: token.as_slice(),
+                            token_prefix,
                             resource_kind: kind,
                             resource_id: &resource_id,
                             created_at: now,
@@ -206,22 +212,22 @@ pub(crate) async fn rebuild_epoch_tokens_on_conn(
     Ok(())
 }
 
-pub(crate) async fn load_matching_tokens(
+pub(crate) async fn load_matching_prefixes(
     db: &Db,
     epoch: &str,
-    tokens: &[Vec<u8>],
+    prefixes: &[Vec<u8>],
 ) -> anyhow::Result<HashSet<Vec<u8>>> {
     use crate::schema::psi_contact_tokens::dsl as p;
 
-    if tokens.is_empty() {
+    if prefixes.is_empty() {
         return Ok(HashSet::new());
     }
 
     let mut conn = db.get().await?;
     let rows: Vec<Vec<u8>> = p::psi_contact_tokens
         .filter(p::epoch.eq(epoch))
-        .filter(p::token.eq_any(tokens.to_vec()))
-        .select(p::token)
+        .filter(p::token_prefix.eq_any(prefixes.to_vec()))
+        .select(p::token_prefix)
         .distinct()
         .load(&mut *conn)
         .await?;
@@ -248,14 +254,7 @@ pub(crate) fn contact_candidate_inputs(
 
     match kind {
         DirectoryResourceKindDb::Actor | DirectoryResourceKindDb::Handle => {
-            for key in [
-                "handle",
-                "did",
-                "actor_id",
-                "email_hash",
-                "phone_hash",
-                "contact_hash",
-            ] {
+            for key in ["handle", "did", "actor_id"] {
                 if let Some(value) = projection.get(key).and_then(JsonValue::as_str) {
                     push_candidate(&mut out, value);
                 }
@@ -295,6 +294,6 @@ mod tests {
 
         assert!(inputs.contains("alice.example"));
         assert!(inputs.contains("did:web:alice.example"));
-        assert!(inputs.contains("sha256:abc"));
+        assert!(!inputs.contains("sha256:abc"));
     }
 }

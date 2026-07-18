@@ -153,7 +153,6 @@ pub struct AppConfig {
     pub revalidation_grace: Duration,
     pub as_of_skew: Duration,
 
-    pub pull_interval: Option<Duration>,
     pub divergence_interval: Option<Duration>,
 
     pub ingest_modes: Vec<IngestModeAdvert>,
@@ -169,7 +168,7 @@ pub struct AppConfig {
     /// `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`.
     pub query_max_resolves_per_resource_per_min: u32,
     /// Spec §6.4 anti-enumeration quota: max PSI batches a single
-    /// requester may submit per `psi_quota_window`. Default 1. This window
+    /// authenticated device credential may submit per window. Default 1. This window
     /// is **decoupled** from the OPRF key epoch — a new key epoch MUST NOT
     /// reset the quota. Env: `TEABAY_MAX_PSI_QUERIES_PER_WINDOW`.
     pub max_psi_queries_per_window: u32,
@@ -226,7 +225,7 @@ pub struct AppConfig {
 pub struct DbPoolConfig {
     /// Hard ceiling on concurrent Postgres connections this teabay
     /// instance will open. Includes connections held by background
-    /// workers (`pull_worker`, `divergence_worker`) and admin queries.
+    /// workers (`divergence_worker`, expiry, freshness) and admin queries.
     /// Default: 16. Env: `TEABAY_DB_POOL_MAX_SIZE`.
     pub max_size: u32,
     /// How long `pool.get()` waits for an available connection before
@@ -354,14 +353,12 @@ impl ResourceKindAccept {
 #[serde(rename_all = "snake_case")]
 pub enum IngestModeAdvert {
     Push,
-    Pull,
 }
 
 impl IngestModeAdvert {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Push => "push",
-            Self::Pull => "pull",
         }
     }
 }
@@ -450,18 +447,6 @@ impl AppConfig {
         let admin_token_rotation_window =
             Duration::from_secs(admin_token_rotation_window_secs.max(60));
 
-        // Production fail-loud: warn if private-network egress is left enabled
-        // outside development mode. The env var overrides `development_mode` as
-        // the egress decision, so a stale `=true` can silently re-open SSRF to
-        // internal targets even after dev mode is turned off.
-        if !development_mode && crate::egress::private_networks_allowed(development_mode) {
-            tracing::warn!(
-                "TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS is enabled while \
-                 development_mode=false: webhook / DID / source-ref egress can \
-                 reach private and link-local addresses. Unset it in production."
-            );
-        }
-
         let accept_policy_kind = match std::env::var("TEABAY_ACCEPT_POLICY_KIND") {
             Ok(v) => AcceptPolicyKind::from_env_value(&v)?,
             // Fail closed in production: `open` accepts any validly-signed
@@ -508,12 +493,6 @@ impl AppConfig {
             );
         }
 
-        let pull_interval_seconds = read_u64("TEABAY_PULL_INTERVAL_SECONDS", 300)?;
-        let pull_interval = if pull_interval_seconds == 0 {
-            None
-        } else {
-            Some(Duration::from_secs(pull_interval_seconds))
-        };
         let divergence_interval_seconds = read_u64("TEABAY_DIVERGENCE_INTERVAL_SECONDS", 0)?;
         let divergence_interval = if divergence_interval_seconds == 0 {
             None
@@ -521,10 +500,7 @@ impl AppConfig {
             Some(Duration::from_secs(divergence_interval_seconds))
         };
 
-        let mut ingest_modes = vec![IngestModeAdvert::Push];
-        if pull_interval.is_some() {
-            ingest_modes.push(IngestModeAdvert::Pull);
-        }
+        let ingest_modes = vec![IngestModeAdvert::Push];
 
         let rate_limit_per_resource_per_min =
             read_u64("TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN", 60)? as u32;
@@ -653,7 +629,6 @@ impl AppConfig {
             max_ttl: Duration::from_secs(max_ttl_seconds),
             revalidation_grace: Duration::from_secs(revalidation_grace_seconds),
             as_of_skew: Duration::from_secs(as_of_skew_seconds),
-            pull_interval,
             divergence_interval,
             ingest_modes,
             rate_limit_per_resource_per_min,
@@ -683,7 +658,7 @@ impl AppConfig {
         DidResolverKeyDirectory::new(
             self.http_sig_pubkeys.clone(),
             self.accepted_did_methods.clone(),
-            crate::egress::private_networks_allowed(self.development_mode),
+            crate::egress::local_development_enabled(self.development_mode),
         )
     }
 }

@@ -54,8 +54,8 @@ withdrawal runs the handler-level verification chain.
   `/health`, and OpenAPI metadata.
 - `crates/server/src/config.rs` reads environment configuration and builds the
   advertised service capabilities used by `/_arkret/find/directory/describe`.
-- `crates/server/src/ingest/` handles push announce, withdrawal, pull
-  subscription, pull revalidation, verification, and divergence checks.
+- `crates/server/src/ingest/` handles push announce, withdrawal, webhook
+  subscription, verification, freshness, and divergence checks.
 - `crates/server/src/query/` builds the search and resolve responses from
   indexed `directory_resources` rows.
 - `crates/server/src/filter/` contains the shared result envelope and
@@ -73,9 +73,10 @@ PostgreSQL is the system of record for the directory index.
   `(resource_kind, resource_id)` pair.
 - `ingest_announces` records accepted announce attempts and request digests.
 - `withdrawals` records resource and operator withdrawal activity.
-- `pull_subscriptions` tracks due pull-mode revalidation work.
 - `webhook_subscriptions` tracks push notification fanout registrations.
 - `psi_epoch_keys` stores Private Contact Discovery epoch keys.
+- `psi_batches` and `psi_quota_windows` bind two-round PSI state and durable
+  per-device quota windows.
 - `accept_allowlist` stores operator-managed accept-policy entries.
 - `directory_audit` is the append-only operator-readable audit feed.
 
@@ -107,10 +108,9 @@ Query or resolve:
 
 ## Background Work
 
-The pull worker wakes every `TEABAY_PULL_INTERVAL_SECONDS` seconds when pull mode
-is enabled. It re-fetches due discovery state from the resource Principal Server,
-runs the same verification and projection path as push announce, and updates the
-freshness state.
+Pull ingest is not implemented because v1 does not yet define the required
+Directory-specific state-only read operation and DTO. Teabay advertises push
+ingest only and never falls back to the forbidden self Events API.
 
 The divergence worker is optional and controlled by
 `TEABAY_DIVERGENCE_INTERVAL_SECONDS`. A value of `0` disables it.

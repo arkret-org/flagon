@@ -18,7 +18,7 @@ pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
 pub(crate) use ingest_body::DirectoryAnnounceIngest;
 use persist::find_announce_by_natural_key;
 pub(crate) use persist::{
-    canonical_json_string, digest_request, latest_policy_revision_for, policy_revision_seen_before,
+    digest_request, latest_policy_revision_for, policy_revision_seen_before,
     upsert_resource_and_audit,
 };
 use projection::validate_request_shape;
@@ -563,8 +563,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         )
         .await;
         // Round R2/R3 T07 — tombstone fanout to in-flight subscribers.
-        let tombstone = crate::query::admin::ReachabilityTombstone {
-            kind: crate::query::admin::TombstoneKind::RealmDestroyed,
+        let tombstone = crate::ingest::subscribe::ReachabilityTombstone {
+            kind: crate::ingest::subscribe::TombstoneKind::RealmDestroyed,
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
             principal_server_did: body.principal_server_did.clone(),

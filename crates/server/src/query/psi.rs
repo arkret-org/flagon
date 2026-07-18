@@ -5,90 +5,80 @@
 //! finalized VOPRF outputs against this Directory's public contact candidates
 //! and returns a fixed-cardinality bitmap.
 
-use arkret_sdk::Did;
+use arkret_sdk::{
+    BatchId, DirectoryPrivateContactDiscoveryOutcome, DirectoryPrivateContactDiscoveryRequestBody,
+};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::RunQueryDsl;
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use rand::rngs::OsRng;
 use salvo::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
+use sha2::{Digest, Sha256};
 use voprf::{BlindedElement, Group, Ristretto255, VoprfServer};
 
 use crate::config::AppConfig;
 use crate::error::ApiErrorCode;
+use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::middleware::AuthenticatedHttpSignature;
-use crate::schema::psi_epoch_keys;
-use crate::state::{AppState, RateLimitOutcome};
+use crate::schema::{psi_batches, psi_epoch_keys, psi_quota_windows};
+use crate::state::AppState;
 
-pub(crate) const VOPRF_PROFILE: &str = "RFC9497-OPRFV1-ristretto255-SHA512";
-const MATCH_CARDINALITY: usize = 256;
+pub(crate) const PRIVATE_DISCOVERY_PROFILE: &str = "ak.private_contact_discovery.v1";
+pub(crate) const VOPRF_CIPHERSUITE: &str = "OPRF-ristretto255-SHA512";
+pub(crate) const PSI_BATCH_SIZE: usize = 256;
 
 type PsiServer = VoprfServer<Ristretto255>;
 type PsiBlindedElement = BlindedElement<Ristretto255>;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct PsiContactDiscoveryRequestBody {
-    pub phase: PsiPhase,
-    pub requester: String,
-    #[serde(default)]
-    pub epoch: Option<String>,
-    #[serde(default)]
-    pub blinded_inputs: Vec<String>,
-    #[serde(default)]
-    pub query_id: Option<String>,
-    #[serde(default)]
-    pub match_tokens: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PsiPhase {
-    Blind,
-    Match,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PsiBlindOutcome {
-    pub phase: &'static str,
-    pub epoch: String,
-    pub key_id: String,
-    pub query_id: String,
-    pub evaluations: Vec<String>,
-    pub proofs: Vec<String>,
-    pub padding_count: usize,
-    pub voprf_profile: &'static str,
-    pub server_public_key: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PsiMatchOutcome {
-    pub phase: &'static str,
-    pub epoch: String,
-    pub key_id: String,
-    pub query_id: String,
-    pub hit_bitmap: Vec<bool>,
-    pub padding_count: usize,
-    pub fixed_cardinality: usize,
-    pub voprf_profile: &'static str,
-}
-
 #[derive(Debug, Clone, Queryable)]
 struct PsiEpochKey {
     epoch: String,
-    profile: String,
+    ciphersuite: String,
     server_key: Vec<u8>,
     public_key: Vec<u8>,
     tokens_indexed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Insertable)]
+#[diesel(table_name = psi_batches)]
+struct NewPsiBatch<'a> {
+    batch_id: &'a str,
+    credential_key_id: &'a str,
+    key_epoch: i64,
+    blind_request_digest: &'a [u8],
+    element_count: i32,
+    created_at: DateTime<Utc>,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Queryable)]
+struct PsiBatchState {
+    credential_key_id: String,
+    key_epoch: i64,
+    blind_request_digest: Vec<u8>,
+    element_count: i32,
+    match_request_digest: Option<Vec<u8>>,
+    match_outcome: Option<JsonValue>,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Insertable)]
+#[diesel(table_name = psi_quota_windows)]
+struct NewPsiQuotaWindow<'a> {
+    credential_key_id: &'a str,
+    quota_bucket: i64,
+    query_count: i32,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Insertable)]
 #[diesel(table_name = psi_epoch_keys)]
 struct NewPsiEpochKey<'a> {
     epoch: &'a str,
-    profile: &'a str,
+    ciphersuite: &'a str,
     server_key: &'a [u8],
     public_key: &'a [u8],
     created_at: DateTime<Utc>,
@@ -126,114 +116,176 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
         }
     };
 
-    let body: PsiContactDiscoveryRequestBody = match req.parse_json().await {
+    let body: DirectoryPrivateContactDiscoveryRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::BadJson.render(res, format!("malformed PSI request: {error}"));
             return;
         }
     };
-    if body.requester.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "requester is required");
-        return;
-    }
-    let requester_did = match Did::new(body.requester.trim().to_owned()) {
-        Ok(did) => did,
-        Err(error) => {
-            ApiErrorCode::InvalidParam.render(res, format!("requester must be a DID: {error}"));
-            return;
-        }
-    };
-    let signer_did = match signer_did_from_key_id(&auth.key_id) {
-        Ok(did) => did,
-        Err(message) => {
-            ApiErrorCode::Unauthenticated.render(res, message);
-            return;
-        }
-    };
-    if signer_did != requester_did {
-        ApiErrorCode::Unauthenticated.render(res, "requester must match HTTP signature keyid DID");
+    if let Err(message) = validate_device_credential_key_id(&auth.key_id) {
+        ApiErrorCode::Unauthenticated.render(res, message);
         return;
     }
 
-    // Spec §6.4 anti-enumeration quota: at most `max_psi_queries_per_window`
-    // *batches* per requester DID per quota window. A batch is one logical PSI
-    // query, i.e. one `blind` round followed by its `match` round — so the
-    // quota is charged once, at the `blind` phase that opens the batch. The
-    // `match` continuation does not consume an additional unit (otherwise a
-    // single legitimate query would cost two and the default of 1 would be
-    // unusable).
-    //
-    // The quota window is a fixed wall-clock roll (default 24h) and MUST be
-    // decoupled from the OPRF key epoch — a new epoch MUST NOT reset the
-    // quota, and the client-supplied `body.epoch` MUST NOT participate in
-    // the quota key (otherwise an attacker could rotate epoch per batch to
-    // bypass the limit). `epoch` below selects the OPRF key only; it never
-    // feeds the quota bucket.
-    if matches!(body.phase, PsiPhase::Blind) {
-        let quota_window = std::time::Duration::from_secs(state.config().psi_quota_window_seconds);
-        let quota_bucket = Utc::now()
-            .timestamp()
-            .div_euclid(state.config().psi_quota_window_seconds as i64);
-        // §6.4 requires the quota to be counted per authenticable principal /
-        // device credential. This handler's wire contract carries requester
-        // as a DID, so the PSI quota key is requester-primary. The IP-based
-        // generic query limiter above remains a separate auxiliary hardening
-        // dimension; it is not the PSI quota key.
-        if let RateLimitOutcome::Limited { retry_after } = state.check_rate_limit_window(
-            psi_quota_key(&signer_did, quota_bucket),
-            state.config().max_psi_queries_per_window,
-            quota_window,
-        ) {
-            if let Ok(value) = retry_after.as_secs().max(1).to_string().parse() {
-                res.headers_mut()
-                    .insert(salvo::http::header::RETRY_AFTER, value);
+    if body.profile() != PRIVATE_DISCOVERY_PROFILE {
+        ApiErrorCode::InvalidParam.render(res, "unsupported private discovery profile");
+        return;
+    }
+
+    match body {
+        DirectoryPrivateContactDiscoveryRequestBody::Blind {
+            batch_id,
+            ciphersuite,
+            key_epoch,
+            blinded_elements,
+            ..
+        } => {
+            if ciphersuite != VOPRF_CIPHERSUITE {
+                ApiErrorCode::InvalidParam.render(res, "unsupported private discovery ciphersuite");
+                return;
             }
-            ApiErrorCode::RateLimited.render(res, "PSI quota exhausted");
-            return;
+            if key_epoch != current_epoch(state.config()) {
+                ApiErrorCode::InvalidParam.render(res, "key_epoch is not the current OPRF epoch");
+                return;
+            }
+            let key = match load_or_create_epoch_key(&state, key_epoch).await {
+                Ok(key) => key,
+                Err(error) => {
+                    ApiErrorCode::InternalError.render(res, format!("PSI epoch key: {error}"));
+                    return;
+                }
+            };
+            let budget = LatencyBudget::new(
+                state.config().query_latency_floor,
+                state.config().query_latency_jitter,
+            );
+            let privacy_key = format!(
+                "credential={};batch={};phase=blind",
+                auth.key_id,
+                batch_id.as_str()
+            );
+            pad_to_budget_observed(
+                budget,
+                "ak.find.directory.query.private_contact_discovery",
+                &privacy_key,
+                |target| {
+                    state
+                        .metrics()
+                        .record_anti_enum_pad("private-contact-discovery", target)
+                },
+                handle_blind_phase(
+                    &state,
+                    &auth.key_id,
+                    batch_id,
+                    key_epoch,
+                    blinded_elements,
+                    key,
+                    res,
+                ),
+            )
+            .await;
         }
-    }
-
-    let epoch = body
-        .epoch
-        .clone()
-        .unwrap_or_else(|| current_epoch(state.config()));
-
-    let key = match load_or_create_epoch_key(&state, &epoch).await {
-        Ok(key) => key,
-        Err(error) => {
-            ApiErrorCode::InternalError.render(res, format!("PSI epoch key: {error}"));
-            return;
+        DirectoryPrivateContactDiscoveryRequestBody::Match {
+            batch_id,
+            key_epoch,
+            derived_prefixes,
+            ..
+        } => {
+            let key = match load_epoch_key(&state, key_epoch).await {
+                Ok(Some(key)) => key,
+                Ok(None) => {
+                    ApiErrorCode::InvalidParam.render(res, "key_epoch is unknown or expired");
+                    return;
+                }
+                Err(error) => {
+                    ApiErrorCode::InternalError.render(res, format!("PSI epoch key: {error}"));
+                    return;
+                }
+            };
+            let budget = LatencyBudget::new(
+                state.config().query_latency_floor,
+                state.config().query_latency_jitter,
+            );
+            let privacy_key = format!(
+                "credential={};batch={};phase=match",
+                auth.key_id,
+                batch_id.as_str()
+            );
+            pad_to_budget_observed(
+                budget,
+                "ak.find.directory.query.private_contact_discovery",
+                &privacy_key,
+                |target| {
+                    state
+                        .metrics()
+                        .record_anti_enum_pad("private-contact-discovery", target)
+                },
+                handle_match_phase(
+                    &state,
+                    &auth.key_id,
+                    batch_id,
+                    key_epoch,
+                    derived_prefixes,
+                    key,
+                    res,
+                ),
+            )
+            .await;
         }
-    };
-
-    match body.phase {
-        PsiPhase::Blind => handle_blind_phase(body, key, res).await,
-        PsiPhase::Match => handle_match_phase(&state, body, key, res).await,
     }
 }
 
 async fn handle_blind_phase(
-    body: PsiContactDiscoveryRequestBody,
+    state: &AppState,
+    credential_key_id: &str,
+    batch_id: BatchId,
+    key_epoch: u64,
+    blinded_elements: Vec<String>,
     key: PsiEpochKey,
     res: &mut Response,
 ) {
-    if body.blinded_inputs.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "blinded_inputs is required for phase=blind");
+    if blinded_elements.is_empty() {
+        ApiErrorCode::MissingParam.render(res, "blinded_elements is required for phase=blind");
         return;
     }
-    // §6.2/§6.4: the Provider MUST enforce a fixed `batch_size` upper bound
-    // rather than evaluating an attacker-controlled number of (expensive)
-    // Ristretto255 group operations per request. Reject anything above the
-    // fixed cardinality instead of silently processing it (which was both a
-    // CPU/memory amplification DoS and, on the `match` side, a silent
-    // truncation that produced wrong results).
-    if body.blinded_inputs.len() > MATCH_CARDINALITY {
+    if blinded_elements.len() > PSI_BATCH_SIZE {
         ApiErrorCode::InvalidParam.render(
             res,
-            format!("blinded_inputs exceeds fixed batch size {MATCH_CARDINALITY}"),
+            format!("blinded_elements exceeds fixed batch size {PSI_BATCH_SIZE}"),
         );
         return;
+    }
+    let blinded = match blinded_elements
+        .iter()
+        .map(|input| decode_blinded_element(input))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(blinded) => blinded,
+        Err(message) => {
+            ApiErrorCode::InvalidParam.render(res, message);
+            return;
+        }
+    };
+
+    match open_psi_batch(
+        state,
+        credential_key_id,
+        &batch_id,
+        key_epoch,
+        &blinded_elements,
+    )
+    .await
+    {
+        Ok(()) => {}
+        Err(PsiBatchError::QuotaExhausted) => {
+            ApiErrorCode::RateLimited.render(res, "PSI quota exhausted");
+            return;
+        }
+        Err(error) => {
+            ApiErrorCode::InvalidParam.render(res, error.to_string());
+            return;
+        }
     }
 
     let server = match PsiServer::deserialize(&key.server_key) {
@@ -244,18 +296,11 @@ async fn handle_blind_phase(
         }
     };
 
-    let mut evaluations = Vec::with_capacity(MATCH_CARDINALITY);
-    let mut proofs = Vec::with_capacity(MATCH_CARDINALITY);
+    let mut evaluations = Vec::with_capacity(PSI_BATCH_SIZE);
+    let mut proofs = Vec::with_capacity(PSI_BATCH_SIZE);
     let mut rng = OsRng;
-    for input in &body.blinded_inputs {
-        let blinded = match decode_blinded_element(input) {
-            Ok(blinded) => blinded,
-            Err(message) => {
-                ApiErrorCode::InvalidParam.render(res, message);
-                return;
-            }
-        };
-        let evaluated = server.blind_evaluate(&mut rng, &blinded);
+    for blinded in &blinded {
+        let evaluated = server.blind_evaluate(&mut rng, blinded);
         evaluations.push(URL_SAFE_NO_PAD.encode(evaluated.message.serialize()));
         proofs.push(URL_SAFE_NO_PAD.encode(evaluated.proof.serialize()));
     }
@@ -263,110 +308,127 @@ async fn handle_blind_phase(
     // §6.4: the response frame MUST be rewritten to the Provider's fixed
     // `batch_size`. Dummy-pad `evaluations`/`proofs` with real-shaped VOPRF
     // outputs (evaluated over a constant dummy blinded element) up to
-    // MATCH_CARDINALITY so the on-wire response size is decoupled from the
+    // PSI_BATCH_SIZE so the on-wire response size is decoupled from the
     // number of elements the client actually submitted.
     let real_count = evaluations.len();
-    if real_count < MATCH_CARDINALITY {
+    if real_count < PSI_BATCH_SIZE {
         let dummy_blinded = dummy_blinded_element();
-        for _ in real_count..MATCH_CARDINALITY {
+        for _ in real_count..PSI_BATCH_SIZE {
             let evaluated = server.blind_evaluate(&mut rng, &dummy_blinded);
             evaluations.push(URL_SAFE_NO_PAD.encode(evaluated.message.serialize()));
             proofs.push(URL_SAFE_NO_PAD.encode(evaluated.proof.serialize()));
         }
     }
 
-    let query_id = random_query_id();
-    let padding_count = MATCH_CARDINALITY.saturating_sub(real_count);
-    res.render(Json(PsiBlindOutcome {
-        phase: "blind",
-        epoch: key.epoch.clone(),
-        key_id: key.epoch,
-        query_id,
-        evaluations,
+    let padding_count = PSI_BATCH_SIZE.saturating_sub(real_count);
+    res.render(Json(DirectoryPrivateContactDiscoveryOutcome::Blind {
+        profile: PRIVATE_DISCOVERY_PROFILE.to_owned(),
+        batch_id,
+        ciphersuite: VOPRF_CIPHERSUITE.to_owned(),
+        key_epoch,
+        evaluated_elements: evaluations,
         proofs,
-        padding_count,
-        voprf_profile: VOPRF_PROFILE,
+        digest_prefix_length: crate::psi_index::PSI_DIGEST_PREFIX_LENGTH as u16,
+        padding_count: padding_count as u32,
         server_public_key: URL_SAFE_NO_PAD.encode(key.public_key),
     }));
 }
 
 async fn handle_match_phase(
     state: &AppState,
-    body: PsiContactDiscoveryRequestBody,
+    credential_key_id: &str,
+    batch_id: BatchId,
+    key_epoch: u64,
+    derived_prefixes: Vec<String>,
     key: PsiEpochKey,
     res: &mut Response,
 ) {
-    if body.match_tokens.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "match_tokens is required for phase=match");
+    if derived_prefixes.is_empty() {
+        ApiErrorCode::MissingParam.render(res, "derived_prefixes is required for phase=match");
         return;
     }
-    // §6.4: enforce the same fixed batch-size bound on the `match` round.
-    // Reject overflow explicitly instead of decoding everything and silently
-    // `take(MATCH_CARDINALITY)`-ing (which charged the decode cost for the
-    // discarded surplus and returned a hit bitmap that silently dropped the
-    // client's excess tokens).
-    if body.match_tokens.len() > MATCH_CARDINALITY {
+    if derived_prefixes.len() > PSI_BATCH_SIZE {
         ApiErrorCode::InvalidParam.render(
             res,
-            format!("match_tokens exceeds fixed batch size {MATCH_CARDINALITY}"),
+            format!("derived_prefixes exceeds fixed batch size {PSI_BATCH_SIZE}"),
         );
         return;
     }
 
-    let query_id = body.query_id.clone().unwrap_or_else(random_query_id);
-    let decoded_tokens = match decode_match_tokens(&body.match_tokens) {
-        Ok(tokens) => tokens,
+    let decoded_prefixes = match decode_derived_prefixes(&derived_prefixes) {
+        Ok(prefixes) => prefixes,
         Err(message) => {
             ApiErrorCode::InvalidParam.render(res, message);
             return;
         }
     };
-    let matching_tokens =
-        match crate::psi_index::load_matching_tokens(state.db(), &key.epoch, &decoded_tokens).await
+
+    match prepare_match_batch(
+        state,
+        credential_key_id,
+        &batch_id,
+        key_epoch,
+        &derived_prefixes,
+    )
+    .await
+    {
+        Ok(Some(outcome)) => {
+            res.render(Json(outcome));
+            return;
+        }
+        Ok(None) => {}
+        Err(error) => {
+            ApiErrorCode::InvalidParam.render(res, error.to_string());
+            return;
+        }
+    }
+
+    let matching_prefixes =
+        match crate::psi_index::load_matching_prefixes(state.db(), &key.epoch, &decoded_prefixes)
+            .await
         {
-            Ok(tokens) => tokens,
+            Ok(prefixes) => prefixes,
             Err(error) => {
                 ApiErrorCode::InternalError.render(res, format!("PSI match index: {error}"));
                 return;
             }
         };
 
-    let mut hit_bitmap = decoded_tokens
+    let mut hit_bitmap = decoded_prefixes
         .iter()
-        .take(MATCH_CARDINALITY)
-        .map(|token| matching_tokens.contains(token))
+        .map(|prefix| matching_prefixes.contains(prefix))
         .collect::<Vec<_>>();
-    let padding_count = MATCH_CARDINALITY.saturating_sub(hit_bitmap.len());
-    hit_bitmap.resize(MATCH_CARDINALITY, false);
-    res.render(Json(PsiMatchOutcome {
-        phase: "match",
-        epoch: key.epoch.clone(),
-        key_id: key.epoch,
-        query_id,
+    let padding_count = PSI_BATCH_SIZE.saturating_sub(hit_bitmap.len());
+    hit_bitmap.resize(PSI_BATCH_SIZE, false);
+    let outcome = DirectoryPrivateContactDiscoveryOutcome::Match {
+        profile: PRIVATE_DISCOVERY_PROFILE.to_owned(),
+        batch_id: batch_id.clone(),
+        key_epoch,
         hit_bitmap,
-        padding_count,
-        fixed_cardinality: MATCH_CARDINALITY,
-        voprf_profile: VOPRF_PROFILE,
-    }));
+        padding_count: padding_count as u32,
+    };
+    if let Err(error) = store_match_outcome(state, &batch_id, &outcome).await {
+        ApiErrorCode::InternalError.render(res, format!("PSI batch outcome: {error}"));
+        return;
+    }
+    res.render(Json(outcome));
 }
 
-async fn load_or_create_epoch_key(
-    state: &AppState,
-    epoch_value: &str,
-) -> anyhow::Result<PsiEpochKey> {
+async fn load_or_create_epoch_key(state: &AppState, key_epoch: u64) -> anyhow::Result<PsiEpochKey> {
     use crate::schema::psi_epoch_keys::dsl as k;
 
     let mut conn = state.db().get().await?;
     let now = Utc::now();
+    let epoch_value = key_epoch.to_string();
     diesel::delete(k::psi_epoch_keys.filter(k::expires_at.lt(now)))
         .execute(&mut *conn)
         .await?;
 
     if let Some(mut row) = k::psi_epoch_keys
-        .filter(k::epoch.eq(epoch_value))
+        .filter(k::epoch.eq(&epoch_value))
         .select((
             k::epoch,
-            k::profile,
+            k::ciphersuite,
             k::server_key,
             k::public_key,
             k::tokens_indexed_at,
@@ -375,7 +437,7 @@ async fn load_or_create_epoch_key(
         .await
         .optional()?
     {
-        ensure_epoch_profile(&row.profile)?;
+        ensure_epoch_ciphersuite(&row.ciphersuite)?;
         ensure_epoch_tokens_indexed(&mut conn, &mut row).await?;
         return Ok(row);
     }
@@ -390,8 +452,8 @@ async fn load_or_create_epoch_key(
     let expires_at = now + retention;
     diesel::insert_into(k::psi_epoch_keys)
         .values(NewPsiEpochKey {
-            epoch: epoch_value,
-            profile: VOPRF_PROFILE,
+            epoch: &epoch_value,
+            ciphersuite: VOPRF_CIPHERSUITE,
             server_key: &server_key,
             public_key: &public_key,
             created_at: now,
@@ -403,25 +465,49 @@ async fn load_or_create_epoch_key(
         .await?;
 
     let mut row = k::psi_epoch_keys
-        .filter(k::epoch.eq(epoch_value))
+        .filter(k::epoch.eq(&epoch_value))
         .select((
             k::epoch,
-            k::profile,
+            k::ciphersuite,
             k::server_key,
             k::public_key,
             k::tokens_indexed_at,
         ))
         .first::<PsiEpochKey>(&mut *conn)
         .await?;
-    ensure_epoch_profile(&row.profile)?;
+    ensure_epoch_ciphersuite(&row.ciphersuite)?;
     ensure_epoch_tokens_indexed(&mut conn, &mut row).await?;
     Ok(row)
 }
 
-fn ensure_epoch_profile(profile: &str) -> anyhow::Result<()> {
-    if profile != VOPRF_PROFILE {
+async fn load_epoch_key(state: &AppState, key_epoch: u64) -> anyhow::Result<Option<PsiEpochKey>> {
+    use crate::schema::psi_epoch_keys::dsl as k;
+
+    let mut conn = state.db().get().await?;
+    let mut row = k::psi_epoch_keys
+        .filter(k::epoch.eq(key_epoch.to_string()))
+        .filter(k::expires_at.gt(Utc::now()))
+        .select((
+            k::epoch,
+            k::ciphersuite,
+            k::server_key,
+            k::public_key,
+            k::tokens_indexed_at,
+        ))
+        .first::<PsiEpochKey>(&mut *conn)
+        .await
+        .optional()?;
+    if let Some(row) = row.as_mut() {
+        ensure_epoch_ciphersuite(&row.ciphersuite)?;
+        ensure_epoch_tokens_indexed(&mut conn, row).await?;
+    }
+    Ok(row)
+}
+
+fn ensure_epoch_ciphersuite(ciphersuite: &str) -> anyhow::Result<()> {
+    if ciphersuite != VOPRF_CIPHERSUITE {
         anyhow::bail!(
-            "PSI epoch profile `{profile}` is not supported by this binary; expected `{VOPRF_PROFILE}`"
+            "PSI epoch ciphersuite `{ciphersuite}` is not supported by this binary; expected `{VOPRF_CIPHERSUITE}`"
         );
     }
     Ok(())
@@ -441,34 +527,283 @@ async fn ensure_epoch_tokens_indexed(
     Ok(())
 }
 
-fn current_epoch(config: &AppConfig) -> String {
-    let epoch = Utc::now()
+pub(crate) fn current_epoch(config: &AppConfig) -> u64 {
+    Utc::now()
         .timestamp()
-        .div_euclid(config.psi_epoch_seconds as i64);
-    format!("psi-epoch-{epoch}")
+        .div_euclid(config.psi_epoch_seconds as i64)
+        .max(0) as u64
 }
 
-fn psi_quota_key(requester: &Did, quota_bucket: i64) -> String {
-    format!("psi-quota:requester:{}:{quota_bucket}", requester.as_str())
-}
-
-fn signer_did_from_key_id(key_id: &str) -> Result<Did, String> {
-    if !key_id.contains('#') {
-        return Err("HTTP signature keyid must be a DID URL for PSI".to_owned());
-    }
+fn validate_device_credential_key_id(key_id: &str) -> Result<(), String> {
+    let (_, fragment) = key_id
+        .rsplit_once('#')
+        .ok_or_else(|| "HTTP signature keyid must be a device DID URL for PSI".to_owned())?;
     arkret_sdk::verification_method_did(key_id)
-        .map_err(|error| format!("HTTP signature keyid DID invalid: {error}"))
+        .map_err(|error| format!("HTTP signature keyid DID invalid: {error}"))?;
+    arkret_sdk::DeviceId::new(fragment.to_owned())
+        .map_err(|error| format!("HTTP signature keyid is not a device credential: {error}"))?;
+    Ok(())
 }
 
-fn random_query_id() -> String {
-    URL_SAFE_NO_PAD.encode(rand::random::<[u8; 24]>())
+#[derive(Debug)]
+enum PsiBatchError {
+    QuotaExhausted,
+    Unknown,
+    CredentialMismatch,
+    EpochMismatch,
+    RequestMismatch,
+    Expired,
+    Database(String),
+    Corrupt(String),
+}
+
+impl std::fmt::Display for PsiBatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QuotaExhausted => formatter.write_str("PSI quota exhausted"),
+            Self::Unknown => formatter.write_str("unknown PSI batch_id"),
+            Self::CredentialMismatch => {
+                formatter.write_str("batch_id belongs to a different device credential")
+            }
+            Self::EpochMismatch => formatter.write_str("batch_id key_epoch mismatch"),
+            Self::RequestMismatch => {
+                formatter.write_str("batch_id was already used with different request material")
+            }
+            Self::Expired => formatter.write_str("PSI batch_id expired"),
+            Self::Database(message) => write!(formatter, "PSI batch database error: {message}"),
+            Self::Corrupt(message) => write!(formatter, "PSI batch state is corrupt: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for PsiBatchError {}
+
+impl From<diesel::result::Error> for PsiBatchError {
+    fn from(error: diesel::result::Error) -> Self {
+        Self::Database(error.to_string())
+    }
+}
+
+fn request_list_digest(values: &[String]) -> Vec<u8> {
+    let mut digest = Sha256::new();
+    for value in values {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    }
+    digest.finalize().to_vec()
+}
+
+async fn open_psi_batch(
+    state: &AppState,
+    credential_key_id: &str,
+    batch_id: &BatchId,
+    key_epoch: u64,
+    blinded_elements: &[String],
+) -> Result<(), PsiBatchError> {
+    use crate::schema::psi_batches::dsl as b;
+    use crate::schema::psi_quota_windows::dsl as q;
+
+    let now = Utc::now();
+    let window_seconds = state.config().psi_quota_window_seconds as i64;
+    let quota_bucket = now.timestamp().div_euclid(window_seconds);
+    let expires_at = now + chrono::Duration::seconds(window_seconds);
+    let key_epoch = i64::try_from(key_epoch)
+        .map_err(|_| PsiBatchError::Corrupt("key_epoch exceeds i64".to_owned()))?;
+    let request_digest = request_list_digest(blinded_elements);
+    let max_queries = i32::try_from(state.config().max_psi_queries_per_window).unwrap_or(i32::MAX);
+    let mut pooled = state
+        .db()
+        .get()
+        .await
+        .map_err(|error| PsiBatchError::Database(error.to_string()))?;
+
+    pooled
+        .transaction::<_, PsiBatchError, _>(async move |conn| {
+            diesel::delete(b::psi_batches.filter(b::expires_at.le(now)))
+                .execute(&mut *conn)
+                .await?;
+            diesel::delete(q::psi_quota_windows.filter(q::expires_at.le(now)))
+                .execute(&mut *conn)
+                .await?;
+
+            let inserted = diesel::insert_into(b::psi_batches)
+                .values(NewPsiBatch {
+                    batch_id: batch_id.as_str(),
+                    credential_key_id,
+                    key_epoch,
+                    blind_request_digest: &request_digest,
+                    element_count: blinded_elements.len() as i32,
+                    created_at: now,
+                    expires_at,
+                })
+                .on_conflict(b::batch_id)
+                .do_nothing()
+                .execute(&mut *conn)
+                .await?;
+
+            if inserted == 0 {
+                let existing = b::psi_batches
+                    .filter(b::batch_id.eq(batch_id.as_str()))
+                    .select((
+                        b::credential_key_id,
+                        b::key_epoch,
+                        b::blind_request_digest,
+                        b::element_count,
+                        b::match_request_digest,
+                        b::match_outcome,
+                        b::expires_at,
+                    ))
+                    .first::<PsiBatchState>(&mut *conn)
+                    .await?;
+                validate_batch(
+                    &existing,
+                    credential_key_id,
+                    key_epoch,
+                    Some(&request_digest),
+                    now,
+                )?;
+                return Ok(());
+            }
+
+            diesel::insert_into(q::psi_quota_windows)
+                .values(NewPsiQuotaWindow {
+                    credential_key_id,
+                    quota_bucket,
+                    query_count: 0,
+                    expires_at,
+                })
+                .on_conflict((q::credential_key_id, q::quota_bucket))
+                .do_nothing()
+                .execute(&mut *conn)
+                .await?;
+            let query_count = q::psi_quota_windows
+                .filter(q::credential_key_id.eq(credential_key_id))
+                .filter(q::quota_bucket.eq(quota_bucket))
+                .select(q::query_count)
+                .for_update()
+                .first::<i32>(&mut *conn)
+                .await?;
+            if query_count >= max_queries {
+                return Err(PsiBatchError::QuotaExhausted);
+            }
+            diesel::update(
+                q::psi_quota_windows
+                    .filter(q::credential_key_id.eq(credential_key_id))
+                    .filter(q::quota_bucket.eq(quota_bucket)),
+            )
+            .set(q::query_count.eq(q::query_count + 1))
+            .execute(&mut *conn)
+            .await?;
+            Ok(())
+        })
+        .await
+}
+
+fn validate_batch(
+    batch: &PsiBatchState,
+    credential_key_id: &str,
+    key_epoch: i64,
+    blind_request_digest: Option<&[u8]>,
+    now: DateTime<Utc>,
+) -> Result<(), PsiBatchError> {
+    if batch.expires_at <= now {
+        return Err(PsiBatchError::Expired);
+    }
+    if batch.credential_key_id != credential_key_id {
+        return Err(PsiBatchError::CredentialMismatch);
+    }
+    if batch.key_epoch != key_epoch {
+        return Err(PsiBatchError::EpochMismatch);
+    }
+    if blind_request_digest.is_some_and(|digest| batch.blind_request_digest != digest) {
+        return Err(PsiBatchError::RequestMismatch);
+    }
+    Ok(())
+}
+
+async fn prepare_match_batch(
+    state: &AppState,
+    credential_key_id: &str,
+    batch_id: &BatchId,
+    key_epoch: u64,
+    derived_prefixes: &[String],
+) -> Result<Option<DirectoryPrivateContactDiscoveryOutcome>, PsiBatchError> {
+    use crate::schema::psi_batches::dsl as b;
+
+    let now = Utc::now();
+    let key_epoch = i64::try_from(key_epoch)
+        .map_err(|_| PsiBatchError::Corrupt("key_epoch exceeds i64".to_owned()))?;
+    let request_digest = request_list_digest(derived_prefixes);
+    let mut pooled = state
+        .db()
+        .get()
+        .await
+        .map_err(|error| PsiBatchError::Database(error.to_string()))?;
+    pooled
+        .transaction::<_, PsiBatchError, _>(async move |conn| {
+            let batch = b::psi_batches
+                .filter(b::batch_id.eq(batch_id.as_str()))
+                .select((
+                    b::credential_key_id,
+                    b::key_epoch,
+                    b::blind_request_digest,
+                    b::element_count,
+                    b::match_request_digest,
+                    b::match_outcome,
+                    b::expires_at,
+                ))
+                .for_update()
+                .first::<PsiBatchState>(&mut *conn)
+                .await
+                .optional()?
+                .ok_or(PsiBatchError::Unknown)?;
+            validate_batch(&batch, credential_key_id, key_epoch, None, now)?;
+            if batch.element_count as usize != derived_prefixes.len() {
+                return Err(PsiBatchError::RequestMismatch);
+            }
+            if let Some(existing_digest) = batch.match_request_digest {
+                if existing_digest != request_digest {
+                    return Err(PsiBatchError::RequestMismatch);
+                }
+                return batch
+                    .match_outcome
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|error| PsiBatchError::Corrupt(error.to_string()));
+            }
+            diesel::update(b::psi_batches.filter(b::batch_id.eq(batch_id.as_str())))
+                .set(b::match_request_digest.eq(Some(request_digest)))
+                .execute(&mut *conn)
+                .await?;
+            Ok(None)
+        })
+        .await
+}
+
+async fn store_match_outcome(
+    state: &AppState,
+    batch_id: &BatchId,
+    outcome: &DirectoryPrivateContactDiscoveryOutcome,
+) -> anyhow::Result<()> {
+    use crate::schema::psi_batches::dsl as b;
+
+    let value = serde_json::to_value(outcome)?;
+    let mut conn = state.db().get().await?;
+    let updated = diesel::update(b::psi_batches.filter(b::batch_id.eq(batch_id.as_str())))
+        .set(b::match_outcome.eq(Some(value)))
+        .execute(&mut *conn)
+        .await?;
+    if updated != 1 {
+        anyhow::bail!("PSI batch expired before its match outcome could be stored");
+    }
+    Ok(())
 }
 
 /// Constant dummy blinded element used to pad the `blind` round response to
 /// the fixed `batch_size` (§6.4). Built from the group base element so it
 /// deserializes into a valid `BlindedElement`; the resulting VOPRF outputs are
 /// indistinguishable in shape from real evaluations and are discarded by the
-/// client (which only consumes the first `MATCH_CARDINALITY - padding_count`).
+/// client (which only consumes the first `PSI_BATCH_SIZE - padding_count`).
 fn dummy_blinded_element() -> PsiBlindedElement {
     let serialized = Ristretto255::serialize_elem(Ristretto255::base_elem());
     PsiBlindedElement::deserialize(serialized.as_slice())
@@ -483,13 +818,20 @@ fn decode_blinded_element(input: &str) -> Result<PsiBlindedElement, String> {
         .map_err(|error| format!("invalid RFC9497 blinded element: {error}"))
 }
 
-fn decode_match_tokens(tokens: &[String]) -> Result<Vec<Vec<u8>>, String> {
-    tokens
+fn decode_derived_prefixes(prefixes: &[String]) -> Result<Vec<Vec<u8>>, String> {
+    prefixes
         .iter()
-        .map(|token| {
-            URL_SAFE_NO_PAD
-                .decode(token)
-                .map_err(|error| format!("invalid match token base64url: {error}"))
+        .map(|prefix| {
+            let decoded = URL_SAFE_NO_PAD
+                .decode(prefix)
+                .map_err(|error| format!("invalid derived prefix base64url: {error}"))?;
+            if decoded.len() != crate::psi_index::PSI_DIGEST_PREFIX_LENGTH {
+                return Err(format!(
+                    "derived prefix must be exactly {} bytes",
+                    crate::psi_index::PSI_DIGEST_PREFIX_LENGTH
+                ));
+            }
+            Ok(decoded)
         })
         .collect()
 }
@@ -514,20 +856,17 @@ mod tests {
 
         assert!(inputs.contains("alice.example"));
         assert!(inputs.contains("did:web:alice.example"));
-        assert!(inputs.contains("sha256:abc"));
+        assert!(!inputs.contains("sha256:abc"));
     }
 
     #[test]
     fn match_response_does_not_expose_index_size() {
-        let value = serde_json::to_value(PsiMatchOutcome {
-            phase: "match",
-            epoch: "psi-epoch-1".to_owned(),
-            key_id: "psi-epoch-1".to_owned(),
-            query_id: "query".to_owned(),
-            hit_bitmap: vec![false; MATCH_CARDINALITY],
+        let value = serde_json::to_value(DirectoryPrivateContactDiscoveryOutcome::Match {
+            profile: PRIVATE_DISCOVERY_PROFILE.to_owned(),
+            batch_id: BatchId::new("ak:batch:01964137-0000-7000-8000-000000000777").unwrap(),
+            key_epoch: 14,
+            hit_bitmap: vec![false; PSI_BATCH_SIZE],
             padding_count: 0,
-            fixed_cardinality: MATCH_CARDINALITY,
-            voprf_profile: VOPRF_PROFILE,
         })
         .expect("serialize match response");
 
@@ -537,40 +876,24 @@ mod tests {
     }
 
     #[test]
-    fn psi_epoch_profile_mismatch_fails_closed() {
-        assert!(ensure_epoch_profile(VOPRF_PROFILE).is_ok());
-        assert!(ensure_epoch_profile("RFC9497-OPRFV1-P256-SHA256").is_err());
+    fn psi_epoch_ciphersuite_mismatch_fails_closed() {
+        assert!(ensure_epoch_ciphersuite(VOPRF_CIPHERSUITE).is_ok());
+        assert!(ensure_epoch_ciphersuite("RFC9497-OPRFV1-P256-SHA256").is_err());
     }
 
     #[test]
-    fn psi_query_id_is_opaque_random_token() {
-        let first = random_query_id();
-        let second = random_query_id();
-
-        assert_eq!(first.len(), 32);
-        assert_eq!(second.len(), 32);
-        assert_ne!(first, second);
-        assert!(
-            first
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        );
+    fn derived_prefix_length_fails_closed() {
+        assert!(decode_derived_prefixes(&[URL_SAFE_NO_PAD.encode([7_u8; 16])]).is_ok());
+        assert!(decode_derived_prefixes(&[URL_SAFE_NO_PAD.encode([7_u8; 15])]).is_err());
     }
 
     #[test]
-    fn psi_quota_key_is_authenticated_requester_primary() {
-        let requester = Did::new("did:web:alice.example".to_owned()).unwrap();
-
-        assert_eq!(
-            psi_quota_key(&requester, 42),
-            "psi-quota:requester:did:web:alice.example:42"
-        );
-    }
-
-    #[test]
-    fn psi_signer_keyid_must_be_did_url() {
-        let signer = signer_did_from_key_id("did:web:alice.example#device-1").unwrap();
-        assert_eq!(signer.as_str(), "did:web:alice.example");
-        assert!(signer_did_from_key_id("operator-key-1").is_err());
+    fn psi_signer_keyid_must_be_a_typed_device_did_url() {
+        validate_device_credential_key_id(
+            "did:web:alice.example#ak:device:01964137-0000-7000-8000-000000000001",
+        )
+        .unwrap();
+        assert!(validate_device_credential_key_id("operator-key-1").is_err());
+        assert!(validate_device_credential_key_id("did:web:alice.example#device-1").is_err());
     }
 }

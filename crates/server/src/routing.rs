@@ -222,9 +222,8 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
     };
 
     let database = database_ready(state).await;
-    let pull = state.worker_readiness(BackgroundWorker::Pull);
     let divergence = state.worker_readiness(BackgroundWorker::Divergence);
-    let ok = database.is_ok() && pull.ready && divergence.ready;
+    let ok = database.is_ok() && divergence.ready;
     if !ok {
         res.status_code(StatusCode::SERVICE_UNAVAILABLE);
     }
@@ -236,7 +235,6 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
             Err(error) => json!({ "ok": false, "error": error }),
         },
         "workers": {
-            "pull": worker_readiness_json(pull),
             "divergence": worker_readiness_json(divergence),
         },
     })));
@@ -341,11 +339,10 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
         "rotating_hmac".to_owned()
     };
     let rate_limit_enabled = cfg.rate_limit_per_resource_per_min > 0;
-    // SSRF egress posture: are private/link-local targets blocked? This honours
-    // the `TEABAY_EGRESS_ALLOW_PRIVATE_NETWORKS` override, not just dev mode, so
-    // a stale override is visible in the hardening snapshot.
+    // Local development admits loopback only; private and link-local targets
+    // remain blocked in every mode.
     let egress_private_networks_blocked =
-        !crate::egress::private_networks_allowed(development_mode);
+        !crate::egress::local_development_enabled(development_mode);
     let provider_credential_rotation = if secret_manager_in_use {
         "manual".to_owned()
     } else {

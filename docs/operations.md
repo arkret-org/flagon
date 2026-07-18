@@ -34,7 +34,6 @@ Required series:
 - `teabay_ingest_total{kind,outcome}`
 - `teabay_query_latency_seconds{op}`
 - `teabay_query_anti_enum_pad_seconds`
-- `teabay_pull_worker_revalidations_total{outcome}`
 - `teabay_divergence_detected_total`
 - `teabay_expired_rows_purged_total{table}` (P5 — expiry worker)
 - `teabay_takedown_notification_failures_total{stage}` (P5 — takedown notifier)
@@ -89,7 +88,6 @@ resource metadata.
 Useful tables for operator inspection:
 
 - `directory_resources`: current effective rows and freshness flags.
-- `pull_subscriptions`: pull-mode state and failure counts.
 - `directory_audit`: operator-readable ingest, takedown, admin, and
   revalidation activity.
 - `withdrawals`: takedown and withdrawal receipts.
@@ -139,27 +137,11 @@ Point the API base field at the teabay service, usually
 `http://localhost:7781`, and use the configured development token or HMAC
 credential.
 
-## Pull Revalidation
+## Refresh And Expiry
 
-Pull mode is enabled when `TEABAY_PULL_INTERVAL_SECONDS` is greater than zero.
-The worker:
-
-1. Finds non-stale rows whose `next_revalidation_after` has passed.
-2. Fetches state from the resource Principal Server events endpoint.
-3. Runs the same verification and projection path as push announce.
-4. Resets failure state on success.
-5. Uses exponential backoff on failure, capped at one day.
-6. Marks rows stale after TTL plus grace.
-7. Deletes rows after the stale grace window plus 24 hours.
-
-Common checks:
-
-```sql
-select resource_kind, resource_id, next_pull_after, consecutive_failures, last_error
-from pull_subscriptions
-order by next_pull_after asc
-limit 20;
-```
+Teabay accepts signed push refreshes. The freshness worker marks overdue rows
+stale and the expiry worker applies retention deletion. Pull ingest is not
+advertised until the v1 Directory-specific state-only operation is defined.
 
 ```sql
 select resource_kind, resource_id, stale, divergent, next_revalidation_after
@@ -213,8 +195,7 @@ For admin access checks:
 
 For stale or missing resources:
 
-1. Check `pull_subscriptions.last_error`.
-2. Confirm the resource Principal Server events endpoint is reachable.
-3. Confirm `TEABAY_ACCEPTED_DID_METHODS` and accept policy still allow the
+1. Confirm the resource is still sending signed announce refreshes.
+2. Confirm `TEABAY_ACCEPTED_DID_METHODS` and accept policy still allow the
    resource.
-4. Check whether the row was withdrawn or deleted after stale grace.
+3. Check whether the row was withdrawn or deleted after stale grace.

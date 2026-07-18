@@ -3,12 +3,10 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
-    DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
-    OrganizationPreview,
+    CursorBindingContext, Did, DirectoryOrganizationResolutionOutcome,
+    DirectoryOrganizationSearchOutcome, DirectoryRestrictedClaimPresentation,
+    DirectorySearchOrganizationsRequestBody, OrganizationPreview,
 };
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -63,12 +61,37 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         claims.proof_challenge.as_deref(),
         &claims.claim_presentations,
     );
-    let cursor = match body.cursor.as_deref().map(decode_org_cursor).transpose() {
-        Ok(cursor) => cursor,
-        Err(message) => {
-            ApiErrorCode::BadQuery.render(res, message);
+    let filter_digest = match arkret_sdk::cursor_filter_digest(&serde_json::json!({
+        "operation": "ak.find.directory.query.search_organizations",
+        "query": &needle,
+    })) {
+        Ok(digest) => digest,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("organization cursor filter: {error}"));
             return;
         }
+    };
+    let cursor_context = CursorBindingContext::new(
+        requester.as_deref().unwrap_or("anonymous"),
+        None,
+        state.config().service_id.clone(),
+        filter_digest,
+    );
+    let cursor = match body.cursor.as_deref() {
+        Some(token) => match state
+            .cursor_authority()
+            .resolve_stream(token, &cursor_context)
+            .and_then(|positions| {
+                serde_json::from_value::<OrgCursor>(positions)
+                    .map_err(|_| arkret_sdk::CursorAuthorityError::IntegrityInvalid)
+            }) {
+            Ok(cursor) => Some(cursor),
+            Err(error) => {
+                super::render_cursor_error(res, error);
+                return;
+            }
+        },
+        None => None,
     };
 
     let budget = LatencyBudget::new(
@@ -112,7 +135,27 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
             let has_more = rows.len() > limit as usize;
             let next_cursor = if has_more {
                 rows.truncate(limit as usize);
-                rows.last().map(encode_org_cursor)
+                match rows.last() {
+                    Some(row) => match serde_json::to_value(org_cursor_from_row(row))
+                        .map_err(|error| {
+                            arkret_sdk::CursorAuthorityError::InvalidParam(error.to_string())
+                        })
+                        .and_then(|positions| {
+                            state.cursor_authority().mint_stream(
+                                cursor_context.clone(),
+                                positions,
+                                60 * 60 * 1000,
+                            )
+                        }) {
+                        Ok(cursor) => Some(cursor),
+                        Err(error) => {
+                            ApiErrorCode::InternalError
+                                .render(res, format!("organization cursor: {error}"));
+                            return;
+                        }
+                    },
+                    None => None,
+                }
             } else {
                 None
             };
@@ -145,21 +188,11 @@ struct OrgCursor {
     resource_id: String,
 }
 
-fn encode_org_cursor(row: &OrgRow) -> String {
-    let cursor = OrgCursor {
+fn org_cursor_from_row(row: &OrgRow) -> OrgCursor {
+    OrgCursor {
         indexed_at: row.indexed_at,
         resource_id: row.resource_id.clone(),
-    };
-    // serde_json over (timestamp, string) never fails; fall back to empty on
-    // the impossible error so we never panic in a request path.
-    URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor).unwrap_or_default())
-}
-
-fn decode_org_cursor(cursor: &str) -> Result<OrgCursor, String> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(cursor)
-        .map_err(|e| format!("invalid cursor encoding: {e}"))?;
-    serde_json::from_slice(&bytes).map_err(|e| format!("invalid cursor body: {e}"))
+    }
 }
 
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
@@ -300,7 +333,7 @@ fn verified_restricted_claims_for_org_query(
         proof_challenge,
         &state.config().service_id,
         &state.config().accepted_did_methods,
-        crate::egress::private_networks_allowed(state.config().development_mode),
+        crate::egress::local_development_enabled(state.config().development_mode),
     )
     .unwrap_or_default()
 }

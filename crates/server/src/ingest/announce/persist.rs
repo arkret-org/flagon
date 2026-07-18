@@ -26,17 +26,6 @@ pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Result<Vec<u8>, S
     Ok(h.finalize().to_vec())
 }
 
-/// Arkret canonical JSON string via the SDK's `arkret_sdk::canonical`
-/// implementation (UTF-16 key ordering, integer-only number profile).
-///
-/// Replaces a hand-written serializer that sorted object keys by byte
-/// order (`sort_unstable()`) — divergent from the SDK and the rest of the
-/// federation. Errors are flattened to `String` to keep the existing
-/// call-site error contract.
-pub(crate) fn canonical_json_string(value: &JsonValue) -> Result<String, String> {
-    canonical::canonical_json_string(value).map_err(|err| err.to_string())
-}
-
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
     canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }

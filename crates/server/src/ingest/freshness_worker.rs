@@ -8,12 +8,10 @@
 //! `handle`) all filter on `stale = false`, so this flips a row out of the
 //! search face without deleting the audit history.
 //!
-//! Unlike `PullWorker`, this worker does NOT make outbound HTTP
-//! calls — it is a pure database sweep, so it remains cheap to run
-//! frequently and safe to run alongside the pull/divergence workers.
-//! Rows already past the pull worker's 24h delete window are still
-//! purged by `PullWorker::purge_stale_past_delete_window`; this
-//! worker only owns the `expires_at + revalidation_grace` stale flip.
+//! This worker does not make outbound HTTP calls. It is a pure database sweep,
+//! so it remains cheap to run alongside the divergence worker. The expiry
+//! worker owns deletion; this worker only owns the
+//! `expires_at + revalidation_grace` stale flip.
 
 use std::time::Duration;
 

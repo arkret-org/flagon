@@ -174,7 +174,6 @@ verification procedure.
 | `TEABAY_MAX_TTL_SECONDS` | `604800` | Operator cap for accepted announce TTLs. |
 | `TEABAY_REVALIDATION_GRACE_SECONDS` | `3600` | Grace window before stale rows are marked stale. |
 | `TEABAY_AS_OF_SKEW_SECONDS` | `300` | Maximum accepted clock skew for announce `as_of`. |
-| `TEABAY_PULL_INTERVAL_SECONDS` | `300` | Pull worker period; `0` disables pull mode. |
 | `TEABAY_DIVERGENCE_INTERVAL_SECONDS` | `0` | Divergence worker period; `0` disables it. |
 
 The hard maximum TTL accepted by the server is 30 days.

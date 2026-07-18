@@ -7,7 +7,7 @@
 //!   exponential-backoff retry and DLQ on permanent failure.
 //!
 //! Both workers are configured by env in [`crate::config::AppConfig`]
-//! and wired in `main.rs` alongside the existing freshness, pull, and
+//! and wired in `main.rs` alongside the existing freshness and
 //! divergence workers.
 
 pub mod expiry;

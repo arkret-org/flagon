@@ -5,6 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use arkret_sdk::http_signature::{
+    ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
+    parse_signature_input, sign_message,
+};
 use arkret_sdk::jws::sign_jws_ed25519;
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
@@ -13,7 +17,7 @@ use arkret_sdk::{
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration as ChronoDuration, Utc};
-use diesel::sql_types::{BigInt, Jsonb, Text};
+use diesel::sql_types::{Jsonb, Text};
 use diesel_async::RunQueryDsl;
 use ed25519_dalek::SigningKey;
 use salvo::http::StatusCode;
@@ -24,12 +28,6 @@ use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
 use testcontainers_modules::testcontainers::runners::SyncRunner;
 use voprf::{EvaluationElement, Group, Proof, Ristretto255, VoprfClient};
-
-#[derive(diesel::QueryableByName)]
-struct CountRow {
-    #[diesel(sql_type = BigInt)]
-    count: i64,
-}
 
 #[derive(diesel::QueryableByName)]
 struct WithdrawalProofRow {
@@ -75,7 +73,16 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
         std::env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         std::env::set_var("TEABAY_QUERY_LATENCY_FLOOR_MS", "0");
         std::env::set_var("TEABAY_QUERY_LATENCY_JITTER_MS", "0");
-        std::env::set_var("TEABAY_PULL_INTERVAL_SECONDS", "300");
+        let psi_signing_key = SigningKey::from_bytes(&[21_u8; 32]);
+        let psi_public_key = URL_SAFE_NO_PAD.encode(psi_signing_key.verifying_key().as_bytes());
+        let psi_signing_key_2 = SigningKey::from_bytes(&[22_u8; 32]);
+        let psi_public_key_2 = URL_SAFE_NO_PAD.encode(psi_signing_key_2.verifying_key().as_bytes());
+        std::env::set_var(
+            "TEABAY_HTTP_SIG_PUBKEYS",
+            format!(
+                "did:web:psi-conformance.test#ak:device:01964137-0000-7000-8000-000000000001={psi_public_key},did:web:psi-conformance.test#ak:device:01964137-0000-7000-8000-000000000002={psi_public_key_2}"
+            ),
+        );
         // The conformance harness posts unsigned envelopes against the
         // ingest surface to exercise the 5-step verify chain in isolation.
         // The TB-1 HTTP signature middleware would otherwise reject them
@@ -97,7 +104,6 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     assert_official_badge_is_verified_relationship_driven(&db, &service).await?;
     assert_pull_subscribe_registers_webhook(&service).await?;
     assert_push_announce_uses_mock_principal_server(&service).await?;
-    assert_pull_worker_refreshes_due_entry(&config, &db, &service).await?;
     assert_freshness_flags_are_exposed(&db, &service).await?;
     assert_psi_blind_and_match_finds_seeded_handle(&service).await?;
     assert_three_path_takedown_strand(&db, &service).await?;
@@ -168,10 +174,18 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
             .contains(&json!("push"))
     );
     assert!(
-        body["ingest_modes"]
+        !body["ingest_modes"]
             .as_array()
             .unwrap()
             .contains(&json!("pull"))
+    );
+    assert!(
+        body["x_teabay_limitations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|limitation| limitation["feature"] == "pull_mode_ingest"
+                && limitation["status"] == "unsupported")
     );
     assert!(
         body["x_teabay_limitations"]
@@ -315,6 +329,21 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let cursor = body["next_cursor"]
         .as_str()
         .unwrap_or_else(|| panic!("expected next_cursor for first search page: {body}"));
+    assert!(cursor.starts_with("ak:cursor:"));
+
+    let mut cross_filter = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .json(&json!({ "query": "other", "limit": 1, "cursor": cursor }))
+        .send(service)
+        .await;
+    assert_eq!(
+        cross_filter.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::BAD_REQUEST
+    );
+    let cross_filter_body: JsonValue = cross_filter.take_json().await?;
+    assert_eq!(
+        cross_filter_body["error"]["code"],
+        "cursor_integrity_invalid"
+    );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({ "query": "tea", "limit": 1, "cursor": cursor }))
@@ -324,7 +353,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realms"].as_array().unwrap().len(), 1);
 
-    let res = TestClient::post("http://local/_arkret/find/directory/search-realms")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({ "cursor": "not-base64" }))
         .send(service)
         .await;
@@ -332,6 +361,8 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         res.status_code.unwrap_or(StatusCode::OK),
         StatusCode::BAD_REQUEST
     );
+    let invalid_body: JsonValue = res.take_json().await?;
+    assert_eq!(invalid_body["error"]["code"], "invalid_param");
 
     assert_resolve_realm_status(service, "ak:realm:tea", StatusCode::OK, json!({})).await?;
     assert_resolve_realm_status(service, "ak:realm:secret", StatusCode::NOT_FOUND, json!({}))
@@ -487,43 +518,159 @@ async fn assert_resolve_realm_status(
 }
 
 async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> anyhow::Result<()> {
+    const PATH: &str = "/_arkret/find/directory/private-contact-discovery";
+    const KEY_ID: &str =
+        "did:web:psi-conformance.test#ak:device:01964137-0000-7000-8000-000000000001";
+
     let mut rng = rand::rngs::OsRng;
     let blind = VoprfClient::<Ristretto255>::blind(b"alice.example", &mut rng)?;
     let blinded_input = URL_SAFE_NO_PAD.encode(blind.message.serialize());
+    let key_epoch = Utc::now().timestamp().div_euclid(3600) as u64;
+    let batch_id = "ak:batch:01964137-0000-7000-8000-000000000777";
+    let signing_key = SigningKey::from_bytes(&[21_u8; 32]);
+    let blind_body = json!({
+        "profile": "ak.private_contact_discovery.v1",
+        "phase": "blind",
+        "batch_id": batch_id,
+        "ciphersuite": "OPRF-ristretto255-SHA512",
+        "key_epoch": key_epoch,
+        "blinded_elements": [blinded_input.clone()],
+    });
+    let blind_body = serde_json::to_vec(&blind_body)?;
+    let blind_signature = sign_psi_request(PATH, &blind_body, KEY_ID, &signing_key)?;
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/private-contact-discovery")
-        .json(&json!({
-            "phase": "blind",
-            "requester": "did:web:requester.test",
-            "blinded_inputs": [blinded_input],
-        }))
+        .add_header("host", "local", true)
+        .add_header("signature-input", blind_signature.0, true)
+        .add_header("signature", blind_signature.1, true)
+        .add_header("content-digest", blind_signature.2, true)
+        .add_header("content-type", "application/json", true)
+        .bytes(blind_body)
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    let evaluation = decode_evaluation(body["evaluations"][0].as_str().unwrap())?;
+    let evaluation = decode_evaluation(body["evaluated_elements"][0].as_str().unwrap())?;
     let proof = decode_proof(body["proofs"][0].as_str().unwrap())?;
     let public_key = decode_public_key(body["server_public_key"].as_str().unwrap())?;
     let token = blind
         .state
         .finalize(b"alice.example", &evaluation, &proof, public_key)?;
-    let token = URL_SAFE_NO_PAD.encode(token);
+    let derived_prefix = URL_SAFE_NO_PAD.encode(&token[..16]);
+    let match_body = json!({
+        "profile": "ak.private_contact_discovery.v1",
+        "phase": "match",
+        "batch_id": batch_id,
+        "key_epoch": key_epoch,
+        "derived_prefixes": [derived_prefix],
+    });
+    let match_body = serde_json::to_vec(&match_body)?;
+    let match_signature = sign_psi_request(PATH, &match_body, KEY_ID, &signing_key)?;
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/private-contact-discovery")
-        .json(&json!({
-            "phase": "match",
-            "requester": "did:web:requester.test",
-            "epoch": body["epoch"].as_str().unwrap(),
-            "query_id": body["query_id"].as_str().unwrap(),
-            "match_tokens": [token],
-        }))
+        .add_header("host", "local", true)
+        .add_header("signature-input", match_signature.0, true)
+        .add_header("signature", match_signature.1, true)
+        .add_header("content-digest", match_signature.2, true)
+        .add_header("content-type", "application/json", true)
+        .bytes(match_body)
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["hit_bitmap"].as_array().unwrap().len(), 256);
     assert_eq!(body["hit_bitmap"][0], true);
+
+    let exhausted_body = serde_json::to_vec(&json!({
+        "profile": "ak.private_contact_discovery.v1",
+        "phase": "blind",
+        "batch_id": "ak:batch:01964137-0000-7000-8000-000000000779",
+        "ciphersuite": "OPRF-ristretto255-SHA512",
+        "key_epoch": key_epoch,
+        "blinded_elements": [blinded_input.clone()],
+    }))?;
+    let exhausted_signature = sign_psi_request(PATH, &exhausted_body, KEY_ID, &signing_key)?;
+    let exhausted_response =
+        TestClient::post("http://local/_arkret/find/directory/private-contact-discovery")
+            .add_header("host", "local", true)
+            .add_header("signature-input", exhausted_signature.0, true)
+            .add_header("signature", exhausted_signature.1, true)
+            .add_header("content-digest", exhausted_signature.2, true)
+            .add_header("content-type", "application/json", true)
+            .bytes(exhausted_body)
+            .send(service)
+            .await;
+    assert_eq!(
+        exhausted_response.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::TOO_MANY_REQUESTS,
+        "a second batch from the same device credential must exhaust its quota"
+    );
+
+    let second_device_key = SigningKey::from_bytes(&[22_u8; 32]);
+    let second_batch_id = "ak:batch:01964137-0000-7000-8000-000000000778";
+    let second_body = serde_json::to_vec(&json!({
+        "profile": "ak.private_contact_discovery.v1",
+        "phase": "blind",
+        "batch_id": second_batch_id,
+        "ciphersuite": "OPRF-ristretto255-SHA512",
+        "key_epoch": key_epoch,
+        "blinded_elements": [blinded_input],
+    }))?;
+    let second_signature = sign_psi_request(
+        PATH,
+        &second_body,
+        "did:web:psi-conformance.test#ak:device:01964137-0000-7000-8000-000000000002",
+        &second_device_key,
+    )?;
+    let second_response =
+        TestClient::post("http://local/_arkret/find/directory/private-contact-discovery")
+            .add_header("host", "local", true)
+            .add_header("signature-input", second_signature.0, true)
+            .add_header("signature", second_signature.1, true)
+            .add_header("content-digest", second_signature.2, true)
+            .add_header("content-type", "application/json", true)
+            .bytes(second_body)
+            .send(service)
+            .await;
+    assert_eq!(
+        second_response.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "a second device credential must have an independent PSI quota"
+    );
     Ok(())
+}
+
+fn sign_psi_request(
+    path: &str,
+    body: &[u8],
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> anyhow::Result<(String, String, String)> {
+    let content_digest = ContentDigest::compute(body, ContentDigestAlgorithm::Sha256);
+    let created = Utc::now().timestamp();
+    let signature_input = format!(
+        "sig1=(\"@method\" \"@target-uri\" \"@authority\" \"content-digest\");created={created};expires={};keyid=\"{key_id}\";alg=\"ed25519\"",
+        created + 299
+    );
+    let parsed = parse_signature_input(&signature_input)?;
+    let parts = SignedRequestParts {
+        method: "POST".to_owned(),
+        target_uri: format!("http://local{path}"),
+        authority: "local".to_owned(),
+        path: path.to_owned(),
+        headers: vec![(
+            "content-digest".to_owned(),
+            content_digest.wire_value.clone(),
+        )],
+        body_digest: None,
+    };
+    let message = canonical_message(&parts, &parsed)?;
+    let signature = sign_message(&message, signing_key);
+    Ok((
+        signature_input,
+        format!("sig1=:{signature}:"),
+        content_digest.wire_value,
+    ))
 }
 
 async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> anyhow::Result<()> {
@@ -600,77 +747,6 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
     assert!(body.get("created_at").is_none());
     assert!(body.get("expires_at").is_none());
     assert!(body.get("webhook_secret").is_none());
-    Ok(())
-}
-
-async fn assert_pull_worker_refreshes_due_entry(
-    config: &server::AppConfig,
-    db: &server::Db,
-    service: &Service,
-) -> anyhow::Result<()> {
-    let signing_key = SigningKey::from_bytes(&[9; 32]);
-    let public_key = did_key_multibase(&signing_key);
-    let signer_did = format!("did:key:{public_key}");
-    let verification_method = format!("{signer_did}#{public_key}");
-    let pulled_state =
-        signed_realm_discovery_state_named(&verification_method, &signing_key, "Pulled Tea")?;
-    let mock =
-        MockPrincipalServer::spawn_with_discovery_state("evt-pull-realm", pulled_state.clone())?;
-
-    let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
-        .json(&json!({
-            "resource_kind": "realm",
-            "resource_id": "ak:realm:pull",
-            "principal_server_did": mock.principal_server_did(),
-            "discovery_state": pulled_state,
-            "source_refs": ["evt-pull-realm"],
-            "as_of": Utc::now(),
-            "policy_revision": "rev-pushed-1",
-            "ttl_seconds": 3600,
-        }))
-        .send(service)
-        .await;
-    let status = res.status_code.unwrap_or(StatusCode::OK);
-    if status != StatusCode::OK {
-        let body = res.take_string().await.unwrap_or_default();
-        panic!("seed pull resource announce failed with {status}: {body}");
-    }
-
-    {
-        let mut conn = db.get().await?;
-        diesel::sql_query(
-            "UPDATE directory_resources \
-             SET next_revalidation_after = now() - interval '1 second' \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak.realm:pull'",
-        )
-        .execute(&mut conn)
-        .await?;
-    }
-
-    let worker_state = server::AppState::new(config.clone(), db.clone());
-    server::ingest::pull_worker::PullWorker::new(worker_state, Duration::from_millis(1))?
-        .run_once_for_tests()
-        .await?;
-
-    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ak:realm:pull" }))
-        .send(service)
-        .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
-    let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["name"], "Pulled Tea");
-
-    let mut conn = db.get().await?;
-    let pull_count: i64 = diesel::sql_query(
-        "SELECT count(*) FROM ingest_announces \
-         WHERE resource_kind = 'realm'::resource_kind \
-           AND resource_id = 'ak.realm:pull' \
-           AND ingest_mode = 'pull'::ingest_mode",
-    )
-    .get_result::<CountRow>(&mut conn)
-    .await?
-    .count;
-    assert_eq!(pull_count, 1);
     Ok(())
 }
 
@@ -1118,20 +1194,6 @@ struct MockPrincipalServer {
 
 impl MockPrincipalServer {
     fn spawn(event_id: &str) -> anyhow::Result<Self> {
-        Self::spawn_with_optional_discovery_state(event_id, None)
-    }
-
-    fn spawn_with_discovery_state(
-        event_id: &str,
-        discovery_state: JsonValue,
-    ) -> anyhow::Result<Self> {
-        Self::spawn_with_optional_discovery_state(event_id, Some(discovery_state))
-    }
-
-    fn spawn_with_optional_discovery_state(
-        event_id: &str,
-        discovery_state: Option<JsonValue>,
-    ) -> anyhow::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
@@ -1148,7 +1210,6 @@ impl MockPrincipalServer {
                         addr,
                         &principal_server_did,
                         &event_id,
-                        discovery_state.as_ref(),
                     ),
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(10));
@@ -1189,7 +1250,6 @@ fn handle_mock_principal_connection(
     addr: SocketAddr,
     principal_server_did: &str,
     event_id: &str,
-    discovery_state: Option<&JsonValue>,
 ) {
     let mut buffer = [0_u8; 2048];
     let Ok(size) = stream.read(&mut buffer) else {
@@ -1214,23 +1274,6 @@ fn handle_mock_principal_connection(
         ("200 OK", did_doc)
     } else if path == format!("/_arkret/self/events/{event_id}") {
         ("200 OK", json!({ "event_id": event_id }))
-    } else if path.starts_with("/_arkret/self/events/query?") {
-        match discovery_state {
-            Some(state) => (
-                "200 OK",
-                json!({
-                    "events": [{
-                        "event": {
-                            "event_id": event_id,
-                            "kind": "ak.realm.discovery",
-                            "created_at": Utc::now(),
-                            "content": state,
-                        }
-                    }]
-                }),
-            ),
-            None => ("200 OK", json!({ "events": [] })),
-        }
     } else {
         (
             "404 Not Found",

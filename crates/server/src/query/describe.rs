@@ -96,7 +96,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "directory.search",
         "directory.resolve",
         "directory.ingest_push",
-        "directory.ingest_pull",
         "directory.subscribe",
         "directory.announce",
         "directory.takedown",
@@ -153,6 +152,22 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
                 json!(cfg.psi_key_retention_seconds),
             ),
             (
+                "psi_ciphersuite".to_owned(),
+                json!(crate::query::psi::VOPRF_CIPHERSUITE),
+            ),
+            (
+                "psi_key_epoch".to_owned(),
+                json!(crate::query::psi::current_epoch(cfg)),
+            ),
+            (
+                "psi_batch_size".to_owned(),
+                json!(crate::query::psi::PSI_BATCH_SIZE),
+            ),
+            (
+                "psi_digest_prefix_length".to_owned(),
+                json!(crate::psi_index::PSI_DIGEST_PREFIX_LENGTH),
+            ),
+            (
                 "query_latency_floor_ms".to_owned(),
                 json!(cfg.query_latency_floor.as_millis() as u64),
             ),
@@ -190,6 +205,22 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             json!(cfg.psi_key_retention_seconds),
         ),
         (
+            "psi_ciphersuite".to_owned(),
+            json!(crate::query::psi::VOPRF_CIPHERSUITE),
+        ),
+        (
+            "psi_key_epoch".to_owned(),
+            json!(crate::query::psi::current_epoch(cfg)),
+        ),
+        (
+            "psi_batch_size".to_owned(),
+            json!(crate::query::psi::PSI_BATCH_SIZE),
+        ),
+        (
+            "psi_digest_prefix_length".to_owned(),
+            json!(crate::psi_index::PSI_DIGEST_PREFIX_LENGTH),
+        ),
+        (
             "query_latency_floor_ms".to_owned(),
             json!(cfg.query_latency_floor.as_millis() as u64),
         ),
@@ -220,7 +251,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         "directory.search",
         "directory.resolve",
         "directory.ingest_push",
-        "directory.ingest_pull",
         "directory.subscribe",
         "directory.announce",
         "directory.takedown",
@@ -365,7 +395,6 @@ fn directory_resource_kind(kind: &ResourceKindAccept) -> DirectoryResourceKind {
 fn directory_ingest_mode(mode: &IngestModeAdvert) -> DirectoryIngestMode {
     match mode {
         IngestModeAdvert::Push => DirectoryIngestMode::Push,
-        IngestModeAdvert::Pull => DirectoryIngestMode::Pull,
     }
 }
 
@@ -379,13 +408,11 @@ fn directory_accept_policy_kind(kind: AcceptPolicyKind) -> DirectoryAcceptPolicy
 
 fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     let mut limitations: Vec<JsonValue> = Vec::new();
-    if cfg.pull_interval.is_none() {
-        limitations.push(json!({
-            "feature": "pull_mode_ingest",
-            "status": "disabled",
-            "detail": "TEABAY_PULL_INTERVAL_SECONDS=0 disables periodic pull revalidation; ingest_modes omits pull.",
-        }));
-    }
+    limitations.push(json!({
+        "feature": "pull_mode_ingest",
+        "status": "unsupported",
+        "detail": "The v1 specification does not yet define the required Directory-specific state-only pull operation or DTO; this service only advertises push ingest.",
+    }));
     limitations.push(json!({
         "feature": "operator_takedown_notification",
         "status": if cfg.takedown_contact.is_some() { "best_effort" } else { "no_contact_configured" },
@@ -435,9 +462,8 @@ mod tests {
             max_ttl: Duration::from_secs(86400),
             revalidation_grace: Duration::from_secs(300),
             as_of_skew: Duration::from_secs(60),
-            pull_interval: Some(Duration::from_secs(300)),
             divergence_interval: None,
-            ingest_modes: vec![IngestModeAdvert::Push, IngestModeAdvert::Pull],
+            ingest_modes: vec![IngestModeAdvert::Push],
             rate_limit_per_resource_per_min: 60,
             query_max_queries_per_ip_per_min: 0,
             query_max_resolves_per_resource_per_min: 0,
@@ -514,6 +540,16 @@ mod tests {
         assert_eq!(value["accept_policy_kind"], "open");
         assert_eq!(value["x_teabay_public_base_url"], "http://directory.test");
         assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
+        assert_eq!(value["ingest_modes"], json!(["push"]));
+        assert_eq!(
+            value["rate_limits"]["psi_ciphersuite"],
+            crate::query::psi::VOPRF_CIPHERSUITE
+        );
+        assert_eq!(
+            value["rate_limits"]["psi_batch_size"],
+            crate::query::psi::PSI_BATCH_SIZE
+        );
+        assert_eq!(value["rate_limits"]["psi_digest_prefix_length"], 16);
         assert!(
             value["supported_operations"]
                 .as_array()
@@ -527,6 +563,7 @@ mod tests {
             .iter()
             .filter_map(|entry| entry.get("feature").and_then(JsonValue::as_str))
             .collect();
+        assert!(limitation_features.contains("pull_mode_ingest"));
         assert!(!limitation_features.contains("resolve_target.preview_link"));
     }
 

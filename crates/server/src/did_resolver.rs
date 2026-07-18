@@ -13,7 +13,7 @@ use reqwest::Client;
 ///
 /// `allow_private_networks` is the single source of truth for SSRF egress
 /// policy and MUST be derived by the caller from `AppConfig`
-/// (`crate::egress::private_networks_allowed(config.development_mode)`), not
+/// (`crate::egress::local_development_enabled(config.development_mode)`), not
 /// re-read from the environment here — that keeps the egress decision tied to
 /// the startup config snapshot.
 pub(crate) fn did_resolver_chain(
@@ -22,6 +22,7 @@ pub(crate) fn did_resolver_chain(
 ) -> Result<CompositeDidResolver, String> {
     let policy = resolver_policy(accepted_did_methods);
     let http_client = Client::builder()
+        .https_only(!allow_private_networks)
         .timeout(Duration::from_millis(2_000))
         .redirect(reqwest::redirect::Policy::none())
         .dns_resolver(Arc::new(crate::egress::ValidatingDnsResolver::new(

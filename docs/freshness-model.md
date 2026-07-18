@@ -64,24 +64,19 @@ Push announce stores:
 An idempotent replay of the same natural key returns cached freshness metadata
 instead of creating a second logical accept.
 
-## Pull Path
+## Refresh Path
 
-Pull mode is enabled when `TEABAY_PULL_INTERVAL_SECONDS` is greater than zero.
-The worker scans due rows and fetches state from the resource Principal Server
-events endpoint. A successful pull follows the same verify, projection, storage,
-and audit path as push announce.
-
-On failure, teabay records failure state in `pull_subscriptions` and schedules a
-retry with exponential backoff capped at one day.
+Resources refresh discovery state with signed push announces. Pull ingest stays
+unsupported until v1 defines the Directory-specific state-only read operation
+and DTO; teabay never reads discovery state from `/_arkret/self/events/*`.
 
 ## Stale And Delete Windows
 
 When `next_revalidation_after` is older than
 `TEABAY_REVALIDATION_GRACE_SECONDS`, teabay marks the row `stale=true`.
 
-If the row remains stale for another 24 hours beyond the grace cutoff, the pull
-worker deletes it from `directory_resources` and writes a revalidation-failed
-audit event. The source announce history remains in `ingest_announces`.
+The expiry worker deletes rows after the configured retention window. The source
+announce history remains in `ingest_announces`.
 
 ## Divergence
 

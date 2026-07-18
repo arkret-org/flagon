@@ -23,9 +23,8 @@ listener binds `TEABAY_METRICS_BIND` (default `127.0.0.1:9095`).
   `http://127.0.0.1:7781/health`).
 - `/readyz` returns `200` only when PostgreSQL answers `SELECT 1` **and** every
   enabled background worker has a recent heartbeat. The body reports
-  `database.ok` plus a `workers` map with two workers:
-  - `pull` — pull-mode revalidation worker.
-  - `divergence` — divergence-detection worker.
+  `database.ok` plus a `workers` map containing the optional
+  `divergence` worker.
 
   Each worker entry reports `enabled`, `ready`, `last_seen_ms_ago`, and
   `stale_after_ms`. A disabled worker (`enabled=false`) does not block
@@ -38,7 +37,7 @@ the readiness probe.
 ## Failover / Restart
 
 Durable state lives entirely in **PostgreSQL** (`directory_resources`,
-`ingest_announces`, `withdrawals`, `pull_subscriptions`, `directory_audit`).
+`ingest_announces`, `withdrawals`, PSI batch/quota tables, `directory_audit`).
 The teabay process itself is stateless — restarting it loses nothing. The
 admin SPA is a separate static image and can be restarted independently.
 
@@ -46,8 +45,8 @@ Safe restart:
 
 1. Drain the instance from the load balancer (it stops passing `/readyz`).
 2. Restart the process / pod. Migrations are embedded and run at boot.
-3. Wait for `/readyz` to return `200`. On boot the worker heartbeats start
-   stale, so allow up to `stale_after_ms` for `pull`/`divergence` to report
+3. Wait for `/readyz` to return `200`. On boot the worker heartbeat starts
+   stale, so allow up to `stale_after_ms` for `divergence` to report
    `ready=true`.
 4. Confirm `hardening.admin_auth_mode` is `rotating_hmac` and
    `development_mode=false` on `/health` before re-admitting traffic.
@@ -72,8 +71,7 @@ or browse via `GET /_teabay/admin/audit`. Receipt verification steps are in
 RFC 9421 HTTP Message Signature middleware keyed by the
 `TEABAY_HTTP_SIG_PUBKEYS` allowlist. A rejected announce is almost always a
 signature/keyid mismatch or an accept-policy rejection — check the audit feed
-and `ingest_announces`. For pull-mode, inspect `pull_subscriptions.last_error`
-and `consecutive_failures`.
+and `ingest_announces`. Pull mode is intentionally not advertised.
 
 ## Debugging
 
@@ -86,7 +84,6 @@ and `consecutive_failures`.
 
 - `teabay_ingest_total{kind,outcome}` — ingest accept/reject rates.
 - `teabay_query_latency_seconds{op}` — query latency.
-- `teabay_pull_worker_revalidations_total{outcome}` — pull worker health.
 - `teabay_divergence_detected_total` — divergence worker activity.
 - `teabay_db_pool_connections` / `_idle` / `_in_use` / `_max_size` — live r2d2
   pool occupancy.

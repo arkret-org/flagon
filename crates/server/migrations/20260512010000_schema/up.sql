@@ -23,7 +23,7 @@ CREATE TYPE discoverability AS ENUM (
     'secret'
 );
 
-CREATE TYPE ingest_mode AS ENUM ('push', 'pull');
+CREATE TYPE ingest_mode AS ENUM ('push');
 
 CREATE TYPE accept_policy_kind AS ENUM (
     'open',
@@ -207,22 +207,7 @@ CREATE INDEX takedown_appeals_takedown_idx
 CREATE INDEX takedown_appeals_status_idx
     ON takedown_appeals (status, accepted_at DESC);
 
--- ---- Pull-mode and webhook subscriptions --------------------------------
-
-CREATE TABLE pull_subscriptions (
-    resource_kind     resource_kind     NOT NULL,
-    resource_id       TEXT              NOT NULL,
-    principal_server_did TEXT           NOT NULL,
-    last_revision     TEXT,
-    last_pulled_at    TIMESTAMPTZ,
-    next_pull_after   TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    consecutive_failures INTEGER        NOT NULL DEFAULT 0,
-    last_error        TEXT,
-    PRIMARY KEY (resource_kind, resource_id)
-);
-
-CREATE INDEX pull_subscriptions_next_pull_idx
-    ON pull_subscriptions (next_pull_after);
+-- ---- Webhook subscriptions ----------------------------------------------
 
 CREATE TABLE webhook_subscriptions (
     subscription_id   TEXT              PRIMARY KEY,
@@ -240,12 +225,12 @@ CREATE INDEX webhook_subscriptions_subscriber_idx
 -- ---- PSI epoch keys ------------------------------------------------------
 
 CREATE TABLE psi_epoch_keys (
-    epoch      TEXT        PRIMARY KEY,
-    profile    TEXT        NOT NULL,
-    server_key BYTEA       NOT NULL,
-    public_key BYTEA       NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at TIMESTAMPTZ NOT NULL,
+    epoch        TEXT        PRIMARY KEY,
+    ciphersuite  TEXT        NOT NULL,
+    server_key   BYTEA       NOT NULL,
+    public_key   BYTEA       NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL,
     tokens_indexed_at TIMESTAMPTZ
 );
 
@@ -256,6 +241,7 @@ CREATE TABLE psi_contact_tokens (
     epoch         TEXT          NOT NULL
         REFERENCES psi_epoch_keys (epoch) ON DELETE CASCADE,
     token         BYTEA         NOT NULL,
+    token_prefix  BYTEA         NOT NULL,
     resource_kind resource_kind NOT NULL,
     resource_id   TEXT          NOT NULL,
     created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
@@ -263,10 +249,34 @@ CREATE TABLE psi_contact_tokens (
 );
 
 CREATE INDEX psi_contact_tokens_lookup_idx
-    ON psi_contact_tokens (epoch, token);
+    ON psi_contact_tokens (epoch, token_prefix);
 
 CREATE INDEX psi_contact_tokens_resource_idx
     ON psi_contact_tokens (resource_kind, resource_id);
+
+CREATE TABLE psi_batches (
+    batch_id             TEXT        PRIMARY KEY,
+    credential_key_id    TEXT        NOT NULL,
+    key_epoch            BIGINT      NOT NULL CHECK (key_epoch >= 0),
+    blind_request_digest BYTEA       NOT NULL,
+    element_count        INTEGER     NOT NULL CHECK (element_count BETWEEN 1 AND 256),
+    match_request_digest BYTEA,
+    match_outcome        JSONB,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at           TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX psi_batches_expires_at_idx ON psi_batches (expires_at);
+
+CREATE TABLE psi_quota_windows (
+    credential_key_id TEXT        NOT NULL,
+    quota_bucket      BIGINT      NOT NULL,
+    query_count       INTEGER     NOT NULL CHECK (query_count >= 0),
+    expires_at        TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (credential_key_id, quota_bucket)
+);
+
+CREATE INDEX psi_quota_windows_expires_at_idx ON psi_quota_windows (expires_at);
 
 -- ---- Object access and invite revocation --------------------------------
 

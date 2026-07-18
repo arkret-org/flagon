@@ -71,7 +71,7 @@ This implementation targets the `ak.profile.directory_service.v1` profile
 defined by the Arkret v1 spec — concretely:
 
 - **§7** Directory Service Role (3-responsibility positioning, 6 invariants)
-- **§8** Discovery Ingest Protocol (push announce + pull subscribe, 5-step
+- **§8** Discovery Ingest Protocol (push announce, 5-step
   verify chain, freshness/TTL/revalidation, 3-path withdrawal, anti-abuse)
 - **§9** Service Surface (query + ingest endpoints + §9.1 normative result
   fields: `as_of`, `source_refs`, `policy_revision`, `stale?`, `divergent?`,
@@ -85,12 +85,13 @@ blind / match strands. Parent Space semantics are represented through scope
 filters and membership hints where the Directory profile needs them.
 
 `ak.directory.describe.limitations` is populated at runtime for conformance
-honesty. Current limitations are: pull-mode ingest is declared disabled when
-`TEABAY_PULL_INTERVAL_SECONDS=0`; operator takedown webhook fanout is
+honesty. Current limitations are: pull-mode ingest remains unsupported until
+the v1 Directory-specific state-only pull operation and DTO are normative;
+operator takedown webhook fanout is
 HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
 from `ak.find.directory.push.command.register` is HMAC-signed best-effort delivery without a
-durable retry queue; PSI match indexing is capped at 10,000 eligible public or
-listed contact rows and returns `limited=true` when capped.
+durable retry queue. PSI responses use a fixed 256-entry padded shape and never
+expose index cardinality.
 
 ## Tech stack
 
@@ -171,7 +172,7 @@ curl http://127.0.0.1:9095/metrics
 ```
 
 The metrics surface includes ingest outcomes, query latency, anti-enumeration
-pad targets, pull revalidation outcomes, and divergence detections. For
+pad targets, expiry outcomes, and divergence detections. For
 OpenTelemetry, run an OTel Collector next to teabay and scrape the Prometheus
 endpoint plus stdout/stderr tracing logs. A deployment shim may also call the
 `TEABAY_OTLP_ENDPOINT` push helper, which sends the same Prometheus exposition
@@ -198,7 +199,7 @@ scripts/local-artifacts.sh
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
 behavior, `ak.find.directory.push.command.register`, signed push announce against a mock
-Principal Server, pull-mode revalidation, freshness flags, PSI blind / match,
+Principal Server, freshness flags, PSI blind / match,
 and takedown audit through the admin operator surface.
 
 ## Architecture
@@ -231,9 +232,9 @@ client / SDK  ──────▶   |  Salvo router              |
                           │          | (§8.6)    |
                           │          +-----------+
                           │                │
-                          │     pull-mode  │
-                          │   (ak.events.  │
-                          │   query)       │
+                           │  push refresh  │
+                           │   announce /   │
+                           │    webhook     │
                           ▼                ▼
                   resource Principal Server (soland / other)
 ```

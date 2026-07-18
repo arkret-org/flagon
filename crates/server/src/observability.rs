@@ -60,7 +60,6 @@ const QUERY_OPS: &[&str] = &[
     // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
     "resolve-target",
 ];
-const PULL_OUTCOMES: &[&str] = &["success", "failure"];
 
 /// R3.2 (METRICS-TBY-1) — outcomes recorded on
 /// `teabay_directory_query_total{op,outcome}`. The series is pre-seeded with
@@ -131,7 +130,6 @@ struct MetricsInner {
     ingest: Mutex<BTreeMap<IngestKey, u64>>,
     query_latency: Mutex<BTreeMap<String, QueryLatencyStats>>,
     anti_enum_pad: Mutex<BTreeMap<String, PadHistogram>>,
-    pull_revalidations: Mutex<BTreeMap<String, u64>>,
     // Pure scalar counter — an atomic avoids taking a lock on this hot path.
     divergence_detected: AtomicU64,
     expired_rows_purged: Mutex<BTreeMap<String, u64>>,
@@ -232,15 +230,6 @@ impl Metrics {
             .record(seconds);
     }
 
-    pub fn record_pull_revalidation(&self, outcome: &'static str) {
-        let mut pull_revalidations = self
-            .inner
-            .pull_revalidations
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *pull_revalidations.entry(outcome.to_owned()).or_default() += 1;
-    }
-
     pub fn record_divergence_detected(&self) {
         self.inner
             .divergence_detected
@@ -326,12 +315,6 @@ impl Metrics {
         let anti_enum_pad = self
             .inner
             .anti_enum_pad
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone();
-        let pull_revalidations = self
-            .inner
-            .pull_revalidations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
@@ -425,29 +408,6 @@ impl Metrics {
             .filter(|(op, _)| !QUERY_OPS.contains(&op.as_str()))
         {
             push_pad_histogram_samples(&mut out, op, histogram);
-        }
-
-        out.push_str("# HELP teabay_pull_worker_revalidations_total Pull-worker revalidation attempts by outcome.\n");
-        out.push_str("# TYPE teabay_pull_worker_revalidations_total counter\n");
-        for &outcome in PULL_OUTCOMES {
-            let value = pull_revalidations.get(outcome).copied().unwrap_or(0);
-            push_sample(
-                &mut out,
-                "teabay_pull_worker_revalidations_total",
-                &[("outcome", outcome)],
-                value as f64,
-            );
-        }
-        for (outcome, value) in pull_revalidations
-            .iter()
-            .filter(|(outcome, _)| !PULL_OUTCOMES.contains(&outcome.as_str()))
-        {
-            push_sample(
-                &mut out,
-                "teabay_pull_worker_revalidations_total",
-                &[("outcome", outcome.as_str())],
-                *value as f64,
-            );
         }
 
         out.push_str("# HELP teabay_divergence_detected_total Cross-directory divergence transitions detected.\n");
@@ -615,6 +575,10 @@ impl Metrics {
         };
         let body = self.render_prometheus();
         let client = reqwest::Client::builder()
+            .https_only(true)
+            .dns_resolver(std::sync::Arc::new(
+                crate::egress::ValidatingDnsResolver::new(false),
+            ))
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
         let resp = client
@@ -781,7 +745,6 @@ mod tests {
         metrics.record_ingest("announce", "verify_ok");
         metrics.record_query_latency("search-realms", Duration::from_millis(12));
         metrics.record_anti_enum_pad("search-realms", Duration::from_millis(25));
-        metrics.record_pull_revalidation("success");
         metrics.record_divergence_detected();
 
         let body = metrics.render_prometheus();
@@ -789,7 +752,6 @@ mod tests {
         assert!(body.contains("teabay_ingest_total{kind=\"announce\",outcome=\"verify_ok\"}"));
         assert!(body.contains("teabay_query_latency_seconds{op=\"search-realms\"}"));
         assert!(body.contains("teabay_query_anti_enum_pad_seconds_bucket"));
-        assert!(body.contains("teabay_pull_worker_revalidations_total{outcome=\"success\"}"));
         assert!(body.contains("teabay_divergence_detected_total 1.000000"));
     }
 

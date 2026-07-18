@@ -1,7 +1,6 @@
 use salvo::prelude::*;
 use server::ingest::divergence_worker::DivergenceWorker;
 use server::ingest::freshness_worker::{DEFAULT_FRESHNESS_TICK, FreshnessWorker};
-use server::ingest::pull_worker::PullWorker;
 use server::workers::expiry::ExpiryWorker;
 use server::workers::takedown_notifier::TakedownNotifier;
 use server::{AppConfig, AppState, Db, metrics_service, profile, service};
@@ -39,9 +38,6 @@ async fn run() -> anyhow::Result<()> {
     db.run_migrations(&config.database_url).await?;
     let state = AppState::new(config.clone(), db);
 
-    if let Some(period) = config.pull_interval {
-        let _worker = PullWorker::new(state.clone(), period)?.spawn();
-    }
     if let Some(period) = config.divergence_interval {
         let _worker = DivergenceWorker::new(state.clone(), period).spawn();
     }

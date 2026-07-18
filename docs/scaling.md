@@ -93,9 +93,6 @@ production traffic.
 
 ## Background workers
 
-- `pull_worker` runs every `TEABAY_PULL_INTERVAL_SECONDS` (default
-  300). It holds one connection per tick while it revalidates rows;
-  size your pool so this doesn't starve the request face.
 - `divergence_worker` is disabled by default. When enabled it adds
   one more long-held connection per cycle.
 
