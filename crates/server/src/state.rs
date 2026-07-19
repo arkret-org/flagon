@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use arkret_sdk::server::{FixedWindowConfig, MemoryFixedWindowRateLimiter};
 use chrono::{DateTime, Utc};
 
 use crate::config::AppConfig;
@@ -126,15 +127,8 @@ pub enum RateLimitOutcome {
     Limited { retry_after: Duration },
 }
 
-#[derive(Default)]
 struct RateLimiter {
-    buckets: Mutex<HashMap<String, RateBucket>>,
-}
-
-struct RateBucket {
-    count: u32,
-    window_start: Instant,
-    window: Duration,
+    inner: MemoryFixedWindowRateLimiter<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -296,57 +290,26 @@ impl RateLimiter {
     const MAX_BUCKETS: usize = 16_384;
 
     fn check(&self, key: String, max_requests: u32, window: Duration) -> RateLimitOutcome {
-        if max_requests == 0 {
-            return RateLimitOutcome::Limited {
-                retry_after: window,
-            };
-        }
-
-        let mut buckets = self
-            .buckets
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let now = Instant::now();
-
-        match buckets.get_mut(&key) {
-            Some(bucket) if now.duration_since(bucket.window_start) < window => {
-                bucket.window = window;
-                if bucket.count >= max_requests {
-                    let retry_after = window
-                        .checked_sub(now.duration_since(bucket.window_start))
-                        .unwrap_or_else(|| Duration::from_secs(1));
-                    RateLimitOutcome::Limited { retry_after }
-                } else {
-                    bucket.count += 1;
-                    RateLimitOutcome::Allowed
-                }
-            }
-            _ => {
-                Self::prune(&mut buckets, now);
-                buckets.insert(
-                    key,
-                    RateBucket {
-                        count: 1,
-                        window_start: now,
-                        window,
-                    },
-                );
-                RateLimitOutcome::Allowed
-            }
+        match self.inner.check_with_config(
+            key,
+            FixedWindowConfig::new(u64::from(max_requests), window, Self::MAX_BUCKETS),
+        ) {
+            Ok(()) => RateLimitOutcome::Allowed,
+            Err(rejection) => RateLimitOutcome::Limited {
+                retry_after: rejection.retry_after,
+            },
         }
     }
+}
 
-    fn prune(buckets: &mut HashMap<String, RateBucket>, now: Instant) {
-        buckets.retain(|_, bucket| now.duration_since(bucket.window_start) < bucket.window);
-        while buckets.len() >= Self::MAX_BUCKETS {
-            let Some(oldest) = buckets
-                .iter()
-                .min_by_key(|(_, bucket)| bucket.window_start)
-                .map(|(key, _)| key.clone())
-            else {
-                break;
-            };
-            buckets.remove(&oldest);
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self {
+            inner: MemoryFixedWindowRateLimiter::new(FixedWindowConfig::new(
+                1,
+                Duration::from_secs(60),
+                Self::MAX_BUCKETS,
+            )),
         }
     }
 }
@@ -356,23 +319,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rate_limiter_prunes_expired_buckets_before_insert() {
+    fn rate_limiter_reports_retry_for_exhausted_window() {
         let limiter = RateLimiter::default();
         assert_eq!(
-            limiter.check("first".to_owned(), 1, Duration::from_millis(1)),
+            limiter.check("first".to_owned(), 1, Duration::from_secs(60)),
             RateLimitOutcome::Allowed
         );
-        std::thread::sleep(Duration::from_millis(5));
-        assert_eq!(
-            limiter.check("second".to_owned(), 1, Duration::from_secs(60)),
-            RateLimitOutcome::Allowed
-        );
-
-        let buckets = limiter
-            .buckets
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        assert!(!buckets.contains_key("first"));
-        assert!(buckets.contains_key("second"));
+        assert!(matches!(
+            limiter.check("first".to_owned(), 1, Duration::from_secs(60)),
+            RateLimitOutcome::Limited { retry_after } if retry_after > Duration::ZERO
+        ));
     }
 }
