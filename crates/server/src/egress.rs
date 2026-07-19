@@ -1,6 +1,6 @@
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
-use arkret_network_policy::OutboundPolicy;
+use arkret_egress_policy::OutboundPolicy;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use reqwest::{ClientBuilder, Url};
 

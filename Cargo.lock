@@ -126,10 +126,10 @@ dependencies = [
  "arkret-canonical",
  "arkret-core",
  "arkret-crypto",
+ "arkret-egress-policy",
  "arkret-ffi",
  "arkret-http-client",
  "arkret-keystore",
- "arkret-network-policy",
  "arkret-server",
  "arkret-signatures",
  "arkret-state",
@@ -226,6 +226,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "arkret-egress-policy"
+version = "0.3.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "url",
+]
+
+[[package]]
 name = "arkret-ffi"
 version = "0.3.0"
 dependencies = [
@@ -305,14 +313,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
-]
-
-[[package]]
-name = "arkret-network-policy"
-version = "0.3.0"
-dependencies = [
- "thiserror 2.0.18",
- "url",
 ]
 
 [[package]]
@@ -5108,7 +5108,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "arkret",
- "arkret-network-policy",
+ "arkret-egress-policy",
  "async-trait",
  "base64",
  "bs58",
