@@ -299,11 +299,13 @@ psql -c "SELECT count(*) FROM takedown_entries WHERE notified_at IS NULL AND cre
 # alerts at >0
 ```
 
-### R3-specific notes (b47ff6ec)
+### Internationalized handle notes
 
-- Handle homograph wire-level enforcement landed in commit `6d69c63`.
-  Pre-R3 announcements that contained script-mixed handles MUST be
-  re-validated post-restore — failed re-validation routes to the
-  takedown executor automatically (`reason=handle_homograph_forbidden`).
+- Handle localparts use the shared RFC 8265-derived SDK profile and may be
+  internationalized. Restore validation rejects noncanonical wire values;
+  it does not reject a value merely because it is mixed-script.
+- `handle_homograph_forbidden` is reserved for an issuing authority's
+  optional namespace-local UTS #39 skeleton collision decision. The
+  skeleton is derived index state and never changes handle wire equality.
 - The `circle` selector kind on `directory.search_users` returns a
   uniform 404 (intra-Realm isolation). No federation change.

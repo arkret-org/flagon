@@ -10,7 +10,7 @@
 
 use arkret_sdk::{
     Did, DirectoryHandleResolutionOutcome,
-    DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody,
+    DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody, Handle as SdkHandle,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -70,31 +70,15 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
     }
 }
 
-/// AKP R3 — extract the localpart from a handle value and run it through
-/// `arkret_sdk::normalize_handle_localpart` (Unicode NFC + UTS#39
-/// confusable skeleton + script-mixed reject).
-///
-/// Accepts the canonical R3.1 wire form `<localpart>:<domain>(:<port>)?`
-/// (arkret-spec @ 7157ee8 — 2026-05-27).
+/// Prepare a product-private localpart input with the shared RFC 8265-derived
+/// human-identifier profile.
 /// The directory's own dot-separated index key `<localpart>.<domain>`
 /// is still accepted because it remains the row's `resource_id` shape
 /// in storage.
-///
-/// Returns the rejection reason string for the wire response when the
-/// localpart fails any rule; the message intentionally does NOT echo
-/// back which rule was violated (length / zero-width / script-mixed /
-/// confusable) to avoid leaking the registrar's lookup table.
-pub(crate) fn check_handle_homograph(handle: &str) -> Result<(), String> {
+pub(crate) fn prepare_handle_localpart_input(handle: &str) -> Result<String, String> {
     let localpart = extract_localpart(handle);
-    // TODO(R3.1): when the SDK gains a domain-side homograph check (full
-    // UTS#46 IDNA normalization), also run that against the domain
-    // suffix. For R3 the wire-level guard is localpart-only because the
-    // domain reaches us already lowercased and ASCII-restricted by the
-    // ingest path.
-    match arkret_sdk::normalize_handle_localpart(localpart) {
-        Ok(_) => Ok(()),
-        Err(_) => Err("handle violates homograph / script-mixed policy".to_owned()),
-    }
+    arkret_sdk::prepare_handle_localpart(localpart)
+        .map_err(|_| "handle localpart violates the human-identifier profile".to_owned())
 }
 
 fn extract_localpart(handle: &str) -> &str {
@@ -105,16 +89,13 @@ fn extract_localpart(handle: &str) -> &str {
 /// localpart-extraction rule before the SDK homograph normalizer. Kept
 /// in this module so the two faces stay in lock-step.
 ///
-/// R3.1 wire form (arkret-spec @ 7157ee8): `<localpart>:<domain>(:<port>)?`
-/// — the colon separator is taken first because it is the canonical
-/// shape the SDK `Handle::parse` emits. The directory's internal index
+/// Wire form: `<localpart>:<domain>` — the colon separator is taken first because it is the
+/// canonical shape the SDK `Handle::parse` emits. The directory's internal index
 /// shape `<localpart>.<domain>` is still accepted for back-compat with
 /// stored rows. Empty localpart falls through to the SDK helper which
 /// fails on length-out-of-range.
 pub fn extract_localpart_public(handle: &str) -> &str {
-    // Prefer the canonical R3.1 colon-separated form. The localpart is
-    // ASCII (lowercased) so a `:` in the input unambiguously means the
-    // R3.1 separator and not part of the localpart.
+    // A canonical localpart forbids `:`, so the separator is unambiguous.
     if let Some((local, _)) = handle.split_once(':') {
         return local;
     }
@@ -135,7 +116,7 @@ pub fn extract_localpart_public(handle: &str) -> &str {
 /// teabay is a resolver/index and cannot answer as the handle issuer.
 ///
 /// Wire-level homograph normalization runs on the localpart before any DB
-/// lookup so a malformed query is `403 handle_homograph_forbidden` rather
+/// lookup so malformed localparts fail before any directory read rather
 /// than the privacy-preserving `404 not_found` returned for genuine misses.
 ///
 /// The Host header (or the `?domain=<domain>` override) is concatenated
@@ -160,13 +141,13 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         ApiErrorCode::MissingParam.render(res, "localpart query parameter is required");
         return;
     }
-    // Apply the same wire-level homograph + script-mixed guard as the
-    // POST face. Reject BEFORE rate-limit / DB lookup so timing cannot
-    // disambiguate a homograph from a miss.
-    if let Err(reason) = check_handle_homograph(&localpart) {
-        ApiErrorCode::HandleHomographForbidden.render(res, reason);
-        return;
-    }
+    let localpart = match prepare_handle_localpart_input(&localpart) {
+        Ok(localpart) => localpart,
+        Err(reason) => {
+            ApiErrorCode::InvalidParam.render(res, reason);
+            return;
+        }
+    };
 
     // Reconstruct the indexed `resource_id`. Order of preference:
     //   1. explicit `?domain=` query parameter (operator probe shape)
@@ -186,7 +167,14 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
     let handle = if domain.is_empty() {
         localpart.clone()
     } else {
-        format!("{localpart}.{domain}")
+        let canonical = match SdkHandle::prepare(&format!("{localpart}:{domain}")) {
+            Ok(handle) => handle,
+            Err(error) => {
+                ApiErrorCode::InvalidParam.render(res, format!("invalid handle domain: {error}"));
+                return;
+            }
+        };
+        format!("{}.{}", canonical.localpart(), canonical.domain())
     };
 
     if !enforce_resolve_rate_limit(req, res, &state, &handle) {
@@ -262,18 +250,8 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::MissingParam.render(res, "handle is required");
         return;
     }
-    // AKP R3 spec-sync 2026-05-27 (commit b47ff6e), identity-handles
-    // §17 — wire-level canonical compare MUST apply Unicode NFC +
-    // UTS#39 confusable skeleton + script-mixed reject before any
-    // database lookup. The SDK helper centralises the rule set so the
-    // ingest face (announce) and the query face (resolve_handle) stay
-    // byte-identical. We reject with `handle_homograph_forbidden`
-    // before timing-budget padding starts so the attacker's wall-clock
-    // signal cannot disambiguate a homograph reject from a normal
-    // not_found — a homograph submit deserves a 403, not the
-    // privacy-preserving 404 that legitimate misses receive.
-    if let Err(reason) = check_handle_homograph(&body.handle) {
-        ApiErrorCode::HandleHomographForbidden.render(res, reason);
+    if let Err(error) = SdkHandle::parse(&body.handle) {
+        ApiErrorCode::InvalidParam.render(res, format!("handle is not canonical: {error}"));
         return;
     }
     if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {
@@ -902,25 +880,29 @@ mod tests {
         RealmDeliveryBindingPolicy::from_projection(projection)
     }
 
-    /// AKP R3 — the homograph guard MUST reject Cyrillic look-alikes
-    /// before any DB lookup. We test the helper directly so the
-    /// assertion does not depend on a live AppState.
     #[test]
-    fn handle_homograph_check_rejects_cyrillic_lookalike() {
-        // "alicе.example" with Cyrillic 'е' (U+0435).
-        let err = check_handle_homograph("alic\u{0435}.example");
-        assert!(err.is_err());
+    fn handle_input_profile_prepares_internationalized_localpart() {
+        assert_eq!(
+            prepare_handle_localpart_input("小明:example.com").unwrap(),
+            "小明"
+        );
+        assert_eq!(
+            prepare_handle_localpart_input("ＡＬＩＣＥ:example.com").unwrap(),
+            "alice"
+        );
     }
 
     #[test]
-    fn handle_homograph_check_accepts_pure_ascii() {
-        assert!(check_handle_homograph("alice.example").is_ok());
+    fn handle_profile_accepts_pure_ascii() {
+        assert_eq!(
+            prepare_handle_localpart_input("alice.example").unwrap(),
+            "alice"
+        );
     }
 
     #[test]
-    fn handle_homograph_check_rejects_script_mixed() {
-        // Latin + Greek alpha.
-        let err = check_handle_homograph("aliceα.example");
+    fn handle_profile_rejects_structural_separator() {
+        let err = prepare_handle_localpart_input("alice/ops:example.com");
         assert!(err.is_err());
     }
 
@@ -931,7 +913,7 @@ mod tests {
         // parsed — feeding it now treats the whole string as a bare
         // localpart (which the SDK normalizer will then reject).
         assert_eq!(extract_localpart_public("alice:example.com"), "alice");
-        assert_eq!(extract_localpart_public("alice:example.com:8443"), "alice");
+        assert_eq!(extract_localpart_public("小明:example.com"), "小明");
         // Directory storage index form remains accepted for back-compat
         // with existing rows.
         assert_eq!(extract_localpart_public("alice.example"), "alice");
