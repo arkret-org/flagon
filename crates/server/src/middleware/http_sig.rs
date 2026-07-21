@@ -471,6 +471,14 @@ impl Handler for HttpSigMiddleware {
         // recomputed against the request body and rejected on mismatch.
         // We call `req.payload()` which caches the bytes so the
         // downstream handler's `parse_json()` still works.
+        if req.headers().contains_key("content-encoding") {
+            reject_invalid_signature(
+                res,
+                ctrl,
+                "signed JSON requests must not use Content-Encoding",
+            );
+            return;
+        }
         let body_bytes = match req.payload().await {
             Ok(bytes) => bytes.clone(),
             Err(err) => {
@@ -501,6 +509,14 @@ impl Handler for HttpSigMiddleware {
                 res,
                 ctrl,
                 format!("content-digest does not match request body: {err}"),
+            );
+            return;
+        }
+        if let Err(err) = arkret_sdk::canonical::validate_canonical_bytes(&body_bytes) {
+            reject_invalid_signature(
+                res,
+                ctrl,
+                format!("signed request body is not canonical JSON: {err}"),
             );
             return;
         }
@@ -1160,6 +1176,27 @@ mod tests {
             .await;
         let status = res.status_code.unwrap_or(StatusCode::OK);
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let body_text = res.take_string().await.unwrap_or_default();
+        let body: JsonValue = serde_json::from_str(&body_text).unwrap();
+        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+    }
+
+    #[tokio::test]
+    async fn signed_noncanonical_json_is_rejected_even_when_digest_matches() {
+        let dir = directory_with_test_key();
+        let router = router(dir);
+        let signed = build_signed_request(
+            "POST",
+            "http://teabay.test/_arkret/find/directory/announce",
+            "teabay.test",
+            "/_arkret/find/directory/announce",
+            br#"{ "resource_id": "ak:realm:tea" }"#,
+            TEST_KEY_ID,
+            &signing_key(),
+        );
+
+        let mut res = post_signed(router, signed).await;
+        assert_eq!(res.status_code, Some(StatusCode::UNAUTHORIZED));
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
         assert_eq!(body["error"]["code"], json!("invalid_signature"));
