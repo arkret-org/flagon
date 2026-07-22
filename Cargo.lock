@@ -438,6 +438,7 @@ dependencies = [
 name = "arkret-models-discovery"
 version = "0.3.0"
 dependencies = [
+ "arkret-canonical",
  "arkret-models-identity",
  "arkret-wire",
  "chrono",
@@ -466,6 +467,7 @@ dependencies = [
 name = "arkret-models-integration"
 version = "0.3.0"
 dependencies = [
+ "arkret-canonical",
  "arkret-models-identity",
  "arkret-wire",
  "chrono",
@@ -5331,6 +5333,9 @@ dependencies = [
  "anyhow",
  "arkret",
  "arkret-egress-policy",
+ "arkret-models-collaboration",
+ "arkret-policy",
+ "arkret-wire",
  "async-trait",
  "base64",
  "bs58",

@@ -7,7 +7,7 @@
 //! directory-certifier relationship is only valid once it derives from an
 //! `active`, in-validity-window, scope-covering `ak.realm.organization`
 //! statement that has passed the canonical SDK verifier
-//! ([`arkret_sdk::verify_realm_organization_statement`]).
+//! ([`arkret_policy::verify_realm_organization_statement`]).
 //!
 //! teabay observes these statements through the Realm `ak.realm.discovery`
 //! announce body: a Realm whose discovery policy lists organization
@@ -20,15 +20,17 @@
 //! The delegation resolver is injected so the directory shares the exact
 //! issuer-role / delegation invariants with soland and cotest. teabay does not
 //! host an organization DID delegation store, so it wires the fail-closed
-//! [`arkret_sdk::NoDelegationResolver`]: a `governance_service` /
+//! [`arkret_policy::NoDelegationResolver`]: a `governance_service` /
 //! `account_authority` statement that requires a delegation_ref cannot be
 //! verified here and is rejected until soland exposes a delegation resolution
 //! query.
 
-use arkret_sdk::{
-    NoDelegationResolver, RealmId, RealmOrganizationControlScope, RealmOrganizationPayload,
-    RealmOrganizationRelationship, RealmOrganizationStatus, verify_realm_organization_statement,
+use arkret_models_collaboration::{
+    RealmOrganizationControlScope, RealmOrganizationPayload, RealmOrganizationRelationship,
+    RealmOrganizationStatus,
 };
+use arkret_policy::{NoDelegationResolver, verify_realm_organization_statement};
+use arkret_wire::RealmId;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
