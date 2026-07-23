@@ -21,7 +21,7 @@
 //!   (d) a strand address missing `via` → fail-closed (parse error → not_found).
 
 use arkret_sdk::canonical;
-use arkret_sdk::jws::sign_jws_ed25519;
+use arkret_signatures::jws::sign_jws_ed25519;
 use arkret_wire::{LinkType, ParsedAddress, TargetDescriptor, parse_address, target_digest};
 use chrono::{Duration, Utc};
 use ed25519_dalek::SigningKey;

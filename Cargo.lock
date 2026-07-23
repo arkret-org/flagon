@@ -126,7 +126,6 @@ dependencies = [
  "arkret-auth",
  "arkret-bootstrap",
  "arkret-canonical",
- "arkret-core",
  "arkret-crypto",
  "arkret-egress-policy",
  "arkret-event-draft",
@@ -222,27 +221,6 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "unicode-normalization",
-]
-
-[[package]]
-name = "arkret-core"
-version = "0.3.0"
-dependencies = [
- "arkret-auth",
- "arkret-canonical",
- "arkret-event-draft",
- "arkret-identifiers",
- "arkret-identity",
- "arkret-models-collaboration",
- "arkret-models-crypto",
- "arkret-models-discovery",
- "arkret-models-identity",
- "arkret-models-integration",
- "arkret-policy",
- "arkret-schema",
- "arkret-signatures",
- "arkret-state",
- "arkret-wire",
 ]
 
 [[package]]
@@ -5336,9 +5314,11 @@ dependencies = [
  "anyhow",
  "arkret",
  "arkret-egress-policy",
+ "arkret-identity",
  "arkret-models-collaboration",
  "arkret-models-identity",
  "arkret-policy",
+ "arkret-signatures",
  "arkret-wire",
  "async-trait",
  "base64",

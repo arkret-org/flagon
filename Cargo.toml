@@ -21,9 +21,11 @@ bs58 = "0.5.1"
 chrono = {version = "0.4.45",features = ["serde"]}
 arkret-sdk = {package = "arkret",version = "0.3.0",path = "../arkret-rust-sdk/crates/sdk",default-features = false,features = ["full-surface", "client", "salvo", "server"]}
 arkret-egress-policy = {version = "0.3.0",path = "../arkret-rust-sdk/crates/egress-policy",default-features = false}
+arkret-identity = {version = "0.3.0",path = "../arkret-rust-sdk/crates/identity",default-features = false}
 arkret-models-collaboration = {version = "0.3.0",path = "../arkret-rust-sdk/crates/models-collaboration",default-features = false}
 arkret-models-identity = {version = "0.3.0",path = "../arkret-rust-sdk/crates/models-identity",default-features = false}
 arkret-policy = {version = "0.3.0",path = "../arkret-rust-sdk/crates/policy",default-features = false}
+arkret-signatures = {version = "0.3.0",path = "../arkret-rust-sdk/crates/signatures",default-features = false,features = ["protocol"]}
 arkret-wire = {version = "0.3.0",path = "../arkret-rust-sdk/crates/wire",default-features = false}
 deadpool = {version = "0.13",features = ["rt_tokio_1"]}
 diesel = {version = "2.3.10",features = ["postgres", "r2d2", "serde_json", "chrono", "uuid", "pq-src"]}

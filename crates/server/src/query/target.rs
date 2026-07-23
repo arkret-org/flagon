@@ -38,8 +38,8 @@
 //! unauthorized requester. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
+use arkret_identity::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::identity::DidKeyResolver;
-use arkret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
     DirectoryTargetResolutionOutcome, EventId, MessageId, NonEmptyString, ObjectPreview,
@@ -1273,7 +1273,7 @@ fn opt_bool(value: bool) -> Option<bool> {
 
 #[cfg(test)]
 mod tests {
-    use arkret_sdk::jws::sign_jws_ed25519;
+    use arkret_signatures::jws::sign_jws_ed25519;
     use arkret_wire::{AddressAction, build_address};
     use chrono::DateTime;
     use ed25519_dalek::SigningKey;

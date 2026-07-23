@@ -46,6 +46,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
+use arkret_identity::jws::resolve_ed25519_pubkey;
 pub use arkret_sdk::http_signature::Ed25519PublicKey;
 use arkret_sdk::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
@@ -53,7 +54,6 @@ use arkret_sdk::http_signature::{
     verify_content_digest, verify_signature,
 };
 use arkret_sdk::identity::DidResolver;
-use arkret_sdk::jws::resolve_ed25519_pubkey;
 use arkret_sdk::{CompositeDidResolver, Did};
 use chrono::{DateTime, Utc};
 use diesel::sql_types::{Bytea, Text, Timestamptz};

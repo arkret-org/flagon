@@ -9,8 +9,8 @@
 
 use std::collections::BTreeSet;
 
+use arkret_identity::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::identity::DidKeyResolver;
-use arkret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::{
     ClaimDisclosurePolicy, ClaimDisclosureRequirement,
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
@@ -313,7 +313,7 @@ impl ClaimSelectorValue for PresentedClaim {
 
 #[cfg(test)]
 mod tests {
-    use arkret_sdk::jws::sign_jws_ed25519;
+    use arkret_signatures::jws::sign_jws_ed25519;
     use chrono::Duration;
     use ed25519_dalek::SigningKey;
     use serde_json::json;

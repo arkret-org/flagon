@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
+use arkret_identity::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::identity::{DidResolver, DidWebvhResolver};
-use arkret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
 use arkret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver, canonical};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
