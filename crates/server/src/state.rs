@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use arkret_sdk::server::{FixedWindowConfig, MemoryFixedWindowRateLimiter};
+use arkret_rate_limit::{FixedWindowConfig, MemoryFixedWindowRateLimiter};
 use chrono::{DateTime, Utc};
 
 use crate::config::AppConfig;
