@@ -8,7 +8,7 @@
 //! caller — including ones who never proved control of the resource's
 //! governance key. This module fixes that.
 //!
-//! Wire shape (must match [`arkret_sdk::http_signature`] / floria / soland):
+//! Wire shape (must match [`arkret_signatures::http_signature`] / floria / soland):
 //!
 //! ```text
 //! Signature-Input: sig1=("@method" "@target-uri" "@authority" "content-digest");\
@@ -47,14 +47,14 @@ use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
 use arkret_identity::jws::resolve_ed25519_pubkey;
-pub use arkret_sdk::http_signature::Ed25519PublicKey;
-use arkret_sdk::http_signature::{
+use arkret_sdk::identity::DidResolver;
+use arkret_sdk::{CompositeDidResolver, Did};
+pub use arkret_signatures::http_signature::Ed25519PublicKey;
+use arkret_signatures::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
     SignedRequestParts, canonical_message, parse_signature_header, parse_signature_input,
     verify_content_digest, verify_signature,
 };
-use arkret_sdk::identity::DidResolver;
-use arkret_sdk::{CompositeDidResolver, Did};
 use chrono::{DateTime, Utc};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
@@ -561,7 +561,8 @@ impl Handler for HttpSigMiddleware {
         // through the same alphabet (standard) the inner-list `:...:`
         // wrapper produced. Cheap, and keeps the verify step inside the
         // SDK's typed-error surface.
-        let signature_b64 = arkret_sdk::http_signature::encode_signature_b64(&signature_bytes);
+        let signature_b64 =
+            arkret_signatures::http_signature::encode_signature_b64(&signature_bytes);
         if let Err(err) = verify_signature(&message, &signature_b64, &public_key) {
             reject_invalid_signature(
                 res,
@@ -722,7 +723,7 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 
 #[cfg(test)]
 mod tests {
-    use arkret_sdk::http_signature::{
+    use arkret_signatures::http_signature::{
         ContentDigest, ContentDigestAlgorithm, Ed25519SigningKey, canonical_message,
         parse_signature_input, sign_message, signing_key_from_seed,
     };

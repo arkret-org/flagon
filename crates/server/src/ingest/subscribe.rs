@@ -145,22 +145,31 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         return;
     }
 
-    let subscription_id = new_id(IdClass::Subscription);
+    let subscription_id = arkret_sdk::SubscriptionId::new(new_id(IdClass::Subscription))
+        .expect("generated subscription id must be valid");
     let created_at = Utc::now();
     let secret = match body.secret.as_deref().map(secret_from_wire) {
         Some(Ok(secret)) => secret,
         Some(Err(error)) => {
             tracing::warn!(%error, "invalid supplied webhook secret; generated a replacement");
-            generate_secret(&subscription_id, subscriber_did, &body.webhook_endpoint)
+            generate_secret(
+                subscription_id.as_str(),
+                subscriber_did,
+                &body.webhook_endpoint,
+            )
         }
-        None => generate_secret(&subscription_id, subscriber_did, &body.webhook_endpoint),
+        None => generate_secret(
+            subscription_id.as_str(),
+            subscriber_did,
+            &body.webhook_endpoint,
+        ),
     };
 
     if let Err(error) = persist_subscription(
         &state,
         &body,
         &resource_filter,
-        &subscription_id,
+        subscription_id.as_str(),
         &secret,
         created_at,
     )

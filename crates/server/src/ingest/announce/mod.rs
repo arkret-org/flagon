@@ -139,24 +139,24 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // Handle announcements use the SDK's RFC 8265-derived localpart profile.
     // UTS #39 skeleton collision state is optional authority-local registrar
     // policy and is not canonical equality or a query-time rejection rule.
-    if matches!(body.resource_kind, DirectoryResourceKindDb::Handle) {
-        if arkret_sdk::Handle::parse(&body.resource_id).is_err() {
-            ingest_metric.set_outcome("schema_rejected");
-            let _ = audit::record(
-                state.db(),
-                AuditEventKind::IngestRejected,
-                Some(body.resource_kind),
-                Some(&body.resource_id),
-                Some(&body.principal_server_did),
-                json!({
-                    "code": ApiErrorCode::SchemaViolation.wire_code(),
-                    "reason": "noncanonical_handle",
-                }),
-            )
-            .await;
-            ApiErrorCode::SchemaViolation.render(res, "handle is not canonical");
-            return;
-        }
+    if matches!(body.resource_kind, DirectoryResourceKindDb::Handle)
+        && arkret_sdk::Handle::parse(&body.resource_id).is_err()
+    {
+        ingest_metric.set_outcome("schema_rejected");
+        let _ = audit::record(
+            state.db(),
+            AuditEventKind::IngestRejected,
+            Some(body.resource_kind),
+            Some(&body.resource_id),
+            Some(&body.principal_server_did),
+            json!({
+                "code": ApiErrorCode::SchemaViolation.wire_code(),
+                "reason": "noncanonical_handle",
+            }),
+        )
+        .await;
+        ApiErrorCode::SchemaViolation.render(res, "handle is not canonical");
+        return;
     }
 
     if let Err((code, msg)) = validate_request_shape(&body, state.config().max_ttl) {

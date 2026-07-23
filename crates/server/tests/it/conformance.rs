@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use arkret_sdk::http_signature::{
-    ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
-    parse_signature_input, sign_message,
-};
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
     DirectoryRestrictedClaimPresentation, PresentedClaim, canonical,
+};
+use arkret_signatures::http_signature::{
+    ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
+    parse_signature_input, sign_message,
 };
 use arkret_signatures::jws::sign_jws_ed25519;
 use base64::Engine as _;
