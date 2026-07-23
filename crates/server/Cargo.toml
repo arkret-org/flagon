@@ -18,6 +18,7 @@ async-trait = {workspace = true}
 base64 = {workspace = true}
 bs58 = {workspace = true}
 chrono = {workspace = true}
+arkret-canonical = {workspace = true}
 arkret-sdk = {workspace = true}
 arkret-egress-policy = {workspace = true}
 arkret-identity = {workspace = true}
@@ -25,6 +26,8 @@ arkret-models-collaboration = {workspace = true}
 arkret-models-identity = {workspace = true}
 arkret-policy = {workspace = true}
 arkret-rate-limit.workspace = true
+arkret-schema = {workspace = true}
+arkret-server = {workspace = true}
 arkret-signatures = {workspace = true}
 arkret-wire = {workspace = true}
 deadpool = {workspace = true}
@@ -39,6 +42,7 @@ reqwest = {workspace = true}
 salvo = {workspace = true}
 serde = {workspace = true}
 serde_json = {workspace = true}
+serde_norway = {workspace = true}
 sha2 = {workspace = true}
 teabay-contracts = {workspace = true}
 tokio = {workspace = true}

@@ -10,11 +10,12 @@
 //! `resource_kind=space` row type and are intentionally not returned here.
 
 use arkret_sdk::{
-    CursorBindingContext, Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
+    Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
     DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
     RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
     RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
 };
+use arkret_server::CursorBindingContext;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Array, BigInt, Bool, Double, Jsonb, Nullable, Text, Timestamptz};
@@ -74,7 +75,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         body.proof_challenge.as_deref(),
         &body.claim_presentations,
     );
-    let filter_digest = match arkret_sdk::cursor_filter_digest(&serde_json::json!({
+    let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": "ak.find.directory.query.search_realms",
         "query": &needle,
         "organization_did": scope.organization_did.as_ref(),
@@ -98,7 +99,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
             .resolve_stream(token, &cursor_context)
             .and_then(|positions| {
                 serde_json::from_value::<RealmCursor>(positions)
-                    .map_err(|_| arkret_sdk::CursorAuthorityError::IntegrityInvalid)
+                    .map_err(|_| arkret_server::CursorAuthorityError::IntegrityInvalid)
             }) {
             Ok(cursor) => Some(cursor),
             Err(error) => {
@@ -167,7 +168,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                         state.cursor_authority().mint_stream(
                             cursor_context.clone(),
                             serde_json::to_value(cursor_from_row(row)).map_err(|error| {
-                                arkret_sdk::CursorAuthorityError::InvalidParam(error.to_string())
+                                arkret_server::CursorAuthorityError::InvalidParam(error.to_string())
                             })?,
                             60 * 60 * 1000,
                         )

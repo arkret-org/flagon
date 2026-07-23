@@ -84,7 +84,10 @@ impl Serialize for ResultEnvelope {
         for (key, value) in payload {
             map.serialize_entry(key, value)?;
         }
-        map.serialize_entry("as_of", &self.as_of)?;
+        map.serialize_entry(
+            "as_of",
+            &arkret_canonical::format_timestamp_canonical(self.as_of),
+        )?;
         map.serialize_entry("source_refs", &self.source_refs)?;
         map.serialize_entry("policy_revision", &self.policy_revision)?;
         if self.stale {
@@ -97,5 +100,29 @@ impl Serialize for ResultEnvelope {
             map.serialize_entry("join_candidates", &self.join_candidates)?;
         }
         map.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn result_envelope_serializes_as_of_as_canonical_milliseconds() {
+        let envelope = ResultEnvelope::from_row(
+            json!({"realm_id": "ak:realm:0196419b-0000-7000-8000-000000000010"}),
+            Utc.timestamp_opt(1_700_000_000, 123_999_999).unwrap(),
+            vec!["ak:event:1".to_owned()],
+            "revision-1".to_owned(),
+            false,
+            false,
+            Vec::new(),
+        );
+
+        let value = serde_json::to_value(envelope).expect("result envelope serializes");
+        assert_eq!(value["as_of"], "2023-11-14T22:13:20.123Z");
     }
 }

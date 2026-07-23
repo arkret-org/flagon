@@ -6,16 +6,16 @@ use crate::error::ApiErrorCode;
 
 pub(crate) fn render_cursor_error(
     response: &mut Response,
-    error: arkret_sdk::CursorAuthorityError,
+    error: arkret_server::CursorAuthorityError,
 ) {
     match error {
-        arkret_sdk::CursorAuthorityError::InvalidParam(message) => {
+        arkret_server::CursorAuthorityError::InvalidParam(message) => {
             ApiErrorCode::InvalidParam.render(response, message);
         }
-        arkret_sdk::CursorAuthorityError::Expired => {
+        arkret_server::CursorAuthorityError::Expired => {
             ApiErrorCode::CursorExpired.render(response, "cursor has expired");
         }
-        arkret_sdk::CursorAuthorityError::IntegrityInvalid => {
+        arkret_server::CursorAuthorityError::IntegrityInvalid => {
             ApiErrorCode::CursorIntegrityInvalid.render(response, "cursor integrity check failed");
         }
     }

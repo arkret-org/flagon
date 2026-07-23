@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    CursorBindingContext, Did, DirectoryOrganizationResolutionOutcome,
-    DirectoryOrganizationSearchOutcome, DirectoryRestrictedClaimPresentation,
-    DirectorySearchOrganizationsRequestBody, OrganizationPreview,
+    Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
+    DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
+    OrganizationPreview,
 };
+use arkret_server::CursorBindingContext;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -61,7 +62,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         claims.proof_challenge.as_deref(),
         &claims.claim_presentations,
     );
-    let filter_digest = match arkret_sdk::cursor_filter_digest(&serde_json::json!({
+    let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": "ak.find.directory.query.search_organizations",
         "query": &needle,
     })) {
@@ -83,7 +84,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
             .resolve_stream(token, &cursor_context)
             .and_then(|positions| {
                 serde_json::from_value::<OrgCursor>(positions)
-                    .map_err(|_| arkret_sdk::CursorAuthorityError::IntegrityInvalid)
+                    .map_err(|_| arkret_server::CursorAuthorityError::IntegrityInvalid)
             }) {
             Ok(cursor) => Some(cursor),
             Err(error) => {
@@ -138,7 +139,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 match rows.last() {
                     Some(row) => match serde_json::to_value(org_cursor_from_row(row))
                         .map_err(|error| {
-                            arkret_sdk::CursorAuthorityError::InvalidParam(error.to_string())
+                            arkret_server::CursorAuthorityError::InvalidParam(error.to_string())
                         })
                         .and_then(|positions| {
                             state.cursor_authority().mint_stream(

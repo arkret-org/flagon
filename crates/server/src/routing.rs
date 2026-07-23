@@ -3,15 +3,11 @@
 
 use std::sync::Arc;
 
-use arkret_sdk::DirectoryRealmSearchOutcome;
 use diesel_async::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
-use salvo::oapi::{
-    Components, Content, OpenApi, Operation, PathItem, PathItemType, Response as OapiResponse,
-    ToSchema,
-};
+use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiResponse};
 use salvo::prelude::*;
 use serde_json::json;
 
@@ -21,7 +17,7 @@ use crate::state::{AppState, BackgroundWorker, WorkerReadiness};
 use crate::{ingest, query};
 
 #[derive(Clone)]
-pub struct TeabayOpenApiDoc(pub OpenApi);
+pub struct TeabayOpenApiDoc(pub serde_json::Value);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
@@ -40,7 +36,11 @@ pub fn router(state: AppState) -> Router {
         .push(Router::with_path("readyz").get(readyz))
         .push(directory)
         .push(admin)
-        .push(doc.clone().into_router(".well-known/arkret/openapi.json"))
+        .push(
+            Router::with_path(".well-known/arkret/openapi.json")
+                .hoop(affix_state::inject(TeabayOpenApiDoc(doc.clone())))
+                .get(openapi_json),
+        )
         .push(
             Router::with_path(".well-known/arkret/openapi.yaml")
                 .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
@@ -417,6 +417,18 @@ fn default_hardening_status() -> serde_json::Value {
 }
 
 #[handler]
+async fn openapi_json(depot: &mut Depot, res: &mut Response) {
+    let doc = match depot.get_typed::<TeabayOpenApiDoc>() {
+        Ok(doc) => doc,
+        Err(_) => {
+            ApiErrorCode::InternalError.render(res, "OpenAPI document not injected");
+            return;
+        }
+    };
+    res.render(Json(doc.0.clone()));
+}
+
+#[handler]
 async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
     let doc = match depot.get_typed::<TeabayOpenApiDoc>() {
         Ok(doc) => doc,
@@ -425,7 +437,7 @@ async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
             return;
         }
     };
-    let spec = doc.0.to_yaml().unwrap_or_else(|error| {
+    let spec = serde_norway::to_string(&doc.0).unwrap_or_else(|error| {
         tracing::error!(%error, "failed to render teabay OpenAPI yaml");
         "{}\n".to_owned()
     });
@@ -475,7 +487,7 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
 }
 
 /// Build the OpenAPI document for teabay's Directory Service surface.
-pub fn openapi(router: &Router) -> OpenApi {
+pub fn openapi(router: &Router) -> serde_json::Value {
     let mut doc = OpenApi::new("teabay", env!("CARGO_PKG_VERSION"))
         .add_extension(
             "x-arkret-profile",
@@ -484,9 +496,97 @@ pub fn openapi(router: &Router) -> OpenApi {
                 "spec": "arkret-spec/spec/v1/zh/discovery/discovery-directory.md",
             }),
         )
+        .add_extension("x-arkret-artifact-first", json!(true))
         .merge_router(router);
     register_teabay_operations(&mut doc);
-    doc
+    canonical_operation_subset(&doc)
+}
+
+fn canonical_operation_subset(product_doc: &OpenApi) -> serde_json::Value {
+    let yaml =
+        arkret_schema::embedded_openapi_yaml().expect("embedded canonical OpenAPI must be present");
+    let canonical: serde_json::Value =
+        serde_norway::from_str(yaml).expect("embedded canonical OpenAPI must parse");
+    let mut product =
+        serde_json::to_value(product_doc).expect("product OpenAPI document must serialize");
+
+    let canonical_paths = canonical
+        .get("paths")
+        .and_then(serde_json::Value::as_object)
+        .expect("canonical OpenAPI paths must be an object");
+    let product_paths = product
+        .get("paths")
+        .and_then(serde_json::Value::as_object)
+        .expect("product OpenAPI paths must be an object");
+    let canonical_routes = product_paths
+        .iter()
+        .flat_map(|(path, item)| {
+            item.as_object().into_iter().flat_map(move |operations| {
+                operations.iter().filter_map(move |(method, operation)| {
+                    let operation_id = operation.get("operationId")?.as_str()?;
+                    operation_id
+                        .starts_with("ak.")
+                        .then(|| (path.clone(), method.clone(), operation_id.to_owned()))
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for (path, method, operation_id) in canonical_routes {
+        let canonical_operation = canonical_paths
+            .get(&path)
+            .and_then(|item| item.get(&method))
+            .unwrap_or_else(|| {
+                panic!(
+                    "registered canonical operation {operation_id} {method} {path} is absent from the Spec OpenAPI artifact"
+                )
+            });
+        assert_eq!(
+            canonical_operation
+                .get("operationId")
+                .and_then(serde_json::Value::as_str),
+            Some(operation_id.as_str()),
+            "registered operationId must match the Spec OpenAPI artifact for {method} {path}"
+        );
+        product
+            .get_mut("paths")
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|paths| paths.get_mut(&path))
+            .and_then(serde_json::Value::as_object_mut)
+            .expect("registered product path must be an object")
+            .insert(method, canonical_operation.clone());
+    }
+
+    if let Some(canonical_components) = canonical
+        .get("components")
+        .and_then(serde_json::Value::as_object)
+    {
+        let product_components = product
+            .as_object_mut()
+            .expect("product OpenAPI document must be an object")
+            .entry("components")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .expect("product OpenAPI components must be an object");
+        for (category, canonical_entries) in canonical_components {
+            match (
+                product_components.get_mut(category),
+                canonical_entries.as_object(),
+            ) {
+                (Some(product_entries), Some(canonical_entries)) => {
+                    let product_entries = product_entries
+                        .as_object_mut()
+                        .expect("product OpenAPI component category must be an object");
+                    product_entries.extend(canonical_entries.clone());
+                }
+                _ => {
+                    product_components.insert(category.clone(), canonical_entries.clone());
+                }
+            }
+        }
+    }
+
+    product
 }
 
 fn register_teabay_operations(doc: &mut OpenApi) {
@@ -750,27 +850,18 @@ fn register_teabay_operations(doc: &mut OpenApi) {
     for (path, method, operation_id, tag, summary, description) in routes {
         doc.paths.insert(
             path,
-            PathItem::new(
-                method,
-                operation(operation_id, tag, summary, description, &mut doc.components),
-            ),
+            PathItem::new(method, operation(operation_id, tag, summary, description)),
         );
     }
 }
 
-fn operation(
-    operation_id: &str,
-    tag: &str,
-    summary: &str,
-    description: &str,
-    components: &mut Components,
-) -> Operation {
+fn operation(operation_id: &str, tag: &str, summary: &str, description: &str) -> Operation {
     Operation::new()
         .operation_id(operation_id)
         .tags([tag])
         .summary(summary)
         .description(description)
-        .add_response("200", success_response(operation_id, components))
+        .add_response("200", OapiResponse::new("Successful response"))
         .add_response(
             "400",
             OapiResponse::new("Request rejected by directory policy or validation"),
@@ -782,17 +873,6 @@ fn operation(
         .add_response("500", OapiResponse::new("Internal service error"))
 }
 
-fn success_response(operation_id: &str, components: &mut Components) -> OapiResponse {
-    match operation_id {
-        "ak.find.directory.query.search_realms" => OapiResponse::new("Authorized Realm search")
-            .add_content(
-                "application/json",
-                Content::new(DirectoryRealmSearchOutcome::to_schema(components)),
-            ),
-        _ => OapiResponse::new("Successful response"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,11 +880,25 @@ mod tests {
     #[test]
     fn openapi_keeps_unsigned_handle_probe_off_well_known_surface() {
         let doc = openapi(&Router::new());
-        let yaml = doc.to_yaml().expect("OpenAPI serializes");
+        let yaml = serde_norway::to_string(&doc).expect("OpenAPI serializes");
 
         assert!(yaml.contains("/_teabay/handle/probe:"));
         assert!(yaml.contains("org.arkret.teabay.handle_probe"));
         assert!(!yaml.contains("/.well-known/arkret/handle:"));
         assert!(!yaml.contains("org.arkret.teabay.well_known_handle"));
+        assert!(yaml.contains("x-arkret-artifact-first: true"));
+        assert!(yaml.contains("ak.find.directory.query.search_realms"));
+        assert!(yaml.contains("DirectoryRealmSearchOutcome"));
+
+        let canonical: serde_json::Value = serde_norway::from_str(
+            arkret_schema::embedded_openapi_yaml().expect("canonical OpenAPI is embedded"),
+        )
+        .expect("canonical OpenAPI parses");
+        let operation_pointer = "/paths/~1_arkret~1find~1directory~1search-realms/post";
+        assert_eq!(
+            doc.pointer(operation_pointer),
+            canonical.pointer(operation_pointer),
+            "canonical operations must be copied from the Spec artifact without framework rewriting"
+        );
     }
 }

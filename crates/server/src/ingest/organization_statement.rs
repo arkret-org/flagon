@@ -386,12 +386,12 @@ mod tests {
             "relationship": relationship,
             "status": "active",
             "control_scopes": scopes,
-            "issued_at": "2026-06-25T00:00:00Z",
+            "issued_at": "2026-06-25T00:00:00.000Z",
             "authorization": {
                 "issuer": ORG,
                 "issuer_role": "organization_did",
                 "verification_method": format!("{ORG}#k1"),
-                "signed_at": "2026-06-25T00:00:00Z",
+                "signed_at": "2026-06-25T00:00:00.000Z",
                 "proof": "c2ln"
             }
         })
@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn expired_statement_is_rejected() {
         let mut statement = active_statement("owner", &["official_badge"]);
-        statement["expires_at"] = json!("2026-06-25T06:00:00Z");
+        statement["expires_at"] = json!("2026-06-25T06:00:00.000Z");
         let discovery = json!({ ORGANIZATION_STATEMENTS_FIELD: [statement] });
         let outcome = verify_announced_statements(&discovery, REALM, now());
         assert!(outcome.verified.is_empty());

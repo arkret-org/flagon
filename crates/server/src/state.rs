@@ -19,7 +19,7 @@ pub struct AppState {
 struct Inner {
     config: AppConfig,
     db: Db,
-    cursor_authority: arkret_sdk::MemoryCursorAuthority,
+    cursor_authority: arkret_server::MemoryCursorAuthority,
     rate_limiter: RateLimiter,
     announce_replay_cache: AnnounceReplayCache,
     metrics: Metrics,
@@ -33,7 +33,7 @@ impl AppState {
             inner: Arc::new(Inner {
                 config,
                 db,
-                cursor_authority: arkret_sdk::MemoryCursorAuthority::default(),
+                cursor_authority: arkret_server::MemoryCursorAuthority::default(),
                 rate_limiter: RateLimiter::default(),
                 announce_replay_cache: AnnounceReplayCache::default(),
                 metrics: Metrics::default(),
@@ -50,7 +50,7 @@ impl AppState {
         &self.inner.db
     }
 
-    pub fn cursor_authority(&self) -> &arkret_sdk::MemoryCursorAuthority {
+    pub fn cursor_authority(&self) -> &arkret_server::MemoryCursorAuthority {
         &self.inner.cursor_authority
     }
 

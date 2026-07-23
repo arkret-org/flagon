@@ -41,10 +41,10 @@
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
 use arkret_models_identity::HandleClaim;
 use arkret_sdk::{
-    CursorBindingContext, DirectoryListHandlesForSubjectRequestBody,
-    DirectoryRestrictedClaimPresentation, DirectorySubjectHandleList, Handle,
-    validate_handle_claim_subject,
+    DirectoryListHandlesForSubjectRequestBody, DirectoryRestrictedClaimPresentation,
+    DirectorySubjectHandleList, Handle, validate_handle_claim_subject,
 };
+use arkret_server::CursorBindingContext;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
@@ -135,7 +135,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             .metrics()
             .record_cardinality_guard("page_limit_clamped", 1);
     }
-    let filter_digest = match arkret_sdk::cursor_filter_digest(&serde_json::json!({
+    let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": "ak.find.directory.query.list_handles_for_subject",
         "realm_id": body.realm_id.as_ref(),
         "intent": body.intent.as_deref(),
@@ -163,7 +163,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
                     .get("offset")
                     .and_then(JsonValue::as_u64)
                     .and_then(|offset| usize::try_from(offset).ok())
-                    .ok_or(arkret_sdk::CursorAuthorityError::IntegrityInvalid)
+                    .ok_or(arkret_server::CursorAuthorityError::IntegrityInvalid)
             }) {
             Ok(offset) => offset,
             Err(error) => {

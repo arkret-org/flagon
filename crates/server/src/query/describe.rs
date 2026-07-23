@@ -629,6 +629,7 @@ mod tests {
             snapshot_frontier: Vec::new(),
             reducer_profile: None,
             last_materialized_at: None,
+            extensions: BTreeMap::new(),
         };
         assert!(describe_body.validate().is_err());
         assert!(serde_json::to_value(&describe_body).unwrap()["rate_limits"].is_object());
