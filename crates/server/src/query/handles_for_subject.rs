@@ -39,7 +39,7 @@
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
 // the crate root. The `ak.schema.list_handles_for_subject_response.v1` body
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
-use arkret_sdk::models::HandleClaim;
+use arkret_models_identity::HandleClaim;
 use arkret_sdk::{
     CursorBindingContext, DirectoryListHandlesForSubjectRequestBody,
     DirectoryRestrictedClaimPresentation, DirectorySubjectHandleList, Handle,

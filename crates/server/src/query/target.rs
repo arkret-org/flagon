@@ -20,15 +20,15 @@
 //!
 //! When the address carries `lt=invite&tok=<token>` (or the request body
 //! supplies `token`), the token's own signed payload carries an authoritative
-//! [`TargetDescriptor`](arkret_sdk::models::TargetDescriptor). We:
-//!   1. parse the address → [`ParsedAddress`](arkret_sdk::models::ParsedAddress),
+//! [`TargetDescriptor`](arkret_wire::TargetDescriptor). We:
+//!   1. parse the address → [`ParsedAddress`](arkret_wire::ParsedAddress),
 //!   2. build a `TargetDescriptor` from the address; for an ALIAS realm we normalize via the realm
 //!      resolution to obtain the canonical `realm_id` and `set_realm_id`,
 //!   3. verify the token's detached Ed25519 JWS over the canonical token payload and extract its
 //!      embedded `target_descriptor`,
-//!   4. call [`verify_token_target`](arkret_sdk::models::verify_token_target), which recomputes &
-//!      compares the `sha256:` digest. `via` / `action` / `tok` / `lt` are NOT in the digest, so a
-//!      token minted for object A can never be replayed onto a different object B (scope-confusion
+//!   4. call [`verify_token_target`](arkret_wire::verify_token_target), which recomputes & compares
+//!      the `sha256:` digest. `via` / `action` / `tok` / `lt` are NOT in the digest, so a token
+//!      minted for object A can never be replayed onto a different object B (scope-confusion
 //!      defence).
 //!
 //! On ANY mismatch — bad token JSON, invalid signature, expired token,
@@ -40,14 +40,14 @@
 //! resolve jitter).
 use arkret_sdk::identity::DidKeyResolver;
 use arkret_sdk::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
-use arkret_sdk::models::{
-    LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
-    verify_token_target,
-};
 use arkret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
     DirectoryTargetResolutionOutcome, EventId, MessageId, NonEmptyString, ObjectPreview,
     ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
+};
+use arkret_wire::{
+    LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
+    verify_token_target,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -1274,7 +1274,7 @@ fn opt_bool(value: bool) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use arkret_sdk::jws::sign_jws_ed25519;
-    use arkret_sdk::models::{AddressAction, build_address};
+    use arkret_wire::{AddressAction, build_address};
     use chrono::DateTime;
     use ed25519_dalek::SigningKey;
 

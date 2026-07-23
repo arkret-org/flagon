@@ -129,12 +129,21 @@ dependencies = [
  "arkret-core",
  "arkret-crypto",
  "arkret-egress-policy",
+ "arkret-event-draft",
+ "arkret-hlc",
  "arkret-http-client",
+ "arkret-identifiers",
  "arkret-identity",
  "arkret-keystore",
  "arkret-lattice-registry",
+ "arkret-models",
+ "arkret-models-collaboration",
  "arkret-models-crypto",
+ "arkret-models-discovery",
+ "arkret-models-identity",
+ "arkret-models-integration",
  "arkret-policy",
+ "arkret-schema",
  "arkret-server",
  "arkret-signatures",
  "arkret-state",
@@ -156,6 +165,7 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "tokio",
+ "url",
  "uuid",
  "x25519-dalek",
  "zeroize",
@@ -220,13 +230,9 @@ version = "0.3.0"
 dependencies = [
  "arkret-auth",
  "arkret-canonical",
- "arkret-crypto",
  "arkret-event-draft",
- "arkret-hlc",
- "arkret-http-client",
  "arkret-identifiers",
  "arkret-identity",
- "arkret-keystore",
  "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-models-discovery",
@@ -237,22 +243,6 @@ dependencies = [
  "arkret-signatures",
  "arkret-state",
  "arkret-wire",
- "chrono",
- "chrono-tz",
- "getrandom 0.4.2",
- "hex",
- "hmac 0.13.0",
- "regex",
- "salvo",
- "salvo-oapi",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "subtle",
- "thiserror 2.0.18",
- "unicode-normalization",
- "url",
- "zeroize",
 ]
 
 [[package]]
@@ -295,6 +285,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-collaboration",
  "arkret-models-crypto",
+ "arkret-models-identity",
  "arkret-models-integration",
  "arkret-wire",
  "chrono",
@@ -394,6 +385,17 @@ dependencies = [
  "arkret-state",
  "arkret-wire",
  "serde_json",
+]
+
+[[package]]
+name = "arkret-models"
+version = "0.3.0"
+dependencies = [
+ "arkret-models-collaboration",
+ "arkret-models-crypto",
+ "arkret-models-discovery",
+ "arkret-models-identity",
+ "arkret-models-integration",
 ]
 
 [[package]]
@@ -538,6 +540,7 @@ version = "0.3.0"
 dependencies = [
  "arkret-canonical",
  "arkret-models-collaboration",
+ "arkret-models-crypto",
  "arkret-models-discovery",
  "arkret-models-identity",
  "arkret-wire",
@@ -5334,6 +5337,7 @@ dependencies = [
  "arkret",
  "arkret-egress-policy",
  "arkret-models-collaboration",
+ "arkret-models-identity",
  "arkret-policy",
  "arkret-wire",
  "async-trait",

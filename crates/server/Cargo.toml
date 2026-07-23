@@ -21,6 +21,7 @@ chrono = {workspace = true}
 arkret-sdk = {workspace = true}
 arkret-egress-policy = {workspace = true}
 arkret-models-collaboration = {workspace = true}
+arkret-models-identity = {workspace = true}
 arkret-policy = {workspace = true}
 arkret-wire = {workspace = true}
 deadpool = {workspace = true}
