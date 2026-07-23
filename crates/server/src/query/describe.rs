@@ -306,6 +306,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         verified_profiles,
         experimental_features,
         compat_surfaces,
+        extensions: BTreeMap::new(),
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
         receive_policy_constraints: None,
