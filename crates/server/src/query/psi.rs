@@ -849,12 +849,12 @@ mod tests {
             "Alice.Example",
             &json!({
                 "did": "did:web:alice.example",
-                "handle": "alice.example",
+                "handle": "alice:example.com",
                 "email_hash": "sha256:abc",
             }),
         );
 
-        assert!(inputs.contains("alice.example"));
+        assert!(inputs.contains("alice:example.com"));
         assert!(inputs.contains("did:web:alice.example"));
         assert!(!inputs.contains("sha256:abc"));
     }

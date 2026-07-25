@@ -581,6 +581,7 @@ mod tests {
             service_type: arkret_sdk::ServiceType::DirectoryService,
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
+            profile_bindings: BTreeMap::new(),
             supported_operations: Vec::new(),
             supported_bindings: Vec::new(),
             supported_features: Vec::new(),

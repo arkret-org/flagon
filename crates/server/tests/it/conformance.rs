@@ -484,7 +484,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     assert_eq!(body["users"][0]["actor_id"], "did:web:alice.example");
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
-        .json(&json!({ "handle": "alice.example" }))
+        .json(&json!({ "handle": "alice:example.com" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -523,7 +523,7 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
         "did:web:psi-conformance.test#ak:device:01964137-0000-7000-8000-000000000001";
 
     let mut rng = rand::rngs::OsRng;
-    let blind = VoprfClient::<Ristretto255>::blind(b"alice.example", &mut rng)?;
+    let blind = VoprfClient::<Ristretto255>::blind(b"alice:example.com", &mut rng)?;
     let blinded_input = URL_SAFE_NO_PAD.encode(blind.message.serialize());
     let key_epoch = Utc::now().timestamp().div_euclid(3600) as u64;
     let batch_id = "ak:batch:01964137-0000-7000-8000-000000000777";
@@ -555,7 +555,7 @@ async fn assert_psi_blind_and_match_finds_seeded_handle(service: &Service) -> an
     let public_key = decode_public_key(body["server_public_key"].as_str().unwrap())?;
     let token = blind
         .state
-        .finalize(b"alice.example", &evaluation, &proof, public_key)?;
+        .finalize(b"alice:example.com", &evaluation, &proof, public_key)?;
     let derived_prefix = URL_SAFE_NO_PAD.encode(&token[..16]);
     let match_body = json!({
         "profile": "ak.private_contact_discovery.v1",
@@ -1077,7 +1077,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "handle",
-            "resource_id": "alice.example",
+            "resource_id": "alice:example.com",
             "reason": "conformance operator takedown",
             "operator": "cotest",
             "evidence": { "case": "M8" }
@@ -1093,7 +1093,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     );
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
-        .json(&json!({ "handle": "alice.example" }))
+        .json(&json!({ "handle": "alice:example.com" }))
         .send(service)
         .await;
     assert_eq!(

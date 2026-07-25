@@ -1,6 +1,7 @@
 [package]
 name = "teabay-testing"
 version.workspace = true
+publish = false
 edition.workspace = true
 rust-version.workspace = true
 description = "Shared teabay conformance seed data: the directory_resources seed SQL and the seeded resource-id constants used by the integration tests."

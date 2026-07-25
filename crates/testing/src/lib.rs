@@ -13,4 +13,4 @@ pub const SEEDED_REALM_ID: &str = "ak:realm:tea";
 pub const SEEDED_VERIFIED_ORG_REALM_ID: &str = "ak:realm:org-verified";
 pub const SEEDED_ORGANIZATION_DID: &str = "did:web:tea-org.example";
 pub const SEEDED_ACTOR_DID: &str = "did:web:alice.example";
-pub const SEEDED_HANDLE: &str = "alice.example";
+pub const SEEDED_HANDLE: &str = "alice:example.com";

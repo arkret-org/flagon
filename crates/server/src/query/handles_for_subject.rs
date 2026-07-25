@@ -846,7 +846,10 @@ mod tests {
             projection_subject(&json!({"did":"did:web:alice.example"})),
             Some("did:web:alice.example")
         );
-        assert_eq!(projection_subject(&json!({"handle":"alice.example"})), None);
+        assert_eq!(
+            projection_subject(&json!({"handle":"alice:example.com"})),
+            None
+        );
     }
 
     #[test]

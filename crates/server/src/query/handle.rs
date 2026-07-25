@@ -72,9 +72,6 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
 
 /// Prepare a product-private localpart input with the shared RFC 8265-derived
 /// human-identifier profile.
-/// The directory's own dot-separated index key `<localpart>.<domain>`
-/// is still accepted because it remains the row's `resource_id` shape
-/// in storage.
 pub(crate) fn prepare_handle_localpart_input(handle: &str) -> Result<String, String> {
     let localpart = extract_localpart(handle);
     arkret_sdk::prepare_handle_localpart(localpart)
@@ -85,22 +82,15 @@ fn extract_localpart(handle: &str) -> &str {
     extract_localpart_public(handle)
 }
 
-/// Exposed for the ingest path so `announce.rs` can run the same
-/// localpart-extraction rule before the SDK homograph normalizer. Kept
-/// in this module so the two faces stay in lock-step.
-///
-/// Wire form: `<localpart>:<domain>` — the colon separator is taken first because it is the
-/// canonical shape the SDK `Handle::parse` emits. The directory's internal index
-/// shape `<localpart>.<domain>` is still accepted for back-compat with
-/// stored rows. Empty localpart falls through to the SDK helper which
-/// fails on length-out-of-range.
-pub fn extract_localpart_public(handle: &str) -> &str {
+/// Accept either a bare localpart or the canonical `<localpart>:<domain>`
+/// handle form. Empty localparts fall through to the SDK helper, which rejects
+/// them.
+fn extract_localpart_public(handle: &str) -> &str {
     // A canonical localpart forbids `:`, so the separator is unambiguous.
     if let Some((local, _)) = handle.split_once(':') {
         return local;
     }
-    // teabay's stored `resource_id` uses `<localpart>.<domain>`.
-    handle.split('.').next().unwrap_or(handle)
+    handle
 }
 
 /// Product-private handle probe for teabay's resolver/index view:
@@ -121,10 +111,8 @@ pub fn extract_localpart_public(handle: &str) -> &str {
 ///
 /// The Host header (or the `?domain=<domain>` override) is concatenated
 /// with the localpart to form the directory's stored `resource_id` —
-/// teabay indexes handles as `<localpart>.<domain>` (see
-/// `query::handle::load_handle_row`). When the Host header is missing
-/// or no `?domain=` is supplied we still service the request against
-/// the bare localpart so an operator-issued curl probe works.
+/// teabay indexes handles in the canonical `<localpart>:<domain>` form. The
+/// domain comes from `?domain=` or the Host header.
 #[handler]
 pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mut Response) {
     let state = match depot.get_typed::<AppState>() {
@@ -149,10 +137,9 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
 
-    // Reconstruct the indexed `resource_id`. Order of preference:
+    // Reconstruct the canonical indexed `resource_id`. Order of preference:
     //   1. explicit `?domain=` query parameter (operator probe shape)
     //   2. Host header (cross-domain well-known fetch)
-    //   3. bare localpart (single-tenant deployment / local conformance)
     let domain = req
         .queries()
         .get("domain")
@@ -164,17 +151,16 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
                 .map(|v| v.split(':').next().unwrap_or(v).to_owned())
         })
         .unwrap_or_default();
-    let handle = if domain.is_empty() {
-        localpart.clone()
-    } else {
-        let canonical = match SdkHandle::prepare(&format!("{localpart}:{domain}")) {
-            Ok(handle) => handle,
-            Err(error) => {
-                ApiErrorCode::InvalidParam.render(res, format!("invalid handle domain: {error}"));
-                return;
-            }
-        };
-        format!("{}.{}", canonical.localpart(), canonical.domain())
+    if domain.is_empty() {
+        ApiErrorCode::MissingParam.render(res, "domain query parameter or Host header is required");
+        return;
+    }
+    let handle = match SdkHandle::prepare(&format!("{localpart}:{domain}")) {
+        Ok(handle) => handle.canonical().to_owned(),
+        Err(error) => {
+            ApiErrorCode::InvalidParam.render(res, format!("invalid handle domain: {error}"));
+            return;
+        }
     };
 
     if !enforce_resolve_rate_limit(req, res, &state, &handle) {
@@ -841,7 +827,7 @@ mod tests {
 
     fn dummy_row(public_projection: JsonValue) -> HandleRow {
         HandleRow {
-            resource_id: "alice.example".to_string(),
+            resource_id: "alice:example.com".to_string(),
             public_projection,
             discoverability: DiscoverabilityDb::Public,
             as_of: Utc.timestamp_opt(0, 0).unwrap(),
@@ -856,7 +842,7 @@ mod tests {
 
     fn member_add_request(realm_id: &str, requester: &str) -> ResolveHandleRequestView {
         ResolveHandleRequestView {
-            handle: "alice.example".to_string(),
+            handle: "alice:example.com".to_string(),
             expected_did: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
@@ -894,10 +880,7 @@ mod tests {
 
     #[test]
     fn handle_profile_accepts_pure_ascii() {
-        assert_eq!(
-            prepare_handle_localpart_input("alice.example").unwrap(),
-            "alice"
-        );
+        assert_eq!(prepare_handle_localpart_input("alice").unwrap(), "alice");
     }
 
     #[test]
@@ -907,16 +890,14 @@ mod tests {
     }
 
     #[test]
-    fn extract_localpart_accepts_canonical_and_index_forms() {
+    fn extract_localpart_accepts_canonical_and_bare_forms() {
         // R3.1 canonical wire form `<localpart>:<domain>` (arkret-spec
         // @ 7157ee8). The retired `arkret://` URI form is no longer
         // parsed — feeding it now treats the whole string as a bare
         // localpart (which the SDK normalizer will then reject).
         assert_eq!(extract_localpart_public("alice:example.com"), "alice");
         assert_eq!(extract_localpart_public("小明:example.com"), "小明");
-        // Directory storage index form remains accepted for back-compat
-        // with existing rows.
-        assert_eq!(extract_localpart_public("alice.example"), "alice");
+        assert_eq!(extract_localpart_public("alice.profile"), "alice.profile");
     }
 
     #[test]
@@ -1223,7 +1204,7 @@ mod tests {
         }));
         row.discoverability = DiscoverabilityDb::Restricted;
         let body = ResolveHandleRequestView {
-            handle: "alice.example".to_owned(),
+            handle: "alice:example.com".to_owned(),
             expected_did: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
