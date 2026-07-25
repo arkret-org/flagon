@@ -294,6 +294,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         service_type: arkret_sdk::ServiceType::DirectoryService,
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
+        profile_bindings: BTreeMap::new(),
         supported_operations,
         supported_bindings,
         supported_features,
