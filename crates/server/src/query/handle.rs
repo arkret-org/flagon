@@ -414,8 +414,9 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RealmDeliveryBindingPolicy {
     /// `allowed_recipient_services`: closed set of recipient principal-server
-    /// DIDs that may appear in a Realm-bound delivery_binding. Empty = no
-    /// restriction (per spec §5.1.3 default).
+    /// DIDs that may appear in a Realm-bound delivery_binding. Empty rejects
+    /// every recipient service; the exact singleton `["*"]` explicitly
+    /// removes only this allow-list restriction.
     pub allowed_recipient_services: Vec<String>,
     /// `allow_binding_sources`: optional sub-filter on the binding_source
     /// enum. Empty = caller does not enforce a binding_source filter here.
@@ -620,7 +621,7 @@ fn filter_projection_against_policy(
 ) -> Option<JsonValue> {
     let allow_recipient = &policy.allowed_recipient_services;
     let allow_sources = &policy.allow_binding_sources;
-    let unrestricted_recipient = allow_recipient.is_empty();
+    let unrestricted_recipient = matches!(allow_recipient.as_slice(), [value] if value == "*");
     let unrestricted_source = allow_sources.is_empty();
 
     // Track whether the projection ever declared a binding-candidate field
@@ -1019,10 +1020,9 @@ mod tests {
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
-    /// Empty `allowed_recipient_services` is "no restriction" (spec
-    /// §5.1.3). The resolver MUST still authorize disclosure but not prune.
+    /// Empty `allowed_recipient_services` rejects every recipient service.
     #[test]
-    fn empty_allowed_recipient_services_means_unrestricted() {
+    fn empty_allowed_recipient_services_fails_closed() {
         let row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
@@ -1033,6 +1033,30 @@ mod tests {
         }));
         let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
         let policy = realm_policy(&[], &["did:web:tea-org.example"]);
+
+        let outcome = evaluate_handle_disclosure(
+            row,
+            &body,
+            &VerifiedRestrictedClaims::default(),
+            Some(&policy),
+        );
+        assert!(matches!(outcome, ResolveOutcome::NotFound));
+    }
+
+    /// The exact singleton `["*"]` explicitly removes the recipient-service
+    /// allow-list restriction while leaving all other policy checks active.
+    #[test]
+    fn wildcard_allowed_recipient_services_is_unrestricted() {
+        let row = dummy_row(json!({
+            "did": "did:web:alice.example",
+            "verified": true,
+            "member_delivery_binding": {
+                "recipient_service_id": "did:web:principal.anywhere",
+                "binding_source": "join_policy",
+            },
+        }));
+        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        let policy = realm_policy(&["*"], &["did:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
             row,
