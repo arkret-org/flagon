@@ -25,9 +25,9 @@ INSERT INTO directory_resources (
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
-    -- (when narrowing) `allow_binding_sources`. `trusted_audiences` is the
+    -- (when narrowing) `allowed_binding_sources`. `trusted_audiences` is the
     -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
-    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allow_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
+    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allowed_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-tea'],

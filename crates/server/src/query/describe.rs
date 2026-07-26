@@ -6,7 +6,7 @@
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
-//! Directory-service-specific fields (`resource_types`,
+//! Directory-service-specific fields (`resource_kinds`,
 //! `accepted_resource_kinds`, `ingest_modes`, `ttl`, etc.) are registered
 //! ServiceDescribe overlay fields, not vendor-specific `x_*` extensions.
 
@@ -160,7 +160,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
                 json!(crate::query::psi::current_epoch(cfg)),
             ),
             (
-                "psi_batch_size".to_owned(),
+                "psi_batch_item_count".to_owned(),
                 json!(crate::query::psi::PSI_BATCH_SIZE),
             ),
             (
@@ -213,7 +213,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             json!(crate::query::psi::current_epoch(cfg)),
         ),
         (
-            "psi_batch_size".to_owned(),
+            "psi_batch_item_count".to_owned(),
             json!(crate::query::psi::PSI_BATCH_SIZE),
         ),
         (
@@ -291,7 +291,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     let describe_body = ServiceDescribe {
         service_id,
         trust_domain,
-        service_type: arkret_sdk::ServiceType::DirectoryService,
+        service_kind: arkret_sdk::ServiceKind::DirectoryService,
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         profile_bindings: BTreeMap::new(),
@@ -320,7 +320,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             cfg.rate_limit_per_resource_per_min,
         )),
         rate_limit_policy_id: None,
-        resource_types: all_directory_resource_kinds(),
+        resource_kinds: all_directory_resource_kinds(),
         discovery_profiles: directory_discovery_profiles,
         restricted_query_proof: Some(true),
         ingest_modes: cfg.ingest_modes.iter().map(directory_ingest_mode).collect(),
@@ -495,7 +495,7 @@ mod tests {
         for required in [
             "service_id",
             "trust_domain",
-            "service_type",
+            "service_kind",
             "protocol_version",
             "supported_profiles",
             "supported_operations",
@@ -520,7 +520,7 @@ mod tests {
         assert_eq!(value["development_mode"], true);
         assert_eq!(value["trust_domain"], "ak:trust_domain:local.test");
         assert_eq!(value["service_id"], "did:web:directory.test");
-        assert_eq!(value["service_type"], "directory_service");
+        assert_eq!(value["service_kind"], "directory_service");
         // verified_profiles MUST be empty when development_mode = true.
         assert!(
             value["verified_profiles"].as_array().unwrap().is_empty(),
@@ -548,7 +548,7 @@ mod tests {
             crate::query::psi::VOPRF_CIPHERSUITE
         );
         assert_eq!(
-            value["rate_limits"]["psi_batch_size"],
+            value["rate_limits"]["psi_batch_item_count"],
             crate::query::psi::PSI_BATCH_SIZE
         );
         assert_eq!(value["rate_limits"]["psi_digest_prefix_length"], 16);
@@ -578,7 +578,7 @@ mod tests {
         let describe_body = ServiceDescribe {
             service_id: Did::new("did:web:directory.test").unwrap(),
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
-            service_type: arkret_sdk::ServiceType::DirectoryService,
+            service_kind: arkret_sdk::ServiceKind::DirectoryService,
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             profile_bindings: BTreeMap::new(),
@@ -612,7 +612,7 @@ mod tests {
             development_mode: true,
             rate_limit_policy: Some(RateLimitPolicy::unspecified()),
             rate_limit_policy_id: None,
-            resource_types: all_directory_resource_kinds(),
+            resource_kinds: all_directory_resource_kinds(),
             discovery_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             restricted_query_proof: Some(true),
             ingest_modes: vec![DirectoryIngestMode::Push],
@@ -649,7 +649,7 @@ mod tests {
         const CANONICAL: &[&str] = &[
             "service_id",
             "trust_domain",
-            "service_type",
+            "service_kind",
             "protocol_version",
             "supported_profiles",
             "supported_operations",
@@ -667,7 +667,7 @@ mod tests {
             "rate_limit_policy",
             "rate_limit_policy_id",
             "egress_network_policy",
-            "resource_types",
+            "resource_kinds",
             "discovery_profiles",
             "restricted_query_proof",
             "ingest_modes",
@@ -723,7 +723,7 @@ mod tests {
                 );
             }
             for standard in [
-                "resource_types",
+                "resource_kinds",
                 "discovery_profiles",
                 "ingest_modes",
                 "accept_policy_kind",

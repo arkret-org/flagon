@@ -22,7 +22,7 @@
 
 use arkret_sdk::canonical;
 use arkret_signatures::jws::sign_jws_ed25519;
-use arkret_wire::{LinkType, ParsedAddress, TargetDescriptor, parse_address, target_digest};
+use arkret_wire::{AddressLinkKind, ParsedAddress, TargetDescriptor, parse_address, target_digest};
 use chrono::{Duration, Utc};
 use ed25519_dalek::SigningKey;
 use serde_json::{Value as JsonValue, json};
@@ -38,14 +38,14 @@ fn verify_address_token(
     parsed: &ParsedAddress,
     token: Option<&str>,
     canonical_realm_id: &str,
-    effective_link_type: LinkType,
+    effective_address_link_kind: AddressLinkKind,
 ) -> TokenCheck {
     let accepted_did_methods = vec!["did:key".to_owned()];
     verify_address_token_with_methods(
         parsed,
         token,
         canonical_realm_id,
-        effective_link_type,
+        effective_address_link_kind,
         &accepted_did_methods,
         false,
     )
@@ -60,7 +60,7 @@ const PREVIEW_SIGNING_SEED: [u8; 32] = [23u8; 32];
 fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
     let mut descriptor = TargetDescriptor::from_parsed(address);
     descriptor.set_realm_id(canonical_realm_id);
-    descriptor.link_type = LinkType::Invite;
+    descriptor.address_link_kind = AddressLinkKind::Invite;
     let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
     let multibase = did_key_multibase(&signing_key);
     let issuer = format!("did:key:{multibase}");
@@ -113,7 +113,7 @@ fn mint_preview_token(
 ) -> String {
     let mut descriptor = TargetDescriptor::from_parsed(address);
     descriptor.set_realm_id(canonical_realm_id);
-    descriptor.link_type = LinkType::Preview;
+    descriptor.address_link_kind = AddressLinkKind::Preview;
     let signing_key = SigningKey::from_bytes(&PREVIEW_SIGNING_SEED);
     let multibase = did_key_multibase(&signing_key);
     let issuer = format!("did:key:{multibase}");
@@ -125,7 +125,7 @@ fn mint_preview_token(
         "exp": exp,
         "aud": aud,
         "target_digest": target_digest(&descriptor).unwrap(),
-        "link_type": "preview",
+        "address_link_kind": "preview",
         "preview_policy_digest": preview_policy_digest,
     });
     if let Some(nonce) = nonce {
@@ -194,14 +194,14 @@ fn invite_token_replayed_onto_other_object_is_rejected() {
 
     // Sanity: the token validates against its own object.
     assert_eq!(
-        verify_address_token(&addr_a, Some(&token), &canonical, LinkType::Invite),
+        verify_address_token(&addr_a, Some(&token), &canonical, AddressLinkKind::Invite,),
         TokenCheck::Pass
     );
 
     // Replayed onto object B → reject (digest differs; identity tuple changed).
     let addr_b = parse_address(&format!("web+arkret:realm/{R}/strand/{F2}?lt=invite")).unwrap();
     assert_eq!(
-        verify_address_token(&addr_b, Some(&token), &canonical, LinkType::Invite),
+        verify_address_token(&addr_b, Some(&token), &canonical, AddressLinkKind::Invite,),
         TokenCheck::Reject
     );
 }
@@ -233,7 +233,7 @@ fn invite_link_without_token_is_rejected() {
     let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
     let canonical = format!("ak:realm:{R}");
     assert_eq!(
-        verify_address_token(&addr, None, &canonical, LinkType::Invite),
+        verify_address_token(&addr, None, &canonical, AddressLinkKind::Invite),
         TokenCheck::Reject
     );
 }
@@ -412,7 +412,7 @@ fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
     let canonical = format!("ak:realm:{R}");
     let mut descriptor = TargetDescriptor::from_parsed(&addr);
     descriptor.set_realm_id(&canonical);
-    descriptor.link_type = LinkType::Invite;
+    descriptor.address_link_kind = AddressLinkKind::Invite;
     let token = json!({
         "exp": Utc::now().timestamp() + 3600,
         "aud": "did:web:alice.example",
@@ -421,7 +421,7 @@ fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
     .to_string();
 
     assert_eq!(
-        verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+        verify_address_token(&addr, Some(&token), &canonical, AddressLinkKind::Invite),
         TokenCheck::Reject
     );
 }

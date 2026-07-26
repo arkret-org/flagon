@@ -3,7 +3,7 @@
 //! Spec sync 0a5ab85 / governance/join-policy §5.1.3:
 //! `ak.find.directory.query.resolve_handle` MUST gate `intent=member_add | invite`
 //! requests on the target **Realm**'s `delivery_binding_policy`
-//! (`allowed_recipient_services`, `allow_binding_sources`) and on the
+//! (`allowed_recipient_services`, `allowed_binding_sources`) and on the
 //! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
 //! the underlying subject / service DID — they collapse to `not_found` with
 //! the same response shape and latency tier as a genuine miss (§10).
@@ -418,9 +418,9 @@ pub(crate) struct RealmDeliveryBindingPolicy {
     /// every recipient service; the exact singleton `["*"]` explicitly
     /// removes only this allow-list restriction.
     pub allowed_recipient_services: Vec<String>,
-    /// `allow_binding_sources`: optional sub-filter on the binding_source
+    /// `allowed_binding_sources`: optional sub-filter on the binding_source
     /// enum. Empty = caller does not enforce a binding_source filter here.
-    pub allow_binding_sources: Vec<String>,
+    pub allowed_binding_sources: Vec<String>,
     /// Trusted audience DIDs (Realm + delegated service DIDs) authorized to
     /// invoke `intent=member_add | invite`. Empty = treat the Realm's
     /// `allowed_discoverers` list as the audience-binding source (§9
@@ -480,12 +480,12 @@ impl RealmDeliveryBindingPolicy {
             .or_else(|| projection.pointer("/payload/delivery_binding_policy"));
         let allowed_recipient_services =
             string_array_at(nested.and_then(|v| v.get("allowed_recipient_services")));
-        let allow_binding_sources =
-            string_array_at(nested.and_then(|v| v.get("allow_binding_sources")));
+        let allowed_binding_sources =
+            string_array_at(nested.and_then(|v| v.get("allowed_binding_sources")));
         let trusted_audiences = string_array_at(nested.and_then(|v| v.get("trusted_audiences")));
         Self {
             allowed_recipient_services,
-            allow_binding_sources,
+            allowed_binding_sources,
             trusted_audiences,
             raw_projection: projection,
         }
@@ -612,7 +612,7 @@ fn evaluate_handle_disclosure(
 }
 
 /// Apply Realm `allowed_recipient_services` (and, when declared,
-/// `allow_binding_sources`) to the handle's public projection. Returns
+/// `allowed_binding_sources`) to the handle's public projection. Returns
 /// `None` when the member_delivery_binding was pruned — signaling the resolver
 /// should emit `not_found` rather than disclose the bare subject_id.
 fn filter_projection_against_policy(
@@ -620,7 +620,7 @@ fn filter_projection_against_policy(
     policy: &RealmDeliveryBindingPolicy,
 ) -> Option<JsonValue> {
     let allow_recipient = &policy.allowed_recipient_services;
-    let allow_sources = &policy.allow_binding_sources;
+    let allow_sources = &policy.allowed_binding_sources;
     let unrestricted_recipient = matches!(allow_recipient.as_slice(), [value] if value == "*");
     let unrestricted_source = allow_sources.is_empty();
 
@@ -674,7 +674,7 @@ fn binding_passes(
         None => false,
     };
     let source_ok = match obj.get("binding_source").and_then(JsonValue::as_str) {
-        Some(src) => unrestricted_source || policy.allow_binding_sources.iter().any(|a| a == src),
+        Some(src) => unrestricted_source || policy.allowed_binding_sources.iter().any(|a| a == src),
         None => unrestricted_source, /* No binding_source declared — only allowed when policy is
                                       * open. */
     };
@@ -914,7 +914,7 @@ mod tests {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "delivery_binding_policy": {
                 "allowed_recipient_services": ["did:web:principal.tea"],
-                "allow_binding_sources": ["join_policy"],
+                "allowed_binding_sources": ["join_policy"],
                 "trusted_audiences": ["did:web:tea-org.example"],
             },
         }));
@@ -923,7 +923,7 @@ mod tests {
             vec!["did:web:principal.tea".to_string()]
         );
         assert_eq!(
-            policy.allow_binding_sources,
+            policy.allowed_binding_sources,
             vec!["join_policy".to_string()]
         );
         assert_eq!(
@@ -1191,7 +1191,7 @@ mod tests {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_type": "organization_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
                 "organization": org.as_str(),
             }],
@@ -1221,7 +1221,7 @@ mod tests {
             "verified": true,
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_type": "organization_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
                 "organization": org.as_str(),
             }],
@@ -1271,7 +1271,7 @@ mod tests {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "delivery_binding_policy": {
                 "allowed_recipient_services": ["did:web:principal.tea"],
-                "allow_binding_sources": ["join_policy"],
+                "allowed_binding_sources": ["join_policy"],
                 "trusted_audiences": ["did:web:tea-org.example"],
             },
         }));

@@ -132,7 +132,7 @@ async fn install_restricted_realm_claim_selector(
     let mut conn = db.get().await?;
     let discoverers = json!([{
         "type": "claim",
-        "claim_type": "organization_membership",
+        "claim_kind": "organization_membership",
         "issuer": issuer,
         "organization": organization
     }]);
@@ -160,7 +160,7 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
     assert!(discovery_profiles.contains(&json!("ak.profile.directory_service.v1")));
     assert!(discovery_profiles.contains(&json!("ak.private_contact_discovery.v1")));
     assert_eq!(body["service_id"], "did:web:directory.test");
-    assert_eq!(body["service_type"], "directory_service");
+    assert_eq!(body["service_kind"], "directory_service");
     assert!(
         body["accepted_resource_kinds"]
             .as_array()

@@ -369,7 +369,7 @@ fn restricted_claim_handle_requires_verified_presentation() {
             "handle": "restricted:example.com",
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_type": "organization_membership",
+                "claim_kind": "organization_membership",
                 "issuer": "did:web:issuer.tea",
                 "organization": "did:web:tea-org.example"
             }]

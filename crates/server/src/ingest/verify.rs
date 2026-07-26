@@ -660,7 +660,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
     // Principal Server services; teabay keeps that deterministic convention.
     let service = services
         .iter()
-        .find(|service| service_type_matches(service, "ArkretPrincipalServer"))
+        .find(|service| service_kind_matches(service, "ArkretPrincipalServer"))
         .ok_or_else(|| anyhow::anyhow!("DID document has no ArkretPrincipalServer service"))?;
     let endpoint = service
         .get("serviceEndpoint")
@@ -755,7 +755,7 @@ where
     serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("{context} JSON parse: {e}"))
 }
 
-fn service_type_matches(service: &JsonValue, expected: &str) -> bool {
+fn service_kind_matches(service: &JsonValue, expected: &str) -> bool {
     match service.get("type") {
         Some(JsonValue::String(value)) => value == expected,
         Some(JsonValue::Array(values)) => values

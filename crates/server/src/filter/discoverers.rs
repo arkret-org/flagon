@@ -224,7 +224,7 @@ fn claim_selector_matches(
     if selector.get("type").and_then(JsonValue::as_str) != Some("claim") {
         return false;
     }
-    let Some(claim_type) = selector.get("claim_type").and_then(JsonValue::as_str) else {
+    let Some(claim_kind) = selector.get("claim_kind").and_then(JsonValue::as_str) else {
         return false;
     };
     let Some(issuer) = selector.get("issuer").and_then(JsonValue::as_str) else {
@@ -242,7 +242,7 @@ fn claim_selector_matches(
     verified_claims
         .claims
         .iter()
-        .any(|claim| claim_satisfies_selector(claim, selector, &subject, &issuer_did, claim_type))
+        .any(|claim| claim_satisfies_selector(claim, selector, &subject, &issuer_did, claim_kind))
 }
 
 fn claim_satisfies_selector(
@@ -250,7 +250,7 @@ fn claim_satisfies_selector(
     selector: &serde_json::Map<String, JsonValue>,
     subject: &Did,
     issuer: &Did,
-    claim_type: &str,
+    claim_kind: &str,
 ) -> bool {
     if claim
         .value_matches(selector, "organization")
@@ -270,7 +270,7 @@ fn claim_satisfies_selector(
         policy: ClaimDisclosurePolicy {
             policy_id: "teabay.restricted_discovery".to_owned(),
             requirements: vec![ClaimDisclosureRequirement {
-                claim_kind: claim_type.to_owned(),
+                claim_kind: claim_kind.to_owned(),
                 trusted_issuers: vec![issuer.clone()],
                 reveal_fields: vec!["*".to_owned()],
                 required: true,
@@ -358,7 +358,7 @@ mod tests {
         let projection = json!({
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_type": "organization_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
                 "organization": org.as_str(),
             }]

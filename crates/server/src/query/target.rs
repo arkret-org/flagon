@@ -46,7 +46,7 @@ use arkret_sdk::{
     ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
 };
 use arkret_wire::{
-    LinkType, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
+    AddressLinkKind, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
     verify_token_target,
 };
 use base64::Engine as _;
@@ -225,9 +225,9 @@ async fn resolve(
     // 3. Token target binding (security-critical). Applies whenever a token is present OR the
     //    address declares an invite link — an invite link MUST carry a token; a token that fails to
     //    bind → blinded not_found.
-    let effective_link_type = parsed.link_type;
+    let effective_address_link_kind = parsed.address_link_kind;
     let token = token.or(parsed.token.as_deref());
-    let realm_resolution = if effective_link_type == LinkType::Preview {
+    let realm_resolution = if effective_address_link_kind == AddressLinkKind::Preview {
         crate::query::realm::resolve_realm_for_preview_link(state, &realm_key).await
     } else {
         resolve_realm_visible(state, &realm_key, requester, verified_claims).await
@@ -242,7 +242,7 @@ async fn resolve(
     let canonical_realm_id = resolved.realm_id.clone();
 
     let mut verified_preview = None;
-    if effective_link_type == LinkType::Preview {
+    if effective_address_link_kind == AddressLinkKind::Preview {
         let preview_policy = match load_preview_policy(state, &canonical_realm_id).await {
             Ok(Some(policy)) => policy,
             Ok(None) => return ResolveOutcome::TokenReject,
@@ -270,14 +270,14 @@ async fn resolve(
     }
 
     let mut verified_invite_token = None;
-    if effective_link_type != LinkType::Preview
-        && (effective_link_type == LinkType::Invite || token.is_some())
+    if effective_address_link_kind != AddressLinkKind::Preview
+        && (effective_address_link_kind == AddressLinkKind::Invite || token.is_some())
     {
         match verify_address_token_details_with_methods(
             &parsed,
             token,
             &canonical_realm_id,
-            effective_link_type,
+            effective_address_link_kind,
             &state.config().accepted_did_methods,
             crate::egress::local_development_enabled(state.config().development_mode),
         ) {
@@ -332,7 +332,7 @@ async fn resolve(
         };
     }
     let invite_authorized =
-        effective_link_type == LinkType::Invite && verified_invite_token.is_some();
+        effective_address_link_kind == AddressLinkKind::Invite && verified_invite_token.is_some();
     match build_object_response(
         state,
         target_kind,
@@ -490,7 +490,7 @@ pub fn verify_preview_token_details_with_methods(
     if !preview_token_kind_allowed(&value) {
         return Err(TokenCheck::Reject);
     }
-    if value.get("link_type").and_then(JsonValue::as_str) != Some("preview") {
+    if value.get("address_link_kind").and_then(JsonValue::as_str) != Some("preview") {
         return Err(TokenCheck::Reject);
     }
 
@@ -672,7 +672,7 @@ fn expected_preview_target_digest(
 ) -> Option<String> {
     let mut descriptor = TargetDescriptor::from_parsed(parsed);
     descriptor.set_realm_id(canonical_realm_id);
-    descriptor.link_type = LinkType::Preview;
+    descriptor.address_link_kind = AddressLinkKind::Preview;
     target_digest(&descriptor).ok()
 }
 
@@ -694,7 +694,7 @@ pub fn verify_address_token_with_methods(
     parsed: &ParsedAddress,
     token: Option<&str>,
     canonical_realm_id: &str,
-    effective_link_type: LinkType,
+    effective_address_link_kind: AddressLinkKind,
     accepted_did_methods: &[String],
     allow_private_networks: bool,
 ) -> TokenCheck {
@@ -702,7 +702,7 @@ pub fn verify_address_token_with_methods(
         parsed,
         token,
         canonical_realm_id,
-        effective_link_type,
+        effective_address_link_kind,
         accepted_did_methods,
         allow_private_networks,
     ) {
@@ -715,7 +715,7 @@ pub fn verify_address_token_details_with_methods(
     parsed: &ParsedAddress,
     token: Option<&str>,
     canonical_realm_id: &str,
-    effective_link_type: LinkType,
+    effective_address_link_kind: AddressLinkKind,
     accepted_did_methods: &[String],
     allow_private_networks: bool,
 ) -> Result<VerifiedInviteToken, TokenCheck> {
@@ -747,13 +747,13 @@ pub fn verify_address_token_details_with_methods(
 
     // Digest comparison over the canonicalized address descriptor. We feed the
     // descriptor back through a ParsedAddress whose realm is the canonical uuid
-    // so verify_token_target's own from_parsed + set effective_link_type path
+    // so verify_token_target's own from_parsed + set effective address-link-kind path
     // reproduces the exact bytes.
     let canonical_parsed = with_canonical_realm(parsed, canonical_realm_id);
     if verify_token_target(
         &verified_token.descriptor,
         &canonical_parsed,
-        effective_link_type,
+        effective_address_link_kind,
     ) {
         verified_token.target_digest =
             target_digest(&verified_token.descriptor).map_err(|_| TokenCheck::Reject)?;
@@ -777,7 +777,7 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
         strand: parsed.strand.clone(),
         message: parsed.message.clone(),
         action: parsed.action,
-        link_type: parsed.link_type,
+        address_link_kind: parsed.address_link_kind,
         token: parsed.token.clone(),
     }
 }
@@ -1292,7 +1292,7 @@ mod tests {
     fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
         let mut descriptor = TargetDescriptor::from_parsed(address);
         descriptor.set_realm_id(canonical_realm_id);
-        descriptor.link_type = LinkType::Invite;
+        descriptor.address_link_kind = AddressLinkKind::Invite;
         let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
         let issuer = format!("did:key:{multibase}");
@@ -1324,14 +1324,14 @@ mod tests {
         parsed: &ParsedAddress,
         token: Option<&str>,
         canonical_realm_id: &str,
-        effective_link_type: LinkType,
+        effective_address_link_kind: AddressLinkKind,
     ) -> TokenCheck {
         let accepted_did_methods = vec!["did:key".to_owned()];
         verify_address_token_with_methods(
             parsed,
             token,
             canonical_realm_id,
-            effective_link_type,
+            effective_address_link_kind,
             &accepted_did_methods,
             false,
         )
@@ -1346,7 +1346,7 @@ mod tests {
         let canonical = format!("ak:realm:{R}");
         let token = mint_token(&addr, &canonical);
         assert_eq!(
-            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(&addr, Some(&token), &canonical, AddressLinkKind::Invite),
             TokenCheck::Pass
         );
     }
@@ -1367,7 +1367,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            verify_address_token(&addr_b, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(&addr_b, Some(&token), &canonical, AddressLinkKind::Invite,),
             TokenCheck::Reject
         );
     }
@@ -1380,7 +1380,7 @@ mod tests {
         .unwrap();
         let canonical = format!("ak:realm:{R}");
         assert_eq!(
-            verify_address_token(&addr, None, &canonical, LinkType::Invite),
+            verify_address_token(&addr, None, &canonical, AddressLinkKind::Invite),
             TokenCheck::Reject
         );
     }
@@ -1394,7 +1394,7 @@ mod tests {
         let canonical = format!("ak:realm:{R}");
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
-        descriptor.link_type = LinkType::Invite;
+        descriptor.address_link_kind = AddressLinkKind::Invite;
         let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
         let issuer = format!("did:key:{multibase}");
@@ -1415,7 +1415,7 @@ mod tests {
             .insert("jws".to_owned(), json!(jws));
         let token = payload.to_string();
         assert_eq!(
-            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(&addr, Some(&token), &canonical, AddressLinkKind::Invite),
             TokenCheck::Reject
         );
     }
@@ -1429,7 +1429,7 @@ mod tests {
         let canonical = format!("ak:realm:{R}");
         let mut descriptor = TargetDescriptor::from_parsed(&addr);
         descriptor.set_realm_id(&canonical);
-        descriptor.link_type = LinkType::Invite;
+        descriptor.address_link_kind = AddressLinkKind::Invite;
         let token = json!({
             "exp": Utc::now().timestamp() + 3600,
             "aud": "did:web:alice.example",
@@ -1437,7 +1437,7 @@ mod tests {
         })
         .to_string();
         assert_eq!(
-            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(&addr, Some(&token), &canonical, AddressLinkKind::Invite),
             TokenCheck::Reject
         );
     }
@@ -1454,7 +1454,7 @@ mod tests {
         value["target_descriptor"]["strand_id"] = json!(format!("ak:strand:{F2}"));
         let tampered = value.to_string();
         assert_eq!(
-            verify_address_token(&addr, Some(&tampered), &canonical, LinkType::Invite),
+            verify_address_token(&addr, Some(&tampered), &canonical, AddressLinkKind::Invite,),
             TokenCheck::Reject
         );
     }
@@ -1471,7 +1471,12 @@ mod tests {
         let canonical = format!("ak:realm:{R}");
         let token = mint_token(&alias_addr, &canonical);
         assert_eq!(
-            verify_address_token(&alias_addr, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(
+                &alias_addr,
+                Some(&token),
+                &canonical,
+                AddressLinkKind::Invite,
+            ),
             TokenCheck::Pass
         );
     }
@@ -1487,7 +1492,7 @@ mod tests {
         // Address resolved to realm R, token bound to a different realm.
         let canonical = format!("ak:realm:{R}");
         assert_eq!(
-            verify_address_token(&addr, Some(&token), &canonical, LinkType::Invite),
+            verify_address_token(&addr, Some(&token), &canonical, AddressLinkKind::Invite),
             TokenCheck::Reject
         );
     }
@@ -1568,7 +1573,7 @@ mod tests {
             public_projection: json!({ "title": "Strand" }),
             required_claims: json!([{
                 "type": "claim",
-                "claim_type": "organization_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
                 "organization": org.as_str(),
             }]),
@@ -1632,7 +1637,7 @@ mod tests {
             strand: None,
             message: None,
             action: AddressAction::View,
-            link_type: LinkType::Reference,
+            address_link_kind: AddressLinkKind::Reference,
             token: None,
         };
         assert!(build_address(&parsed).starts_with("web+arkret:realm/"));

@@ -306,7 +306,7 @@ async fn handle_blind_phase(
     }
 
     // §6.4: the response frame MUST be rewritten to the Provider's fixed
-    // `batch_size`. Dummy-pad `evaluations`/`proofs` with real-shaped VOPRF
+    // `batch_item_count`. Dummy-pad `evaluations`/`proofs` with real-shaped VOPRF
     // outputs (evaluated over a constant dummy blinded element) up to
     // PSI_BATCH_SIZE so the on-wire response size is decoupled from the
     // number of elements the client actually submitted.
@@ -800,7 +800,7 @@ async fn store_match_outcome(
 }
 
 /// Constant dummy blinded element used to pad the `blind` round response to
-/// the fixed `batch_size` (§6.4). Built from the group base element so it
+/// the fixed `batch_item_count` (§6.4). Built from the group base element so it
 /// deserializes into a valid `BlindedElement`; the resulting VOPRF outputs are
 /// indistinguishable in shape from real evaluations and are discarded by the
 /// client (which only consumes the first `PSI_BATCH_SIZE - padding_count`).

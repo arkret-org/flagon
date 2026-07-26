@@ -12,7 +12,7 @@
 use arkret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
     DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
-    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceType,
+    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceKind,
     RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
 };
 use arkret_server::CursorBindingContext;
@@ -767,7 +767,7 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
             Some(RealmJoinCandidate {
                 realm_id: realm_id.clone(),
                 service_id,
-                service_type: RealmJoinCandidateServiceType::PrincipalServer,
+                service_kind: RealmJoinCandidateServiceKind::PrincipalServer,
                 role: if index == 0 {
                     RealmJoinCandidateRole::Primary
                 } else {
@@ -1014,7 +1014,7 @@ mod tests {
                 "allowed_discoverers": [
                     {
                         "type": "claim",
-                        "claim_type": "organization_membership",
+                        "claim_kind": "organization_membership",
                         "organization": "did:web:acme.example",
                         "issuer": "did:web:acme.example"
                     }
