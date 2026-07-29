@@ -215,6 +215,7 @@ dependencies = [
  "chrono",
  "ed25519-dalek",
  "getrandom 0.4.2",
+ "hex",
  "hkdf 0.13.0",
  "hpke",
  "regex",
