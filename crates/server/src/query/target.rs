@@ -38,6 +38,7 @@
 //! unauthorized requester. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
+use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
     DirectoryTargetResolutionOutcome, EventId, MessageId, NonEmptyString, ObjectPreview,
@@ -55,8 +56,6 @@ use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
-
-use arkret_identity::binding::DidBindingPurpose;
 
 use crate::did_binding::DidBindingDirectory;
 use crate::did_resolver::verification_method_issuer;

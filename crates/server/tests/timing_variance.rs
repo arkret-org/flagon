@@ -7,11 +7,11 @@
 
 use std::time::Duration;
 
+use arkret_wire::ServiceOperationId;
 use server::filter::enumeration::LatencyBudget;
 
 const FLOOR_MS: u64 = 5;
 const JITTER_MS: u64 = 3;
-const ROUTE: &str = "ak.find.directory.query.resolve_handle";
 
 #[test]
 fn latency_budget_targets_are_branch_independent_and_bounded() {
@@ -27,8 +27,14 @@ fn latency_budget_targets_are_branch_independent_and_bounded() {
         "handle=ghost.example;branch=not_found",
         "handle=alice.example;branch=unauthorized",
     ] {
-        let first = budget.target_for(ROUTE, privacy_key);
-        let second = budget.target_for(ROUTE, privacy_key);
+        let first = budget.target_for(
+            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            privacy_key,
+        );
+        let second = budget.target_for(
+            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            privacy_key,
+        );
 
         assert_eq!(first, second);
         assert!(first >= floor, "target {first:?} fell below {floor:?}");
@@ -44,11 +50,17 @@ fn zero_jitter_budget_collapses_to_exact_floor() {
     let budget = LatencyBudget::new(Duration::from_millis(FLOOR_MS), Duration::ZERO);
 
     assert_eq!(
-        budget.target_for(ROUTE, "handle=alice.example;branch=found"),
+        budget.target_for(
+            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            "handle=alice.example;branch=found"
+        ),
         Duration::from_millis(FLOOR_MS)
     );
     assert_eq!(
-        budget.target_for(ROUTE, "handle=alice.example;branch=unauthorized"),
+        budget.target_for(
+            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            "handle=alice.example;branch=unauthorized"
+        ),
         Duration::from_millis(FLOOR_MS)
     );
 }

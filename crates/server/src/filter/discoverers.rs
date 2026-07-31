@@ -9,6 +9,7 @@
 
 use std::collections::BTreeSet;
 
+use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
     ClaimDisclosurePolicy, ClaimDisclosureRequirement,
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
@@ -18,8 +19,6 @@ use arkret_sdk::{
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
-
-use arkret_identity::binding::DidBindingPurpose;
 
 use crate::did_binding::DidBindingDirectory;
 use crate::did_resolver::verification_method_issuer;
