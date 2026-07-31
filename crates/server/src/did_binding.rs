@@ -409,10 +409,14 @@ impl DidBindingDirectory {
     /// 4. an accepted binding for `(issuer, purpose, verification_method)` → verify against its
     ///    pinned document;
     /// 5. otherwise, `did:key` issuers are decoded locally and accepted (still zero network);
-    /// 6. otherwise fail closed with [`BindingFailure::NoBinding`]. **No live resolution**, which is
-    ///    the DID-P0-C03 requirement for the query face.
+    /// 6. otherwise fail closed with [`BindingFailure::NoBinding`]. **No live resolution**, which
+    ///    is the DID-P0-C03 requirement for the query face.
     ///
     /// Records exactly one `teabay_signature_verify_total{kind,outcome}`.
+    // Each parameter is an independent part of the verification question
+    // (bytes, signature, key, issuer, purpose); a bundle type would make a
+    // mismatched pair constructible.
+    #[allow(clippy::too_many_arguments)]
     pub fn verify_detached_jws(
         &self,
         canonical_bytes: &[u8],
@@ -637,8 +641,8 @@ impl DidBindingDirectory {
 ///
 /// `did-usage-and-verification.md` §5 mandates a `policy_digest` but defines no
 /// canonical computation for it, which is registered as
-/// `arkret-work/review/spec-open/2026-07-31-binding-digest-fields-have-no-canonical-computation.md`.
-/// The gap is still open **at the spec layer**; at the implementation layer it is
+/// `arkret-work/review/spec-open/2026-07-31-binding-digest-fields-have-no-canonical-computation.
+/// md`. The gap is still open **at the spec layer**; at the implementation layer it is
 /// closed: `arkret_identity::binding_digest` now owns the canonical algorithm and
 /// every repo digests through it, so two deployments with equal policies agree
 /// by construction instead of by coincidence.

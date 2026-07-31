@@ -25,8 +25,8 @@
 //! - the query / filter face is handed a [`crate::did_binding::DidBindingDirectory`], which has no
 //!   resolver at all — "a query handler holds a general-purpose network resolver" is not
 //!   expressible;
-//! - even the ingest face, which *does* hold a `SharedDidResolver`, cannot obtain a
-//!   `&dyn DidResolver` and call `resolve_did` on an arbitrary DID of its choosing outside the
+//! - even the ingest face, which *does* hold a `SharedDidResolver`, cannot obtain a `&dyn
+//!   DidResolver` and call `resolve_did` on an arbitrary DID of its choosing outside the
 //!   purpose-scoped entry points below.
 //!
 //! Every outbound resolution funnels through [`MeteredAuthorityResolver`], so
@@ -213,6 +213,8 @@ impl SharedDidResolver {
     /// [`Self::accepted_or_resolved`], which resolves exactly once.
     ///
     /// Records exactly one `teabay_signature_verify_total{kind,outcome}`.
+    // Same independent-inputs argument as `verify_detached_jws`.
+    #[allow(clippy::too_many_arguments)]
     pub fn verify_detached_jws_with_authority(
         &self,
         canonical_bytes: &[u8],
