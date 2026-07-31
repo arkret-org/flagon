@@ -26,9 +26,25 @@ use arkret_wire::{AddressLinkKind, ParsedAddress, TargetDescriptor, parse_addres
 use chrono::{Duration, Utc};
 use ed25519_dalek::SigningKey;
 use serde_json::{Value as JsonValue, json};
+use server::did_binding::DidBindingDirectory;
 use server::query::target::{
     TokenCheck, verify_address_token_with_methods, verify_preview_token_with_methods,
 };
+
+/// Stand-in for the process-wide `AppState` binding directory — the handle the
+/// directory query face actually gets. `did:key` only, and the type owns no
+/// resolver at all, so these conformance cases are off the network by
+/// construction rather than by configuration.
+fn test_bindings() -> DidBindingDirectory {
+    DidBindingDirectory::new(
+        &["did:key".to_owned()],
+        false,
+        false,
+        "did:web:directory.example",
+        server::observability::Metrics::default(),
+    )
+    .expect("binding directory builds")
+}
 
 const R: &str = "01904100-0000-7000-8000-0000000000aa";
 const F: &str = "01904100-0000-7000-8000-0000000000bb";
@@ -40,14 +56,12 @@ fn verify_address_token(
     canonical_realm_id: &str,
     effective_address_link_kind: AddressLinkKind,
 ) -> TokenCheck {
-    let accepted_did_methods = vec!["did:key".to_owned()];
     verify_address_token_with_methods(
         parsed,
         token,
         canonical_realm_id,
         effective_address_link_kind,
-        &accepted_did_methods,
-        false,
+        &test_bindings(),
     )
 }
 const VIA: &str = "did:web:relay.example";
@@ -152,7 +166,6 @@ fn verify_preview_token(
     requester: Option<&str>,
     now: chrono::DateTime<Utc>,
 ) -> TokenCheck {
-    let accepted_did_methods = vec!["did:key".to_owned()];
     verify_preview_token_with_methods(
         parsed,
         token,
@@ -161,8 +174,7 @@ fn verify_preview_token(
         policy_digest,
         requester,
         now,
-        &accepted_did_methods,
-        false,
+        &test_bindings(),
     )
 }
 
@@ -186,8 +198,8 @@ fn realm_address_classifies_as_realm_target() {
 /// replayed onto a different object B (strand F2). The token-binding check MUST
 /// reject; the handler maps that reject onto the SAME blinded `not_found` as a
 /// nonexistent resource.
-#[test]
-fn invite_token_replayed_onto_other_object_is_rejected() {
+#[tokio::test]
+async fn invite_token_replayed_onto_other_object_is_rejected() {
     let addr_a = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
     let canonical = format!("ak:realm:{R}");
     let token = mint_token(&addr_a, &canonical);
@@ -228,8 +240,8 @@ fn strand_address_without_via_parses() {
 
 /// Extra — an invite link with no token at all is rejected (an invite link MUST
 /// carry a token), mapping to the same blinded not_found.
-#[test]
-fn invite_link_without_token_is_rejected() {
+#[tokio::test]
+async fn invite_link_without_token_is_rejected() {
     let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
     let canonical = format!("ak:realm:{R}");
     assert_eq!(
@@ -238,8 +250,8 @@ fn invite_link_without_token_is_rejected() {
     );
 }
 
-#[test]
-fn preview_token_matching_current_policy_digest_is_accepted() {
+#[tokio::test]
+async fn preview_token_matching_current_policy_digest_is_accepted() {
     let now = Utc::now();
     let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
     let canonical = format!("ak:realm:{R}");
@@ -268,8 +280,8 @@ fn preview_token_matching_current_policy_digest_is_accepted() {
     );
 }
 
-#[test]
-fn preview_token_replayed_onto_other_object_is_rejected() {
+#[tokio::test]
+async fn preview_token_replayed_onto_other_object_is_rejected() {
     let now = Utc::now();
     let addr_a = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
     let addr_b = parse_address(&format!("web+arkret:realm/{R}/strand/{F2}?lt=preview")).unwrap();
@@ -299,8 +311,8 @@ fn preview_token_replayed_onto_other_object_is_rejected() {
     );
 }
 
-#[test]
-fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
+#[tokio::test]
+async fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
     let now = Utc::now();
     let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
     let canonical = format!("ak:realm:{R}");
@@ -358,8 +370,8 @@ fn preview_policy_previous_digest_requires_unexpired_allowlist_entry() {
     );
 }
 
-#[test]
-fn malformed_preview_token_lifecycle_fields_are_rejected() {
+#[tokio::test]
+async fn malformed_preview_token_lifecycle_fields_are_rejected() {
     let now = Utc::now();
     let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=preview")).unwrap();
     let canonical = format!("ak:realm:{R}");
@@ -406,8 +418,8 @@ fn malformed_preview_token_lifecycle_fields_are_rejected() {
     }
 }
 
-#[test]
-fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
+#[tokio::test]
+async fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
     let addr = parse_address(&format!("web+arkret:realm/{R}/strand/{F}?lt=invite")).unwrap();
     let canonical = format!("ak:realm:{R}");
     let mut descriptor = TargetDescriptor::from_parsed(&addr);

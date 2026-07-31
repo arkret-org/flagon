@@ -9,6 +9,8 @@ use chrono::{DateTime, Utc};
 
 use crate::config::AppConfig;
 use crate::db::Db;
+use crate::did_binding::DidBindingDirectory;
+use crate::did_resolver::SharedDidResolver;
 use crate::observability::Metrics;
 
 #[derive(Clone)]
@@ -19,6 +21,15 @@ pub struct AppState {
 struct Inner {
     config: AppConfig,
     db: Db,
+    /// DID-P0-C01 — the one DID resolver for this process. Built here at
+    /// startup from the `AppConfig` snapshot; request paths borrow it and
+    /// never rebuild a resolver or a `reqwest::Client`.
+    did_resolver: Arc<SharedDidResolver>,
+    /// DID-P0-C02/C03 — the zero-network acceptance directory, shared with (and
+    /// written by) `did_resolver`. This is what the query / filter face gets:
+    /// it owns no resolver, so a query handler cannot express a network
+    /// resolution at all.
+    did_bindings: Arc<DidBindingDirectory>,
     cursor_authority: arkret_server::MemoryCursorAuthority,
     rate_limiter: RateLimiter,
     announce_replay_cache: AnnounceReplayCache,
@@ -27,23 +38,70 @@ struct Inner {
 }
 
 impl AppState {
-    pub fn new(config: AppConfig, db: Db) -> Self {
+    /// Build the process state.
+    ///
+    /// Returns `Err` when the DID resolver chain cannot be constructed (bad
+    /// TLS/DNS setup, unusable egress policy). This is deliberately a
+    /// **startup** failure surfaced to `main::run`: the alternative designs
+    /// (store a `Result`/`OnceLock` in `Inner` and fail at the first request)
+    /// would turn a misconfigured deployment into a service that boots green,
+    /// answers `/readyz`, and then rejects every signed ingest with a 500. A
+    /// resolver that cannot be built is a configuration error, and
+    /// configuration errors belong at boot.
+    pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
         let workers = WorkerRuntime::from_config(&config);
-        Self {
+        // Built before the resolver so the DID counters land on the same
+        // `Metrics` instance `/metrics` renders.
+        let metrics = Metrics::default();
+        // The egress decision is taken once, here, from the config snapshot —
+        // never recomputed per request and never widened by a caller.
+        let did_resolver = SharedDidResolver::with_metrics(
+            &config.accepted_did_methods,
+            config.development_mode,
+            &config.service_id,
+            metrics.clone(),
+        )
+        .map_err(|error| anyhow::anyhow!("DID resolver init failed: {error}"))?;
+        let did_bindings = Arc::clone(did_resolver.bindings());
+        Ok(Self {
             inner: Arc::new(Inner {
                 config,
                 db,
+                did_resolver: Arc::new(did_resolver),
+                did_bindings,
                 cursor_authority: arkret_server::MemoryCursorAuthority::default(),
                 rate_limiter: RateLimiter::default(),
                 announce_replay_cache: AnnounceReplayCache::default(),
-                metrics: Metrics::default(),
+                metrics,
                 workers,
             }),
-        }
+        })
     }
 
     pub fn config(&self) -> &AppConfig {
         &self.inner.config
+    }
+
+    /// The shared DID **authority** handle. Only the ingest face and the RFC
+    /// 9421 HTTP-signature middleware may hold it: those are the two surfaces
+    /// that can name a `did-usage-and-verification.md` §4 trigger row.
+    ///
+    /// Even so, this handle exposes no resolver — see
+    /// [`crate::did_resolver::SharedDidResolver`].
+    pub fn did_resolver(&self) -> &Arc<SharedDidResolver> {
+        &self.inner.did_resolver
+    }
+
+    /// The zero-network accepted-binding directory — the handle every
+    /// directory **query** / filter path gets.
+    ///
+    /// DID-P0-C03: `DidBindingDirectory` has no resolver field and no resolver
+    /// accessor, so "this query handler resolved a DID online" is not
+    /// expressible from here. Unknown issuers fail closed and collapse into the
+    /// existing blinded `not_found`, which is also what keeps the
+    /// anti-enumeration behaviour unchanged.
+    pub fn did_bindings(&self) -> &Arc<DidBindingDirectory> {
+        &self.inner.did_bindings
     }
 
     pub fn db(&self) -> &Db {

@@ -83,7 +83,7 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
         resource_kind,
         &body.resource_id,
         expected_controller.as_deref(),
-        state.config(),
+        state.did_resolver(),
     ) {
         code.render(res, message);
         return;

@@ -433,8 +433,7 @@ fn verified_restricted_claims_for_body(
         body.requester.as_ref().map(|did| did.as_str()),
         body.proof_challenge.as_deref(),
         &state.config().service_id,
-        &state.config().accepted_did_methods,
-        crate::egress::local_development_enabled(state.config().development_mode),
+        state.did_bindings(),
     )
 }
 

@@ -120,7 +120,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         body.resource_kind,
         &body.resource_id,
         expected_controller.as_deref(),
-        state.config(),
+        state.did_resolver(),
     ) {
         ingest_metric.set_outcome("signature_invalid");
         code.render(res, msg);

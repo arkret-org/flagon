@@ -9,8 +9,6 @@
 
 use std::collections::BTreeSet;
 
-use arkret_identity::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
-use arkret_sdk::identity::DidKeyResolver;
 use arkret_sdk::{
     ClaimDisclosurePolicy, ClaimDisclosureRequirement,
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
@@ -21,7 +19,11 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
-use crate::did_resolver::{did_method_allowed, did_resolver_chain};
+use arkret_identity::binding::DidBindingPurpose;
+
+use crate::did_binding::DidBindingDirectory;
+use crate::did_resolver::verification_method_issuer;
+use crate::observability::SIGNATURE_KIND_RESTRICTED_CLAIM;
 
 #[derive(Debug, Serialize)]
 struct RestrictedClaimPresentationPayload<'a> {
@@ -84,13 +86,24 @@ pub fn matches_allowed_discoverers(
     })
 }
 
+/// Verify every presented restricted claim.
+///
+/// # DID-P0-C03 — this path never resolves
+///
+/// `bindings` is a [`DidBindingDirectory`], which owns no DID resolver. A
+/// presentation therefore verifies against an **already accepted**
+/// [`DidBindingPurpose::DirectoryIssuer`] binding (established when that issuer
+/// announced itself to this directory), or — for `did:key`, which is
+/// self-describing key material — against a locally decoded document. An issuer
+/// this directory has never accepted produces `Err`, which every caller already
+/// turns into the blinded `not_found` / "no verified claims" outcome, so the
+/// anti-enumeration behaviour is unchanged.
 pub fn verify_restricted_claim_presentations(
     presentations: &[DirectoryRestrictedClaimPresentation],
     requester: Option<&str>,
     proof_challenge: Option<&str>,
     expected_audience: &str,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> Result<VerifiedRestrictedClaims, String> {
     if presentations.is_empty() {
         return Ok(VerifiedRestrictedClaims::default());
@@ -111,8 +124,7 @@ pub fn verify_restricted_claim_presentations(
             requester,
             challenge,
             expected_audience,
-            accepted_did_methods,
-            allow_private_networks,
+            bindings,
         )?;
         claims.push(presentation.claim.clone().into());
     }
@@ -124,8 +136,7 @@ fn verify_presentation_envelope(
     requester: &str,
     challenge: &str,
     expected_audience: &str,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> Result<(), String> {
     if presentation.kind != DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND {
         return Err("unsupported restricted claim presentation kind".to_owned());
@@ -173,8 +184,7 @@ fn verify_presentation_envelope(
         &presentation.jws,
         &presentation.verification_method,
         presentation.iss.as_str(),
-        accepted_did_methods,
-        allow_private_networks,
+        bindings,
     )
 }
 
@@ -183,37 +193,28 @@ fn verify_presentation_jws(
     jws: &str,
     verification_method: &str,
     issuer: &str,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> Result<(), String> {
-    if accepted_did_methods.is_empty() {
+    // Kept at the call site (as well as inside the shared helper) because an
+    // empty `allowed_methods` is fail-OPEN at the `ResolverPolicy` layer and
+    // because this exact message is part of the restricted-claim contract.
+    if bindings.accepted_did_methods().is_empty() {
         return Err("no accepted DID methods configured".to_owned());
     }
-    if issuer.starts_with("did:key:") && did_method_allowed(accepted_did_methods, "did:key") {
-        let resolver = DidKeyResolver::new();
-        return sdk_verify_jws_ed25519(
+    // Accepted `directory_issuer` binding, or the zero-network `did:key`
+    // decode. Never a live resolution — see the module note on
+    // `verify_restricted_claim_presentations`.
+    bindings
+        .verify_detached_jws(
             canonical_bytes,
             jws,
             verification_method,
             issuer,
-            &resolver,
+            DidBindingPurpose::DirectoryIssuer,
+            SIGNATURE_KIND_RESTRICTED_CLAIM,
+            Utc::now(),
         )
-        .map_err(|error| format!("restricted claim JWS invalid: {error}"));
-    }
-
-    let resolver = did_resolver_chain(accepted_did_methods, allow_private_networks)
-        .map_err(|error| format!("restricted claim DID resolver: {error}"))?;
-    sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver)
         .map_err(|error| format!("restricted claim JWS invalid: {error}"))
-}
-
-fn verification_method_issuer(verification_method: &str) -> Option<&str> {
-    let issuer = verification_method
-        .split_once('#')
-        .map(|(did, _)| did)
-        .unwrap_or(verification_method)
-        .trim();
-    (!issuer.is_empty()).then_some(issuer)
 }
 
 fn claim_selector_matches(
@@ -322,12 +323,27 @@ mod tests {
 
     const SIGNING_SEED: [u8; 32] = [23u8; 32];
 
-    #[test]
-    fn signed_restricted_claim_presentation_authorizes_claim_selector() {
+    /// Stand-in for the startup-built `AppState` binding directory. `did:key`
+    /// only, so the whole test stays on the zero-network fast path — which is
+    /// the only path this type has.
+    fn test_bindings() -> DidBindingDirectory {
+        DidBindingDirectory::new(
+            &["did:key".to_owned()],
+            false,
+            false,
+            "did:web:directory.example",
+            crate::observability::Metrics::default(),
+        )
+        .expect("binding directory builds")
+    }
+
+    #[tokio::test]
+    async fn signed_restricted_claim_presentation_authorizes_claim_selector() {
         let signing_key = SigningKey::from_bytes(&SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
         let issuer = Did::new(format!("did:key:{multibase}")).unwrap();
-        let verification_method = format!("{}#{multibase}", issuer.as_str());
+        let verification_method =
+            arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer.as_str())).unwrap();
         let subject = Did::new("did:web:bob.example".to_owned()).unwrap();
         let org = Did::new("did:web:acme.example".to_owned()).unwrap();
         let claim = PresentedClaim::organization_membership(
@@ -346,13 +362,13 @@ mod tests {
             claim,
         );
 
+        let bindings = test_bindings();
         let verified = verify_restricted_claim_presentations(
             std::slice::from_ref(&presentation),
             Some(subject.as_str()),
             Some("challenge-1"),
             "did:web:directory.example",
-            &["did:key".to_owned()],
-            false,
+            &bindings,
         )
         .expect("presentation verifies");
         let projection = json!({
@@ -375,8 +391,7 @@ mod tests {
                 Some(subject.as_str()),
                 Some("wrong-challenge"),
                 "did:web:directory.example",
-                &["did:key".to_owned()],
-                false,
+                &bindings,
             )
             .is_err()
         );
@@ -385,7 +400,7 @@ mod tests {
     fn signed_presentation(
         signing_key: &SigningKey,
         iss: Did,
-        verification_method: String,
+        verification_method: arkret_wire::DidUrl,
         audience: &str,
         nonce: &str,
         claim: PresentedClaim,

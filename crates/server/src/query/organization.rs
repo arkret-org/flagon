@@ -333,8 +333,7 @@ fn verified_restricted_claims_for_org_query(
         requester,
         proof_challenge,
         &state.config().service_id,
-        &state.config().accepted_did_methods,
-        crate::egress::local_development_enabled(state.config().development_mode),
+        state.did_bindings(),
     )
     .unwrap_or_default()
 }

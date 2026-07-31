@@ -114,6 +114,63 @@ pub const PURGE_TABLE_DIRECTORY_RESOURCES: &str = "directory_resources";
 pub const TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED: &str = "attempt_failed";
 pub const TAKEDOWN_NOTIFICATION_STAGE_DLQ: &str = "dlq";
 
+/// DID-P0-C04 — `source` label values on `teabay_did_resolve_total{method,source}`.
+///
+/// The three values are mutually exclusive and cover every way teabay can
+/// obtain a DID document:
+///
+/// | value | what happened | network |
+/// | --- | --- | --- |
+/// | [`DID_RESOLVE_SOURCE_BINDING_STORE`] | an accepted binding was reused out of the local store | no |
+/// | [`DID_RESOLVE_SOURCE_DID_KEY`] | `did:key` was decoded locally (self-describing key material, spec §2.4) | no |
+/// | [`DID_RESOLVE_SOURCE_NETWORK`] | the shared resolver chain performed an upstream fetch | **yes** |
+///
+/// The joint call-count contract (`DID-P1-C01`) defines
+/// `authority_network_call_count` as the increment of the
+/// `source="network"` series **only**. It is therefore incremented from
+/// exactly one place — `crate::did_resolver::MeteredAuthorityResolver`, a
+/// wrapper whose `resolve_did` is the single upstream entry point — so the
+/// counter cannot drift from the actual number of outbound resolutions.
+pub const DID_RESOLVE_SOURCE_BINDING_STORE: &str = "binding_store";
+pub const DID_RESOLVE_SOURCE_DID_KEY: &str = "did_key";
+pub const DID_RESOLVE_SOURCE_NETWORK: &str = "network";
+
+/// DID-P0-C04 — `kind` label values on
+/// `teabay_signature_verify_total{kind,outcome}`. One increment per verified
+/// signature, which is a different count from
+/// `teabay_did_resolve_total{source="network"}` (spec §6: "per-signature
+/// verification" and "per-signature resolution" are independent counters).
+pub const SIGNATURE_KIND_INGEST_PROOF: &str = "ingest_governance_proof";
+pub const SIGNATURE_KIND_RESTRICTED_CLAIM: &str = "restricted_claim_presentation";
+pub const SIGNATURE_KIND_INVITE_TOKEN: &str = "invite_token";
+pub const SIGNATURE_KIND_PREVIEW_TOKEN: &str = "preview_token";
+pub const SIGNATURE_KIND_HTTP_SIGNATURE: &str = "http_signature";
+
+/// `outcome` label values on `teabay_signature_verify_total{kind,outcome}`.
+pub const SIGNATURE_OUTCOME_OK: &str = "ok";
+pub const SIGNATURE_OUTCOME_INVALID: &str = "invalid";
+/// No accepted binding for the issuer and no zero-network way to obtain one:
+/// the query face fails closed instead of live-resolving (spec §4 / §6).
+pub const SIGNATURE_OUTCOME_NO_BINDING: &str = "no_binding";
+/// Rejected before any cryptography by local policy (empty accepted-method
+/// allowlist, DID method outside the allowlist, malformed DID URL).
+pub const SIGNATURE_OUTCOME_POLICY_REJECTED: &str = "policy_rejected";
+
+const SIGNATURE_VERIFY_KINDS: &[&str] = &[
+    SIGNATURE_KIND_INGEST_PROOF,
+    SIGNATURE_KIND_RESTRICTED_CLAIM,
+    SIGNATURE_KIND_INVITE_TOKEN,
+    SIGNATURE_KIND_PREVIEW_TOKEN,
+    SIGNATURE_KIND_HTTP_SIGNATURE,
+];
+
+const SIGNATURE_VERIFY_OUTCOMES: &[&str] = &[
+    SIGNATURE_OUTCOME_OK,
+    SIGNATURE_OUTCOME_INVALID,
+    SIGNATURE_OUTCOME_NO_BINDING,
+    SIGNATURE_OUTCOME_POLICY_REJECTED,
+];
+
 const PURGE_TABLES: &[&str] = &[PURGE_TABLE_DIRECTORY_RESOURCES];
 const TAKEDOWN_NOTIFICATION_STAGES: &[&str] = &[
     TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED,
@@ -139,6 +196,9 @@ struct MetricsInner {
     query_outcomes: Mutex<BTreeMap<QueryOutcomeKey, u64>>,
     filter_drops: Mutex<BTreeMap<String, u64>>,
     cardinality_guard: Mutex<BTreeMap<String, u64>>,
+    // DID-P0-C04 — the two counters the joint call-count contract consumes.
+    did_resolve: Mutex<BTreeMap<DidResolveKey, u64>>,
+    signature_verify: Mutex<BTreeMap<SignatureVerifyKey, u64>>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -150,6 +210,18 @@ struct IngestKey {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct QueryOutcomeKey {
     op: String,
+    outcome: String,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct DidResolveKey {
+    method: String,
+    source: String,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct SignatureVerifyKey {
+    kind: String,
     outcome: String,
 }
 
@@ -299,6 +371,74 @@ impl Metrics {
         *guard.entry(counter.to_owned()).or_default() += count;
     }
 
+    /// DID-P0-C04 — increment `teabay_did_resolve_total{method,source}`.
+    ///
+    /// `method` is the bare DID method name (`key`, `web`, `webvh`, ...).
+    /// `source` MUST be one of [`DID_RESOLVE_SOURCE_BINDING_STORE`],
+    /// [`DID_RESOLVE_SOURCE_DID_KEY`] or [`DID_RESOLVE_SOURCE_NETWORK`]; only
+    /// the last one means an outbound request actually happened.
+    pub fn record_did_resolve(&self, method: &str, source: &str) {
+        let mut resolves = self
+            .inner
+            .did_resolve
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *resolves
+            .entry(DidResolveKey {
+                method: method.to_owned(),
+                source: source.to_owned(),
+            })
+            .or_default() += 1;
+    }
+
+    /// DID-P0-C04 — increment `teabay_signature_verify_total{kind,outcome}`.
+    /// Exactly one increment per signature teabay decides on, including the
+    /// ones rejected by local policy before any cryptography runs.
+    pub fn record_signature_verify(&self, kind: &str, outcome: &str) {
+        let mut verifies = self
+            .inner
+            .signature_verify
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *verifies
+            .entry(SignatureVerifyKey {
+                kind: kind.to_owned(),
+                outcome: outcome.to_owned(),
+            })
+            .or_default() += 1;
+    }
+
+    /// Test/assertion helper: current value of
+    /// `teabay_did_resolve_total{method,source}` summed over every method.
+    ///
+    /// `authority_network_call_count` is
+    /// `did_resolve_count(DID_RESOLVE_SOURCE_NETWORK)`.
+    pub fn did_resolve_count(&self, source: &str) -> u64 {
+        self.inner
+            .did_resolve
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|(key, _)| key.source == source)
+            .map(|(_, value)| *value)
+            .sum()
+    }
+
+    /// Test/assertion helper: current value of
+    /// `teabay_signature_verify_total{kind,outcome}`.
+    pub fn signature_verify_count(&self, kind: &str, outcome: &str) -> u64 {
+        self.inner
+            .signature_verify
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&SignatureVerifyKey {
+                kind: kind.to_owned(),
+                outcome: outcome.to_owned(),
+            })
+            .copied()
+            .unwrap_or(0)
+    }
+
     pub fn render_prometheus(&self) -> String {
         let ingest = self
             .inner
@@ -346,6 +486,18 @@ impl Metrics {
         let cardinality_guard = self
             .inner
             .cardinality_guard
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let did_resolve = self
+            .inner
+            .did_resolve
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let signature_verify = self
+            .inner
+            .signature_verify
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
@@ -551,6 +703,68 @@ impl Metrics {
                 &mut out,
                 "teabay_directory_cardinality_guard_total",
                 &[("counter", counter.as_str())],
+                *value as f64,
+            );
+        }
+
+        // DID-P0-C04 — DID resolution counter. The `method` label is
+        // operator-configured (`TEABAY_ACCEPTED_DID_METHODS`), so there is no
+        // fixed grid to pre-seed; the HELP/TYPE lines are always emitted so a
+        // scraper (and the joint call-count harness) sees the family exists
+        // even before the first resolution.
+        out.push_str(
+            "# HELP teabay_did_resolve_total DID document acquisitions by method and source; \
+             source=\"network\" is the only one that performed an outbound request.\n",
+        );
+        out.push_str("# TYPE teabay_did_resolve_total counter\n");
+        for (key, value) in &did_resolve {
+            push_sample(
+                &mut out,
+                "teabay_did_resolve_total",
+                &[
+                    ("method", key.method.as_str()),
+                    ("source", key.source.as_str()),
+                ],
+                *value as f64,
+            );
+        }
+
+        // DID-P0-C04 — per-signature verification counter, pre-seeded over the
+        // known (kind × outcome) grid so a zero series exists before the first
+        // signature of each combination arrives.
+        out.push_str(
+            "# HELP teabay_signature_verify_total Signature verifications by surface and outcome; \
+             one increment per signature, independent of teabay_did_resolve_total.\n",
+        );
+        out.push_str("# TYPE teabay_signature_verify_total counter\n");
+        for &kind in SIGNATURE_VERIFY_KINDS {
+            for &outcome in SIGNATURE_VERIFY_OUTCOMES {
+                let value = signature_verify
+                    .get(&SignatureVerifyKey {
+                        kind: kind.to_owned(),
+                        outcome: outcome.to_owned(),
+                    })
+                    .copied()
+                    .unwrap_or(0);
+                push_sample(
+                    &mut out,
+                    "teabay_signature_verify_total",
+                    &[("kind", kind), ("outcome", outcome)],
+                    value as f64,
+                );
+            }
+        }
+        for (key, value) in signature_verify.iter().filter(|(key, _)| {
+            !(SIGNATURE_VERIFY_KINDS.contains(&key.kind.as_str())
+                && SIGNATURE_VERIFY_OUTCOMES.contains(&key.outcome.as_str()))
+        }) {
+            push_sample(
+                &mut out,
+                "teabay_signature_verify_total",
+                &[
+                    ("kind", key.kind.as_str()),
+                    ("outcome", key.outcome.as_str()),
+                ],
                 *value as f64,
             );
         }

@@ -19,9 +19,11 @@ use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use arkret_identity::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
-use arkret_sdk::identity::{DidResolver, DidWebvhResolver};
+use arkret_identity::binding::DidBindingPurpose;
+use arkret_identity::document_canonical_digest;
+use arkret_sdk::identity::DidWebvhResolver;
 use arkret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver, canonical};
+use arkret_wire::{Hash, TypedTrustDomainId};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -32,10 +34,12 @@ use url::Url;
 
 use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
-use crate::did_resolver::{did_method_allowed, did_method_prefix_for_did, did_resolver_chain};
+use crate::did_binding::BindingEvidence;
+use crate::did_resolver::{SharedDidResolver, did_method_allowed, did_method_prefix_for_did};
 use crate::error::ApiErrorCode;
 use crate::ingest::DirectoryResourceKindDb;
 use crate::ingest::announce::DirectoryAnnounceIngest;
+use crate::observability::SIGNATURE_KIND_INGEST_PROOF;
 
 const MAX_VIA_SERVICES: usize = 8;
 pub(crate) const EXTERNAL_JSON_MAX_BYTES: usize = 1_048_576;
@@ -54,14 +58,17 @@ pub struct VerifyOutcome {
 pub struct VerifyContext<'a> {
     pub config: &'a AppConfig,
     pub db: &'a Db,
+    /// DID-P0-C01 — borrowed from `AppState`; never constructed here.
+    pub resolver: &'a SharedDidResolver,
     pub now: DateTime<Utc>,
 }
 
 impl<'a> VerifyContext<'a> {
-    pub fn new(config: &'a AppConfig, db: &'a Db) -> Self {
+    pub fn new(config: &'a AppConfig, db: &'a Db, resolver: &'a SharedDidResolver) -> Self {
         Self {
             config,
             db,
+            resolver,
             now: Utc::now(),
         }
     }
@@ -144,7 +151,7 @@ impl<'a> VerifyContext<'a> {
             req.resource_kind,
             &req.resource_id,
             expected_governance_controller.as_deref(),
-            self.config,
+            self.resolver,
         )?;
 
         // --- Step 3: directory authorization (this DID listed). ------------
@@ -170,7 +177,7 @@ impl<'a> VerifyContext<'a> {
             .await
             .map_err(|e| (ApiErrorCode::InternalError, format!("source-ref gate: {e}")))?
         {
-            verify_first_source_ref_resolves(req, self.config).await?;
+            verify_first_source_ref_resolves(req, self.config, self.resolver).await?;
         }
 
         // --- Step 5: accept policy enforcement. ----------------------------
@@ -306,7 +313,7 @@ pub(crate) fn verify_discovery_proof(
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     expected_controller_did: Option<&str>,
-    config: &AppConfig,
+    resolver: &SharedDidResolver,
 ) -> Result<(), (ApiErrorCode, String)> {
     let proof = discovery_state.get("proof").ok_or_else(|| {
         (
@@ -321,7 +328,7 @@ pub(crate) fn verify_discovery_proof(
         resource_kind,
         resource_id,
         expected_controller_did,
-        config,
+        resolver,
     )
 }
 
@@ -331,7 +338,7 @@ pub(crate) fn verify_governance_proof_payload(
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     expected_controller_did: Option<&str>,
-    config: &AppConfig,
+    resolver: &SharedDidResolver,
 ) -> Result<(), (ApiErrorCode, String)> {
     let canonical = canonical_json_bytes(canonical_payload_without_jws)
         .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))?;
@@ -342,7 +349,7 @@ pub(crate) fn verify_governance_proof_payload(
         resource_kind,
         resource_id,
         expected_controller_did,
-        config,
+        resolver,
     )
 }
 
@@ -352,7 +359,7 @@ fn verify_detached_jws_payload(
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     expected_controller_did: Option<&str>,
-    config: &AppConfig,
+    resolver: &SharedDidResolver,
 ) -> Result<(), (ApiErrorCode, String)> {
     let DetachedProof {
         verification_method,
@@ -364,7 +371,7 @@ fn verify_detached_jws_payload(
         expected_controller_did,
         &verification_method,
     )?;
-    verify_jws_ed25519(canonical_bytes, &jws, &verification_method, config)
+    verify_jws_ed25519(canonical_bytes, &jws, &verification_method, resolver)
         .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
 }
 
@@ -438,22 +445,48 @@ fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
     canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }
 
+/// Verify an ingest governance proof.
+///
+/// # DID-P0-C01 / C02 — one resolver, and only on a §4 trigger
+///
+/// This used to build a whole new `CompositeDidResolver` (and a whole new
+/// `reqwest::Client`) per proof, then resolve the signer's DID on **every**
+/// announce. It now goes through the accepted-binding path:
+///
+/// - a repeat announce / withdraw / appeal for the same DID, verification method and policy
+///   verifies against the already-accepted `directory_ingest` binding — zero network;
+/// - only a new verification method, a new source service, a changed document digest, a policy
+///   revision or an explicit invalidation re-enters the authority path, and that resolves exactly
+///   once;
+/// - `did:key` proofs still decode locally with zero network access (spec §2.4).
+///
+/// It also closes a **fail-open** hole that predated DID-P0-C01: this entry
+/// point never checked for an empty `TEABAY_ACCEPTED_DID_METHODS`, while the
+/// SDK `ResolverPolicy` treats an empty `allowed_methods` as "every method is
+/// allowed". `discoverers` and `target` both had the guard; ingest — the
+/// *write* path — did not. `verify_detached_jws_with_authority` now rejects an
+/// empty allowlist before any cryptography, for every surface at once.
 fn verify_jws_ed25519(
     canonical_bytes: &[u8],
     jws: &str,
     verification_method: &str,
-    config: &AppConfig,
+    resolver: &SharedDidResolver,
 ) -> Result<(), String> {
-    let resolver = did_resolver_chain(
-        &config.accepted_did_methods,
-        crate::egress::local_development_enabled(config.development_mode),
-    )?;
     let issuer = verification_method
         .split_once('#')
         .map(|(did, _)| did)
         .unwrap_or(verification_method);
-    sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver)
-        .map_err(|err| err.to_string())
+    resolver
+        .verify_detached_jws_with_authority(
+            canonical_bytes,
+            jws,
+            verification_method,
+            issuer,
+            DidBindingPurpose::DirectoryIngest,
+            SIGNATURE_KIND_INGEST_PROOF,
+            Utc::now(),
+        )
+        .map_err(|failure| failure.message().to_owned())
 }
 
 fn enforce_governance_method_binding(
@@ -533,6 +566,7 @@ async fn resource_already_indexed(
 async fn verify_first_source_ref_resolves(
     req: &DirectoryAnnounceIngest,
     config: &AppConfig,
+    resolver: &SharedDidResolver,
 ) -> Result<(), (ApiErrorCode, String)> {
     let source_ref = req
         .source_refs
@@ -545,21 +579,43 @@ async fn verify_first_source_ref_resolves(
             )
         })?
         .clone();
-    let http = strict_http_client().map_err(|e| {
+    // DID-P0-C02: this function used to build TWO reqwest clients. The first
+    // existed only to be handed to `resolve_principal_server_endpoint`, which
+    // passed it to `fetch_did_document_json`, which ignored it (the parameter
+    // was literally named `_http`) and built a third client of its own. It is
+    // gone. The second client further down survives and is deliberately NOT
+    // shared: `strict_http_client_for_egress` pins the client to the one IP
+    // that `resolve_url_for_egress` just validated for this exact target,
+    // which is what closes the DNS-rebinding hole. A per-target client cannot
+    // be hoisted into `AppState` without reopening that hole.
+    //
+    // DID-P0-C02: the endpoint is an accepted five-tuple (service DID, service
+    // kind, trust domain, endpoint digest, source ref), not a cached URL, and
+    // the URL below is derived from the *pinned* DID document every time.
+    let accepted = resolve_principal_server_endpoint(
+        config,
+        resolver,
+        &req.principal_server_did,
+        source_ref.as_str(),
+    )
+    .await
+    .map_err(|e| {
         (
-            ApiErrorCode::InternalError,
-            format!("source-ref HTTP client: {e}"),
+            ApiErrorCode::SourceRefsUnverifiable,
+            format!("principal_server_did did not resolve to events endpoint: {e}"),
         )
     })?;
-    let endpoint = resolve_principal_server_endpoint(config, &req.principal_server_did, &http)
-        .await
-        .map_err(|e| {
-            (
-                ApiErrorCode::SourceRefsUnverifiable,
-                format!("principal_server_did did not resolve to events endpoint: {e}"),
-            )
-        })?;
-    let url = endpoint_child(&endpoint, &format!("events/{source_ref}")).map_err(|e| {
+    tracing::debug!(
+        service_did = %accepted.service_did,
+        service_kind = accepted.service_kind,
+        trust_domain = %accepted.trust_domain,
+        endpoint_digest = %accepted.endpoint_digest,
+        document_digest = %accepted.document_digest,
+        acceptance_digest = %accepted.acceptance_digest,
+        source_ref = %accepted.source_ref,
+        "accepted principal server endpoint"
+    );
+    let url = endpoint_child(&accepted.endpoint, &format!("events/{source_ref}")).map_err(|e| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref URL: {e}"),
@@ -620,11 +676,104 @@ async fn verify_first_source_ref_resolves(
     Ok(())
 }
 
+/// An accepted principal-server service endpoint.
+///
+/// # DID-P0-C02 — an endpoint acceptance is a tuple, never a cached URL
+///
+/// The task requirement is explicit: an accepted endpoint MUST bind the service
+/// DID, the service kind, the trust domain, the endpoint digest and the source
+/// ref; caching a bare URL is not acceptable. All five live here, and none of
+/// them is decorative:
+///
+/// | field | where it is bound |
+/// | --- | --- |
+/// | `service_did` | the `VerifiedDidBinding`'s `did` — part of the store key |
+/// | `trust_domain` | the binding's `trust_domain` — part of the store key |
+/// | `service_kind` | the binding's `evidence_digest` (`BindingEvidence::PrincipalServiceEndpoint`) |
+/// | `endpoint_digest` | the binding's `evidence_digest` too — `DidBindingDirectory::service_endpoint_digest` runs inside the SDK evidence closure on the resolved document — *and* recomputed here from the pinned document every time |
+/// | `source_ref` | supplied per request and folded into `acceptance_digest` |
+///
+/// `endpoint_digest` used to be teabay-side only: the SDK's eager
+/// `BindingAcceptance` demanded a finished evidence digest *before* resolution,
+/// so nothing the document published could enter the evidence. The deferred
+/// `resolve_and_verify_binding_with_evidence` closes that, and the two digests
+/// answer different questions on purpose — the evidence one commits to the
+/// endpoint set **as published** (raw, document order), the one below to the
+/// single **resolved absolute URL** this request will actually fetch from.
+///
+/// The endpoint is **always re-derived from the pinned DID document**, never
+/// read out of a URL cache: on a store hit the `service` array comes from
+/// `AcceptedDidBinding::document()`, whose canonical digest the binding
+/// recorded. A host that later serves a different document cannot change the
+/// endpoint teabay uses without the binding being invalidated first.
+///
+/// `source_ref` is bound per use rather than per acceptance on purpose: one
+/// principal server anchors many resources, so folding a single source ref into
+/// the *stored* acceptance would either pin the acceptance to the first
+/// announce that established it or defeat reuse entirely. What matters for the
+/// security property is that a source ref can only ever be fetched from an
+/// endpoint that is itself bound to a verified document — which is exactly what
+/// `acceptance_digest` states.
+#[derive(Debug, Clone)]
+pub(crate) struct AcceptedServiceEndpoint {
+    pub service_did: Did,
+    pub service_kind: &'static str,
+    pub trust_domain: TypedTrustDomainId,
+    pub endpoint: Url,
+    pub endpoint_digest: Hash,
+    pub document_digest: Hash,
+    pub source_ref: String,
+    /// Digest over the whole five-tuple. This is the value that would be
+    /// persisted / logged; it makes "we accepted this URL" impossible to state
+    /// without also stating for which service, kind, trust domain, document and
+    /// source ref.
+    pub acceptance_digest: Hash,
+}
+
+/// The only service kind teabay follows for source-ref anchors.
+pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
+
+/// Resolve `principal_server_did` to its `ArkretPrincipalServer` service
+/// endpoint, fetching the DID Document **at most once per accepted binding**.
+///
+/// # DID-P0-C02 — the double network access, and where each check went
+///
+/// This function used to hit the network twice for one document: it ran the
+/// resolver chain purely as a yes/no validity gate and *discarded* the
+/// resolved document, then fetched the same `did.json` again over raw HTTP to
+/// read `service` out of it. Besides the wasted round trip, that left a real
+/// TOCTOU gap — the endpoint actually used came from the second, unvalidated
+/// fetch, which a hostile host could serve differently from the first.
+///
+/// The merge keeps the resolver as the single fetch, because the resolver is
+/// the side that carries the DID-method evidence. Nothing was dropped:
+///
+/// | check | before | after |
+/// | --- | --- | --- |
+/// | method in `TEABAY_ACCEPTED_DID_METHODS` | `principal_did_method_allowed` + the chain's `ResolverPolicy` | unchanged, both still run |
+/// | document validation (content type, 64 KiB cap, `did:webvh` log chain + witness) | resolver | resolver |
+/// | SSRF / egress control on the fetch | `resolve_url_for_egress` inside the raw fetch | the shared chain's client: `https_only` + `egress::ValidatingDnsResolver`, both frozen from the startup config |
+/// | `document.id == principal_server_did` | compared on the raw JSON here | still compared here, now against the resolved document |
+/// | `service[].type == "ArkretPrincipalServer"` | raw JSON | `DidDocument::raw_properties["service"]`, which preserves the wire document verbatim |
+/// | relative `serviceEndpoint` resolution | `service_endpoint_url` | unchanged |
+///
+/// On top of that merge, DID-P0-C02 adds the acceptance: the resolved document
+/// is filed as a `DidBindingPurpose::PrincipalServiceEndpoint` binding, so a
+/// second first-ingest naming the same principal server performs **zero**
+/// network calls.
+///
+/// The development-mode loopback branch is untouched in meaning: a loopback
+/// `did:web` host cannot be resolved by a chain that demands public HTTPS, so
+/// that branch still deliberately bypasses the resolver and performs its one
+/// raw fetch, then runs the same `id` / `service` checks on that JSON. It
+/// deliberately does **not** write a binding — a development bypass must not
+/// seed trust that outlives the request.
 pub(crate) async fn resolve_principal_server_endpoint(
     config: &AppConfig,
+    resolver: &SharedDidResolver,
     principal_server_did: &str,
-    http: &Client,
-) -> anyhow::Result<Url> {
+    source_ref: &str,
+) -> anyhow::Result<AcceptedServiceEndpoint> {
     let did = Did::new(principal_server_did.to_owned())
         .map_err(|e| anyhow::anyhow!("invalid DID `{principal_server_did}`: {e}"))?;
     if !principal_did_method_allowed(config, principal_server_did) {
@@ -632,42 +781,131 @@ pub(crate) async fn resolve_principal_server_endpoint(
     }
 
     let mut doc_url = did_document_url(&did)?;
-    let dev_loopback = config.development_mode && is_loopback_url(&doc_url);
-    if dev_loopback {
+    let bindings = resolver.bindings();
+    if config.development_mode && is_loopback_url(&doc_url) {
         doc_url
             .set_scheme("http")
             .map_err(|_| anyhow::anyhow!("failed to rewrite loopback DID URL to HTTP"))?;
-    } else {
-        let resolver = did_resolver_chain(
-            &config.accepted_did_methods,
-            crate::egress::local_development_enabled(config.development_mode),
-        )
-        .map_err(|e| anyhow::anyhow!(e))?;
-        resolver
-            .resolve_did(&did)
-            .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;
+        let document = fetch_did_document_json(doc_url.clone(), config.development_mode).await?;
+        if document.get("id").and_then(JsonValue::as_str) != Some(principal_server_did) {
+            anyhow::bail!("DID document id does not match requested DID");
+        }
+        let services = document
+            .get("service")
+            .and_then(JsonValue::as_array)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
+        let endpoint = principal_server_endpoint(&services, &doc_url, config.development_mode)?;
+        let document_digest = json_digest(&document)?;
+        return accepted_service_endpoint(
+            bindings.trust_domain().clone(),
+            did,
+            endpoint,
+            document_digest,
+            source_ref,
+        );
     }
 
-    let document = fetch_did_document_json(http, doc_url.clone(), config.development_mode).await?;
-    if document.get("id").and_then(JsonValue::as_str) != Some(principal_server_did) {
+    // Accepted `principal_service_endpoint` binding, or **exactly one** fetch.
+    // The chain validates the method against the startup policy, validates the
+    // document (and, for did:webvh, the whole log chain and witness set), and
+    // the SDK asserts `document.id == requested DID` before the acceptance is
+    // written.
+    let now = Utc::now();
+    let accepted = resolver
+        .accepted_or_resolved_with_evidence(
+            &did,
+            DidBindingPurpose::PrincipalServiceEndpoint,
+            None,
+            BindingEvidence::PrincipalServiceEndpoint {
+                service_kind: ARKRET_PRINCIPAL_SERVER,
+            },
+            now,
+        )
+        .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;
+    if accepted.document().id.as_str() != principal_server_did {
         anyhow::bail!("DID document id does not match requested DID");
     }
-    let services = document
+
+    let services = accepted
+        .document()
+        .raw_properties
         .get("service")
         .and_then(JsonValue::as_array)
+        .cloned()
         .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
-    // DID Document order is the owner-controlled priority order for multiple
-    // Principal Server services; teabay keeps that deterministic convention.
+    let endpoint = principal_server_endpoint(&services, &doc_url, config.development_mode)?;
+    let document_digest = document_canonical_digest(accepted.document())
+        .map_err(|e| anyhow::anyhow!("pinned document digest failed: {e}"))?;
+    accepted_service_endpoint(
+        accepted.binding().trust_domain().clone(),
+        did,
+        endpoint,
+        document_digest,
+        source_ref,
+    )
+}
+
+/// Pick the `ArkretPrincipalServer` endpoint out of a wire `service` array.
+///
+/// DID Document order is the owner-controlled priority order for multiple
+/// Principal Server services; teabay keeps that deterministic convention.
+fn principal_server_endpoint(
+    services: &[JsonValue],
+    doc_url: &Url,
+    development_mode: bool,
+) -> anyhow::Result<Url> {
     let service = services
         .iter()
-        .find(|service| service_kind_matches(service, "ArkretPrincipalServer"))
+        .find(|service| service_kind_matches(service, ARKRET_PRINCIPAL_SERVER))
         .ok_or_else(|| anyhow::anyhow!("DID document has no ArkretPrincipalServer service"))?;
     let endpoint = service
         .get("serviceEndpoint")
         .and_then(JsonValue::as_str)
         .filter(|endpoint| !endpoint.trim().is_empty())
         .ok_or_else(|| anyhow::anyhow!("ArkretPrincipalServer serviceEndpoint is missing"))?;
-    service_endpoint_url(&doc_url, endpoint, config.development_mode)
+    service_endpoint_url(doc_url, endpoint, development_mode)
+}
+
+fn json_digest(value: &JsonValue) -> anyhow::Result<Hash> {
+    Hash::new(
+        canonical::canonical_sha256(value)
+            .map_err(|e| anyhow::anyhow!("canonical digest failed: {e}"))?,
+    )
+    .map_err(|e| anyhow::anyhow!("canonical digest invalid: {e}"))
+}
+
+/// Assemble (and digest) the accepted five-tuple.
+fn accepted_service_endpoint(
+    trust_domain: TypedTrustDomainId,
+    service_did: Did,
+    endpoint: Url,
+    document_digest: Hash,
+    source_ref: &str,
+) -> anyhow::Result<AcceptedServiceEndpoint> {
+    let endpoint_digest = json_digest(&serde_json::json!({
+        "kind": "teabay.accepted_service_endpoint.v1",
+        "service_did": service_did.as_str(),
+        "service_kind": ARKRET_PRINCIPAL_SERVER,
+        "trust_domain": trust_domain.as_str(),
+        "endpoint": endpoint.as_str(),
+    }))?;
+    let acceptance_digest = json_digest(&serde_json::json!({
+        "kind": "teabay.accepted_service_endpoint_use.v1",
+        "endpoint_digest": endpoint_digest.as_str(),
+        "document_digest": document_digest.as_str(),
+        "source_ref": source_ref,
+    }))?;
+    Ok(AcceptedServiceEndpoint {
+        service_did,
+        service_kind: ARKRET_PRINCIPAL_SERVER,
+        trust_domain,
+        endpoint,
+        endpoint_digest,
+        document_digest,
+        source_ref: source_ref.to_owned(),
+        acceptance_digest,
+    })
 }
 
 pub(crate) fn endpoint_child(base: &Url, child: &str) -> anyhow::Result<Url> {
@@ -677,12 +915,17 @@ pub(crate) fn endpoint_child(base: &Url, child: &str) -> anyhow::Result<Url> {
     Ok(url)
 }
 
-pub(crate) fn strict_http_client() -> anyhow::Result<Client> {
-    strict_http_client_builder()
-        .build()
-        .map_err(|e| anyhow::anyhow!("build reqwest client: {e}"))
-}
-
+/// Build an outbound client pinned to one already-SSRF-validated target.
+///
+/// DID-P0-C01 note: this is the one outbound client shape teabay still builds
+/// per request, and it MUST stay that way. `LockedEgressUrl` carries the
+/// single IP that `crate::egress::resolve_url_for_egress` resolved and
+/// validated for this exact URL, and `apply_to_client_builder` pins the client
+/// to it. That pinning is the DNS-rebinding defence; a client shared across
+/// targets would either lose the pin or send the request to another target's
+/// address. The target-independent counterpart, `strict_http_client()`, was
+/// removed rather than shared: after the DID-P0-C02 merge its only caller had
+/// no fetch left to perform.
 pub(crate) fn strict_http_client_for_egress(
     target: &crate::egress::LockedEgressUrl,
 ) -> anyhow::Result<Client> {
@@ -713,11 +956,14 @@ fn did_document_url(did: &Did) -> anyhow::Result<Url> {
     Url::parse(&url).map_err(|e| anyhow::anyhow!("invalid DID document URL `{url}`: {e}"))
 }
 
-async fn fetch_did_document_json(
-    _http: &Client,
-    url: Url,
-    development_mode: bool,
-) -> anyhow::Result<JsonValue> {
+/// Raw DID Document fetch. Used **only** by the development-mode loopback
+/// branch of [`resolve_principal_server_endpoint`]; the production branch goes
+/// through the shared resolver chain instead.
+///
+/// The dead `_http: &Client` parameter is gone. It was never read: the body
+/// always built its own egress-pinned client below, because that client has to
+/// be bound to the validated target address and a caller-supplied one is not.
+async fn fetch_did_document_json(url: Url, development_mode: bool) -> anyhow::Result<JsonValue> {
     if url.scheme() != "https"
         && !(development_mode && url.scheme() == "http" && is_loopback_url(&url))
     {
@@ -755,7 +1001,12 @@ where
     serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("{context} JSON parse: {e}"))
 }
 
-fn service_kind_matches(service: &JsonValue, expected: &str) -> bool {
+/// Whether a wire `service` entry declares `expected` as one of its types.
+///
+/// `pub(crate)` because `crate::did_binding` reuses it to digest the published
+/// endpoint set into a binding's evidence envelope; a second copy of the
+/// string-or-array `type` handling would be a place for the two to disagree.
+pub(crate) fn service_kind_matches(service: &JsonValue, expected: &str) -> bool {
     match service.get("type") {
         Some(JsonValue::String(value)) => value == expected,
         Some(JsonValue::Array(values)) => values

@@ -21,8 +21,14 @@ pub struct TeabayOpenApiDoc(pub serde_json::Value);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
-    let http_sig_middleware = build_http_sig_middleware(&state);
-    let required_http_sig_middleware = build_required_http_sig_middleware(&state);
+    // DID-P0-C01 — one key directory, built once, shared by both ingest
+    // middlewares. Previously each `build_*_http_sig_middleware` call made its
+    // own `DidResolverKeyDirectory`, and each of those lazily built its own
+    // resolver chain: two connection pools and two document caches per
+    // process. Both now point at the single `AppState` resolver.
+    let key_directory = http_sig_key_directory(&state);
+    let http_sig_middleware = build_http_sig_middleware(&state, Arc::clone(&key_directory));
+    let required_http_sig_middleware = build_required_http_sig_middleware(&state, key_directory);
     let directory = directory_router(http_sig_middleware, required_http_sig_middleware);
     let admin = admin_router();
     let doc = openapi(&directory);
@@ -65,8 +71,18 @@ pub fn router(state: AppState) -> Router {
 /// instance so the ingest sub-router has a single, predictable shape —
 /// the passthrough variant lets the in-process conformance harness
 /// post unsigned envelopes while keeping the route topology identical.
-fn build_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
-    let directory: Arc<dyn HttpSigKeyDirectory> = Arc::new(state.config().http_sig_key_directory());
+fn http_sig_key_directory(state: &AppState) -> Arc<dyn HttpSigKeyDirectory> {
+    Arc::new(
+        state
+            .config()
+            .http_sig_key_directory(Arc::clone(state.did_resolver())),
+    )
+}
+
+fn build_http_sig_middleware(
+    state: &AppState,
+    directory: Arc<dyn HttpSigKeyDirectory>,
+) -> HttpSigMiddleware {
     if state.config().require_http_sig {
         HttpSigMiddleware::new_with_postgres_replay_store(directory, state.db().clone())
     } else {
@@ -74,8 +90,10 @@ fn build_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
     }
 }
 
-fn build_required_http_sig_middleware(state: &AppState) -> HttpSigMiddleware {
-    let directory: Arc<dyn HttpSigKeyDirectory> = Arc::new(state.config().http_sig_key_directory());
+fn build_required_http_sig_middleware(
+    state: &AppState,
+    directory: Arc<dyn HttpSigKeyDirectory>,
+) -> HttpSigMiddleware {
     HttpSigMiddleware::required_with_postgres_replay_store(directory, state.db().clone())
 }
 

@@ -38,8 +38,6 @@
 //! unauthorized requester. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
-use arkret_identity::jws::verify_jws_ed25519 as sdk_verify_jws_ed25519;
-use arkret_sdk::identity::DidKeyResolver;
 use arkret_sdk::{
     DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
     DirectoryTargetResolutionOutcome, EventId, MessageId, NonEmptyString, ObjectPreview,
@@ -58,12 +56,16 @@ use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
-use crate::did_resolver::{did_method_allowed, did_resolver_chain};
+use arkret_identity::binding::DidBindingPurpose;
+
+use crate::did_binding::DidBindingDirectory;
+use crate::did_resolver::verification_method_issuer;
 use crate::error::ApiErrorCode;
 use crate::filter::discoverers::{
     VerifiedRestrictedClaims, matches_allowed_discoverers, verify_restricted_claim_presentations,
 };
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
+use crate::observability::{SIGNATURE_KIND_INVITE_TOKEN, SIGNATURE_KIND_PREVIEW_TOKEN};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::query::realm::resolve_realm_visible;
 use crate::state::AppState;
@@ -183,8 +185,7 @@ fn verified_restricted_claims_for_target_query(
         requester,
         proof_challenge,
         &state.config().service_id,
-        &state.config().accepted_did_methods,
-        crate::egress::local_development_enabled(state.config().development_mode),
+        state.did_bindings(),
     )
     .unwrap_or_default()
 }
@@ -260,8 +261,7 @@ async fn resolve(
             &preview_policy.digest,
             requester,
             Utc::now(),
-            &state.config().accepted_did_methods,
-            crate::egress::local_development_enabled(state.config().development_mode),
+            state.did_bindings(),
         ) {
             Ok(_) => verified_preview = Some(preview_policy),
             Err(TokenCheck::Reject) => return ResolveOutcome::TokenReject,
@@ -278,8 +278,7 @@ async fn resolve(
             token,
             &canonical_realm_id,
             effective_address_link_kind,
-            &state.config().accepted_did_methods,
-            crate::egress::local_development_enabled(state.config().development_mode),
+            state.did_bindings(),
         ) {
             Ok(verified) => match invite_token_revoked(state, &verified).await {
                 Ok(false) => verified_invite_token = Some(verified),
@@ -447,8 +446,7 @@ pub fn verify_preview_token_with_methods(
     current_policy_digest: &str,
     requester: Option<&str>,
     now: DateTime<Utc>,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> TokenCheck {
     match verify_preview_token_details_with_methods(
         parsed,
@@ -458,8 +456,7 @@ pub fn verify_preview_token_with_methods(
         current_policy_digest,
         requester,
         now,
-        accepted_did_methods,
-        allow_private_networks,
+        bindings,
     ) {
         Ok(_) => TokenCheck::Pass,
         Err(reject) => reject,
@@ -475,8 +472,7 @@ pub fn verify_preview_token_details_with_methods(
     current_policy_digest: &str,
     requester: Option<&str>,
     now: DateTime<Utc>,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> Result<VerifiedPreviewToken, TokenCheck> {
     if !preview_policy_accepts_link_token_holder(preview_policy) {
         return Err(TokenCheck::Reject);
@@ -515,8 +511,8 @@ pub fn verify_preview_token_details_with_methods(
         &jws,
         &verification_method,
         &issuer,
-        accepted_did_methods,
-        allow_private_networks,
+        bindings,
+        SIGNATURE_KIND_PREVIEW_TOKEN,
     )
     .ok_or(TokenCheck::Reject)?;
 
@@ -695,16 +691,14 @@ pub fn verify_address_token_with_methods(
     token: Option<&str>,
     canonical_realm_id: &str,
     effective_address_link_kind: AddressLinkKind,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> TokenCheck {
     match verify_address_token_details_with_methods(
         parsed,
         token,
         canonical_realm_id,
         effective_address_link_kind,
-        accepted_did_methods,
-        allow_private_networks,
+        bindings,
     ) {
         Ok(_) => TokenCheck::Pass,
         Err(reject) => reject,
@@ -716,17 +710,14 @@ pub fn verify_address_token_details_with_methods(
     token: Option<&str>,
     canonical_realm_id: &str,
     effective_address_link_kind: AddressLinkKind,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> Result<VerifiedInviteToken, TokenCheck> {
     // An invite link with no token cannot be honoured.
     let Some(token) = token else {
         return Err(TokenCheck::Reject);
     };
 
-    let Some(mut verified_token) =
-        parse_token_descriptor(token, accepted_did_methods, allow_private_networks)
-    else {
+    let Some(mut verified_token) = parse_token_descriptor(token, bindings) else {
         return Err(TokenCheck::Reject);
     };
 
@@ -801,8 +792,7 @@ fn normalize_realm(realm_id: &str) -> &str {
 /// Unsigned JSON is rejected even when it carries a matching descriptor.
 fn parse_token_descriptor(
     token: &str,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
 ) -> Option<VerifiedInviteToken> {
     let mut value: JsonValue = serde_json::from_str(token).ok()?;
     if !matches!(
@@ -844,8 +834,8 @@ fn parse_token_descriptor(
         &jws,
         &verification_method,
         &issuer,
-        accepted_did_methods,
-        allow_private_networks,
+        bindings,
+        SIGNATURE_KIND_INVITE_TOKEN,
     )?;
 
     let descriptor = value.get("target_descriptor")?;
@@ -858,31 +848,40 @@ fn parse_token_descriptor(
     })
 }
 
+/// Verify an invite / preview token's detached JWS.
+///
+/// # DID-P0-C03 — the query face never resolves
+///
+/// `bindings` is a [`DidBindingDirectory`]: no resolver field, no resolver
+/// accessor. A token issuer this directory has already accepted (purpose
+/// [`DidBindingPurpose::DirectoryIssuer`]) verifies from the pinned document;
+/// `did:key` issuers decode locally; anything else returns `None`, which the
+/// callers collapse into the SAME blinded `not_found` an unknown or
+/// unauthorized target produces. No live resolution, no cache-stale fallback.
 fn verify_invite_token_jws(
     canonical_bytes: &[u8],
     jws: &str,
     verification_method: &str,
     issuer: &str,
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
+    bindings: &DidBindingDirectory,
+    kind: &'static str,
 ) -> Option<()> {
-    if accepted_did_methods.is_empty() {
+    // Kept at the call site (as well as inside the shared helper) because an
+    // empty `allowed_methods` is fail-OPEN at the `ResolverPolicy` layer.
+    if bindings.accepted_did_methods().is_empty() {
         return None;
     }
-    if issuer.starts_with("did:key:") && did_method_allowed(accepted_did_methods, "did:key") {
-        let resolver = DidKeyResolver::new();
-        return sdk_verify_jws_ed25519(
+    bindings
+        .verify_detached_jws(
             canonical_bytes,
             jws,
             verification_method,
             issuer,
-            &resolver,
+            DidBindingPurpose::DirectoryIssuer,
+            kind,
+            Utc::now(),
         )
-        .ok();
-    }
-
-    let resolver = did_resolver_chain(accepted_did_methods, allow_private_networks).ok()?;
-    sdk_verify_jws_ed25519(canonical_bytes, jws, verification_method, issuer, &resolver).ok()
+        .ok()
 }
 
 fn token_verification_method(value: &JsonValue) -> Option<&str> {
@@ -897,15 +896,6 @@ fn token_verification_method(value: &JsonValue) -> Option<&str> {
         })
         .map(str::trim)
         .filter(|method| !method.is_empty())
-}
-
-fn verification_method_issuer(verification_method: &str) -> Option<&str> {
-    let issuer = verification_method
-        .split_once('#')
-        .map(|(did, _)| did)
-        .unwrap_or(verification_method)
-        .trim();
-    (!issuer.is_empty()).then_some(issuer)
 }
 
 fn audience_present(value: Option<&JsonValue>) -> bool {
@@ -1326,19 +1316,25 @@ mod tests {
         canonical_realm_id: &str,
         effective_address_link_kind: AddressLinkKind,
     ) -> TokenCheck {
-        let accepted_did_methods = vec!["did:key".to_owned()];
+        let bindings = DidBindingDirectory::new(
+            &["did:key".to_owned()],
+            false,
+            false,
+            "did:web:directory.example",
+            crate::observability::Metrics::default(),
+        )
+        .expect("binding directory builds");
         verify_address_token_with_methods(
             parsed,
             token,
             canonical_realm_id,
             effective_address_link_kind,
-            &accepted_did_methods,
-            false,
+            &bindings,
         )
     }
 
-    #[test]
-    fn token_binds_to_matching_object() {
+    #[tokio::test]
+    async fn token_binds_to_matching_object() {
         let addr = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
@@ -1351,8 +1347,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn token_replayed_onto_other_object_is_rejected() {
+    #[tokio::test]
+    async fn token_replayed_onto_other_object_is_rejected() {
         // Token minted for strand A.
         let addr_a = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
@@ -1372,8 +1368,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn invite_link_without_token_is_rejected() {
+    #[tokio::test]
+    async fn invite_link_without_token_is_rejected() {
         let addr = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
@@ -1385,8 +1381,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn expired_token_is_rejected() {
+    #[tokio::test]
+    async fn expired_token_is_rejected() {
         let addr = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
@@ -1420,8 +1416,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn unsigned_token_with_matching_descriptor_is_rejected() {
+    #[tokio::test]
+    async fn unsigned_token_with_matching_descriptor_is_rejected() {
         let addr = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
@@ -1442,8 +1438,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tampered_signed_token_payload_is_rejected() {
+    #[tokio::test]
+    async fn tampered_signed_token_payload_is_rejected() {
         let addr = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))
@@ -1459,8 +1455,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn token_bound_to_alias_resolves_via_canonical_id() {
+    #[tokio::test]
+    async fn token_bound_to_alias_resolves_via_canonical_id() {
         // The address used an alias realm; the token was minted with the
         // canonical id injected. Verification must succeed because the server
         // resolved the alias to the same canonical id.
@@ -1481,8 +1477,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn token_for_different_realm_is_rejected() {
+    #[tokio::test]
+    async fn token_for_different_realm_is_rejected() {
         let addr = parse_address(&format!(
             "web+arkret:realm/{R}/strand/{F}?via={VIA}&lt=invite"
         ))

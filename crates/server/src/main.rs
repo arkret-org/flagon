@@ -36,7 +36,8 @@ async fn run() -> anyhow::Result<()> {
     // the multi-threaded tokio runtime.
     let db = Db::connect_with(&config.database_url, &config.db_pool)?;
     db.run_migrations(&config.database_url).await?;
-    let state = AppState::new(config.clone(), db);
+    // Fails closed at boot if the shared DID resolver chain cannot be built.
+    let state = AppState::new(config.clone(), db)?;
 
     if let Some(period) = config.divergence_interval {
         let _worker = DivergenceWorker::new(state.clone(), period).spawn();

@@ -47,7 +47,7 @@ async fn test_app_state(
     let config = server::AppConfig::from_env()?;
     let db = server::Db::connect(database_url)?;
     db.run_migrations(database_url).await?;
-    let state = server::AppState::new(config.clone(), db);
+    let state = server::AppState::new(config.clone(), db)?;
     Ok((config, state))
 }
 

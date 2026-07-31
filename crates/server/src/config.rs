@@ -8,6 +8,7 @@ use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -16,6 +17,7 @@ use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 
+use crate::did_resolver::SharedDidResolver;
 use crate::middleware::http_sig::{DidResolverKeyDirectory, Ed25519PublicKey};
 
 const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
@@ -652,14 +654,18 @@ impl AppConfig {
     }
 
     /// Materialise the ingest HTTP signature key directory. Static keys
-    /// remain a deterministic fallback, while DID-URL keyids can resolve
-    /// through the configured DID resolver chain.
-    pub fn http_sig_key_directory(&self) -> DidResolverKeyDirectory {
-        DidResolverKeyDirectory::new(
-            self.http_sig_pubkeys.clone(),
-            self.accepted_did_methods.clone(),
-            crate::egress::local_development_enabled(self.development_mode),
-        )
+    /// remain a deterministic fallback, while DID-URL keyids resolve through
+    /// the process-wide resolver the caller passes in.
+    ///
+    /// DID-P0-C01: the resolver is an argument rather than something this
+    /// method builds, so the accepted-method allowlist and the egress
+    /// decision come from the single `AppState` instance instead of being
+    /// re-derived (and potentially re-widened) per middleware.
+    pub fn http_sig_key_directory(
+        &self,
+        resolver: Arc<SharedDidResolver>,
+    ) -> DidResolverKeyDirectory {
+        DidResolverKeyDirectory::new(self.http_sig_pubkeys.clone(), resolver)
     }
 }
 

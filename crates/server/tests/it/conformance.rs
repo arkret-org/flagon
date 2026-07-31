@@ -97,7 +97,7 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
     db.run_migrations(&database_url).await?;
     seed_directory_fixture(&db).await?;
 
-    let service = server::service(server::AppState::new(config.clone(), db.clone()));
+    let service = server::service(server::AppState::new(config.clone(), db.clone())?);
     assert_describe_advertises_core_and_psi(&service).await?;
     assert_query_surface_matrix(&db, &service).await?;
     assert_search_realms_finds_seeded_realm(&service).await?;
@@ -378,7 +378,8 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
     let multibase = did_key_multibase(&signing_key);
     let issuer = Did::new(format!("did:key:{multibase}"))?;
-    let verification_method = format!("{}#{multibase}", issuer.as_str());
+    let verification_method = arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer.as_str()))
+        .map_err(anyhow::Error::msg)?;
     let subject = Did::new("did:web:alice.example".to_owned())?;
     let organization = Did::new("did:web:tea-org.example".to_owned())?;
     install_restricted_realm_claim_selector(db, issuer.as_str(), organization.as_str()).await?;
@@ -1336,7 +1337,7 @@ struct DirectoryRestrictedClaimPresentationSigningPayload<'a> {
 fn signed_restricted_claim_presentation(
     signing_key: &SigningKey,
     iss: Did,
-    verification_method: String,
+    verification_method: arkret_wire::DidUrl,
     audience: &str,
     nonce: &str,
     claim: PresentedClaim,

@@ -46,9 +46,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
-use arkret_identity::jws::resolve_ed25519_pubkey;
-use arkret_sdk::identity::DidResolver;
-use arkret_sdk::{CompositeDidResolver, Did};
 pub use arkret_signatures::http_signature::Ed25519PublicKey;
 use arkret_signatures::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
@@ -62,8 +59,13 @@ use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 
 use crate::db::Db;
-use crate::did_resolver::did_resolver_chain;
+use crate::did_resolver::SharedDidResolver;
 use crate::error::ApiErrorCode;
+use crate::observability::{
+    Metrics, SIGNATURE_KIND_HTTP_SIGNATURE, SIGNATURE_OUTCOME_INVALID,
+    SIGNATURE_OUTCOME_NO_BINDING, SIGNATURE_OUTCOME_OK,
+};
+use crate::state::AppState;
 
 const SIGNATURE_INPUT_HEADER: &str = "signature-input";
 const SIGNATURE_HEADER: &str = "signature";
@@ -120,45 +122,31 @@ impl HttpSigKeyDirectory for StaticKeyDirectory {
 ///
 /// Static keys are checked first so tests and emergency operator
 /// overrides remain deterministic. If the key is not configured
-/// statically and `key_id` is a DID URL, the directory lazily builds the
-/// teabay DID resolver chain and asks the SDK JWS verifier helper to
-/// resolve the Ed25519 verification method.
+/// statically and `key_id` is a DID URL, the directory resolves the
+/// Ed25519 verification method through the **process-wide**
+/// [`SharedDidResolver`] handed down from `AppState`.
+///
+/// DID-P0-C01: this used to own a `Mutex<Option<Arc<CompositeDidResolver>>>`
+/// lazy cache of its own. `crate::routing` builds two middlewares
+/// (`build_http_sig_middleware` / `build_required_http_sig_middleware`), so
+/// that design produced **two** independent resolver chains, two connection
+/// pools and two document caches within one process. The directory now holds
+/// no resolver state at all — it borrows the single startup instance.
 #[derive(Debug)]
 pub struct DidResolverKeyDirectory {
     static_keys: StaticKeyDirectory,
-    accepted_did_methods: Vec<String>,
-    allow_private_networks: bool,
-    resolver: Mutex<Option<Arc<CompositeDidResolver>>>,
+    resolver: Arc<SharedDidResolver>,
 }
 
 impl DidResolverKeyDirectory {
     pub fn new(
         static_keys: HashMap<String, Ed25519PublicKey>,
-        accepted_did_methods: Vec<String>,
-        allow_private_networks: bool,
+        resolver: Arc<SharedDidResolver>,
     ) -> Self {
         Self {
             static_keys: StaticKeyDirectory::from_map(static_keys),
-            accepted_did_methods,
-            allow_private_networks,
-            resolver: Mutex::new(None),
+            resolver,
         }
-    }
-
-    fn resolver(&self) -> Result<Arc<CompositeDidResolver>, String> {
-        let mut resolver = self
-            .resolver
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(existing) = resolver.as_ref() {
-            return Ok(Arc::clone(existing));
-        }
-        let built = Arc::new(did_resolver_chain(
-            &self.accepted_did_methods,
-            self.allow_private_networks,
-        )?);
-        *resolver = Some(Arc::clone(&built));
-        Ok(built)
     }
 }
 
@@ -167,26 +155,11 @@ impl HttpSigKeyDirectory for DidResolverKeyDirectory {
         if let Some(static_key) = self.static_keys.lookup(key_id) {
             return Some(static_key);
         }
-
-        let did = key_id.split_once('#').map(|(did, _)| did).unwrap_or(key_id);
-        let did = Did::new(did.to_owned()).ok()?;
-        let resolver = match self.resolver() {
-            Ok(resolver) => resolver,
-            Err(err) => {
-                tracing::debug!(%err, %key_id, "HTTP signature DID key resolver init failed");
-                return None;
-            }
-        };
-        if !resolver.supports(&did) {
-            return None;
-        }
-        match resolve_ed25519_pubkey(resolver.as_ref(), key_id) {
-            Ok(public_key) => Some(public_key),
-            Err(err) => {
-                tracing::debug!(%err, %key_id, "HTTP signature DID key resolve failed");
-                None
-            }
-        }
+        // DID-P0-C02: the middleware asks for a key, never for a resolver.
+        // `SharedDidResolver` keeps the chain private and meters the outbound
+        // resolution itself, so this call site cannot resolve anything else and
+        // cannot under-count `teabay_did_resolve_total{source="network"}`.
+        self.resolver.http_signature_public_key(key_id)
     }
 }
 
@@ -544,7 +517,22 @@ impl Handler for HttpSigMiddleware {
         };
 
         // -- Phase 4: look up the signer's pubkey and verify. -------------
+        // DID-P0-C04 — one `teabay_signature_verify_total{kind="http_signature"}`
+        // increment per signature teabay decides on, taken from the process
+        // `Metrics` in the depot. When the state is absent (unit-test routers
+        // that mount the middleware alone) the recording is skipped rather than
+        // faked.
+        let metrics = depot
+            .get_typed::<AppState>()
+            .ok()
+            .map(|s| s.metrics().clone());
+        let record = |metrics: &Option<Metrics>, outcome: &'static str| {
+            if let Some(metrics) = metrics {
+                metrics.record_signature_verify(SIGNATURE_KIND_HTTP_SIGNATURE, outcome);
+            }
+        };
         let Some(public_key) = self.directory.lookup(&signature_input.key_id) else {
+            record(&metrics, SIGNATURE_OUTCOME_NO_BINDING);
             reject_invalid_signature(
                 res,
                 ctrl,
@@ -564,6 +552,7 @@ impl Handler for HttpSigMiddleware {
         let signature_b64 =
             arkret_signatures::http_signature::encode_signature_b64(&signature_bytes);
         if let Err(err) = verify_signature(&message, &signature_b64, &public_key) {
+            record(&metrics, SIGNATURE_OUTCOME_INVALID);
             reject_invalid_signature(
                 res,
                 ctrl,
@@ -571,6 +560,7 @@ impl Handler for HttpSigMiddleware {
             );
             return;
         }
+        record(&metrics, SIGNATURE_OUTCOME_OK);
 
         let replay_key = ReplayKey::new(&signature_input.key_id, &signature_bytes);
         let replay_expires_at = signature_input
@@ -742,6 +732,15 @@ mod tests {
         signing_key_from_seed(&TEST_SEED)
     }
 
+    /// Stand-in for the startup-built `AppState` resolver. `did:key` only —
+    /// these tests never touch the network.
+    fn test_resolver() -> Arc<SharedDidResolver> {
+        Arc::new(
+            SharedDidResolver::new(&["did:key".to_owned()], false)
+                .expect("did:key resolver builds"),
+        )
+    }
+
     fn directory_with_test_key() -> Arc<StaticKeyDirectory> {
         let mut dir = StaticKeyDirectory::new();
         dir.insert(TEST_KEY_ID, signing_key().verifying_key());
@@ -881,11 +880,7 @@ mod tests {
         let multibase = did_key_multibase(&signing_key);
         let did = format!("did:key:{multibase}");
         let key_id = format!("{did}#{multibase}");
-        let dir = DidResolverKeyDirectory::new(
-            std::collections::HashMap::new(),
-            vec!["did:key".to_owned()],
-            false,
-        );
+        let dir = DidResolverKeyDirectory::new(std::collections::HashMap::new(), test_resolver());
 
         assert_eq!(dir.lookup(&key_id), Some(signing_key.verifying_key()));
     }
@@ -896,11 +891,7 @@ mod tests {
         let multibase = did_key_multibase(&signing_key);
         let did = format!("did:key:{multibase}");
         let key_id = format!("{did}#{multibase}");
-        let dir = DidResolverKeyDirectory::new(
-            std::collections::HashMap::new(),
-            vec!["did:key".to_owned()],
-            false,
-        );
+        let dir = DidResolverKeyDirectory::new(std::collections::HashMap::new(), test_resolver());
         let router = router(Arc::new(dir));
         let body = br#"{"resource_id":"ak:realm:tea"}"#;
         let signed = build_signed_request(
