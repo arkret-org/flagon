@@ -36,23 +36,20 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_identity::binding::{DidBindingPurpose, FreshnessRequirement, LimitedTrustReason};
+use arkret_identity::binding::DidBindingPurpose;
 use arkret_identity::binding_digest::normalize_did_method_prefix;
 use arkret_identity::binding_store::AcceptedDidBinding;
 use arkret_identity::jws::resolve_ed25519_pubkey;
-use arkret_identity::verifier::{
-    BindingAcceptanceTerms, BindingEvidenceError, DeferredEvidenceResolveRequest,
-    resolve_and_verify_binding_with_evidence,
-};
+use arkret_identity::verifier::{BindingResolveRequest, resolve_and_verify_binding};
 use arkret_sdk::identity::{
-    DidDocument, DidKeyResolver, DidResolver, ResolverPolicy, Result as IdentityResult,
+    DidDocument, DidKeyResolver, DidResolver, ResolvedDid, ResolverPolicy, Result as IdentityResult,
 };
 use arkret_sdk::{CompositeDidResolver, Did, HttpDidResolver};
 use arkret_signatures::http_signature::Ed25519PublicKey;
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 
-use crate::did_binding::{BindingEvidence, BindingFailure, DidBindingDirectory};
+use crate::did_binding::{BindingFailure, DidBindingDirectory, binding_freshness_profile};
 use crate::observability::{
     DID_RESOLVE_SOURCE_DID_KEY, DID_RESOLVE_SOURCE_NETWORK, Metrics, SIGNATURE_OUTCOME_OK,
 };
@@ -130,8 +127,6 @@ impl SharedDidResolver {
         let allow_private_networks = crate::egress::local_development_enabled(development_mode);
         let bindings = Arc::new(DidBindingDirectory::new(
             accepted_did_methods,
-            allow_private_networks,
-            development_mode,
             service_id,
             metrics,
         )?);
@@ -162,8 +157,6 @@ impl SharedDidResolver {
             did_key: DidKeyResolver::new(),
             bindings: Arc::new(DidBindingDirectory::new(
                 accepted_did_methods,
-                false,
-                false,
                 "did:web:directory.example",
                 metrics,
             )?),
@@ -269,66 +262,54 @@ impl SharedDidResolver {
     /// Reuse an accepted binding, or establish one with **exactly one**
     /// upstream resolution.
     ///
-    /// `did:key` never reaches the network: it is decoded locally (spec §2.4).
-    ///
-    /// A `DirectoryIngest` acceptance is mirrored into a
-    /// [`DidBindingPurpose::DirectoryIssuer`] acceptance from the *same*
-    /// document, at no extra network cost. That is what gives the zero-network
-    /// query face something to consume: a DID that has announced itself to this
-    /// directory becomes an accepted directory issuer, and an issuer that never
-    /// announced stays unknown and fails closed (blinded `not_found`).
-    pub fn accepted_or_resolved(
-        &self,
-        did: &Did,
-        purpose: DidBindingPurpose,
-        verification_method: Option<&arkret_wire::DidUrl>,
-        now: DateTime<Utc>,
-    ) -> Result<AcceptedDidBinding, BindingFailure> {
-        self.accepted_or_resolved_with_evidence(
-            did,
-            purpose,
-            verification_method,
-            BindingEvidence::SharedResolverChain,
-            now,
-        )
-    }
-
-    /// [`Self::accepted_or_resolved`] with a caller-chosen evidence descriptor.
-    ///
-    /// The whole authority path is the SDK's
-    /// [`resolve_and_verify_binding_with_evidence`] — the one API allowed to
-    /// touch the network — so teabay inherits its guarantees rather than
-    /// re-deriving them:
+    /// The whole authority path is the SDK's [`resolve_and_verify_binding`] —
+    /// the one API allowed to touch the network — so teabay inherits its
+    /// guarantees rather than re-deriving them:
     ///
     /// - the store is consulted first, and a satisfying hit returns **without** calling the
     ///   resolver;
     /// - a miss calls `resolve_did` **exactly once** and writes the acceptance back;
     /// - the resolved document must belong to the requested DID *and* actually carry the requested
-    ///   verification method, so a bogus `(did, key)` pair cannot pollute the store.
+    ///   verification method, so a bogus `(did, key)` pair cannot pollute the store;
+    /// - the §5.2 evidence receipt, its digest, the §5.6 dependency record and the per-pin
+    ///   `limited_trust` states are all derived from what the resolver returned. There is no
+    ///   caller-facing seam where teabay could substitute a value of its own.
     ///
-    /// # Why the *deferred* evidence variant
+    /// `did:key` never reaches the network: it is decoded locally (spec §2.4).
     ///
-    /// `BindingAcceptance::evidence_digest` is a finished `Hash`, so the eager
-    /// [`arkret_identity::verifier::resolve_and_verify_binding`] forces the
-    /// evidence to be computed **before** the document exists — which shut out
-    /// everything the document itself publishes, the
-    /// `ArkretPrincipalServer` service endpoint above all. The deferred variant
-    /// takes a closure over the already-resolved, already-checked document, so
-    /// [`crate::did_binding::DidBindingDirectory::evidence_envelope`] can fold
-    /// the endpoint digest in. On a store hit the closure is never called, so a
-    /// reused acceptance keeps the evidence it was originally accepted with
-    /// instead of re-stamping itself.
+    /// A `DirectoryIngest` acceptance is mirrored into a
+    /// [`DidBindingPurpose::DirectoryIssuer`] acceptance from the *same*
+    /// document and the *same* receipt, at no extra network cost. That is what
+    /// gives the zero-network query face something to consume: a DID that has
+    /// announced itself to this directory becomes an accepted directory issuer,
+    /// and an issuer that never announced stays unknown and fails closed
+    /// (blinded `not_found`).
     ///
-    /// Freshness is [`FreshnessRequirement::any_accepted`]: a stale (past
-    /// `refresh_after`, not hard-expired) acceptance is reused rather than
-    /// refreshed, which is the §5 rule that "cache TTL expiry alone MUST NOT
-    /// turn an ordinary business request into an online DID resolution".
-    pub fn accepted_or_resolved_with_evidence(
+    /// # The endpoint digest moved, and why that is not a loss
+    ///
+    /// This used to call a *deferred-evidence* SDK variant so that
+    /// `DidBindingDirectory::service_endpoint_digest` could fold the published
+    /// `ArkretPrincipalServer` endpoint set into the binding's evidence. §5.2
+    /// closed the evidence receipt to `{method, document_digest,
+    /// method_proofs}`, so that member has nowhere to live — deliberately, since
+    /// "the caller supplies the evidence" is the shape the spec judges
+    /// non-conformant.
+    ///
+    /// Nothing about the DID-P0-C02 five-tuple weakens. The endpoint set is a
+    /// **projection of the pinned document**, and `document_digest` is a
+    /// required member of the receipt, so the evidence still commits to it
+    /// transitively: a host that publishes a different endpoint publishes a
+    /// different document, which is a different digest, which is a different
+    /// evidence digest. The explicit per-request tuple (service DID, service
+    /// kind, trust domain, endpoint digest, source ref) lives where a per-use
+    /// value belongs — `ingest::verify::AcceptedServiceEndpoint::acceptance_digest`
+    /// — and is still re-derived from `AcceptedDidBinding::document()` on every
+    /// request rather than read from a URL cache.
+    pub fn accepted_or_resolved(
         &self,
         did: &Did,
         purpose: DidBindingPurpose,
         verification_method: Option<&arkret_wire::DidUrl>,
-        evidence: BindingEvidence,
         now: DateTime<Utc>,
     ) -> Result<AcceptedDidBinding, BindingFailure> {
         if let Some(accepted) = self
@@ -338,61 +319,32 @@ impl SharedDidResolver {
             return Ok(accepted);
         }
 
-        let request = DeferredEvidenceResolveRequest {
+        let request = BindingResolveRequest {
             did: did.clone(),
             trust_domain: self.bindings.trust_domain().clone(),
             purpose,
             policy_digest: self.bindings.policy_digest().clone(),
             verification_method: verification_method.cloned(),
-            freshness: FreshnessRequirement::any_accepted(),
-            acceptance: BindingAcceptanceTerms {
-                // The SDK resolver surface returns a document, not a webvh log
-                // head or a version id, so teabay pins neither and *records*
-                // the limited-trust capability, which §5 requires.
-                history_head: None,
-                version_id: None,
-                limited_trust: Some(LimitedTrustReason::MethodHasNeitherHistoryNorVersion),
-                refresh_interval: Some(crate::did_binding::BINDING_REFRESH_AFTER),
-                hard_expiry: Some(crate::did_binding::BINDING_HARD_EXPIRY),
-            },
+            freshness: binding_freshness_profile(),
         };
-
-        // Computed on the resolved document, so post-resolution material — the
-        // published service endpoint set — reaches the evidence envelope.
-        let bindings = self.bindings.as_ref();
-        let evidence_digest =
-            move |document: &DidDocument| -> Result<arkret_wire::Hash, BindingEvidenceError> {
-                Ok(bindings.evidence_digest(document, purpose, evidence)?)
-            };
 
         // `did:key` is decoded locally; only the chain is an outbound call, and
         // the two are labelled differently on `teabay_did_resolve_total`.
+        let store = self.bindings.store();
         let accepted = if did.method() == "key" {
             let metered = MeteredAuthorityResolver::new(
                 &self.did_key,
                 self.metrics(),
                 DID_RESOLVE_SOURCE_DID_KEY,
             );
-            resolve_and_verify_binding_with_evidence(
-                &metered,
-                bindings.store(),
-                &request,
-                evidence_digest,
-                now,
-            )
+            resolve_and_verify_binding(&metered, store, &request, now)
         } else {
             let metered = MeteredAuthorityResolver::new(
                 self.chain.as_ref(),
                 self.metrics(),
                 DID_RESOLVE_SOURCE_NETWORK,
             );
-            resolve_and_verify_binding_with_evidence(
-                &metered,
-                bindings.store(),
-                &request,
-                evidence_digest,
-                now,
-            )
+            resolve_and_verify_binding(&metered, store, &request, now)
         }
         .map_err(|error| BindingFailure::NoBinding(error.to_string()))?;
 
@@ -410,15 +362,13 @@ impl SharedDidResolver {
         if purpose != DidBindingPurpose::DirectoryIngest {
             return;
         }
-        let evidence = match accepted.binding().method() {
-            "key" => BindingEvidence::DidKeyLocalDecode,
-            _ => BindingEvidence::SharedResolverChain,
-        };
+        // Same document, same receipt: the mirror asserts exactly the evidence
+        // the ingest acceptance was made on, never a freshly invented one.
         if let Err(error) = self.bindings.accept_document(
             accepted.document(),
             DidBindingPurpose::DirectoryIssuer,
             verification_method,
-            evidence,
+            accepted.evidence_receipt().clone(),
             now,
         ) {
             tracing::debug!(%error, "directory issuer binding mirror failed");
@@ -479,9 +429,11 @@ impl DidResolver for PinnedDocumentResolver {
         did == &self.0.id
     }
 
-    fn resolve_did(&self, did: &Did) -> IdentityResult<DidDocument> {
+    fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
         if did == &self.0.id {
-            Ok(self.0.clone())
+            // Already pinned; this adapter exists only to reuse the SDK's key
+            // lookup, so it asserts no method evidence of its own.
+            Ok(ResolvedDid::proofless(self.0.clone()))
         } else {
             Err(arkret_sdk::identity::IdentityError::Protocol(format!(
                 "pinned document is for `{}`, not `{did}`",
@@ -524,7 +476,7 @@ impl DidResolver for MeteredAuthorityResolver<'_> {
         self.inner.supports(did)
     }
 
-    fn resolve_did(&self, did: &Did) -> IdentityResult<DidDocument> {
+    fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
         self.metrics.record_did_resolve(did.method(), self.source);
         self.inner.resolve_did(did)
     }
@@ -723,32 +675,19 @@ mod tests {
         assert!(!strict.method_allowed("did:key"));
     }
 
-    /// An empty accepted-method list is fail-OPEN at the `ResolverPolicy`
-    /// layer ("empty means any method"), so the verification entry point has
-    /// to reject it before it reaches the policy.
+    /// The same boot-time rejection, seen through the shared handle: a
+    /// `SharedDidResolver` cannot be built without an accepted-method
+    /// allowlist, so `AppState::new` fails and the process does not start.
     ///
-    /// This closes the ingest-side gap: `discoverers` and `target` already had
-    /// this guard, `ingest::verify` did not.
+    /// This closes the gap the old per-request guard covered, at the earlier
+    /// point. See `did_binding::tests::an_empty_allowlist_cannot_be_configured_at_all`.
     #[tokio::test]
-    async fn empty_accepted_methods_fails_closed_on_ingest_verify() {
-        let resolver = SharedDidResolver::new(&[], false).expect("builds");
-        let failure = resolver
-            .verify_detached_jws_with_authority(
-                b"payload",
-                "jws",
-                "did:key:z6mk#z6mk",
-                "did:key:z6mk",
-                DidBindingPurpose::DirectoryIngest,
-                SIGNATURE_KIND_INGEST_PROOF,
-                Utc::now(),
-            )
-            .expect_err("empty allowlist must fail closed");
-        assert_eq!(failure.message(), "no accepted DID methods configured");
-        assert_eq!(
-            resolver
-                .metrics()
-                .did_resolve_count(DID_RESOLVE_SOURCE_NETWORK),
-            0
+    async fn empty_accepted_methods_fails_the_process_at_startup() {
+        let error =
+            SharedDidResolver::new(&[], false).expect_err("an empty allowlist must not boot");
+        assert!(
+            error.contains("accepted_did_methods"),
+            "the failure must name the offending configuration, got: {error}"
         );
     }
 
@@ -819,11 +758,17 @@ mod tests {
             self.documents.contains_key(did.as_str())
         }
 
-        fn resolve_did(&self, did: &Did) -> IdentityResult<DidDocument> {
+        fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            self.documents.get(did.as_str()).cloned().ok_or_else(|| {
-                arkret_sdk::identity::IdentityError::Protocol(format!("unknown did {did}"))
-            })
+            self.documents
+                .get(did.as_str())
+                .cloned()
+                // Plain `did:web` documents publish no method evidence; the spy
+                // mirrors the production chain rather than inventing proofs.
+                .map(ResolvedDid::proofless)
+                .ok_or_else(|| {
+                    arkret_sdk::identity::IdentityError::Protocol(format!("unknown did {did}"))
+                })
         }
     }
 
@@ -944,16 +889,19 @@ mod tests {
         assert_eq!(metrics.did_resolve_count(DID_RESOLVE_SOURCE_NETWORK), 1);
     }
 
-    /// DID-P0-C02: the evidence digest is computed on the **resolved** document.
+    /// DID-P0-C02: the acceptance's evidence commits to the **resolved**
+    /// document, and the published service endpoint set is bound through it.
     ///
-    /// With the eager `resolve_and_verify_binding` the digest had to exist
-    /// before the resolution, so it could not depend on the document at all —
-    /// the endpoint set the `PrincipalServiceEndpoint` acceptance is about was
-    /// structurally excluded. Recomputing the stored digest from
-    /// `accepted.document()` and getting the same value is only possible if the
-    /// deferred closure actually saw that document.
+    /// The endpoint digest used to be an explicit member of a teabay-local
+    /// evidence envelope. §5.2 closed the receipt to `{method, document_digest,
+    /// method_proofs}`, so the binding now commits to the endpoint set
+    /// *transitively*: the endpoints are a projection of the pinned document,
+    /// and `document_digest` is a required receipt member. This test states
+    /// exactly that — the retained receipt recomputes to the stored digest, and
+    /// removing the `service` entry changes the document digest and therefore
+    /// the evidence digest.
     #[test]
-    fn deferred_evidence_is_computed_on_the_resolved_document() {
+    fn evidence_commits_to_the_resolved_document_including_its_service_endpoints() {
         let (_, did, verification_method, mut document) = web_signer(59);
         document.raw_properties.insert(
             "service".to_owned(),
@@ -964,42 +912,42 @@ mod tests {
             }]),
         );
         let (spy, resolver, _metrics) = spy_resolver(vec![document]);
-        let purpose = DidBindingPurpose::PrincipalServiceEndpoint;
-        let evidence = BindingEvidence::PrincipalServiceEndpoint {
-            service_kind: crate::ingest::verify::ARKRET_PRINCIPAL_SERVER,
-        };
 
         let accepted = resolver
-            .accepted_or_resolved_with_evidence(
+            .accepted_or_resolved(
                 &did,
-                purpose,
+                DidBindingPurpose::PrincipalServiceEndpoint,
                 Some(&verification_method),
-                evidence,
                 Utc::now(),
             )
             .expect("endpoint acceptance");
         assert_eq!(spy.calls(), 1);
 
-        let recomputed = resolver
-            .bindings()
-            .evidence_digest(accepted.document(), purpose, evidence)
-            .expect("recompute the evidence digest from the pinned document");
+        // "Auditable" means "recomputable": the retained receipt digests back to
+        // the value the binding recorded.
         assert_eq!(
             accepted.binding().evidence_digest(),
-            &recomputed,
-            "the stored evidence must be recomputable from the document it rests on"
+            &accepted
+                .evidence_receipt()
+                .digest()
+                .expect("recompute the evidence digest from the retained receipt"),
+        );
+        // And it is never the degenerate `evidence_digest = document_digest`.
+        assert_ne!(
+            accepted.binding().evidence_digest(),
+            accepted.binding().document_digest()
         );
 
-        // Strip the service entry and the evidence changes: the published
-        // endpoint set really is bound, not merely alongside.
+        // Strip the service entry and the document digest moves, so the receipt
+        // built on it digests differently: the published endpoint set really is
+        // bound, not merely alongside.
         let mut without_service = accepted.document().clone();
         without_service.raw_properties.remove("service");
+        let stripped = crate::did_binding::DidBindingDirectory::proofless_receipt(&without_service)
+            .expect("receipt");
         assert_ne!(
-            resolver
-                .bindings()
-                .evidence_digest(&without_service, purpose, evidence)
-                .expect("digest"),
-            recomputed
+            stripped.digest().expect("digest"),
+            accepted.evidence_receipt().digest().expect("digest")
         );
     }
 

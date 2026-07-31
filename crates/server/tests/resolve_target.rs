@@ -38,8 +38,6 @@ use server::query::target::{
 fn test_bindings() -> DidBindingDirectory {
     DidBindingDirectory::new(
         &["did:key".to_owned()],
-        false,
-        false,
         "did:web:directory.example",
         server::observability::Metrics::default(),
     )

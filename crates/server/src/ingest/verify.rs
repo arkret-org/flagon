@@ -34,7 +34,6 @@ use url::Url;
 
 use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
-use crate::did_binding::BindingEvidence;
 use crate::did_resolver::{SharedDidResolver, did_method_allowed, did_method_prefix_for_did};
 use crate::error::ApiErrorCode;
 use crate::ingest::DirectoryResourceKindDb;
@@ -689,17 +688,23 @@ async fn verify_first_source_ref_resolves(
 /// | --- | --- |
 /// | `service_did` | the `VerifiedDidBinding`'s `did` — part of the store key |
 /// | `trust_domain` | the binding's `trust_domain` — part of the store key |
-/// | `service_kind` | the binding's `evidence_digest` (`BindingEvidence::PrincipalServiceEndpoint`) |
-/// | `endpoint_digest` | the binding's `evidence_digest` too — `DidBindingDirectory::service_endpoint_digest` runs inside the SDK evidence closure on the resolved document — *and* recomputed here from the pinned document every time |
+/// | `service_kind` | this struct, and folded into `acceptance_digest` |
+/// | `endpoint_digest` | recomputed here from the pinned document on every request, and folded into `acceptance_digest` |
 /// | `source_ref` | supplied per request and folded into `acceptance_digest` |
 ///
-/// `endpoint_digest` used to be teabay-side only: the SDK's eager
-/// `BindingAcceptance` demanded a finished evidence digest *before* resolution,
-/// so nothing the document published could enter the evidence. The deferred
-/// `resolve_and_verify_binding_with_evidence` closes that, and the two digests
-/// answer different questions on purpose — the evidence one commits to the
-/// endpoint set **as published** (raw, document order), the one below to the
-/// single **resolved absolute URL** this request will actually fetch from.
+/// `service_kind` and `endpoint_digest` briefly lived in the binding's
+/// `evidence_digest` as well, through a teabay-local evidence envelope.
+/// `did-usage-and-verification.md` §5.2 closed the evidence receipt to
+/// `{method, document_digest, method_proofs}` — evidence is a product of the
+/// resolution, not something the caller contributes — so both are back here,
+/// which is where a per-request value belonged anyway.
+///
+/// That is not a weaker binding. The endpoint set is a **projection of the
+/// pinned document**, and `document_digest` is a required member of the
+/// evidence receipt, so the acceptance still commits to it transitively: a host
+/// that publishes a different endpoint publishes a different document, whose
+/// digest differs, whose evidence digest differs, and whose binding is
+/// therefore a different acceptance.
 ///
 /// The endpoint is **always re-derived from the pinned DID document**, never
 /// read out of a URL cache: on a store hit the `service` array comes from
@@ -813,15 +818,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
     // written.
     let now = Utc::now();
     let accepted = resolver
-        .accepted_or_resolved_with_evidence(
-            &did,
-            DidBindingPurpose::PrincipalServiceEndpoint,
-            None,
-            BindingEvidence::PrincipalServiceEndpoint {
-                service_kind: ARKRET_PRINCIPAL_SERVER,
-            },
-            now,
-        )
+        .accepted_or_resolved(&did, DidBindingPurpose::PrincipalServiceEndpoint, None, now)
         .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;
     if accepted.document().id.as_str() != principal_server_did {
         anyhow::bail!("DID document id does not match requested DID");
