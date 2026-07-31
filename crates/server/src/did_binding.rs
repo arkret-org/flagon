@@ -40,23 +40,20 @@
 use std::sync::Arc;
 
 use arkret_identity::binding::{
-    DidBindingPurpose, DidBindingStatus, LimitedTrustReason, VerifiedDidBinding,
-    VerifiedDidBindingDocumentInput, VerifiedDidBindingKey,
+    DidBindingPurpose, DidBindingStatus, FreshnessProfile, FreshnessRiskTier, LimitedTrust,
+    StaleBehavior, VerifiedDidBinding, VerifiedDidBindingDocumentInput, VerifiedDidBindingKey,
 };
-use arkret_identity::binding_digest::{EvidenceEnvelope, PolicyDigestInput};
+use arkret_identity::binding_digest::{EvidenceReceipt, MethodEvidence};
 use arkret_identity::binding_store::{
     AcceptedDidBinding, BindingInvalidation, InMemoryVerifiedDidBindingStore,
     VerifiedDidBindingStore,
 };
 use arkret_identity::verifier::verify_jws_with_binding;
-use arkret_sdk::canonical;
 use arkret_sdk::identity::{DidDocument, DidKeyResolver, DidResolver};
 use arkret_wire::{Did, DidUrl, Hash, TypedTrustDomainId};
-use chrono::{DateTime, Duration, Utc};
-use serde_json::{Value as JsonValue, json};
+use chrono::{DateTime, Utc};
 
 use crate::did_resolver::did_method_allowed;
-use crate::ingest::verify::service_kind_matches;
 use crate::observability::{
     DID_RESOLVE_SOURCE_BINDING_STORE, DID_RESOLVE_SOURCE_DID_KEY, Metrics,
     SIGNATURE_OUTCOME_INVALID, SIGNATURE_OUTCOME_NO_BINDING, SIGNATURE_OUTCOME_OK,
@@ -68,14 +65,35 @@ use crate::observability::{
 /// with the oldest `verified_at`, deterministically.
 const MAX_BINDINGS: usize = 4096;
 
-/// Background-refresh point. Crossing it only marks an acceptance `Stale` —
-/// spec §5: "cache TTL expiry alone MUST NOT turn an ordinary business request
-/// into an online DID resolution".
-pub(crate) const BINDING_REFRESH_AFTER: Duration = Duration::minutes(10);
-
-/// Hard-expiry point. Past it the acceptance is invisible to readers and the
-/// next **authority** call (never an ordinary one) resolves again.
-pub(crate) const BINDING_HARD_EXPIRY: Duration = Duration::hours(24);
+/// The freshness profile every teabay DID authority call site references
+/// (`did-usage-and-verification.md` §5.4).
+///
+/// §5.4 makes `fresh_for_seconds` the **single** freshness threshold:
+/// `refresh_after = verified_at + fresh_for_seconds` and an authority call's
+/// `max_age` are the same value, so the two constants this replaced
+/// (`BINDING_REFRESH_AFTER` for the former, `FreshnessRequirement::any_accepted`
+/// for the latter) can no longer drift apart.
+///
+/// Tier is `high`, and that is not a behaviour change for ordinary requests.
+/// The §5 rule "cache TTL expiry alone MUST NOT turn an ordinary business
+/// request into an online DID resolution" is carried by
+/// [`DidBindingDirectory::accepted`], which reads the store directly and returns
+/// a `Stale` entry unchanged; both faces consult it *before* any authority path
+/// exists. This profile is only ever exercised when there is no usable entry at
+/// all — a genuine §4 trigger — where "refresh synchronously or fail closed" is
+/// the only correct answer. The §5.4 `high` constraints hold: both windows are
+/// finite and `0 < 600 <= 86400`, with no stale-consumption window.
+pub(crate) fn binding_freshness_profile() -> FreshnessProfile {
+    FreshnessProfile {
+        freshness_profile_id: "ak.did_freshness.teabay_directory_authority.v1".to_owned(),
+        risk_tier: FreshnessRiskTier::High,
+        did_method_selector: vec!["*".to_owned()],
+        fresh_for_seconds: Some(600),
+        stale_grace_seconds: None,
+        hard_expiry_seconds: Some(24 * 3_600),
+        stale_behavior: StaleBehavior::SynchronousRefreshOrFailClosed,
+    }
+}
 
 /// The default trust-domain scope when the configured `service_id` yields no
 /// usable `ak:trust_domain:` payload.
@@ -119,33 +137,6 @@ impl std::fmt::Display for BindingFailure {
     }
 }
 
-/// What kind of evidence an acceptance rests on. Feeds the binding's
-/// `evidence_digest`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BindingEvidence {
-    /// `did:key` is self-describing key material (spec §2.4): the "evidence" is
-    /// the multibase decode itself, performed locally with zero network access.
-    DidKeyLocalDecode,
-    /// The process-wide resolver chain validated the document under the startup
-    /// policy (method allowlist, `https_only` + `ValidatingDnsResolver`, the
-    /// SDK's content-type / size caps, and for `did:webvh` the log chain and
-    /// witness set).
-    SharedResolverChain,
-    /// A principal-server service endpoint acceptance. Carries the service kind
-    /// and the endpoint itself so the digest binds them, not just the DID.
-    PrincipalServiceEndpoint { service_kind: &'static str },
-}
-
-impl BindingEvidence {
-    fn source_label(&self) -> &'static str {
-        match self {
-            Self::DidKeyLocalDecode => "did_key_local_decode",
-            Self::SharedResolverChain => "shared_resolver_chain",
-            Self::PrincipalServiceEndpoint { .. } => "principal_service_endpoint",
-        }
-    }
-}
-
 /// Process-wide accepted-binding directory.
 ///
 /// Cloned handles (via `Arc`) all point at one store: an acceptance made on the
@@ -183,8 +174,6 @@ impl DidBindingDirectory {
     /// somehow shared a store.
     pub fn new(
         accepted_did_methods: &[String],
-        allow_private_networks: bool,
-        development_mode: bool,
         service_id: &str,
         metrics: Metrics,
     ) -> Result<Self, String> {
@@ -193,11 +182,7 @@ impl DidBindingDirectory {
             did_key: DidKeyResolver::new(),
             accepted_did_methods: accepted_did_methods.to_vec(),
             trust_domain: trust_domain_for_service(service_id)?,
-            policy_digest: resolver_policy_digest(
-                accepted_did_methods,
-                allow_private_networks,
-                development_mode,
-            )?,
+            policy_digest: resolver_policy_digest(accepted_did_methods)?,
             metrics,
         })
     }
@@ -265,7 +250,6 @@ impl DidBindingDirectory {
             purpose,
             policy_digest: self.policy_digest.clone(),
             verification_method: verification_method.cloned(),
-            version_id: None,
         }
     }
 
@@ -292,47 +276,78 @@ impl DidBindingDirectory {
         hit
     }
 
-    /// Turn an already-verified DID document into an acceptance and store it.
+    /// Turn an already-verified DID document plus its §5.2 evidence receipt into
+    /// an acceptance and store it.
     ///
-    /// This performs no I/O: the caller supplies the document, whether it came
-    /// from the local `did:key` decoder or from the authority chain.
+    /// This performs no I/O: the caller supplies both, whether they came from
+    /// the local `did:key` decoder or from the authority chain.
+    ///
+    /// The receipt is a parameter rather than something recomputed here on
+    /// purpose. Evidence is a product of the *resolution*, so the only honest
+    /// receipt is the one that resolution produced; re-deriving one from the
+    /// document alone would be exactly the "caller invents the evidence" shape
+    /// §5.2 rules out. `AcceptedDidBinding::new` re-digests it and rejects a
+    /// receipt that disagrees with `binding.evidence_digest()`, so a mismatched
+    /// pair cannot be stored.
     pub fn accept_document(
         &self,
         document: &DidDocument,
         purpose: DidBindingPurpose,
         verification_method: Option<&DidUrl>,
-        evidence: BindingEvidence,
+        receipt: EvidenceReceipt,
         now: DateTime<Utc>,
     ) -> Result<AcceptedDidBinding, String> {
-        let evidence_digest = self.evidence_digest(document, purpose, evidence)?;
+        let profile = binding_freshness_profile();
         let binding = VerifiedDidBinding::from_verified_document(
             document,
             VerifiedDidBindingDocumentInput {
                 trust_domain: self.trust_domain.clone(),
                 purpose,
                 verification_method: verification_method.cloned(),
-                // The SDK resolver surface returns a document, not a webvh log
-                // head or a version id, so teabay pins neither. Spec §5 allows
-                // that only if the limited-trust capability is *recorded* —
-                // which is exactly what this variant does.
+                // Neither pin is available: `did:key` has no history by
+                // construction, and the `did:web` / `did:webvh` documents this
+                // chain serves surface no log head or version id. §5.5 requires
+                // that to be *recorded per pin* rather than silently omitted.
                 history_head: None,
                 version_id: None,
-                limited_trust: Some(LimitedTrustReason::MethodHasNeitherHistoryNorVersion),
-                evidence_digest,
+                limited_trust: LimitedTrust::for_proofless_method(None, None).record_for(),
+                evidence_digest: receipt
+                    .digest()
+                    .map_err(|error| format!("evidence digest failed: {error}"))?,
+                evidence_dependencies: receipt
+                    .evidence_dependencies()
+                    .map_err(|error| format!("evidence dependencies failed: {error}"))?,
                 policy_digest: self.policy_digest.clone(),
                 verified_at: now,
-                refresh_after: Some(now + BINDING_REFRESH_AFTER),
-                expires_at: Some(now + BINDING_HARD_EXPIRY),
+                refresh_after: profile.refresh_after(now),
+                expires_at: profile.expires_at(now),
                 status: DidBindingStatus::Active,
             },
         )
         .map_err(|error| format!("binding construction failed: {error}"))?;
-        let accepted = AcceptedDidBinding::new(binding, document.clone())
+        let accepted = AcceptedDidBinding::new(binding, document.clone(), receipt)
             .map_err(|error| format!("binding/document pairing rejected: {error}"))?;
         self.store
             .accept(accepted.clone())
             .map_err(|error| format!("binding store rejected the acceptance: {error}"))?;
         Ok(accepted)
+    }
+
+    /// The evidence receipt for a document this process did not resolve over the
+    /// network: the local `did:key` decode, and the mirror of an already-accepted
+    /// document into a second purpose.
+    ///
+    /// `did:key` is self-describing key material (spec §2.4), so it publishes no
+    /// verifiable method evidence at all — [`MethodEvidence::none`] is the
+    /// normative degenerate form for it, not a stand-in for evidence teabay
+    /// failed to collect.
+    pub fn proofless_receipt(document: &DidDocument) -> Result<EvidenceReceipt, String> {
+        Ok(EvidenceReceipt::new(
+            document.id.method(),
+            arkret_identity::binding::document_canonical_digest(document)
+                .map_err(|error| format!("document digest failed: {error}"))?,
+            &MethodEvidence::none(),
+        ))
     }
 
     /// Decode a `did:key` locally and accept it. Zero network by construction —
@@ -346,17 +361,12 @@ impl DidBindingDirectory {
     ) -> Result<AcceptedDidBinding, String> {
         let document = self
             .did_key
-            .resolve_did(did)
+            .resolve_did_document(did)
             .map_err(|error| format!("did:key decode failed: {error}"))?;
         self.metrics
             .record_did_resolve(did.method(), DID_RESOLVE_SOURCE_DID_KEY);
-        self.accept_document(
-            &document,
-            purpose,
-            verification_method,
-            BindingEvidence::DidKeyLocalDecode,
-            now,
-        )
+        let receipt = Self::proofless_receipt(&document)?;
+        self.accept_document(&document, purpose, verification_method, receipt, now)
     }
 
     /// Precise invalidation (spec §5). Exposed so rotation / deactivation /
@@ -482,15 +492,14 @@ impl DidBindingDirectory {
         issuer: &str,
         purpose: DidBindingPurpose,
     ) -> Result<(Did, DidUrl), BindingFailure> {
-        // Fail-OPEN guard. `ResolverPolicy::allowed_methods` treats an empty
-        // list as "every method is allowed", so an operator who forgets
-        // `TEABAY_ACCEPTED_DID_METHODS` would otherwise get an unrestricted
-        // verifier. Every teabay verification entry point rejects here first.
-        if self.accepted_did_methods.is_empty() {
-            return Err(BindingFailure::PolicyRejected(
-                "no accepted DID methods configured".to_owned(),
-            ));
-        }
+        // No empty-allowlist guard is needed here any more, and one would be
+        // dead code. `ResolverPolicy::allowed_methods` still treats an empty
+        // list as "every method is allowed", but §5.3 forbids *declaring* that
+        // policy at all, so `resolver_policy_digest` — and therefore
+        // `DidBindingDirectory::new`, and therefore `AppState::new` — fails on
+        // an empty `TEABAY_ACCEPTED_DID_METHODS`. A directory that could reach
+        // this line cannot exist. See
+        // `an_empty_allowlist_cannot_be_configured_at_all`.
         let verification_method =
             DidUrl::new(verification_method.trim().to_owned()).map_err(|error| {
                 BindingFailure::PolicyRejected(format!("verification_method: {error}"))
@@ -515,172 +524,53 @@ impl DidBindingDirectory {
         }
         Ok((issuer, verification_method))
     }
-
-    /// Digest of the evidence an acceptance rests on — the SDK's canonical
-    /// [`EvidenceEnvelope`], not a teabay-local shape.
-    ///
-    /// See [`Self::evidence_envelope`] for what the envelope carries.
-    pub(crate) fn evidence_digest(
-        &self,
-        document: &DidDocument,
-        purpose: DidBindingPurpose,
-        evidence: BindingEvidence,
-    ) -> Result<Hash, String> {
-        self.evidence_envelope(document, purpose, evidence)?
-            .digest()
-            .map_err(|error| format!("evidence digest failed: {error}"))
-    }
-
-    /// The canonical evidence envelope behind an acceptance.
-    ///
-    /// The SDK core (`arkret_identity::binding_digest`) binds the pinned
-    /// **document digest** and the **policy digest**; teabay layers its
-    /// provenance members into the envelope's `method` extension map:
-    ///
-    /// | member | meaning |
-    /// | --- | --- |
-    /// | `source` | which local path produced the document ([`BindingEvidence::source_label`]) |
-    /// | `purpose` | the closed [`DidBindingPurpose`] the acceptance is scoped to |
-    /// | `service_kind` | `PrincipalServiceEndpoint` only: the service type followed |
-    /// | `endpoint_digest` | `PrincipalServiceEndpoint` only: [`Self::service_endpoint_digest`] |
-    ///
-    /// The DID itself is no longer an explicit member: `document_digest` covers
-    /// `document.id`, and the SDK test `evidence_digest_is_not_a_constant_of_the_did`
-    /// pins that two documents for one DID cannot share a digest. The trust
-    /// domain is likewise dropped from the envelope — it is a
-    /// [`VerifiedDidBindingKey`] dimension, so it already scopes the acceptance
-    /// structurally — except inside `endpoint_digest`, where it is part of the
-    /// DID-P0-C02 five-tuple.
-    ///
-    /// Returned (not only digested) so an operator can recompute the digest from
-    /// `EvidenceEnvelope::canonical_value` rather than trust that the field is
-    /// non-empty.
-    pub(crate) fn evidence_envelope(
-        &self,
-        document: &DidDocument,
-        purpose: DidBindingPurpose,
-        evidence: BindingEvidence,
-    ) -> Result<EvidenceEnvelope, String> {
-        let mut envelope = EvidenceEnvelope::for_document(document, self.policy_digest.clone())
-            .map_err(|error| format!("evidence envelope failed: {error}"))?
-            .with_extension("source", evidence.source_label())
-            .with_extension("purpose", purpose.as_str());
-        if let BindingEvidence::PrincipalServiceEndpoint { service_kind } = evidence {
-            envelope = envelope
-                .with_extension("service_kind", service_kind)
-                .with_extension(
-                    "endpoint_digest",
-                    self.service_endpoint_digest(document, service_kind)?
-                        .as_str(),
-                );
-        }
-        Ok(envelope)
-    }
-
-    /// Digest of the service endpoints a resolved document publishes for
-    /// `service_kind`, under this directory's trust domain.
-    ///
-    /// # DID-P0-C02 — why this is in the *evidence*, not only alongside it
-    ///
-    /// The required acceptance tuple is (service DID, service kind, trust
-    /// domain, endpoint digest, source ref). The first four are all derivable
-    /// from the resolved document plus this directory, so they belong in the
-    /// binding's own evidence; only `source_ref` is per-request, which is why it
-    /// stays in `ingest::verify::AcceptedServiceEndpoint::acceptance_digest`
-    /// instead (a per-use value must not key a reusable acceptance).
-    ///
-    /// Computing this needs the **resolved** document, which is why the
-    /// authority path uses the SDK's
-    /// `resolve_and_verify_binding_with_evidence`: with the eager
-    /// `BindingAcceptance` the evidence digest had to exist *before* resolution,
-    /// so the endpoint could never enter it.
-    ///
-    /// The `serviceEndpoint` values are digested exactly as published (raw JSON,
-    /// document order, which is the owner-controlled priority order). Relative
-    /// endpoints are resolved against the DID document URL later, in
-    /// `ingest::verify::service_endpoint_url`, under an egress policy this
-    /// module deliberately does not know about.
-    fn service_endpoint_digest(
-        &self,
-        document: &DidDocument,
-        service_kind: &str,
-    ) -> Result<Hash, String> {
-        let endpoints = document
-            .raw_properties
-            .get("service")
-            .and_then(JsonValue::as_array)
-            .map(|services| {
-                services
-                    .iter()
-                    .filter(|service| service_kind_matches(service, service_kind))
-                    .map(|service| {
-                        service
-                            .get("serviceEndpoint")
-                            .cloned()
-                            .unwrap_or(JsonValue::Null)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let value = json!({
-            "kind": "teabay.service_endpoint_set.v1",
-            "service_did": document.id.as_str(),
-            "service_kind": service_kind,
-            "trust_domain": self.trust_domain.as_str(),
-            "endpoints": endpoints,
-        });
-        let digest = canonical::canonical_sha256(&value)
-            .map_err(|error| format!("service endpoint canonicalization failed: {error}"))?;
-        Hash::new(digest).map_err(|error| format!("service endpoint digest invalid: {error}"))
-    }
 }
 
-/// Stable digest of teabay's effective `ResolverPolicy`.
+/// The §5.3 `policy_digest` of teabay's effective `ResolverPolicy`.
 ///
-/// # Algorithm: the SDK's, not teabay's
+/// # Algorithm: the SDK's, and only the SDK's
 ///
-/// `did-usage-and-verification.md` §5 mandates a `policy_digest` but defines no
-/// canonical computation for it, which is registered as
-/// `arkret-work/review/spec-open/2026-07-31-binding-digest-fields-have-no-canonical-computation.
-/// md`. The gap is still open **at the spec layer**; at the implementation layer it is
-/// closed: `arkret_identity::binding_digest` now owns the canonical algorithm and
-/// every repo digests through it, so two deployments with equal policies agree
-/// by construction instead of by coincidence.
+/// `did-usage-and-verification.md` §5.3 defines the canonical resolver policy
+/// snapshot (`ak.did.resolver_policy.v1`) and its digest, and
+/// `ResolverPolicy::policy_digest()` is the single implementation of it. Teabay
+/// adds nothing: two deployments with equal policies agree by construction
+/// rather than by coincidence, and a language-native `Debug` rendering of an
+/// enum — the encoding fork this replaced — is not expressible.
 ///
-/// # Input set
+/// # Why `allow_private_networks` / `development_mode` are not inputs
 ///
-/// The **core** is the whole [`ResolverPolicy`](arkret_sdk::identity::ResolverPolicy)
-/// that [`crate::did_resolver::resolver_policy`] hands the chain — allowed
-/// methods (normalized to `did:<method>:`, sorted, deduped, so reordering
-/// `TEABAY_ACCEPTED_DID_METHODS` is not a policy change but adding or removing a
-/// method is), default principal method, trust roots, TTL and fail mode — plus
-/// `POLICY_DIGEST_VERSION`. Digesting the *actual* policy object, rather than
-/// re-listing a few of its fields, is what stops a future `ResolverPolicy`
-/// change from silently escaping the digest.
+/// They used to be digest extensions, on the reasoning that flipping the egress
+/// boundary must invalidate acceptances taken under the old one. §5.3 closed the
+/// snapshot: a deployment with extra admissibility dimensions MUST register its
+/// own `policy_profile` with a closed `profile_policy` schema, and v1 registers
+/// only `ak.did_resolver_policy_profile.base.v1` (`profile_policy` = `{}`).
 ///
-/// Two **deployment extensions** carry what `ResolverPolicy` has no field for:
+/// Registering a teabay profile would be the right move if the dimension could
+/// ever discriminate anything here. It cannot:
 ///
-/// 1. `allow_private_networks` — the egress decision frozen at startup;
-/// 2. `development_mode` — kept as its own dimension even though
-///    `egress::local_development_enabled` currently maps it 1:1 onto (1), so that decoupling the
-///    two later automatically changes the digest.
+/// - both flags are derived once in `AppState::new` from the startup `AppConfig` snapshot and
+///   frozen inside [`crate::did_resolver::SharedDidResolver`]; no request path can supply a
+///   different value;
+/// - the acceptance store is [`InMemoryVerifiedDidBindingStore`], created in the same constructor
+///   and never persisted or shared between processes.
 ///
-/// Any change to that set changes the digest, which changes every
-/// [`VerifiedDidBindingKey`], which makes every acceptance taken under the old
-/// policy unreachable — the "policy revision invalidates bindings" requirement
-/// of DID-P0-C02, obtained structurally rather than by an explicit sweep. The
-/// move onto the SDK algorithm is itself such a change: every acceptance stored
-/// under the previous teabay-local digest is re-established exactly once.
-pub fn resolver_policy_digest(
-    accepted_did_methods: &[String],
-    allow_private_networks: bool,
-    development_mode: bool,
-) -> Result<Hash, String> {
-    let policy = crate::did_resolver::resolver_policy(accepted_did_methods);
-    PolicyDigestInput::new(&policy)
-        .with_extension("allow_private_networks", allow_private_networks)
-        .with_extension("development_mode", development_mode)
-        .digest()
+/// So an acceptance made under one value of these flags can never be read by a
+/// process running under another — the process that could observe the
+/// difference does not outlive the flags. Keeping them as digest inputs would
+/// state a scoping property that the store already provides structurally.
+///
+/// A deployment that gives this store a **durable** backend must revisit this:
+/// at that point the flags become genuinely discriminating and a registered
+/// profile is required, not optional.
+///
+/// Everything that *is* discriminating stays covered: the accepted-method
+/// allowlist, the fail mode and the trust roots are the snapshot's three
+/// required members, and any change to them changes the digest, which changes
+/// every [`VerifiedDidBindingKey`], which makes every acceptance taken under the
+/// old policy structurally unreachable.
+pub fn resolver_policy_digest(accepted_did_methods: &[String]) -> Result<Hash, String> {
+    crate::did_resolver::resolver_policy(accepted_did_methods)
+        .policy_digest()
         .map_err(|error| format!("resolver policy digest failed: {error}"))
 }
 
@@ -722,8 +612,6 @@ mod tests {
     fn directory() -> DidBindingDirectory {
         DidBindingDirectory::new(
             &["did:key".to_owned(), "did:web".to_owned()],
-            false,
-            false,
             "did:web:directory.example",
             Metrics::default(),
         )
@@ -747,30 +635,24 @@ mod tests {
 
     #[test]
     fn policy_digest_is_stable_and_order_insensitive() {
-        let a = resolver_policy_digest(&["did:key".to_owned(), "did:web".to_owned()], false, false)
-            .unwrap();
-        let b =
-            resolver_policy_digest(&["did:web:".to_owned(), "did:key".to_owned()], false, false)
-                .unwrap();
+        let a = resolver_policy_digest(&["did:key".to_owned(), "did:web".to_owned()]).unwrap();
+        let b = resolver_policy_digest(&["did:web:".to_owned(), "did:key".to_owned()]).unwrap();
         assert_eq!(a, b, "normalization + sort must make ordering irrelevant");
     }
 
+    /// The accepted-method allowlist is a required member of the §5.3 snapshot,
+    /// so changing it necessarily changes the digest — and therefore every
+    /// store key taken under the old allowlist.
     #[test]
-    fn policy_digest_changes_with_every_input() {
-        let base =
-            resolver_policy_digest(&["did:key".to_owned()], false, false).expect("base digest");
+    fn policy_digest_changes_when_the_accepted_method_set_changes() {
+        let base = resolver_policy_digest(&["did:key".to_owned()]).expect("base digest");
         assert_ne!(
             base,
-            resolver_policy_digest(&["did:key".to_owned(), "did:web".to_owned()], false, false)
-                .unwrap()
+            resolver_policy_digest(&["did:key".to_owned(), "did:web".to_owned()]).unwrap()
         );
         assert_ne!(
             base,
-            resolver_policy_digest(&["did:key".to_owned()], true, false).unwrap()
-        );
-        assert_ne!(
-            base,
-            resolver_policy_digest(&["did:key".to_owned()], false, true).unwrap()
+            resolver_policy_digest(&["did:web".to_owned()]).unwrap()
         );
     }
 
@@ -782,129 +664,61 @@ mod tests {
     /// policy digest from one configured with prefixes.
     #[test]
     fn policy_digest_folds_every_method_spelling_together() {
-        let bare = resolver_policy_digest(&["key".to_owned(), "web".to_owned()], false, false)
-            .expect("digest");
+        let bare = resolver_policy_digest(&["key".to_owned(), "web".to_owned()]).expect("digest");
         let prefixed =
-            resolver_policy_digest(&["did:key".to_owned(), "did:web".to_owned()], false, false)
-                .expect("digest");
-        let terminated = resolver_policy_digest(
-            &["did:key:".to_owned(), "did:web:".to_owned()],
-            false,
-            false,
-        )
-        .expect("digest");
+            resolver_policy_digest(&["did:key".to_owned(), "did:web".to_owned()]).expect("digest");
+        let terminated = resolver_policy_digest(&["did:key:".to_owned(), "did:web:".to_owned()])
+            .expect("digest");
         assert_eq!(bare, prefixed);
         assert_eq!(prefixed, terminated);
     }
 
-    fn document_with_endpoint(endpoint: &str) -> DidDocument {
-        let did = Did::new("did:web:principal.example".to_owned()).expect("did");
-        let mut document = DidDocument {
-            id: did.clone(),
-            verification_methods: std::collections::BTreeMap::from([(
-                format!("{did}#key-1"),
-                "z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH".to_owned(),
-            )]),
-            also_known_as: Vec::new(),
-            updated_at: None,
-            raw_properties: std::collections::BTreeMap::new(),
-        };
-        document.raw_properties.insert(
-            "service".to_owned(),
-            json!([
-                { "id": format!("{did}#other"), "type": "SomethingElse",
-                  "serviceEndpoint": "https://ignored.example/" },
-                { "id": format!("{did}#ps"),
-                  "type": crate::ingest::verify::ARKRET_PRINCIPAL_SERVER,
-                  "serviceEndpoint": endpoint },
-            ]),
-        );
-        document
+    /// An empty allowlist is fail-open ("any method"), which §5.3 forbids a
+    /// snapshot from declaring at all — so it has no digest, and a directory
+    /// configured that way cannot even be constructed.
+    #[test]
+    fn an_empty_allowlist_has_no_declarable_policy_digest() {
+        assert!(resolver_policy_digest(&[]).is_err());
     }
 
-    /// DID-P0-C02: the published service endpoint is part of the *evidence*, not
-    /// only of teabay's own `acceptance_digest`.
+    /// The acceptance is a `{binding, document, receipt}` triple, and the SDK
+    /// re-digests the receipt on construction. Pairing a binding with a receipt
+    /// it was not made from is therefore unrepresentable, which is what makes
+    /// `evidence_digest` an auditable claim rather than an opaque field.
     #[test]
-    fn evidence_envelope_binds_the_published_service_endpoint() {
+    fn evidence_is_a_recomputable_receipt_over_the_pinned_document() {
         let directory = directory();
-        let evidence = BindingEvidence::PrincipalServiceEndpoint {
-            service_kind: crate::ingest::verify::ARKRET_PRINCIPAL_SERVER,
-        };
-        let purpose = DidBindingPurpose::PrincipalServiceEndpoint;
+        let (_, did, verification_method) = did_key_signer(29);
+        let now = Utc::now();
 
-        let first = directory
-            .evidence_envelope(
-                &document_with_endpoint("https://a.example/"),
-                purpose,
-                evidence,
+        let accepted = directory
+            .accept_did_key(
+                &did,
+                DidBindingPurpose::DirectoryIssuer,
+                Some(&verification_method),
+                now,
             )
-            .expect("envelope");
-        let second = directory
-            .evidence_envelope(
-                &document_with_endpoint("https://b.example/"),
-                purpose,
-                evidence,
-            )
-            .expect("envelope");
+            .expect("acceptance");
 
-        let first_value = first.canonical_value();
-        let second_value = second.canonical_value();
-        let first_endpoint = first_value["method"]["endpoint_digest"]
-            .as_str()
-            .expect("endpoint digest is an evidence member");
-        let second_endpoint = second_value["method"]["endpoint_digest"]
-            .as_str()
-            .expect("endpoint digest is an evidence member");
-        assert_ne!(
-            first_endpoint, second_endpoint,
-            "a different published endpoint MUST change the endpoint digest"
-        );
+        let receipt = accepted.evidence_receipt();
         assert_eq!(
-            first_value["method"]["service_kind"],
-            json!(crate::ingest::verify::ARKRET_PRINCIPAL_SERVER)
+            accepted.binding().evidence_digest(),
+            &receipt.digest().expect("digest")
         );
+        // `did:key` is self-describing key material: no method proofs exist, and
+        // the receipt says so rather than carrying a stand-in.
+        assert_eq!(receipt.method, "key");
+        assert!(receipt.method_proofs.is_empty());
+        // The degenerate `evidence_digest = document_digest` form is unreachable.
         assert_ne!(
-            first.digest().expect("digest"),
-            second.digest().expect("digest")
+            accepted.binding().evidence_digest(),
+            accepted.binding().document_digest()
         );
-    }
-
-    /// The evidence digest is a *checkable* claim: it recomputes from the
-    /// published envelope, and it is never the bare document digest.
-    #[test]
-    fn evidence_digest_is_recomputable_and_not_the_document_digest() {
-        let directory = directory();
-        let document = document_with_endpoint("https://a.example/");
-        let purpose = DidBindingPurpose::PrincipalServiceEndpoint;
-        let evidence = BindingEvidence::PrincipalServiceEndpoint {
-            service_kind: crate::ingest::verify::ARKRET_PRINCIPAL_SERVER,
-        };
-        let envelope = directory
-            .evidence_envelope(&document, purpose, evidence)
-            .expect("envelope");
+        // §5.5: both pins are absent, and `did:key` genuinely cannot supply
+        // either, so the record is `method_unsupported` rather than omitted.
         assert_eq!(
-            directory
-                .evidence_digest(&document, purpose, evidence)
-                .expect("digest"),
-            envelope.digest().expect("digest"),
-        );
-        assert_ne!(
-            envelope.digest().expect("digest"),
-            *envelope.document_digest(),
-            "the degenerate `evidence_digest = document_digest` form must be unreachable"
-        );
-        // Non-endpoint evidence carries no endpoint digest at all.
-        let plain = directory
-            .evidence_envelope(
-                &document,
-                DidBindingPurpose::DirectoryIngest,
-                BindingEvidence::SharedResolverChain,
-            )
-            .expect("envelope");
-        assert!(plain.canonical_value()["method"]["endpoint_digest"].is_null());
-        assert_ne!(
-            plain.digest().expect("digest"),
-            envelope.digest().expect("digest")
+            accepted.binding().limited_trust(),
+            LimitedTrust::for_proofless_method(None, None).record_for()
         );
     }
 
@@ -925,30 +739,25 @@ mod tests {
         );
     }
 
+    /// An empty accepted-method list is fail-OPEN at the `ResolverPolicy` layer
+    /// ("empty means any method"), so teabay used to guard against it on every
+    /// verification entry point.
+    ///
+    /// §5.3 makes that guard unnecessary **and** unreachable: the canonical
+    /// resolver policy snapshot refuses to declare an empty
+    /// `accepted_did_methods`, so the policy has no digest, the directory has no
+    /// store key dimension, and construction fails. The misconfiguration is now
+    /// a boot failure rather than a per-request rejection — which is strictly
+    /// better, since a deployment that answers `/readyz` and then rejects every
+    /// signature is harder to diagnose than one that refuses to start.
     #[test]
-    fn empty_allowlist_fails_closed_before_any_crypto() {
-        let directory = DidBindingDirectory::new(
-            &[],
-            false,
-            false,
-            "did:web:directory.example",
-            Metrics::default(),
-        )
-        .expect("directory builds");
-        let (_, did, verification_method) = did_key_signer(3);
-        let failure = directory
-            .verify_detached_jws(
-                b"payload",
-                "jws",
-                verification_method.as_str(),
-                did.as_str(),
-                DidBindingPurpose::DirectoryIssuer,
-                crate::observability::SIGNATURE_KIND_INVITE_TOKEN,
-                Utc::now(),
-            )
-            .expect_err("empty allowlist must fail closed");
-        assert!(matches!(failure, BindingFailure::PolicyRejected(_)));
-        assert_eq!(failure.message(), "no accepted DID methods configured");
+    fn an_empty_allowlist_cannot_be_configured_at_all() {
+        let error = DidBindingDirectory::new(&[], "did:web:directory.example", Metrics::default())
+            .expect_err("an empty allowlist must not be configurable");
+        assert!(
+            error.contains("accepted_did_methods"),
+            "the failure must name the offending configuration, got: {error}"
+        );
     }
 
     #[test]
@@ -1127,7 +936,12 @@ mod tests {
             .expect("acceptance");
 
         // Past `refresh_after`, before `expires_at`: the entry is Stale.
-        let later = accepted_at + BINDING_REFRESH_AFTER + Duration::minutes(1);
+        // Both windows come from the one declared profile, so this cannot drift
+        // away from what the acceptance actually recorded.
+        let later = binding_freshness_profile()
+            .refresh_after(accepted_at)
+            .expect("the declared profile has a finite refresh window")
+            + chrono::Duration::minutes(1);
         let before = directory
             .metrics()
             .did_resolve_count(DID_RESOLVE_SOURCE_DID_KEY);

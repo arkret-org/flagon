@@ -1317,8 +1317,6 @@ mod tests {
     ) -> TokenCheck {
         let bindings = DidBindingDirectory::new(
             &["did:key".to_owned()],
-            false,
-            false,
             "did:web:directory.example",
             crate::observability::Metrics::default(),
         )
