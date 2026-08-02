@@ -13,10 +13,10 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, ClaimedProfileEntry, CompatSurfaceEntry, Did, DirectoryAcceptPolicyKind,
-    DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
-    RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding, TypedTrustDomainId,
-    VerifiedProfileEntry,
+    AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, Did,
+    DirectoryAcceptPolicyKind, DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy,
+    PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding,
+    TypedTrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -81,7 +81,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // Transport / encoding bindings this service speaks. Strongly typed
     // (`SupportedBinding`); the transport-specific keys ride in `extra`.
     let supported_bindings = vec![
-        SupportedBinding::new("http_json")
+        SupportedBinding::new(BindingKind::HttpJson)
             .with_extra(
                 "media_type",
                 JsonValue::String("application/json".to_owned()),
