@@ -71,7 +71,8 @@ constraint, record the exact `cargo` resolver error with the review package.
   branch disclosure?
 - Does HTTP signature enforcement fail closed for missing, unknown, malformed,
   or stale signatures?
-- Are federation replay-cache keys bound to the round-4 trust-domain triad?
+- Are federation replay-cache keys bound to both trust domains and the
+  internally computed canonical request digest?
 - Are operator takedown receipts independently verifiable from
   `withdrawals.proof` and the configured receipt verification method?
 - Are resource-initiated withdrawals verifiable from the stored governance

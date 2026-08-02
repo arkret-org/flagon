@@ -17,7 +17,7 @@ use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 
 pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Result<Vec<u8>, String> {
     // Arkret canonical JSON body SHA-256 — used for replay detection in
-    // `ingest_announces.request_digest` and for Request-Canonical-Digest.
+    // `ingest_announces.request_digest` and replay/idempotency keys.
     let mut h = Sha256::new();
     let value = serde_json::to_value(req)
         .expect("DirectoryAnnounceIngest is serde-serializable by construction");

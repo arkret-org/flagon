@@ -38,10 +38,9 @@ wire-breaking list.
 
 - **`/directory/describe` returns `ServiceDescribe` v2** — 17 required
   fields including `trust_domain` and `plaintext_visibility`.
-- **Federation S2S transport adds three signed headers** —
-  `Source-Trust-Domain` / `Destination-Trust-Domain` /
-  `Request-Canonical-Digest` are verified and folded into the
-  HTTP-message-signature transcript.
+- **Federation S2S transport signs trust-domain and body bindings** —
+  `Source-Trust-Domain` / `Destination-Trust-Domain` and the single RFC 9530
+  `Content-Digest` are verified through the HTTP-message-signature transcript.
 - **Idempotency `historical_only`** — directory-announce replays after
   source-key revocation return the cached body with
   `reason_code=historical_only`; capability re-check still runs, side

@@ -2,19 +2,16 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::DirectoryDiscoveryState;
 
-use super::federation::{
-    FederationCacheKeyInputs, hex_lower_sha256, verify_federation_trust_domain_headers,
-};
+use super::federation::{FederationCacheKeyInputs, verify_federation_trust_domain_headers};
 use super::ingest_body::DirectoryAnnounceIngest;
 use super::persist::digest_request;
 use super::projection::{derive_public_projection, validate_handle_claim_ingest};
 use crate::error::ApiErrorCode;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 
-fn inputs_with_triad(
+fn inputs_with_pair(
     source_trust_domain: &str,
     destination_trust_domain: &str,
-    request_canonical_digest: &str,
 ) -> FederationCacheKeyInputs {
     FederationCacheKeyInputs {
         source_service_id: "did:web:peer.example".to_owned(),
@@ -23,33 +20,28 @@ fn inputs_with_triad(
         origin_key_state_digest: vec![1, 2, 3],
         source_trust_domain: source_trust_domain.to_owned(),
         destination_trust_domain: destination_trust_domain.to_owned(),
-        request_canonical_digest: request_canonical_digest.to_owned(),
     }
 }
 
-/// Round 4 — non-federation announce path: the trust-domain triad
+/// Non-federation announce path: the trust-domain pair
 /// is absent and `is_federation_hop()` is false; the verifier is a
 /// no-op (`Ok(None)`).
 #[test]
 fn trust_domain_verifier_skips_non_federation_announce() {
-    let inputs = inputs_with_triad("", "", "");
+    let inputs = inputs_with_pair("", "");
     assert!(!inputs.is_federation_hop());
-    let digest = [0u8; 32];
-    let outcome =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test");
+    let outcome = verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test");
     assert!(matches!(outcome, Ok(None)));
 }
 
-/// Round 4 — federation hop missing one of the three required
+/// Federation hop missing one of the two required
 /// headers must reject with `cross_domain_replay_rejected`.
 #[test]
-fn trust_domain_verifier_rejects_partial_triad() {
-    let inputs = inputs_with_triad("ak:trust_domain:other.example", "", "");
+fn trust_domain_verifier_rejects_partial_pair() {
+    let inputs = inputs_with_pair("ak:trust_domain:other.example", "");
     assert!(inputs.is_federation_hop());
-    let digest = [0u8; 32];
     let err =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
-            .unwrap_err();
+        verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test").unwrap_err();
     assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
 }
 
@@ -58,75 +50,43 @@ fn trust_domain_verifier_rejects_partial_triad() {
 /// to trust domain B into trust domain C.
 #[test]
 fn trust_domain_verifier_rejects_destination_mismatch() {
-    let digest = [0u8; 32];
-    let canonical_hash = format!("sha256:{}", hex_lower_sha256(&digest));
-    let inputs = inputs_with_triad(
+    let inputs = inputs_with_pair(
         "ak:trust_domain:other.example",
         "ak:trust_domain:wrong.example",
-        &canonical_hash,
     );
     let err =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
-            .unwrap_err();
+        verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test").unwrap_err();
     assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
     assert!(err.1.contains("does not match"));
 }
 
-#[test]
-fn trust_domain_verifier_rejects_canonical_digest_mismatch() {
-    let digest = [0u8; 32];
-    let inputs = inputs_with_triad(
-        "ak:trust_domain:other.example",
-        "ak:trust_domain:teabay.test",
-        "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    );
-    let err =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
-            .unwrap_err();
-    assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
-    assert!(err.1.contains("does not match canonical body digest"));
-}
-
-/// Round 4 — a fully-populated valid triad returns a signing-
-/// transcript fragment that names each of the three headers in
+/// A fully-populated valid pair returns a signing-transcript fragment
+/// that names both headers in
 /// RFC 9421 §2.2 lower-case quoted form.
 #[test]
 fn trust_domain_verifier_emits_transcript_fragment() {
-    let digest = [0u8; 32];
-    let canonical_hash = format!("sha256:{}", hex_lower_sha256(&digest));
-    let inputs = inputs_with_triad(
+    let inputs = inputs_with_pair(
         "ak:trust_domain:other.example",
         "ak:trust_domain:teabay.test",
-        &canonical_hash,
     );
-    let fragment =
-        verify_federation_trust_domain_headers(&inputs, &digest, "ak:trust_domain:teabay.test")
-            .expect("triad is valid")
-            .expect("fragment emitted for federation hop");
+    let fragment = verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test")
+        .expect("pair is valid")
+        .expect("fragment emitted for federation hop");
     assert!(fragment.contains("\"source-trust-domain\""));
     assert!(fragment.contains("\"destination-trust-domain\""));
-    assert!(fragment.contains("\"request-canonical-digest\""));
     assert!(fragment.contains("ak:trust_domain:other.example"));
     assert!(fragment.contains("ak:trust_domain:teabay.test"));
 }
 
-/// Round 4 — the cache key MUST bind the trust-domain triad: two
+/// The cache key MUST bind the trust-domain pair: two
 /// requests with identical idempotency inputs but different
 /// `Source-Trust-Domain` headers MUST produce different cache
 /// keys, so a cross-domain replay cannot reuse a cached row.
 #[test]
 fn cache_key_separates_by_trust_domain() {
     let digest = [0u8; 32];
-    let a = inputs_with_triad(
-        "ak:trust_domain:a.example",
-        "ak:trust_domain:teabay.test",
-        "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-    );
-    let b = inputs_with_triad(
-        "ak:trust_domain:b.example",
-        "ak:trust_domain:teabay.test",
-        "sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-    );
+    let a = inputs_with_pair("ak:trust_domain:a.example", "ak:trust_domain:teabay.test");
+    let b = inputs_with_pair("ak:trust_domain:b.example", "ak:trust_domain:teabay.test");
     assert_ne!(a.key(&digest), b.key(&digest));
 }
 

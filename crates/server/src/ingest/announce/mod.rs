@@ -190,53 +190,49 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // SHA-256 over (request_digest || Source-Service-ID ||
     // verification_method || service_binding_ref ||
     // origin_key_state_digest || Source-Trust-Domain ||
-    // Destination-Trust-Domain || Request-Canonical-Digest). On hit we
+    // Destination-Trust-Domain). On hit we
     // still re-do the capability check; if it now fails (e.g. revoked
     // service key), we serve the cached body with
     // `historical_only=true` and trigger no new side effects.
     let cache_inputs = FederationCacheKeyInputs::extract(req, &body);
 
     // Round 4 (commit f9bd7eb) — federation S2S requests MUST carry
-    // the trust-domain triad and we verify it BEFORE looking at the
+    // the trust-domain pair and we verify it BEFORE looking at the
     // idempotency cache. A misaddressed replay from another trust
     // domain is rejected with `cross_domain_replay_rejected`; the
     // signing-transcript fragment (when the request validates) is
     // logged for downstream verifier chains.
-    let _trust_domain_transcript = match verify_federation_trust_domain_headers(
-        &cache_inputs,
-        &request_digest,
-        &state.config().trust_domain,
-    ) {
-        Ok(fragment) => fragment,
-        Err((code, msg)) => {
-            ingest_metric.set_outcome("digest_mismatch");
-            let _ = audit::record(
-                state.db(),
-                AuditEventKind::IngestRejected,
-                Some(body.resource_kind),
-                Some(&body.resource_id),
-                Some(&body.principal_server_did),
-                json!({
-                    "code": code.wire_code(),
-                    "message": msg,
-                    "source_trust_domain": cache_inputs.source_trust_domain,
-                    "destination_trust_domain": cache_inputs.destination_trust_domain,
-                }),
-            )
-            .await;
-            code.render(res, msg);
-            return;
-        }
-    };
+    let _trust_domain_transcript =
+        match verify_federation_trust_domain_headers(&cache_inputs, &state.config().trust_domain) {
+            Ok(fragment) => fragment,
+            Err((code, msg)) => {
+                ingest_metric.set_outcome("digest_mismatch");
+                let _ = audit::record(
+                    state.db(),
+                    AuditEventKind::IngestRejected,
+                    Some(body.resource_kind),
+                    Some(&body.resource_id),
+                    Some(&body.principal_server_did),
+                    json!({
+                        "code": code.wire_code(),
+                        "message": msg,
+                        "source_trust_domain": cache_inputs.source_trust_domain,
+                        "destination_trust_domain": cache_inputs.destination_trust_domain,
+                    }),
+                )
+                .await;
+                code.render(res, msg);
+                return;
+            }
+        };
 
     let cache_key = cache_inputs.key(&request_digest);
 
-    // INVARIANT: the federation trust-domain triple has already been verified
+    // INVARIANT: the federation trust-domain pair has already been verified
     // for THIS request above (we only reach here on `Ok(..)`), and the
-    // `Request-Canonical-Digest` is folded into `cache_key` — so a cache hit
-    // can never serve a response whose trust-domain headers were not validated
-    // against the current body. The hit path below therefore does NOT need to
-    // (and must not be changed to) re-run the triple check; it re-runs only the
+    // request digest is the first input to `cache_key` — so a cache hit can
+    // never serve a response for different body bytes. The hit path below
+    // therefore does NOT need to re-run the pair check; it re-runs only the
     // §8.5 capability verify to decide `historical_only`.
     if let Some(cached) = state.cached_federation_replay(&cache_key) {
         let ctx = VerifyContext::new(state.config(), state.db(), state.did_resolver());
