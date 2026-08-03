@@ -347,7 +347,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         supported_schema_profiles: Vec::new(),
         frontier: Vec::new(),
         snapshot_frontier: Vec::new(),
-        reducer_profile: None,
         last_materialized_at: None,
     };
     describe_body
@@ -631,7 +630,6 @@ mod tests {
             supported_schema_profiles: Vec::new(),
             frontier: Vec::new(),
             snapshot_frontier: Vec::new(),
-            reducer_profile: None,
             last_materialized_at: None,
             extensions: BTreeMap::new(),
         };
@@ -686,7 +684,6 @@ mod tests {
             "supported_schema_profiles",
             "frontier",
             "snapshot_frontier",
-            "reducer_profile",
             "last_materialized_at",
         ];
 
