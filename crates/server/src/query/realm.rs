@@ -796,12 +796,8 @@ fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
 
 fn candidate_seal_basis(row: &RealmRow, service_id: &str) -> Option<SealBasis> {
     let leaf = candidate_digest(row, service_id, "leaf");
-    let control = candidate_digest(row, service_id, "control_event_set_root");
-    let state = candidate_digest(row, service_id, "state_root");
     Some(SealBasis {
         leaves: vec![SealId::new(format!("ak:seal:sha256:{leaf}")).ok()?],
-        control_event_set_root: Hash::new(format!("sha256:{control}")).ok()?,
-        state_root: Hash::new(format!("sha256:{state}")).ok()?,
     })
 }
 
