@@ -221,7 +221,7 @@ fn sign_receipt_statement(
     statement: &JsonValue,
 ) -> anyhow::Result<JsonValue> {
     let protected = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({
-        "alg": "EdDSA",
+        "alg": "Ed25519",
         "kid": signing_key.key_id(),
         "typ": RECEIPT_VERSION,
     }))?);
@@ -233,7 +233,7 @@ fn sign_receipt_statement(
         .to_bytes();
     Ok(json!({
         "kind": "detached_jws",
-        "alg": "EdDSA",
+        "alg": "Ed25519",
         "verification_method": signing_key.key_id(),
         "public_key_base64url": signing_key.public_key_base64url(),
         "jws": format!("{protected}..{}", URL_SAFE_NO_PAD.encode(signature)),
