@@ -11,7 +11,7 @@
 
 use arkret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
-    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, Hash, RealmId,
+    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, RealmId,
     RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceKind,
     RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
 };
