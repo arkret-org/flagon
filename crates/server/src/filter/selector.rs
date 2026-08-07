@@ -102,7 +102,7 @@ mod tests {
             "ak:circle:01904100-0000-7000-8000-000000000001"
         ));
         assert!(!looks_like_circle_id(
-            "ak:realm:01904100-0000-7000-8000-000000000001"
+            "ak:realm:AfF-hFqRoMbajXkPapH-xaq0xwK-UKt2ph2zTs9JZRAO"
         ));
     }
 }

@@ -267,7 +267,7 @@ mod tests {
     fn circle_entry() -> JsonValue {
         json!({
             "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
-            "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
+            "realm_id": "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
             "title": "Security Council",
             "summary": "Must not leak to parent Realm non-members",
             "display": {
@@ -315,7 +315,7 @@ mod tests {
         );
         assert_eq!(
             object.get("realm_id").unwrap(),
-            "ak:realm:01904100-0000-7000-8000-000000000101"
+            "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3"
         );
         assert_eq!(object.get("member_count_bucket").unwrap(), "1-10");
         assert_eq!(object.get("join_rule").unwrap(), "invite");

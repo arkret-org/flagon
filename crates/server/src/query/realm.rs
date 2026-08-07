@@ -1045,7 +1045,7 @@ mod tests {
     #[test]
     fn unlisted_realm_is_not_search_visible() {
         let row = RealmRow {
-            resource_id: "ak:realm:01904100-0000-7000-8000-000000000001".to_owned(),
+            resource_id: "ak:realm:AfF-hFqRoMbajXkPapH-xaq0xwK-UKt2ph2zTs9JZRAO".to_owned(),
             public_projection: json!({ "title": "Tea" }),
             discoverability: DiscoverabilityDb::Unlisted,
             as_of: chrono::Utc::now(),

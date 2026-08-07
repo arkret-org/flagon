@@ -527,7 +527,7 @@ mod tests {
 
         let body = DirectoryTakedownAppealRequestBody {
             takedown_id: "teabay:withdraw:01904100-0000-7000-8000-000000000001".to_owned(),
-            resource_id: "ak:realm:01904100-0000-7000-8000-000000000002".to_owned(),
+            resource_id: "ak:realm:AT0jIIg6naB0Vkqbb-ip6eunf-bHr5-nh4pz2_kYNyVX".to_owned(),
             appellant_did: Did::new("did:webvh:realm.example").expect("did"),
             argument_digest: Hash::new(
                 "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

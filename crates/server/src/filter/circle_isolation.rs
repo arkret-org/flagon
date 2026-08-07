@@ -248,7 +248,7 @@ mod tests {
             "kind": "ak.realm.discovery",
             "circles": [{
                 "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
-                "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
+                "realm_id": "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
                 "directory_visibility": "realm_members",
             }],
             "circle_directory": {
@@ -307,7 +307,7 @@ mod tests {
     fn announce_preview_mode_allows_discovery_state_path_in_full_envelope() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ak:realm:01904100-0000-7000-8000-000000000101",
+            "resource_id": "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {
                 "kind": "ak.realm.discovery",
@@ -341,7 +341,7 @@ mod tests {
         let value = json!({
             "kind": "ak.realm.discovery",
             "related": [
-                "ak:realm:01904100-0000-7000-8000-000000000101",
+                "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
                 "ak:circle:01904100-0000-7000-8000-000000000001",
             ],
         });

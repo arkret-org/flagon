@@ -113,7 +113,7 @@ mod tests {
     #[test]
     fn result_envelope_serializes_as_of_as_canonical_milliseconds() {
         let envelope = ResultEnvelope::from_row(
-            json!({"realm_id": "ak:realm:0196419b-0000-7000-8000-000000000010"}),
+            json!({"realm_id": "ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR"}),
             Utc.timestamp_opt(1_700_000_000, 123_999_999).unwrap(),
             vec!["ak:event:1".to_owned()],
             "revision-1".to_owned(),

@@ -200,7 +200,7 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
         "title": "Tea Time",
         "circles": [{
             "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
-            "realm_id": "ak:realm:01904100-0000-7000-8000-000000000101",
+            "realm_id": "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
             "title": "Security Council",
             "summary": "private circle summary",
             "display": {

@@ -371,7 +371,7 @@ mod tests {
 
     use super::*;
 
-    const REALM: &str = "ak:realm:0196419b-0000-7000-8000-000000000010";
+    const REALM: &str = "ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR";
     const ORG: &str = "did:webvh:example.test:orgs:org1";
 
     fn now() -> DateTime<Utc> {
@@ -443,7 +443,7 @@ mod tests {
         });
         let outcome = verify_announced_statements(
             &discovery,
-            "ak:realm:0196419b-0000-7000-8000-000000000099",
+            "ak:realm:AS2uvFlzWZywH-3jxM4ceJN18BWimuDnluDsN6mKxONx",
             now(),
         );
         assert!(outcome.verified.is_empty());
