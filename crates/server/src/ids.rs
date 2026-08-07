@@ -14,7 +14,7 @@
 //! [`crate::filter::circle_isolation`] still rejects every Circle typed-id
 //! occurrence outside the narrow announce preview-entry id field.
 
-use arkret_sdk::identifiers::is_lowercase_uuidv7;
+use arkret_sdk::identifiers::is_lowercase_typed_uuid;
 use arkret_sdk::new_prefixed_uuid7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,7 +53,7 @@ pub fn parse(id: &str) -> Option<IdClass> {
         IdClass::AuditAck,
     ] {
         if let Some(rest) = id.strip_prefix(class.prefix())
-            && is_lowercase_uuidv7(rest)
+            && is_lowercase_typed_uuid(rest, b'7')
         {
             return Some(class);
         }
