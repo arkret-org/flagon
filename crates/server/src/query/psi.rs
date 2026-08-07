@@ -167,7 +167,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             );
             pad_to_budget_observed(
                 budget,
-                "ak.find.directory.query.private_contact_discovery",
+                "ak.find.directory.read.private_contact_discovery",
                 &privacy_key,
                 |target| {
                     state
@@ -214,7 +214,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             );
             pad_to_budget_observed(
                 budget,
-                "ak.find.directory.query.private_contact_discovery",
+                "ak.find.directory.read.private_contact_discovery",
                 &privacy_key,
                 |target| {
                     state

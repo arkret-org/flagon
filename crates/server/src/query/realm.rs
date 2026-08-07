@@ -1,6 +1,6 @@
 //! Realm search and resolve. Spec §9.
 //!
-//! `ak.find.directory.query.search_realms` and `ak.find.directory.query.resolve_realm`. Both
+//! `ak.find.directory.read.search_realms` and `ak.find.directory.read.resolve_realm`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
@@ -76,7 +76,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         &body.claim_presentations,
     );
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": "ak.find.directory.query.search_realms",
+        "operation": "ak.find.directory.read.search_realms",
         "query": &needle,
         "organization_did": scope.organization_did.as_ref(),
         "source_realm_id": scope.source_realm_id.as_ref(),
@@ -133,7 +133,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ak.find.directory.query.search_realms",
+        "ak.find.directory.read.search_realms",
         &privacy_key,
         |target| {
             state
@@ -271,7 +271,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let outcome = pad_to_budget_observed(
         budget,
-        "ak.find.directory.query.resolve_realm",
+        "ak.find.directory.read.resolve_realm",
         &key,
         |target| {
             state
@@ -339,7 +339,7 @@ fn verified_restricted_claims_for_realm_query(
 // ---- shared resolution helper (AKP-0011 reuse) --------------------------
 
 /// The canonical realm-resolution outcome, extracted so the object-level
-/// `ak.find.directory.query.resolve_target` handler (AKP-0011,
+/// `ak.find.directory.read.resolve_target` handler (AKP-0011,
 /// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
 /// semantics — same key load, same visibility / blinding rules, same
 /// `via_services` and §9.1 common fields — instead of reinventing them.

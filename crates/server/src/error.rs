@@ -184,7 +184,7 @@ impl ApiErrorCode {
         Self::new(arkret_sdk::ErrorCode::CONFLICT, StatusCode::CONFLICT);
 
     // -------- R3.2 spec-sync 2026-05-28 (arkret-spec @ b56cab1) --------
-    // `ak.find.directory.query.list_handles_for_subject` input validation. A
+    // `ak.find.directory.read.list_handles_for_subject` input validation. A
     // `subject` that is not a holder/principal DID (a `ak:actor:` Realm
     // actor_id, a `ak:account:` server-local account id, a service DID,
     // or a non-DID resource id) is rejected with `failed_precondition`

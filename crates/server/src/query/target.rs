@@ -1,5 +1,5 @@
 //! Object-address resolve — R3.3 (AKP-0011, arkret-spec @ cced4b8),
-//! `ak.find.directory.query.resolve_target`.
+//! `ak.find.directory.read.resolve_target`.
 //!
 //! This is the object-level generalization of
 //! [`crate::query::realm::resolve_realm`]. A single client-agnostic shareable
@@ -133,7 +133,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ak.find.directory.query.resolve_target",
+        "ak.find.directory.read.resolve_target",
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad(OP, target),
         resolve(

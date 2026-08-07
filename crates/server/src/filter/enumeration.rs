@@ -531,8 +531,8 @@ mod tests {
     #[test]
     fn latency_budget_is_stable_per_route_and_key() {
         let budget = LatencyBudget::new(Duration::from_millis(25), Duration::from_millis(10));
-        let first = budget.target_for("ak.find.directory.query.resolve_realm", "space-a");
-        let second = budget.target_for("ak.find.directory.query.resolve_realm", "space-a");
+        let first = budget.target_for("ak.find.directory.read.resolve_realm", "space-a");
+        let second = budget.target_for("ak.find.directory.read.resolve_realm", "space-a");
         assert_eq!(first, second);
         assert!(first >= Duration::from_millis(25));
         assert!(first <= Duration::from_millis(35));

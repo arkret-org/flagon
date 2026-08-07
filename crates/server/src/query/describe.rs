@@ -1,4 +1,4 @@
-//! `ak.find.directory.query.describe` — service capability advertisement.
+//! `ak.find.directory.read.describe` — service capability advertisement.
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServiceDescribe`
 //! v2 (17 required top-level fields, `trust_domain` included). Validated via
@@ -75,7 +75,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(|op| (*op).to_owned())
         .collect();
     if cfg.private_contact_discovery_enabled {
-        supported_operations.push("ak.find.directory.query.private_contact_discovery".to_owned());
+        supported_operations.push("ak.find.directory.read.private_contact_discovery".to_owned());
     }
 
     // Transport / encoding bindings this service speaks. Strongly typed
@@ -132,7 +132,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     );
 
     let limits = ServerLimits {
-        max_get_query_selectors: None,
         extensions: BTreeMap::from([
             (
                 "per_resource_per_min".to_owned(),
@@ -557,7 +556,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|op| op == "ak.find.directory.query.describe")
+                .any(|op| op == "ak.find.directory.read.describe")
         );
         let limitation_features: std::collections::BTreeSet<_> = value["x_teabay_limitations"]
             .as_array()

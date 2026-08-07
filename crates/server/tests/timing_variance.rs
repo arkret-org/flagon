@@ -28,11 +28,11 @@ fn latency_budget_targets_are_branch_independent_and_bounded() {
         "handle=alice.example;branch=unauthorized",
     ] {
         let first = budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
             privacy_key,
         );
         let second = budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
             privacy_key,
         );
 
@@ -51,14 +51,14 @@ fn zero_jitter_budget_collapses_to_exact_floor() {
 
     assert_eq!(
         budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
             "handle=alice.example;branch=found"
         ),
         Duration::from_millis(FLOOR_MS)
     );
     assert_eq!(
         budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_QUERY_RESOLVE_HANDLE,
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
             "handle=alice.example;branch=unauthorized"
         ),
         Duration::from_millis(FLOOR_MS)

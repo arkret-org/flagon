@@ -1,6 +1,6 @@
 //! Environment-driven configuration.
 //!
-//! Mirrors the spec `ak.find.directory.query.describe` ingest fields (§8.9) so the
+//! Mirrors the spec `ak.find.directory.read.describe` ingest fields (§8.9) so the
 //! runtime can both honor and advertise them coherently.
 
 use std::collections::HashMap;

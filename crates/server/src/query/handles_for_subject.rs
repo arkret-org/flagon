@@ -1,5 +1,5 @@
 //! Reverse handle lookup — R3.2 (arkret-spec @ b56cab1),
-//! `ak.find.directory.query.list_handles_for_subject`.
+//! `ak.find.directory.read.list_handles_for_subject`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
 //! known holder/principal DID (the `subject`) plus disclosure context, return
@@ -136,7 +136,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             .record_cardinality_guard("page_limit_clamped", 1);
     }
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": "ak.find.directory.query.list_handles_for_subject",
+        "operation": "ak.find.directory.read.list_handles_for_subject",
         "realm_id": body.realm_id.as_ref(),
         "intent": body.intent.as_deref(),
         "requester": body.requester.as_ref(),
@@ -204,7 +204,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let metrics = state.metrics().clone();
     let outcome = pad_to_budget_observed(
         budget,
-        "ak.find.directory.query.list_handles_for_subject",
+        "ak.find.directory.read.list_handles_for_subject",
         &privacy_key,
         |target| {
             state

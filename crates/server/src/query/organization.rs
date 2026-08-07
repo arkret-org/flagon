@@ -63,7 +63,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         &claims.claim_presentations,
     );
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": "ak.find.directory.query.search_organizations",
+        "operation": "ak.find.directory.read.search_organizations",
         "query": &needle,
     })) {
         Ok(digest) => digest,
@@ -108,7 +108,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let result = pad_to_budget_observed(
         budget,
-        "ak.find.directory.query.search_organizations",
+        "ak.find.directory.read.search_organizations",
         &privacy_key,
         |target| {
             state
@@ -248,7 +248,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let row = pad_to_budget_observed(
         budget,
-        "ak.find.directory.query.resolve_organization",
+        "ak.find.directory.read.resolve_organization",
         &key,
         |target| {
             state
