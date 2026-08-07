@@ -54,11 +54,7 @@ active and `log_redaction=disabled` in development mode so dashboards can alert
 on accidental dev-mode deploys.
 
 For OpenTelemetry backends, run an OTel Collector sidecar or agent that scrapes
-the Prometheus endpoint and collects stdout/stderr tracing logs. If a deployment
-shim calls `Metrics::push_to_otlp`, set `TEABAY_OTLP_ENDPOINT` to the receiving
-HTTP endpoint; the helper sends the raw Prometheus exposition as
-`text/plain; version=0.0.4`. Setting `TEABAY_OTLP_ENDPOINT` alone does not
-start an in-process export loop.
+the Prometheus endpoint and collects stdout/stderr tracing logs.
 
 ## Logs
 

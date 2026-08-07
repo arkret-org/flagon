@@ -2,24 +2,6 @@
 //!
 //! Kept dependency-free so the Prometheus surface can be used in local
 //! release-hygiene slices without changing the workspace lockfile.
-//!
-//! ## OTLP Push Helper (P5)
-//!
-//! `Metrics::push_to_otlp` reads `TEABAY_OTLP_ENDPOINT` and, when set,
-//! performs a single HTTP push of this Prometheus surface as raw
-//! `text/plain; version=0.0.4` exposition text. There is no in-process
-//! wiring (no background task, no startup hook) that calls it on a schedule,
-//! so setting `TEABAY_OTLP_ENDPOINT` alone does NOT auto-export metrics.
-//! Operators can either scrape `TEABAY_METRICS_BIND` with an OTel Collector or
-//! wire a deployment shim that calls this helper on a schedule. We
-//! intentionally avoid pulling the heavy `opentelemetry` crate stack into the
-//! workspace lockfile.
-//!
-//! TODO(P5-impl): replace the external curl-loop shim with an
-//! in-process scheduled push (and/or the official OTLP SDK) once the
-//! rest of the stack pins a compatible otel crate version. This stub is
-//! the contract surface the SDK upgrade will preserve.
-
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -770,42 +752,6 @@ impl Metrics {
         }
 
         out
-    }
-
-    /// P5 — best-effort HTTP push of the current Prometheus snapshot to
-    /// `TEABAY_OTLP_ENDPOINT`. Returns `Ok(false)` when the endpoint is unset
-    /// (caller treats this as "exporter disabled"). On success returns
-    /// `Ok(true)`; transport errors propagate.
-    ///
-    /// The payload is the raw Prometheus exposition text with content-type
-    /// `text/plain; version=0.0.4`. Callers that need OTLP-native export
-    /// should put an OTel Collector or deployment shim in front of this helper.
-    pub async fn push_to_otlp(&self) -> anyhow::Result<bool> {
-        let Some(endpoint) = std::env::var("TEABAY_OTLP_ENDPOINT")
-            .ok()
-            .filter(|v| !v.trim().is_empty())
-        else {
-            return Ok(false);
-        };
-        let body = self.render_prometheus();
-        let client = reqwest::Client::builder()
-            .https_only(true)
-            .dns_resolver(std::sync::Arc::new(
-                crate::egress::ValidatingDnsResolver::new(false),
-            ))
-            .timeout(std::time::Duration::from_secs(5))
-            .build()?;
-        let resp = client
-            .post(endpoint.trim())
-            .header("content-type", "text/plain; version=0.0.4")
-            .body(body)
-            .send()
-            .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            anyhow::bail!("OTLP exporter push returned non-2xx status: {status}");
-        }
-        Ok(true)
     }
 }
 

@@ -63,30 +63,12 @@ impl ApiErrorCode {
     #[allow(non_upper_case_globals)]
     pub const NotFound: Self = Self::new(arkret_sdk::ErrorCode::NOT_FOUND, StatusCode::NOT_FOUND);
     #[allow(non_upper_case_globals)]
-    pub const UnrecognizedEndpoint: Self = Self::new(
-        arkret_sdk::ErrorCode::UNRECOGNIZED_ENDPOINT,
-        StatusCode::NOT_FOUND,
-    );
-    #[allow(non_upper_case_globals)]
-    pub const MethodNotAllowed: Self = Self::new(
-        arkret_sdk::ErrorCode::METHOD_NOT_ALLOWED,
-        StatusCode::METHOD_NOT_ALLOWED,
-    );
-    #[allow(non_upper_case_globals)]
     pub const Conflict: Self = Self::new(arkret_sdk::ErrorCode::CONFLICT, StatusCode::CONFLICT);
-    #[allow(non_upper_case_globals)]
-    pub const PayloadTooLarge: Self = Self::new(
-        arkret_sdk::ErrorCode::PAYLOAD_TOO_LARGE,
-        StatusCode::PAYLOAD_TOO_LARGE,
-    );
     #[allow(non_upper_case_globals)]
     pub const RateLimited: Self = Self::new(
         arkret_sdk::ErrorCode::RATE_LIMITED,
         StatusCode::TOO_MANY_REQUESTS,
     );
-    #[allow(non_upper_case_globals)]
-    pub const QuotaExceeded: Self =
-        Self::new(arkret_sdk::ErrorCode::QUOTA_EXCEEDED, StatusCode::FORBIDDEN);
     #[allow(non_upper_case_globals)]
     pub const Timeout: Self =
         Self::new(arkret_sdk::ErrorCode::TIMEOUT, StatusCode::GATEWAY_TIMEOUT);
@@ -101,28 +83,8 @@ impl ApiErrorCode {
         StatusCode::INTERNAL_SERVER_ERROR,
     );
     #[allow(non_upper_case_globals)]
-    pub const TemporarilyUnavailable: Self = Self::new(
-        arkret_sdk::ErrorCode::TEMPORARILY_UNAVAILABLE,
-        StatusCode::SERVICE_UNAVAILABLE,
-    );
-    #[allow(non_upper_case_globals)]
     pub const CrossDomainReplayRejected: Self =
         Self::new(arkret_sdk::ErrorCode::CONFLICT, StatusCode::CONFLICT);
-    #[allow(non_upper_case_globals)]
-    pub const HistorySharingPolicyMissing: Self = Self::new(
-        arkret_sdk::ErrorCode::HISTORY_SHARING_POLICY_MISSING,
-        StatusCode::UNPROCESSABLE_ENTITY,
-    );
-    #[allow(non_upper_case_globals)]
-    pub const HistoryNotVisible: Self = Self::new(
-        arkret_sdk::ErrorCode::HISTORY_NOT_VISIBLE,
-        StatusCode::FORBIDDEN,
-    );
-    #[allow(non_upper_case_globals)]
-    pub const PreviewPolicyDenied: Self = Self::new(
-        arkret_sdk::ErrorCode::PREVIEW_POLICY_DENIED,
-        StatusCode::FORBIDDEN,
-    );
 
     // -------- directory ingest codes --------
     #[allow(non_upper_case_globals)]
@@ -175,14 +137,6 @@ impl ApiErrorCode {
         arkret_sdk::ErrorCode::POLICY_REVISION_ROLLBACK,
         StatusCode::CONFLICT,
     );
-    // §8.7 — an announce against a Realm that has reached the
-    // `ak.realm.destroy` terminal state. Distinct from
-    // `policy_revision_rollback` (which means an `as_of`/`policy_revision`
-    // earlier than the indexed value, §8.10).
-    #[allow(non_upper_case_globals)]
-    pub const RealmTerminalState: Self =
-        Self::new(arkret_sdk::ErrorCode::CONFLICT, StatusCode::CONFLICT);
-
     // -------- R3.2 spec-sync 2026-05-28 (arkret-spec @ b56cab1) --------
     // `ak.find.directory.read.list_handles_for_subject` input validation. A
     // `subject` that is not a holder/principal DID (a `ak:actor:` Realm

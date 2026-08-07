@@ -386,11 +386,6 @@ impl DidBindingDirectory {
         self.set_status(selector, DidBindingStatus::Quarantined)
     }
 
-    /// Mark every acceptance matching `selector` as deactivated.
-    pub fn deactivate(&self, selector: &BindingInvalidation) -> usize {
-        self.set_status(selector, DidBindingStatus::Deactivated)
-    }
-
     fn set_status(&self, selector: &BindingInvalidation, status: DidBindingStatus) -> usize {
         let mut changed = 0usize;
         for accepted in self.store.snapshot() {
