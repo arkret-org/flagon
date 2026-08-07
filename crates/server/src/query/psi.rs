@@ -50,8 +50,8 @@ struct NewPsiBatch<'a> {
     key_epoch: i64,
     blind_request_digest: &'a [u8],
     element_count: i32,
-    created_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Queryable)]
@@ -81,8 +81,8 @@ struct NewPsiEpochKey<'a> {
     ciphersuite: &'a str,
     server_key: &'a [u8],
     public_key: &'a [u8],
-    created_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
 }
 
 #[handler]

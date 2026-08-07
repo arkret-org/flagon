@@ -133,9 +133,9 @@ diesel::table! {
         ciphersuite -> Text,
         server_key -> Bytea,
         public_key -> Bytea,
-        created_at -> Timestamptz,
         expires_at -> Timestamptz,
         tokens_indexed_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -145,10 +145,10 @@ diesel::table! {
 
     psi_contact_tokens (epoch, resource_kind, resource_id, token) {
         epoch -> Text,
-        token -> Bytea,
-        token_prefix -> Bytea,
         resource_kind -> ResourceKind,
         resource_id -> Text,
+        token -> Bytea,
+        token_prefix -> Bytea,
         created_at -> Timestamptz,
     }
 }
@@ -162,8 +162,8 @@ diesel::table! {
         element_count -> Int4,
         match_request_digest -> Nullable<Bytea>,
         match_outcome -> Nullable<Jsonb>,
-        created_at -> Timestamptz,
         expires_at -> Timestamptz,
+        created_at -> Timestamptz,
     }
 }
 
@@ -241,9 +241,9 @@ diesel::table! {
         key_id -> Text,
         secret -> Bytea,
         label -> Nullable<Text>,
-        created_at -> Timestamptz,
         expires_at -> Nullable<Timestamptz>,
         revoked_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -283,8 +283,8 @@ diesel::table! {
         webhook_id -> Text,
         endpoint -> Text,
         secret -> Nullable<Bytea>,
-        created_at -> Timestamptz,
         expires_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
     }
 }
 
@@ -302,13 +302,13 @@ diesel::table! {
         argument_digest -> Text,
         appeal_packet -> Jsonb,
         status -> Text,
-        created_at -> Timestamptz,
         accepted_at -> Timestamptz,
         decided_at -> Nullable<Timestamptz>,
         decided_by -> Nullable<Text>,
         decision -> Nullable<Text>,
         decision_reason -> Nullable<Text>,
         decision_receipt -> Nullable<Jsonb>,
+        created_at -> Timestamptz,
     }
 }
 

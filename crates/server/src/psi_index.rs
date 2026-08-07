@@ -25,10 +25,10 @@ type PsiServer = VoprfServer<Ristretto255>;
 #[diesel(table_name = psi_contact_tokens)]
 struct NewPsiContactToken<'a> {
     epoch: &'a str,
-    token: &'a [u8],
-    token_prefix: &'a [u8],
     resource_kind: DirectoryResourceKindDb,
     resource_id: &'a str,
+    token: &'a [u8],
+    token_prefix: &'a [u8],
     created_at: DateTime<Utc>,
 }
 
