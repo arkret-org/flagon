@@ -266,7 +266,7 @@ mod tests {
 
     fn circle_entry() -> JsonValue {
         json!({
-            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+            "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
             "realm_id": "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
             "title": "Security Council",
             "summary": "Must not leak to parent Realm non-members",
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(object.get("visibility").unwrap(), REALM_MEMBERS_VISIBILITY);
         assert_eq!(
             object.get("circle_id").unwrap(),
-            "ak:circle:01904100-0000-7000-8000-000000000001"
+            "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH"
         );
         assert_eq!(
             object.get("realm_id").unwrap(),

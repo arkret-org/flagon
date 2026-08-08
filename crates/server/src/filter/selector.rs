@@ -73,14 +73,14 @@ mod tests {
     fn recognises_flat_kind_circle() {
         assert!(is_circle_selector(&json!({"kind": "circle"})));
         assert!(is_circle_selector(
-            &json!({"kind": "circle", "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001"})
+            &json!({"kind": "circle", "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH"})
         ));
     }
 
     #[test]
     fn recognises_nested_resource_selector() {
         assert!(is_circle_selector(&json!({
-            "resource_selector": {"kind": "circle", "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001"}
+            "resource_selector": {"kind": "circle", "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH"}
         })));
     }
 
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn typed_id_prefix_detected() {
         assert!(looks_like_circle_id(
-            "ak:circle:01904100-0000-7000-8000-000000000001"
+            "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH"
         ));
         assert!(!looks_like_circle_id(
             "ak:realm:AfF-hFqRoMbajXkPapH-xaq0xwK-UKt2ph2zTs9JZRAO"

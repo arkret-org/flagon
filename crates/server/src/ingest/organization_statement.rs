@@ -466,7 +466,7 @@ mod tests {
         let mut statement = active_statement("governance", &["official_badge"]);
         statement["authorization"]["issuer_role"] = json!("governance_service");
         statement["authorization"]["delegation_ref"] =
-            json!("ak:grant:01904100-0000-7000-8000-000000000001");
+            json!("ak:grant:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH");
         let discovery = json!({ ORGANIZATION_STATEMENTS_FIELD: [statement] });
         let outcome = verify_announced_statements(&discovery, REALM, now());
         assert!(outcome.verified.is_empty());

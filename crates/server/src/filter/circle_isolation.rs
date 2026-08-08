@@ -236,7 +236,7 @@ mod tests {
     fn rejects_top_level_typed_circle_id_value() {
         let value = json!({
             "kind": "ak.realm.discovery",
-            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+            "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -247,13 +247,13 @@ mod tests {
         let value = json!({
             "kind": "ak.realm.discovery",
             "circles": [{
-                "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+                "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
                 "realm_id": "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
                 "directory_visibility": "realm_members",
             }],
             "circle_directory": {
                 "entries": [{
-                    "id": "ak:circle:01904100-0000-7000-8000-000000000002"
+                    "id": "ak:circle:Ae5vV8Lwlft2Dp8x2y6Dv4NysvsHJwrADG-6PXdUz1Sl"
                 }]
             }
         });
@@ -266,7 +266,7 @@ mod tests {
         let value = json!({
             "kind": "ak.realm.discovery",
             "circles": [{
-                "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001 extra"
+                "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH extra"
             }]
         });
         let err = reject_circle_payload_allowing_directory_preview(&value).unwrap_err();
@@ -278,8 +278,8 @@ mod tests {
         let value = json!({
             "kind": "ak.realm.discovery",
             "circles": [{
-                "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001",
-                "summary": "see ak:circle:01904100-0000-7000-8000-000000000002",
+                "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
+                "summary": "see ak:circle:Ae5vV8Lwlft2Dp8x2y6Dv4NysvsHJwrADG-6PXdUz1Sl",
             }]
         });
         let err = reject_circle_payload_allowing_directory_preview(&value).unwrap_err();
@@ -290,12 +290,12 @@ mod tests {
     fn announce_preview_mode_rejects_top_level_resource_id() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+            "resource_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {
                 "kind": "ak.realm.discovery",
                 "circles": [{
-                    "circle_id": "ak:circle:01904100-0000-7000-8000-000000000002"
+                    "circle_id": "ak:circle:Ae5vV8Lwlft2Dp8x2y6Dv4NysvsHJwrADG-6PXdUz1Sl"
                 }]
             },
         });
@@ -314,7 +314,7 @@ mod tests {
                 "payload": {
                     "circle_directory": {
                         "entries": [{
-                            "circle_id": "ak:circle:01904100-0000-7000-8000-000000000001"
+                            "circle_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH"
                         }]
                     }
                 }
@@ -330,7 +330,7 @@ mod tests {
         // which key it lives under.
         let value = json!({
             "kind": "ak.realm.discovery",
-            "summary": "see also ak:circle:01904100-0000-7000-8000-000000000001 for the back-channel",
+            "summary": "see also ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH for the back-channel",
         });
         let err = reject_circle_payload(&value).unwrap_err();
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
@@ -342,7 +342,7 @@ mod tests {
             "kind": "ak.realm.discovery",
             "related": [
                 "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3",
-                "ak:circle:01904100-0000-7000-8000-000000000001",
+                "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
             ],
         });
         let err = reject_circle_payload(&value).unwrap_err();
@@ -358,7 +358,7 @@ mod tests {
     fn rejects_cx_circle_in_resource_id_field() {
         let envelope = json!({
             "resource_kind": "realm",
-            "resource_id": "ak:circle:01904100-0000-7000-8000-000000000001",
+            "resource_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
             "principal_server_did": "did:web:principal.test",
             "discovery_state": {"kind": "ak.realm.discovery"},
         });
@@ -398,21 +398,21 @@ mod tests {
         let injections: &[(&str, JsonValue)] = &[
             (
                 "circle_id",
-                JsonValue::String("ak:circle:01904100-0000-7000-8000-000000000001".into()),
+                JsonValue::String("ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH".into()),
             ),
             (
                 "scope_circle_id",
-                JsonValue::String("ak:circle:01904100-0000-7000-8000-000000000001".into()),
+                JsonValue::String("ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH".into()),
             ),
             (
                 "circle_members",
                 JsonValue::Array(vec![JsonValue::String(
-                    "ak:circle:01904100-0000-7000-8000-000000000001".into(),
+                    "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH".into(),
                 )]),
             ),
             (
                 "default_scope_circle_id",
-                JsonValue::String("ak:circle:01904100-0000-7000-8000-000000000001".into()),
+                JsonValue::String("ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH".into()),
             ),
         ];
         for base in bases {
