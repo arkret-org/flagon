@@ -1269,9 +1269,9 @@ mod tests {
 
     use super::*;
 
-    const R: &str = "01904100-0000-7000-8000-0000000000aa";
-    const F: &str = "01904100-0000-7000-8000-0000000000bb";
-    const F2: &str = "01904100-0000-7000-8000-0000000000cc";
+    const R: &str = "AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
+    const F: &str = "AT3ARBdH1FM6GjXK9ulTx-YMvQOXys39dlUzZV6KyID9";
+    const F2: &str = "AZFOTfHDWaNQpQFbd0YLjIJoV68u4p8EclMLP4vbnVS4";
     const VIA: &str = "did:web:relay.example";
     const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
 

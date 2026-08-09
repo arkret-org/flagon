@@ -44,9 +44,9 @@ fn test_bindings() -> DidBindingDirectory {
     .expect("binding directory builds")
 }
 
-const R: &str = "01904100-0000-7000-8000-0000000000aa";
-const F: &str = "01904100-0000-7000-8000-0000000000bb";
-const F2: &str = "01904100-0000-7000-8000-0000000000cc";
+const R: &str = "AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
+const F: &str = "AT3ARBdH1FM6GjXK9ulTx-YMvQOXys39dlUzZV6KyID9";
+const F2: &str = "AZFOTfHDWaNQpQFbd0YLjIJoV68u4p8EclMLP4vbnVS4";
 
 fn verify_address_token(
     parsed: &ParsedAddress,
@@ -232,7 +232,7 @@ fn unknown_path_keyword_fails_closed() {
 fn strand_address_without_via_parses() {
     assert!(parse_address(&format!("web+arkret:realm/{R}/strand/{F}")).is_ok());
     // A message address without via is likewise routable through the Realm.
-    let msg = "01904100-0000-7000-8000-0000000000dd";
+    let msg = "ARkwFWDTPrObvpqVAL9kBsWkK8GrMr5FDO--3PcMFEwU";
     assert!(parse_address(&format!("web+arkret:realm/{R}/strand/{F}/m/{msg}")).is_ok());
 }
 

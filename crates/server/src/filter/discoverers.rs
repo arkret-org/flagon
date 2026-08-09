@@ -125,7 +125,10 @@ pub fn verify_restricted_claim_presentations(
             expected_audience,
             bindings,
         )?;
-        claims.push(presentation.claim.clone().into());
+        claims.push(
+            PresentedClaim::try_from(presentation.claim.clone())
+                .map_err(|error| error.to_string())?,
+        );
     }
     Ok(VerifiedRestrictedClaims { claims })
 }
@@ -307,7 +310,7 @@ impl ClaimSelectorValue for PresentedClaim {
         key: &str,
     ) -> Option<bool> {
         let expected = selector.get(key).and_then(JsonValue::as_str)?;
-        Some(self.value.get(key).and_then(JsonValue::as_str) == Some(expected))
+        Some(self.value().get(key).and_then(JsonValue::as_str) == Some(expected))
     }
 }
 
