@@ -7,12 +7,12 @@
 /// Discovery event kinds indexed by this directory service.
 ///
 /// Order matches the baseline profile's `required_event_kinds` array.
-pub const DISCOVERY_EVENT_KINDS: &[&str] = &[
-    arkret_sdk::EventKind::REALM_DISCOVERY,
-    arkret_sdk::EventKind::ORGANIZATION_DISCOVERY,
-    arkret_sdk::EventKind::ACTOR_DISCOVERY,
-    arkret_sdk::EventKind::APPLET_DISCOVERY,
-    arkret_sdk::EventKind::HANDLE_DISCOVERY,
+pub const DISCOVERY_EVENT_KINDS: &[arkret_sdk::EventKind] = &[
+    arkret_sdk::EventKind::RealmDiscovery,
+    arkret_sdk::EventKind::OrganizationDiscovery,
+    arkret_sdk::EventKind::ActorDiscovery,
+    arkret_sdk::EventKind::AppletDiscovery,
+    arkret_sdk::EventKind::HandleDiscovery,
 ];
 
 /// Operations required by `ak.profile.directory_service.v1`, in profile order.

@@ -606,7 +606,7 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
             "tombstone": {
                 "kind": "realm_destroyed",
                 "destroyed_at": destroyed_at,
-                "via_event_kind": "ak.realm.destroy",
+                "via_event_kind": arkret_sdk::EventKind::RealmDestroy.as_str(),
             },
         });
         return ResultEnvelope::from_row(

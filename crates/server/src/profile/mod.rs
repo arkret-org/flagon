@@ -60,11 +60,7 @@ pub fn verify_or_panic() {
         &baseline.required_endpoints,
         DIRECTORY_OPERATIONS,
     );
-    assert_slices_match(
-        "required_event_kinds",
-        &baseline.required_event_kinds,
-        DISCOVERY_EVENT_KINDS,
-    );
+    assert_event_kinds_match(&baseline.required_event_kinds, DISCOVERY_EVENT_KINDS);
 
     // The describe overlay advertises `SUPPORTED_OPERATIONS`; every required
     // endpoint MUST be advertised, otherwise describe under-reports the
@@ -95,6 +91,20 @@ fn assert_slices_match(field: &str, baseline: &[String], live: &[&str]) {
     {
         panic!(
             "directory service profile drift on `{field}`:\n  baseline: {baseline:?}\n  live:     {live:?}\n\
+             — update crate::kinds or the embedded baseline JSON so both agree before booting.",
+        );
+    }
+}
+
+fn assert_event_kinds_match(baseline: &[String], live: &[arkret_sdk::EventKind]) {
+    if baseline.len() != live.len()
+        || baseline
+            .iter()
+            .zip(live.iter())
+            .any(|(expected, actual)| expected.as_str() != actual.as_str())
+    {
+        panic!(
+            "directory service profile drift on `required_event_kinds`:\n  baseline: {baseline:?}\n  live:     {live:?}\n\
              — update crate::kinds or the embedded baseline JSON so both agree before booting.",
         );
     }
