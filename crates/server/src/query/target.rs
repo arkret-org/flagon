@@ -208,7 +208,7 @@ async fn resolve(
     token: Option<&str>,
 ) -> ResolveOutcome {
     // 1. Parse the address. A fail-closed parse (unknown keyword, wrong order, missing intermediate
-    //    level, non-uuid segment, strand/message missing `via`) collapses to a blinded not_found —
+    //    level, non-token segment, strand/message missing `via`) collapses to a blinded not_found —
     //    indistinguishable from a nonexistent resource.
     let parsed = match parse_address(address) {
         Ok(p) => p,
@@ -219,7 +219,7 @@ async fn resolve(
     //    point: the realm branch and the alias→canonical normalization both go through
     //    resolve_realm's logic.
     let realm_key = match &parsed.realm {
-        RealmRef::RealmId(uuid) => format!("ak:realm:{uuid}"),
+        RealmRef::RealmId(token) => format!("ak:realm:{token}"),
         RealmRef::Alias(alias) => alias.clone(),
     };
     // 3. Token target binding (security-critical). Applies whenever a token is present OR the
@@ -682,7 +682,7 @@ fn expected_preview_target_digest(
 ///      be compared) and call `verify_token_target`, which recomputes & compares the digest. Any
 ///      mismatch → reject.
 ///
-/// `canonical_realm_id` is the `ak:realm:<uuid>` the realm resolution produced
+/// `canonical_realm_id` is the `ak:realm:<44-char-token>` the realm resolution produced
 /// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
 /// mismatch hole.
 pub fn verify_address_token_with_methods(
@@ -722,7 +722,7 @@ pub fn verify_address_token_details_with_methods(
 
     // Build the address-derived descriptor and inject the canonical realm id so
     // an alias address can be compared honestly (the digest is meaningless over
-    // an alias string). For a uuid realm this is idempotent.
+    // an alias string). For a token realm this is idempotent.
     let mut address_descriptor = TargetDescriptor::from_parsed(parsed);
     address_descriptor.set_realm_id(canonical_realm_id);
 
@@ -736,7 +736,7 @@ pub fn verify_address_token_details_with_methods(
     }
 
     // Digest comparison over the canonicalized address descriptor. We feed the
-    // descriptor back through a ParsedAddress whose realm is the canonical uuid
+    // descriptor back through a ParsedAddress whose realm is the canonical token
     // so verify_token_target's own from_parsed + set effective address-link-kind path
     // reproduces the exact bytes.
     let canonical_parsed = with_canonical_realm(parsed, canonical_realm_id);
@@ -754,16 +754,16 @@ pub fn verify_address_token_details_with_methods(
 }
 
 /// Rebuild a [`ParsedAddress`] whose realm segment is the canonical
-/// `ak:realm:<uuid>` (sigil-stripped to the bare uuid the grammar expects) so
-/// the SDK's `verify_token_target` recomputes the digest over a uuid realm
+/// `ak:realm:<44-char-token>` (sigil-stripped to the bare token the grammar
+/// expects) so the SDK's `verify_token_target` recomputes the digest over a token realm
 /// rather than the original alias.
 fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> ParsedAddress {
-    let bare_uuid = canonical_realm_id
+    let bare_token = canonical_realm_id
         .strip_prefix("ak:realm:")
         .unwrap_or(canonical_realm_id)
         .to_owned();
     ParsedAddress {
-        realm: RealmRef::RealmId(bare_uuid),
+        realm: RealmRef::RealmId(bare_token),
         strand: parsed.strand.clone(),
         message: parsed.message.clone(),
         action: parsed.action,
@@ -772,8 +772,8 @@ fn with_canonical_realm(parsed: &ParsedAddress, canonical_realm_id: &str) -> Par
     }
 }
 
-/// Normalize a realm id to its bare-uuid form for equality comparison so a
-/// `ak:realm:<uuid>` and the same bare `<uuid>` compare equal.
+/// Normalize a realm id to its sigil-stripped token form for equality comparison so an
+/// `ak:realm:<token>` and the same bare `<token>` compare equal.
 fn normalize_realm(realm_id: &str) -> &str {
     realm_id.strip_prefix("ak:realm:").unwrap_or(realm_id)
 }
@@ -1277,7 +1277,7 @@ mod tests {
 
     /// Mint a signed token JSON string whose embedded `target_descriptor` is
     /// bound to `address`, with the canonical realm id injected (so the digest
-    /// is over a uuid realm, not an alias).
+    /// is over a token realm, not an alias).
     fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
         let mut descriptor = TargetDescriptor::from_parsed(address);
         descriptor.set_realm_id(canonical_realm_id);

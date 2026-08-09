@@ -67,7 +67,7 @@ const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
 const PREVIEW_SIGNING_SEED: [u8; 32] = [23u8; 32];
 
 /// Mint a signed invite-token JSON whose embedded `target_descriptor` is bound
-/// to `address` under the canonical realm id (the digest is over the uuid realm,
+/// to `address` under the canonical realm id (the digest is over the complete Realm token,
 /// never an alias). Carries a future `exp`, non-empty `aud`, and detached JWS.
 fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
     let mut descriptor = TargetDescriptor::from_parsed(address);

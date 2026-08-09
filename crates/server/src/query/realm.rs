@@ -347,7 +347,7 @@ fn verified_restricted_claims_for_realm_query(
 /// `realm.rs` stays the single source of truth for what "resolving a Realm"
 /// means; `target.rs` builds its `realm_preview` branch entirely from this.
 pub(crate) struct ResolvedRealm {
-    /// Canonical `ak:realm:<uuid>` resource id (resolved from an alias when
+    /// Canonical `ak:realm:<44-char-token>` resource id (resolved from an alias when
     /// the caller supplied an alias key).
     pub realm_id: String,
     /// The §9.1 result envelope (public-projection payload + as_of /
