@@ -29,7 +29,7 @@ use serde_json::Value as JsonValue;
 
 use crate::filter::circle_directory::is_circle_directory_container_key;
 
-/// Canonical typed-id prefix for a Circle (`ak:circle:<uuid>`). Any
+/// Canonical typed-id prefix for a Circle (`ak:circle:<44-char event token>`). Any
 /// string value carrying this prefix anywhere in the payload is a
 /// hard reject — this is the parser-tolerance plank from P2E.7: we
 /// recognise the typed id only to refuse it.
@@ -349,7 +349,7 @@ mod tests {
         assert!(matches!(err, CircleRejection::ForbiddenTypedId(_)));
     }
 
-    /// P2E.7 — the parser-tolerance plank: a `ak:circle:<uuid>`
+    /// P2E.7 — the parser-tolerance plank: an event-derived `ak:circle:` id
     /// living in the `resource_id` field of an announce envelope (i.e.
     /// the attacker tries to "announce a Circle into the directory")
     /// MUST be recognised and rejected. The directory never adds an

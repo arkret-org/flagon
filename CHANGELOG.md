@@ -35,7 +35,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
 - WK-1: `POST /_arkret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/arkret/handle` to product-private `GET /_teabay/handle/probe?localpart=<localpart>`.
 - REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
-- SEL-1: directory query filter now accepts the `circle` selector kind (`ak:circle:<uuid>`).
+- SEL-1: directory query filter now accepts the `circle` selector kind (`ak:circle:<event-token>`).
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
 

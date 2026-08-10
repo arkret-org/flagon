@@ -7,8 +7,8 @@
 //! directory preview/stub subtree. Upstream callers — SDK clients running a
 //! unified resource-selector evaluator, capability engines, governance bridges
 //! — now legitimately emit selector envelopes that include `kind="circle"` and
-//! a `ak:circle:<uuid>` target. The directory's job on the generic query face
-//! is to **recognise** the selector (so the request validates, doesn't crash)
+//! a complete event-derived `ak:circle:<44-char token>` target. The directory's job on the generic
+//! query face is to **recognise** the selector (so the request validates, doesn't crash)
 //! and then respond with the same privacy-preserving `not_found`/locked-stub
 //! class used for every unauthorized Circle probe.
 //!
@@ -19,7 +19,7 @@
 //! Wire shape per `resource-selector.schema.json` (R3 delta):
 //!
 //! ```json
-//! { "kind": "circle", "circle_id": "ak:circle:<uuid>" }
+//! { "kind": "circle", "circle_id": "ak:circle:<44-char event token>" }
 //! ```
 //!
 //! Discriminator values remain strict lowercase per the protocol registry.
@@ -55,7 +55,7 @@ pub fn is_circle_selector(filter: &JsonValue) -> bool {
     false
 }
 
-/// True iff `value` carries a `ak:circle:<uuid>` typed id. This is a
+/// True iff `value` carries a complete event-derived `ak:circle:` typed id. This is a
 /// thinner check than [`is_circle_selector`]: it answers "does the
 /// caller want to point at a Circle?" regardless of which surrounding
 /// envelope field carries the id.
@@ -103,6 +103,9 @@ mod tests {
         ));
         assert!(!looks_like_circle_id(
             "ak:realm:AfF-hFqRoMbajXkPapH-xaq0xwK-UKt2ph2zTs9JZRAO"
+        ));
+        assert!(!looks_like_circle_id(
+            "ak:circle:01914b2e-7a6d-7cc2-98eb-07c7c9ff4b55"
         ));
     }
 }
