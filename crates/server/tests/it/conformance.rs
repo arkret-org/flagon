@@ -59,6 +59,14 @@ async fn postgres_query_and_psi_conformance_smoke() -> anyhow::Result<()> {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
         std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
         std::env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        std::env::set_var(
+            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "did-web-document-etag-fixture",
+        );
+        std::env::set_var(
+            "TEABAY_SERVICE_VERSION_ID",
+            "did-web-document-version-fixture",
+        );
         std::env::set_var("DATABASE_URL", &database_url);
         std::env::set_var("TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED", "true");
         std::env::set_var("TEABAY_ADMIN_TOKEN", "cotest-admin");
@@ -159,7 +167,15 @@ async fn assert_describe_advertises_core_and_psi(service: &Service) -> anyhow::R
     let discovery_profiles = body["discovery_profiles"].as_array().unwrap();
     assert!(discovery_profiles.contains(&json!("ak.profile.directory_service.v1")));
     assert!(discovery_profiles.contains(&json!("ak.private_contact_discovery.v1")));
-    assert_eq!(body["service_id"], "did:web:directory.test");
+    assert_eq!(body["service_id"], "ak:did_core:web:directory.test");
+    assert_eq!(
+        body["service_resolution"]["full_id"],
+        "did:web:directory.test"
+    );
+    assert_eq!(
+        body["service_resolution"]["method_history_head"],
+        "did-web-document-etag-fixture"
+    );
     assert_eq!(body["service_kind"], "directory_service");
     assert!(
         body["accepted_resource_kinds"]
@@ -324,7 +340,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     assert!(
         first["join_candidates"]
             .as_array()
-            .is_some_and(|refs| !refs.is_empty())
+            .is_some_and(Vec::is_empty)
     );
     let cursor = body["next_cursor"]
         .as_str()
@@ -716,9 +732,11 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     assert_eq!(body["realm_id"], "ak:realm:pushed");
     assert_eq!(body["member_count_bucket"], "11-50");
     assert_eq!(body["source_refs"][0], "evt-announce-realm");
-    assert_eq!(
-        body["join_candidates"][0]["service_id"],
-        mock.principal_server_did()
+    assert!(
+        body["join_candidates"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "a principal-server core id without a verified resolution carrier must not become a routing candidate"
     );
     Ok(())
 }
@@ -909,7 +927,7 @@ async fn assert_three_path_takedown_strand(
             "source_refs": ["admin:takedown-target"],
             "policy_revision": "admin-takedown-r1",
             "effective_ttl_seconds": 3600,
-            "via_services": ["did:web:directory.test"]
+            "via_services": ["ak:did_core:web:directory.test"]
         }))
         .send(service)
         .await;
@@ -1051,7 +1069,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             "source_refs": ["admin:test"],
             "policy_revision": "admin-r1",
             "effective_ttl_seconds": 3600,
-            "via_services": ["did:web:directory.test"]
+            "via_services": ["ak:did_core:web:directory.test"]
         }))
         .send(service)
         .await;
@@ -1305,7 +1323,7 @@ fn signed_realm_discovery_state_named(
     let mut state = json!({
         "kind": "ak.realm.discovery",
         "discoverability": "public",
-        "directory_services": ["did:web:directory.test"],
+        "directory_services": ["ak:did_core:web:directory.test"],
         "name": name,
         "summary": "Accepted through push announce against a mock Principal Server",
         "member_count": 42,

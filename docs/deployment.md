@@ -30,7 +30,8 @@ Manual setup:
 ```bash
 createdb teabay
 cp .env.example .env
-# Edit .env for DATABASE_URL and TEABAY_SERVICE_ID.
+# Edit .env for DATABASE_URL, TEABAY_SERVICE_FULL_ID, and the verified
+# TEABAY_SERVICE_METHOD_HISTORY_HEAD / TEABAY_SERVICE_VERSION_ID pair.
 diesel setup
 cargo run -p server
 ```
@@ -82,8 +83,10 @@ Set these for every deployment:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `TEABAY_SERVICE_ID` | Directory service DID advertised to resources. |
-| `TEABAY_PUBLIC_BASE_URL` | Public URL used in service metadata. |
+| `TEABAY_SERVICE_FULL_ID` | Current resolvable full DID; `TEABAY_SERVICE_ID` remains a compatibility alias. |
+| `TEABAY_SERVICE_METHOD_HISTORY_HEAD` | Verified current method-history head published in `service_resolution`; missing/empty fails startup. |
+| `TEABAY_SERVICE_VERSION_ID` | Verified current method version published in `service_resolution`; missing/empty fails startup. |
+| `TEABAY_PUBLIC_BASE_URL` | Public URL advertised only as the `http_json` binding base URL. |
 | `TEABAY_TRUST_DOMAIN` | Typed trust domain advertised by describe. |
 | `TEABAY_METRICS_BIND` | Separate Prometheus listener; default `127.0.0.1:9095`. |
 
@@ -174,7 +177,7 @@ verification procedure.
 | `TEABAY_MAX_TTL_SECONDS` | `604800` | Operator cap for accepted announce TTLs. |
 | `TEABAY_REVALIDATION_GRACE_SECONDS` | `3600` | Grace window before stale rows are marked stale. |
 | `TEABAY_AS_OF_SKEW_SECONDS` | `300` | Maximum accepted clock skew for announce `as_of`. |
-| `TEABAY_DIVERGENCE_INTERVAL_SECONDS` | `0` | Divergence worker period; `0` disables it. |
+| `TEABAY_DIVERGENCE_INTERVAL_SECONDS` | `0` | Reserved; non-zero fails startup until verified peer service-resolution carriers are implemented. |
 
 The hard maximum TTL accepted by the server is 30 days.
 

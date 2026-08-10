@@ -41,6 +41,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Stable service identity and verified resolution publication
+
+- `ServiceDescribe.service_id` is now the adapter-projected stable service
+  core id and includes the required `service_resolution` commitment. Startup
+  requires the current full DID, verified method-history head, and method
+  version in every mode; Teabay never manufactures those values.
+- The HTTP route is advertised only through
+  `supported_bindings[kind=http_json].base_url`. Directory authorization,
+  `via_services`, and member delivery bindings use service core ids; receipt
+  verification methods continue to use full DID URLs.
+- The optional cross-directory divergence worker is fail-closed until trusted
+  peer service-resolution carriers are wired. A non-zero interval fails
+  startup, and legacy DIDs/URLs in `via_services` are never used as network
+  authority.
+- Migration `20260810010000_service_core_ids` projects active-method full DIDs
+  already stored in `directory_resources.via_services` to core ids and drops
+  legacy URL/unknown pseudo-authorities. The migration is intentionally lossy
+  and its down step cannot recreate unsafe route strings.
+- Realm responses omit `join_candidates` while Teabay has only Principal
+  Server core ids. A candidate requires a fully verified
+  `ServiceResolutionCarrier`; Teabay does not fabricate one from its own
+  commitment or derive a route from a target core id.
+
 ### circle-rollout · AKP-0007 enforcement (P2E, arkret-spec `2b0d70d`)
 
 The Circle primitive lands in the spec as an intra-Realm encrypted

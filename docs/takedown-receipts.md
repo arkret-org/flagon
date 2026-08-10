@@ -53,7 +53,7 @@ Operator receipts require:
 | Variable | Purpose |
 | --- | --- |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Base64url or padded base64 raw 32-byte Ed25519 signing key. |
-| `TEABAY_RECEIPT_KEY_ID` | Verification method recorded in `receipt_proof`; defaults to `$TEABAY_SERVICE_ID#teabay-receipt-1`. |
+| `TEABAY_RECEIPT_KEY_ID` | Full DID URL recorded in `receipt_proof`; defaults to `$TEABAY_SERVICE_FULL_ID#teabay-receipt-1`. |
 
 If the receipt signing key is missing, operator takedown fails closed instead of
 writing an unsigned operator receipt. Local development can use an ephemeral key,

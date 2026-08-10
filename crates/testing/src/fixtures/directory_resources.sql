@@ -27,7 +27,7 @@ INSERT INTO directory_resources (
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allowed_binding_sources`. `trusted_audiences` is the
     -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
-    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["did:web:principal.test"],"allowed_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
+    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["ak:did_core:web:principal.test"],"allowed_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-tea'],
@@ -37,7 +37,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-realm'
 ),
 (
@@ -55,7 +55,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-realm-lab'
 ),
 (
@@ -73,7 +73,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-realm-restricted'
 ),
 (
@@ -91,7 +91,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-realm-secret'
 ),
 (
@@ -113,7 +113,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-realm-org-declared'
 ),
 (
@@ -134,7 +134,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-realm-org-verified'
 ),
 (
@@ -152,7 +152,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-org'
 ),
 (
@@ -170,7 +170,7 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-actor'
 ),
 (
@@ -181,7 +181,7 @@ INSERT INTO directory_resources (
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
     -- carries `member_delivery_binding.recipient_service_id` + binding_source
     -- so `resolve_handle(intent=member_add)` can run the Realm policy filter.
-    '{"handle":"alice:example.com","did":"did:web:alice.example","verified":true,"member_delivery_binding":{"recipient_service_id":"did:web:principal.test","binding_source":"join_policy"}}'::jsonb,
+    '{"handle":"alice:example.com","did":"did:web:alice.example","verified":true,"member_delivery_binding":{"recipient_service_id":"ak:did_core:web:principal.test","binding_source":"join_policy"}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-handle-alice'],
@@ -191,6 +191,6 @@ INSERT INTO directory_resources (
     now() + interval '1 day',
     false,
     false,
-    ARRAY['did:web:principal.test'],
+    ARRAY['ak:did_core:web:principal.test'],
     'ak.announce:test-handle'
 );

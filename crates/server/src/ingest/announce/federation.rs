@@ -1,7 +1,7 @@
 //! Federation idempotency cache key + trust-domain pair verifier.
 
 use arkret_sdk::{
-    HEADER_DESTINATION_TRUST_DOMAIN, HEADER_SOURCE_TRUST_DOMAIN,
+    HEADER_DESTINATION_TRUST_DOMAIN, HEADER_SOURCE_TRUST_DOMAIN, ServiceId,
     federation_trust_domain_transcript_fragment,
 };
 use salvo::prelude::*;
@@ -126,6 +126,14 @@ pub(crate) fn verify_federation_trust_domain_headers(
     inputs: &FederationCacheKeyInputs,
     expected_destination_trust_domain: &str,
 ) -> Result<Option<String>, (ApiErrorCode, String)> {
+    if !inputs.source_service_id.is_empty()
+        && ServiceId::new(inputs.source_service_id.clone()).is_err()
+    {
+        return Err((
+            ApiErrorCode::CrossDomainReplayRejected,
+            "Source-Service-ID must be a stable service core id, not a DID or URL".to_owned(),
+        ));
+    }
     if !inputs.is_federation_hop() {
         return Ok(None);
     }
@@ -137,6 +145,12 @@ pub(crate) fn verify_federation_trust_domain_headers(
                 "federation S2S request must carry both {} and {} headers",
                 HEADER_SOURCE_TRUST_DOMAIN, HEADER_DESTINATION_TRUST_DOMAIN,
             ),
+        ));
+    }
+    if inputs.source_service_id.is_empty() {
+        return Err((
+            ApiErrorCode::CrossDomainReplayRejected,
+            "federation S2S request must carry Source-Service-ID".to_owned(),
         ));
     }
     // Validate trust-domain identifiers via the SDK's typed wrapper so

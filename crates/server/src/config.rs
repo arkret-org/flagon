@@ -11,6 +11,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use arkret_sdk::{FullId, ResolutionCommitment, ServiceId, project_full_id_to_core_id};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
@@ -116,7 +117,16 @@ pub struct AppConfig {
     pub bind: SocketAddr,
     pub metrics_bind: SocketAddr,
     pub public_base_url: String,
+    /// Stable business identity projected from [`Self::service_full_id`].
+    /// This is never interpreted as a network locator.
     pub service_id: String,
+    /// Current resolvable service DID retained for method verification and
+    /// DID-URL verification-method construction.
+    pub service_full_id: FullId,
+    /// Operator-verified current resolution commitment published by
+    /// `ServiceDescribe`. Teabay never manufactures history heads or version
+    /// identifiers from the DID text.
+    pub service_resolution: ResolutionCommitment,
     /// Round 4 — typed trust domain advertised in
     /// `/directory/describe` and required on every cross-trust-domain
     /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
@@ -382,8 +392,36 @@ impl AppConfig {
         let public_base_url =
             std::env::var("TEABAY_PUBLIC_BASE_URL").unwrap_or_else(|_| format!("http://{bind}"));
 
-        let service_id = std::env::var("TEABAY_SERVICE_ID")
-            .map_err(|_| anyhow::anyhow!("TEABAY_SERVICE_ID is required"))?;
+        // The configured identity is the current resolvable full DID. Business
+        // DTOs and persistence keys use only its adapter-projected core id.
+        // `TEABAY_SERVICE_ID` remains a compatibility alias for deployments
+        // that supplied the full DID under the historical name.
+        let service_full_id_raw = match (
+            std::env::var("TEABAY_SERVICE_FULL_ID").ok(),
+            std::env::var("TEABAY_SERVICE_ID").ok(),
+        ) {
+            (Some(full_id), Some(legacy)) if full_id != legacy => {
+                anyhow::bail!("TEABAY_SERVICE_FULL_ID and legacy TEABAY_SERVICE_ID disagree")
+            }
+            (Some(full_id), _) | (None, Some(full_id)) => full_id,
+            (None, None) => anyhow::bail!(
+                "TEABAY_SERVICE_FULL_ID is required (TEABAY_SERVICE_ID is accepted as a compatibility alias)"
+            ),
+        };
+        let service_full_id = FullId::new(service_full_id_raw.clone()).map_err(|error| {
+            anyhow::anyhow!("TEABAY_SERVICE_FULL_ID is not a valid full DID: {error}")
+        })?;
+        let service_id = ServiceId::from(project_full_id_to_core_id(&service_full_id).map_err(
+            |error| anyhow::anyhow!("TEABAY_SERVICE_FULL_ID has no active method adapter: {error}"),
+        )?)
+        .into_string();
+        let method_history_head = required_non_empty_env("TEABAY_SERVICE_METHOD_HISTORY_HEAD")?;
+        let version_id = required_non_empty_env("TEABAY_SERVICE_VERSION_ID")?;
+        let service_resolution = ResolutionCommitment {
+            full_id: service_full_id.clone(),
+            method_history_head,
+            version_id,
+        };
 
         // Round 4 — required trust domain on ServiceDescribe. Operators
         // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
@@ -499,7 +537,9 @@ impl AppConfig {
         let divergence_interval = if divergence_interval_seconds == 0 {
             None
         } else {
-            Some(Duration::from_secs(divergence_interval_seconds))
+            anyhow::bail!(
+                "TEABAY_DIVERGENCE_INTERVAL_SECONDS cannot be enabled: peer directory core ids have no configured verified service-resolution carrier"
+            )
         };
 
         let ingest_modes = vec![IngestModeAdvert::Push];
@@ -535,7 +575,7 @@ impl AppConfig {
                 .as_deref(),
             std::env::var("TEABAY_RECEIPT_KEY_ID")
                 .ok()
-                .unwrap_or_else(|| format!("{service_id}#teabay-receipt-1")),
+                .unwrap_or_else(|| format!("{service_full_id}#teabay-receipt-1")),
         )?;
         if psi_epoch_seconds == 0 {
             anyhow::bail!("TEABAY_PSI_EPOCH_SECONDS must be > 0");
@@ -613,6 +653,8 @@ impl AppConfig {
             metrics_bind,
             public_base_url,
             service_id,
+            service_full_id,
+            service_resolution,
             trust_domain,
             database_url,
             cors_allow_origin,
@@ -758,6 +800,18 @@ fn parse_trusted_proxy(value: Option<String>) -> anyhow::Result<Option<Vec<IpAdd
     } else {
         Ok(Some(out))
     }
+}
+
+fn required_non_empty_env(key: &str) -> anyhow::Result<String> {
+    std::env::var(key)
+        .map_err(|_| anyhow::anyhow!("{key} is required"))
+        .and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                anyhow::bail!("{key} must not be empty");
+            }
+            Ok(value.to_owned())
+        })
 }
 
 fn read_bool(key: &str, default: bool) -> anyhow::Result<bool> {

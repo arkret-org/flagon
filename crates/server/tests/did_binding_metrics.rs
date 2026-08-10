@@ -31,6 +31,14 @@ fn app_state() -> server::AppState {
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
         env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        env::set_var(
+            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "did-web-document-etag-fixture",
+        );
+        env::set_var(
+            "TEABAY_SERVICE_VERSION_ID",
+            "did-web-document-version-fixture",
+        );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");

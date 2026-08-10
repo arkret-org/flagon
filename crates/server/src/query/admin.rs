@@ -1,5 +1,6 @@
 //! Operator-facing admin query endpoints.
 
+use arkret_sdk::{FullId, ServiceId, project_full_id_to_core_id};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
@@ -355,6 +356,27 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         ApiErrorCode::MissingParam.render(res, "principal_server_did is required");
         return;
     }
+    let principal_server_full_id = match FullId::new(body.principal_server_did.trim().to_owned()) {
+        Ok(full_id) => full_id,
+        Err(error) => {
+            ApiErrorCode::SchemaViolation.render(
+                res,
+                format!("principal_server_did must be a canonical full DID: {error}"),
+            );
+            return;
+        }
+    };
+    let principal_server_service_id =
+        match project_full_id_to_core_id(&principal_server_full_id).map(ServiceId::from) {
+            Ok(service_id) => service_id,
+            Err(error) => {
+                ApiErrorCode::SchemaViolation.render(
+                    res,
+                    format!("principal_server_did has no active method adapter: {error}"),
+                );
+                return;
+            }
+        };
     let policy_revision = body.policy_revision.trim();
     if policy_revision.is_empty() {
         ApiErrorCode::MissingParam.render(res, "policy_revision is required");
@@ -378,7 +400,16 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     let via_services = {
         let services = normalize_string_list(&body.via_services);
         if services.is_empty() {
-            vec![body.principal_server_did.trim().to_string()]
+            vec![principal_server_service_id.into_string()]
+        } else if services
+            .iter()
+            .any(|service_id| ServiceId::new(service_id.clone()).is_err())
+        {
+            ApiErrorCode::SchemaViolation.render(
+                res,
+                "via_services entries must be stable service core ids, not DIDs or URLs",
+            );
+            return;
         } else {
             services
         }
@@ -1040,17 +1071,16 @@ fn normalized_discovery_state(
         "policy_revision".to_string(),
         JsonValue::String(body.policy_revision.trim().to_string()),
     );
-    object
-        .entry("directory_services".to_string())
-        .or_insert_with(|| {
-            JsonValue::Array(
-                via_services
-                    .iter()
-                    .cloned()
-                    .map(JsonValue::String)
-                    .collect(),
-            )
-        });
+    object.insert(
+        "directory_services".to_string(),
+        JsonValue::Array(
+            via_services
+                .iter()
+                .cloned()
+                .map(JsonValue::String)
+                .collect(),
+        ),
+    );
     Ok(discovery_state)
 }
 

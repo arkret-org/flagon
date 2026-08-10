@@ -112,8 +112,10 @@ Pull ingest is not implemented because v1 does not yet define the required
 Directory-specific state-only read operation and DTO. Teabay advertises push
 ingest only and never falls back to the forbidden self Events API.
 
-The divergence worker is optional and controlled by
-`TEABAY_DIVERGENCE_INTERVAL_SECONDS`. A value of `0` disables it.
+The divergence worker is reserved but unavailable: keep
+`TEABAY_DIVERGENCE_INTERVAL_SECONDS=0`. A non-zero value fails startup until
+peer core ids can be mapped through verified current service-resolution
+records; Teabay never derives a URL from an id.
 
 `/readyz` checks PostgreSQL reachability and enabled worker heartbeats. Metrics
 are isolated from public API traffic by binding `/metrics` to

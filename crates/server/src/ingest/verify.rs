@@ -7,8 +7,8 @@
 //!    closed the prior gap where the middleware was advertised but not actually mounted.
 //! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against the resource governance
 //!    key resolved via DID document.
-//! 3. Directory authorization — `discovery_state.directory_services` contains *this* directory's
-//!    service DID.
+//! 3. Directory authorization — `discovery_state.directory_services` is a core-id list containing
+//!    *this* directory's stable service id.
 //! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Principal Server
 //!    to confirm `source_refs[0]` is resolvable.
 //! 5. Accept policy — local accept_policy (open / allowlist / operator_review) decision.
@@ -22,7 +22,10 @@ use std::time::Duration;
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_identity::document_canonical_digest;
 use arkret_sdk::identity::DidWebvhResolver;
-use arkret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver, canonical};
+use arkret_sdk::{
+    DID_WEB_MAX_DOCUMENT_BYTES, Did, DidWebResolver, FullId, ServiceId, canonical,
+    project_full_id_to_core_id,
+};
 use arkret_wire::{Hash, TypedTrustDomainId};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -47,8 +50,8 @@ pub(crate) const EXTERNAL_JSON_MAX_BYTES: usize = 1_048_576;
 pub struct VerifyOutcome {
     /// Effective `discoverability` parsed from discovery_state.
     pub discoverability: super::DiscoverabilityDb,
-    /// `via_services` to populate from DID document (or fallback to
-    /// `principal_server_did`).
+    /// Stable service core ids explicitly supplied by the verified state, or
+    /// the adapter projection of `principal_server_did` as a fallback.
     pub via_services: Vec<String>,
     /// Effective `policy_revision` from the verified discovery state.
     pub policy_revision: String,
@@ -154,6 +157,13 @@ impl<'a> VerifyContext<'a> {
         )?;
 
         // --- Step 3: directory authorization (this DID listed). ------------
+        if !directory_services_are_core_ids(&req.discovery_state) {
+            return Err((
+                ApiErrorCode::SchemaViolation,
+                "discovery_state.directory_services must be a non-empty array of service core ids"
+                    .to_owned(),
+            ));
+        }
         let listed = directory_services_lists_self(&req.discovery_state, &self.config.service_id);
         if !listed {
             return Err((
@@ -1050,16 +1060,30 @@ fn is_loopback_url(url: &Url) -> bool {
     }
 }
 
-fn directory_services_lists_self(discovery_state: &JsonValue, self_did: &str) -> bool {
+fn directory_services_lists_self(discovery_state: &JsonValue, self_service_id: &str) -> bool {
     discovery_state
         .get("directory_services")
         .and_then(JsonValue::as_array)
         .map(|arr| {
             arr.iter()
                 .filter_map(JsonValue::as_str)
-                .any(|d| d.eq_ignore_ascii_case(self_did))
+                .any(|id| id == self_service_id)
         })
         .unwrap_or(false)
+}
+
+fn directory_services_are_core_ids(discovery_state: &JsonValue) -> bool {
+    discovery_state
+        .get("directory_services")
+        .and_then(JsonValue::as_array)
+        .is_some_and(|services| {
+            !services.is_empty()
+                && services.iter().all(|value| {
+                    value
+                        .as_str()
+                        .is_some_and(|service_id| ServiceId::new(service_id.to_owned()).is_ok())
+                })
+        })
 }
 
 fn read_discoverability(
@@ -1084,14 +1108,14 @@ fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) 
     {
         let mut services = Vec::new();
         for value in arr.iter().filter_map(JsonValue::as_str) {
-            let did = value.trim();
-            if did.is_empty()
-                || Did::new(did.to_owned()).is_err()
-                || services.iter().any(|existing| existing == did)
+            let service_id = value.trim();
+            if service_id.is_empty()
+                || ServiceId::new(service_id.to_owned()).is_err()
+                || services.iter().any(|existing| existing == service_id)
             {
                 continue;
             }
-            services.push(did.to_owned());
+            services.push(service_id.to_owned());
             if services.len() == MAX_VIA_SERVICES {
                 break;
             }
@@ -1100,7 +1124,11 @@ fn derive_via_services(discovery_state: &JsonValue, principal_server_did: &str) 
             return services;
         }
     }
-    vec![principal_server_did.to_string()]
+    FullId::new(principal_server_did.to_owned())
+        .and_then(|full_id| project_full_id_to_core_id(&full_id))
+        .map(ServiceId::from)
+        .map(|service_id| vec![service_id.into_string()])
+        .unwrap_or_default()
 }
 
 async fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {
@@ -1140,46 +1168,60 @@ mod tests {
     use super::*;
 
     #[test]
-    fn derive_via_services_dedupes_valid_dids_and_caps_count() {
+    fn directory_authority_list_accepts_only_service_core_ids() {
+        assert!(directory_services_are_core_ids(&json!({
+            "directory_services": ["ak:did_core:web:directory.example"]
+        })));
+        for forbidden in [
+            json!({"directory_services": ["did:web:directory.example"]}),
+            json!({"directory_services": ["https://directory.example"]}),
+            json!({"directory_services": []}),
+        ] {
+            assert!(!directory_services_are_core_ids(&forbidden));
+        }
+    }
+
+    #[test]
+    fn derive_via_services_dedupes_valid_service_core_ids_and_caps_count() {
         let discovery_state = json!({
             "via_services": [
-                " did:web:primary.example ",
-                "not-a-did",
-                "did:web:primary.example",
-                "did:web:mirror1.example",
-                "did:web:mirror2.example",
-                "did:web:mirror3.example",
-                "did:web:mirror4.example",
-                "did:web:mirror5.example",
-                "did:web:mirror6.example",
-                "did:web:mirror7.example",
-                "did:web:mirror8.example"
+                " ak:did_core:web:primary.example ",
+                "not-a-service-id",
+                "ak:did_core:web:primary.example",
+                "ak:did_core:web:mirror1.example",
+                "ak:did_core:web:mirror2.example",
+                "ak:did_core:web:mirror3.example",
+                "ak:did_core:web:mirror4.example",
+                "ak:did_core:web:mirror5.example",
+                "ak:did_core:web:mirror6.example",
+                "ak:did_core:web:mirror7.example",
+                "ak:did_core:web:mirror8.example"
             ]
         });
 
         let derived = derive_via_services(&discovery_state, "did:web:fallback.example");
 
         assert_eq!(derived.len(), MAX_VIA_SERVICES);
-        assert_eq!(derived[0], "did:web:primary.example");
-        assert!(!derived.iter().any(|did| did == "not-a-did"));
+        assert_eq!(derived[0], "ak:did_core:web:primary.example");
+        assert!(!derived.iter().any(|id| id == "not-a-service-id"));
         assert_eq!(
             derived
                 .iter()
-                .filter(|did| did.as_str() == "did:web:primary.example")
+                .filter(|id| id.as_str() == "ak:did_core:web:primary.example")
                 .count(),
             1
         );
     }
 
     #[test]
-    fn derive_via_services_falls_back_when_array_has_no_valid_dids() {
+    fn derive_via_services_falls_back_to_projected_principal_service_id() {
         let discovery_state = json!({
-            "via_services": ["", "not-a-did", 7]
+            "via_services": ["", "not-a-service-id", "did:web:must-not-be-treated-as-core", 7]
         });
 
         assert_eq!(
             derive_via_services(&discovery_state, "did:web:fallback.example"),
-            vec!["did:web:fallback.example".to_owned()]
+            vec!["ak:did_core:web:fallback.example".to_owned()]
         );
     }
 

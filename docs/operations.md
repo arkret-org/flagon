@@ -45,8 +45,8 @@ masked by default in structured logs:
 
 - `resource_id` — emitted as the first 16 characters followed by `...` when the
   value exceeds 16 chars.
-- `service_id` — emitted as the DID method (`did:web`, `did:webvh`, etc.) plus
-  a SHA-256 prefix; the bare identifier is never logged.
+- `service_id` — emitted as the core-id adapter prefix plus a SHA-256 prefix;
+  the bare identifier is never logged.
 
 Set `TEABAY_DEVELOPMENT_MODE=true` to disable masking for local debugging. The
 hardening block on `/health` reports `log_redaction=production` when masking is

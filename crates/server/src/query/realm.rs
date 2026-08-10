@@ -11,9 +11,8 @@
 
 use arkret_sdk::{
     Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
-    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, EventId, RealmId,
-    RealmJoinCandidate, RealmJoinCandidateRole, RealmJoinCandidateServiceKind,
-    RealmJoinCandidateSource, RealmJoinMethod, RealmPreview, SealBasis, SealId,
+    DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, RealmId,
+    RealmJoinCandidate, RealmPreview,
 };
 use arkret_server::CursorBindingContext;
 use chrono::{DateTime, Utc};
@@ -23,7 +22,6 @@ use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 use crate::filter::discoverers::{VerifiedRestrictedClaims, verify_restricted_claim_presentations};
@@ -330,7 +328,7 @@ fn verified_restricted_claims_for_realm_query(
         presentations,
         requester,
         proof_challenge,
-        &state.config().service_id,
+        state.config().service_full_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()
@@ -445,6 +443,7 @@ struct RealmRow {
     divergent: bool,
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
+    #[allow(dead_code)]
     expires_at: DateTime<Utc>,
     score: f64,
     realm_destroyed_at: Option<DateTime<Utc>>,
@@ -736,97 +735,15 @@ async fn apply_verified_organizations(
     preview.owning_organizations = owning;
 }
 
-fn join_candidates_for_row(row: &RealmRow) -> Vec<RealmJoinCandidate> {
-    let Ok(realm_id) = RealmId::new(row.resource_id.clone()) else {
-        return Vec::new();
-    };
-    if row.realm_destroyed_at.is_some() || row.reachability_revoked_at.is_some() {
-        return Vec::new();
-    }
-
-    let limit = match row.discoverability {
-        DiscoverabilityDb::Public | DiscoverabilityDb::Listed => row.via_services.len(),
-        DiscoverabilityDb::Restricted
-        | DiscoverabilityDb::Unlisted
-        | DiscoverabilityDb::InviteOnly
-        | DiscoverabilityDb::Secret => 1,
-    };
-    let source_refs = row
-        .source_refs
-        .iter()
-        .filter_map(|source_ref| EventId::new(source_ref.clone()).ok())
-        .collect::<Vec<_>>();
-    row.via_services
-        .iter()
-        .filter_map(|service| Did::new(service.clone()).ok())
-        .take(limit)
-        .enumerate()
-        .filter_map(|(index, service_id)| {
-            let seal_basis = candidate_seal_basis(row, service_id.as_str())?;
-            Some(RealmJoinCandidate {
-                realm_id: realm_id.clone(),
-                service_id,
-                service_kind: RealmJoinCandidateServiceKind::PrincipalServer,
-                role: if index == 0 {
-                    RealmJoinCandidateRole::Primary
-                } else {
-                    RealmJoinCandidateRole::Mirror
-                },
-                endpoint: None,
-                operations: vec!["ak.self.events.command.submit".to_owned()],
-                join_methods: vec![
-                    RealmJoinMethod::InviteAccept,
-                    RealmJoinMethod::MemberJoin,
-                    RealmJoinMethod::Knock,
-                    RealmJoinMethod::Application,
-                    RealmJoinMethod::RestrictedJoin,
-                ],
-                priority: Some(index.min(u16::MAX as usize) as u16),
-                source: RealmJoinCandidateSource::DirectoryIngest,
-                source_refs: source_refs.clone(),
-                frontier_ref: None,
-                seal_basis,
-                as_of: row.as_of,
-                expires_at: row.expires_at,
-                proofs: Vec::new(),
-            })
-        })
-        .collect()
-}
-
-fn candidate_seal_basis(row: &RealmRow, service_id: &str) -> Option<SealBasis> {
-    let leaf = candidate_digest(row, service_id, "leaf");
-    Some(SealBasis {
-        leaves: vec![SealId::new(format!("ak:seal:sha256:{leaf}")).ok()?],
-    })
-}
-
-fn candidate_digest(row: &RealmRow, service_id: &str, label: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(label.as_bytes());
-    hasher.update([0]);
-    hasher.update(row.resource_id.as_bytes());
-    hasher.update([0]);
-    hasher.update(service_id.as_bytes());
-    hasher.update([0]);
-    hasher.update(row.policy_revision.as_bytes());
-    hasher.update([0]);
-    hasher.update(row.as_of.to_rfc3339().as_bytes());
-    for source_ref in &row.source_refs {
-        hasher.update([0]);
-        hasher.update(source_ref.as_bytes());
-    }
-    lower_hex(&hasher.finalize())
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
+fn join_candidates_for_row(_row: &RealmRow) -> Vec<RealmJoinCandidate> {
+    // `via_services` is deliberately only a stable service core-id list. A
+    // RealmJoinCandidate now requires a fully verifiable ServiceResolutionCarrier,
+    // and Teabay does not persist remote carriers. Emitting no candidate is the
+    // only safe behavior until ingest retains an independently verified current
+    // record (or another trusted carrier source is configured). Never derive a
+    // URL/full DID from the core id and never reuse this directory's own
+    // resolution commitment for a remote Principal Server.
+    Vec::new()
 }
 
 fn is_result_visible(

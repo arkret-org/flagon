@@ -14,7 +14,7 @@ fn inputs_with_pair(
     destination_trust_domain: &str,
 ) -> FederationCacheKeyInputs {
     FederationCacheKeyInputs {
-        source_service_id: "did:web:peer.example".to_owned(),
+        source_service_id: "ak:did_core:web:peer.example".to_owned(),
         verification_method: "did:web:peer.example#key-1".to_owned(),
         service_binding_ref: "binding-1".to_owned(),
         origin_key_state_digest: vec![1, 2, 3],
@@ -43,6 +43,18 @@ fn trust_domain_verifier_rejects_partial_pair() {
     let err =
         verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test").unwrap_err();
     assert_eq!(err.0, ApiErrorCode::CrossDomainReplayRejected);
+}
+
+#[test]
+fn federation_source_service_id_rejects_full_did_authority() {
+    let mut inputs = inputs_with_pair(
+        "ak:trust_domain:other.example",
+        "ak:trust_domain:teabay.test",
+    );
+    inputs.source_service_id = "did:web:peer.example".to_owned();
+    let error = verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test")
+        .expect_err("full DID must not occupy Source-Service-ID");
+    assert_eq!(error.0, ApiErrorCode::CrossDomainReplayRejected);
 }
 
 /// Round 4 — destination trust domain mismatch must reject; a
@@ -251,13 +263,13 @@ fn announce_digest_uses_canonical_json_body() {
     first_state.insert("discoverability".to_owned(), json!("public"));
     first_state.insert(
         "directory_services".to_owned(),
-        json!(["did:web:directory.test"]),
+        json!(["ak:did_core:web:directory.test"]),
     );
 
     let mut second_state = serde_json::Map::new();
     second_state.insert(
         "directory_services".to_owned(),
-        json!(["did:web:directory.test"]),
+        json!(["ak:did_core:web:directory.test"]),
     );
     second_state.insert("discoverability".to_owned(), json!("public"));
     second_state.insert("kind".to_owned(), json!("ak.realm.discovery"));
@@ -294,7 +306,7 @@ fn digest_request_rejects_non_canonical_float_values() {
         discovery_state: DirectoryDiscoveryState::from_json(json!({
             "kind": "ak.realm.discovery",
             "discoverability": "public",
-            "directory_services": ["did:web:directory.test"],
+            "directory_services": ["ak:did_core:web:directory.test"],
             "non_canonical": 1.5
         })),
         source_refs: vec!["evt-1".to_owned()],

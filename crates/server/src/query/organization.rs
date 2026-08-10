@@ -332,7 +332,7 @@ fn verified_restricted_claims_for_org_query(
         presentations,
         requester,
         proof_challenge,
-        &state.config().service_id,
+        state.config().service_full_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()

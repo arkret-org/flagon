@@ -23,8 +23,8 @@ listener binds `TEABAY_METRICS_BIND` (default `127.0.0.1:9095`).
   `http://127.0.0.1:7781/health`).
 - `/readyz` returns `200` only when PostgreSQL answers `SELECT 1` **and** every
   enabled background worker has a recent heartbeat. The body reports
-  `database.ok` plus a `workers` map containing the optional
-  `divergence` worker.
+  `database.ok` plus a `workers` map. The reserved `divergence` entry remains
+  disabled until verified peer resolution carriers are implemented.
 
   Each worker entry reports `enabled`, `ready`, `last_seen_ms_ago`, and
   `stale_after_ms`. A disabled worker (`enabled=false`) does not block
@@ -45,9 +45,7 @@ Safe restart:
 
 1. Drain the instance from the load balancer (it stops passing `/readyz`).
 2. Restart the process / pod. Migrations are embedded and run at boot.
-3. Wait for `/readyz` to return `200`. On boot the worker heartbeat starts
-   stale, so allow up to `stale_after_ms` for `divergence` to report
-   `ready=true`.
+3. Wait for `/readyz` to return `200`.
 4. Confirm `hardening.admin_auth_mode` is `rotating_hmac` and
    `development_mode=false` on `/health` before re-admitting traffic.
 
@@ -84,7 +82,8 @@ and `ingest_announces`. Pull mode is intentionally not advertised.
 
 - `teabay_ingest_total{kind,outcome}` — ingest accept/reject rates.
 - `teabay_query_latency_seconds{op}` — query latency.
-- `teabay_divergence_detected_total` — divergence worker activity.
+- `teabay_divergence_detected_total` — reserved; remains zero while the
+  divergence worker is unavailable.
 - `teabay_db_pool_connections` / `_idle` / `_in_use` / `_max_size` — live r2d2
   pool occupancy.
 

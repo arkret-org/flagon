@@ -341,7 +341,7 @@ fn verified_restricted_claims_for_handle_query(
         &body.claim_presentations,
         body.requester.as_deref(),
         body.proof_challenge.as_deref(),
-        &state.config().service_id,
+        state.config().service_full_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()
@@ -659,15 +659,15 @@ fn binding_passes(
     unrestricted_source: bool,
 ) -> bool {
     let recipient_ok = match obj.get("recipient_service_id").and_then(JsonValue::as_str) {
-        // Round 4 (spec a77b995, commit f9bd7eb) — the DID regex was
-        // tightened to `^did:[a-z0-9]+:[^\s]+$`. The SDK `Did::new`
-        // newtype enforces it; projections whose
-        // `recipient_service_id` uses dot/dash/underscore/colon in
-        // the method segment MUST be dropped as if absent, not allowed
-        // through unconditionally.
-        Some(did) => {
-            is_round4_tight_did(did) && {
-                unrestricted_recipient || policy.allowed_recipient_services.iter().any(|a| a == did)
+        // Recipient routing policy binds the stable service core identity.
+        // A full DID or URL in this business field is dropped as if absent.
+        Some(service_id) => {
+            is_service_core_id(service_id) && {
+                unrestricted_recipient
+                    || policy
+                        .allowed_recipient_services
+                        .iter()
+                        .any(|allowed| allowed == service_id)
             }
         }
         None => false,
@@ -680,10 +680,8 @@ fn binding_passes(
     recipient_ok && source_ok
 }
 
-/// Round 4 — drop candidates whose `recipient_service_id` fails the
-/// tightened SDK `Did` regex (`^did:[a-z0-9]+:[^\s]+$`).
-fn is_round4_tight_did(did: &str) -> bool {
-    arkret_sdk::Did::new(did.to_owned()).is_ok()
+fn is_service_core_id(service_id: &str) -> bool {
+    arkret_sdk::ServiceId::new(service_id.to_owned()).is_ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -835,7 +833,7 @@ mod tests {
             policy_revision: "rev-handle-1".to_string(),
             stale: false,
             divergent: false,
-            via_services: vec!["did:web:principal.test".to_string()],
+            via_services: vec!["ak:did_core:web:principal.test".to_string()],
             expires_at: Utc.timestamp_opt(3_600, 0).unwrap(),
         }
     }
@@ -912,14 +910,14 @@ mod tests {
     fn policy_from_projection_reads_nested_shape() {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "delivery_binding_policy": {
-                "allowed_recipient_services": ["did:web:principal.tea"],
+                "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
                 "allowed_binding_sources": ["join_policy"],
                 "trusted_audiences": ["did:web:tea-org.example"],
             },
         }));
         assert_eq!(
             policy.allowed_recipient_services,
-            vec!["did:web:principal.tea".to_string()]
+            vec!["ak:did_core:web:principal.tea".to_string()]
         );
         assert_eq!(
             policy.allowed_binding_sources,
@@ -940,12 +938,15 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.other",
+                "recipient_service_id": "ak:did_core:web:principal.other",
                 "binding_source": "join_policy",
             },
         }));
         let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
-        let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
+        let policy = realm_policy(
+            &["ak:did_core:web:principal.tea"],
+            &["did:web:tea-org.example"],
+        );
 
         let outcome = evaluate_handle_disclosure(
             row,
@@ -964,12 +965,15 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.tea",
+                "recipient_service_id": "ak:did_core:web:principal.tea",
                 "binding_source": "join_policy"
             }
         }));
         let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
-        let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
+        let policy = realm_policy(
+            &["ak:did_core:web:principal.tea"],
+            &["did:web:tea-org.example"],
+        );
 
         let outcome = evaluate_handle_disclosure(
             row,
@@ -990,7 +994,7 @@ mod tests {
             binding
                 .get("recipient_service_id")
                 .and_then(JsonValue::as_str),
-            Some("did:web:principal.tea")
+            Some("ak:did_core:web:principal.tea")
         );
     }
 
@@ -1003,12 +1007,15 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.tea",
+                "recipient_service_id": "ak:did_core:web:principal.tea",
                 "binding_source": "join_policy",
             },
         }));
         let body = member_add_request("ak:realm:tea", "did:web:eve.example");
-        let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
+        let policy = realm_policy(
+            &["ak:did_core:web:principal.tea"],
+            &["did:web:tea-org.example"],
+        );
 
         let outcome = evaluate_handle_disclosure(
             row,
@@ -1026,7 +1033,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.anywhere",
+                "recipient_service_id": "ak:did_core:web:principal.anywhere",
                 "binding_source": "join_policy",
             },
         }));
@@ -1050,7 +1057,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.anywhere",
+                "recipient_service_id": "ak:did_core:web:principal.anywhere",
                 "binding_source": "join_policy",
             },
         }));
@@ -1074,7 +1081,7 @@ mod tests {
                 .and_then(JsonValue::as_object)
                 .and_then(|binding| binding.get("recipient_service_id"))
                 .and_then(JsonValue::as_str),
-            Some("did:web:principal.anywhere")
+            Some("ak:did_core:web:principal.anywhere")
         );
     }
 
@@ -1084,12 +1091,15 @@ mod tests {
     /// constant latency floor on top) and assert spread is small.
     #[test]
     fn timing_consistency_smoke() {
-        let policy = realm_policy(&["did:web:principal.tea"], &["did:web:tea-org.example"]);
+        let policy = realm_policy(
+            &["ak:did_core:web:principal.tea"],
+            &["did:web:tea-org.example"],
+        );
         let allowed_row = dummy_row(json!({
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.tea",
+                "recipient_service_id": "ak:did_core:web:principal.tea",
                 "binding_source": "join_policy",
             },
         }));
@@ -1097,7 +1107,7 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.other",
+                "recipient_service_id": "ak:did_core:web:principal.other",
                 "binding_source": "join_policy",
             },
         }));
@@ -1248,7 +1258,7 @@ mod tests {
         // Public/Listed Realms).
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "delivery_binding_policy": {
-                "allowed_recipient_services": ["did:web:principal.tea"],
+                "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
             },
         }));
         assert!(policy.audience_authorized(
@@ -1263,13 +1273,13 @@ mod tests {
             "did": "did:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "did:web:principal.tea",
+                "recipient_service_id": "ak:did_core:web:principal.tea",
                 "binding_source": "explicit",
             }
         }));
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "delivery_binding_policy": {
-                "allowed_recipient_services": ["did:web:principal.tea"],
+                "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
                 "allowed_binding_sources": ["join_policy"],
                 "trusted_audiences": ["did:web:tea-org.example"],
             },

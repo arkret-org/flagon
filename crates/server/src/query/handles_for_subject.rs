@@ -432,7 +432,7 @@ fn verified_restricted_claims_for_body(
         &presentations,
         body.requester.as_ref().map(|did| did.as_str()),
         body.proof_challenge.as_deref(),
-        &state.config().service_id,
+        state.config().service_full_id.as_str(),
         state.did_bindings(),
     )
 }

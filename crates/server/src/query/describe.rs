@@ -13,9 +13,9 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, Did,
-    DirectoryAcceptPolicyKind, DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy,
-    PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding,
+    AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, DirectoryAcceptPolicyKind,
+    DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
+    RateLimitPolicy, ServerLimits, ServiceDescribe, ServiceId, SupportedBinding,
     TypedTrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
@@ -52,8 +52,8 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
-    let service_id = Did::new(cfg.service_id.clone())
-        .map_err(|err| format!("TEABAY_SERVICE_ID is not a valid DID: {err}"))?;
+    let service_id = ServiceId::new(cfg.service_id.clone())
+        .map_err(|err| format!("configured service core id is invalid: {err}"))?;
     let trust_domain = TypedTrustDomainId::new(cfg.trust_domain.clone())
         .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
 
@@ -82,6 +82,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // (`SupportedBinding`); the transport-specific keys ride in `extra`.
     let supported_bindings = vec![
         SupportedBinding::new(BindingKind::HttpJson)
+            .with_base_url(cfg.public_base_url.clone())
             .with_extra(
                 "media_type",
                 JsonValue::String("application/json".to_owned()),
@@ -289,6 +290,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     let describe_body = ServiceDescribe {
         service_id,
+        service_resolution: cfg.service_resolution.clone(),
         trust_domain,
         service_kind: arkret_sdk::ServiceKind::DirectoryService,
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
@@ -359,12 +361,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .ok_or_else(|| "ServiceDescribe must serialise as a JSON object".to_owned())?;
 
     // Teabay-private describe fields stay namespaced under `x_teabay_*`.
-    // The standard directory overlay fields are already emitted by
-    // `ServiceDescribe` as bare top-level fields.
-    object.insert(
-        "x_teabay_public_base_url".to_owned(),
-        JsonValue::String(cfg.public_base_url.clone()),
-    );
+    // The routable base URL is part of the canonical `http_json` binding,
+    // never inferred from `service_id` or duplicated as an authority hint.
     object.insert(
         "x_teabay_limitations".to_owned(),
         JsonValue::Array(describe_limitations(cfg)),
@@ -415,6 +413,11 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
         "detail": "The v1 specification does not yet define the required Directory-specific state-only pull operation or DTO; this service only advertises push ingest.",
     }));
     limitations.push(json!({
+        "feature": "cross_directory_divergence",
+        "status": "unsupported",
+        "detail": "Peer directory core ids have no configured verified current-resolution carrier. The worker cannot be enabled and no id is interpreted as a URL authority.",
+    }));
+    limitations.push(json!({
         "feature": "operator_takedown_notification",
         "status": if cfg.takedown_contact.is_some() { "best_effort" } else { "no_contact_configured" },
         "detail": if cfg.takedown_contact.is_some() {
@@ -436,6 +439,8 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
+    use arkret_sdk::{Did, FullId, ResolutionCommitment};
+
     use super::*;
     use crate::config::{AcceptPolicyKind, IngestModeAdvert, ResourceKindAccept};
 
@@ -444,7 +449,13 @@ mod tests {
             bind: "127.0.0.1:0".parse().unwrap(),
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
-            service_id: "did:web:directory.test".to_owned(),
+            service_id: "ak:did_core:web:directory.test".to_owned(),
+            service_full_id: FullId::new("did:web:directory.test").unwrap(),
+            service_resolution: ResolutionCommitment {
+                full_id: FullId::new("did:web:directory.test").unwrap(),
+                method_history_head: "did-web-document-etag-fixture".to_owned(),
+                version_id: "did-web-document-version-fixture".to_owned(),
+            },
             trust_domain: "ak:trust_domain:local.test".to_owned(),
             database_url: "postgres://localhost/teabay".to_owned(),
             cors_allow_origin: None,
@@ -493,6 +504,7 @@ mod tests {
 
         for required in [
             "service_id",
+            "service_resolution",
             "trust_domain",
             "service_kind",
             "protocol_version",
@@ -518,7 +530,11 @@ mod tests {
 
         assert_eq!(value["development_mode"], true);
         assert_eq!(value["trust_domain"], "ak:trust_domain:local.test");
-        assert_eq!(value["service_id"], "did:web:directory.test");
+        assert_eq!(value["service_id"], "ak:did_core:web:directory.test");
+        assert_eq!(
+            value["service_resolution"]["full_id"],
+            "did:web:directory.test"
+        );
         assert_eq!(value["service_kind"], "directory_service");
         // verified_profiles MUST be empty when development_mode = true.
         assert!(
@@ -539,7 +555,10 @@ mod tests {
         assert!(value.get("rate_limits").is_some());
         assert!(value.get("accept_policy_kind").is_some());
         assert_eq!(value["accept_policy_kind"], "open");
-        assert_eq!(value["x_teabay_public_base_url"], "http://directory.test");
+        assert_eq!(
+            value["supported_bindings"][0]["base_url"],
+            "http://directory.test"
+        );
         assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
         assert_eq!(value["ingest_modes"], json!(["push"]));
         assert_eq!(
@@ -575,7 +594,12 @@ mod tests {
     #[test]
     fn describe_rejects_dev_mode_with_verified_profiles() {
         let describe_body = ServiceDescribe {
-            service_id: Did::new("did:web:directory.test").unwrap(),
+            service_id: ServiceId::new("ak:did_core:web:directory.test").unwrap(),
+            service_resolution: ResolutionCommitment {
+                full_id: FullId::new("did:web:directory.test").unwrap(),
+                method_history_head: "did-web-document-etag-fixture".to_owned(),
+                version_id: "did-web-document-version-fixture".to_owned(),
+            },
             trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_kind: arkret_sdk::ServiceKind::DirectoryService,
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
@@ -647,6 +671,7 @@ mod tests {
         // Canonical ServiceDescribe top-level properties (required + optional).
         const CANONICAL: &[&str] = &[
             "service_id",
+            "service_resolution",
             "trust_domain",
             "service_kind",
             "protocol_version",
@@ -714,7 +739,7 @@ mod tests {
             }
 
             // Teabay-private fields remain under `x_teabay_*`.
-            for ext in ["x_teabay_public_base_url", "x_teabay_limitations"] {
+            for ext in ["x_teabay_limitations"] {
                 assert!(
                     object.contains_key(ext),
                     "teabay-private extension `{ext}` must ride as an x_teabay_* key"

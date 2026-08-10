@@ -93,8 +93,9 @@ production traffic.
 
 ## Background workers
 
-- `divergence_worker` is disabled by default. When enabled it adds
-  one more long-held connection per cycle.
+- `divergence_worker` is unavailable until verified peer service-resolution
+  carriers are wired; a non-zero interval fails startup and consumes no pool
+  connection.
 
 ## Future work
 

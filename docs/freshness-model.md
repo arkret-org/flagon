@@ -16,10 +16,17 @@ clients can reason about how recently the directory observed source truth.
   caps.
 - `next_revalidation_after`: `indexed_at + effective_ttl_seconds`.
 - `stale`: true after revalidation remains overdue past the configured grace.
-- `divergent`: true when the optional divergence worker observes inconsistent
-  peer directory state.
-- `via_services`: Principal Server service DIDs clients should use for follow-up
-  protocol work.
+- `divergent`: reserved persisted flag. No outbound peer comparison runs until
+  verified service-resolution carriers are implemented.
+- `via_services`: stable Principal Server core service ids. They are business
+  identities, not URL authorities; a caller must obtain and verify a current
+  resolution carrier before follow-up protocol work.
+
+Teabay currently does not persist independently verified remote
+`ServiceResolutionCarrier` records. Realm responses therefore omit
+`join_candidates` even when `via_services` is present. This is fail-closed:
+the core id alone cannot provide a route, and Teabay never substitutes its own
+resolution commitment for the target service's carrier.
 
 Query responses surface the protocol result envelope fields, including `as_of`,
 `source_refs`, `policy_revision`, `stale`, `divergent`, and `via_services` when
@@ -80,9 +87,12 @@ announce history remains in `ingest_announces`.
 
 ## Divergence
 
-The divergence worker is disabled by default
-(`TEABAY_DIVERGENCE_INTERVAL_SECONDS=0`). When enabled, it can mark rows
-`divergent=true` if peer directory checks disagree with the local view.
+The divergence worker is disabled (`TEABAY_DIVERGENCE_INTERVAL_SECONDS=0`).
+Teabay currently has no verified current-resolution carrier for optional peer
+directory core ids, so any non-zero value fails startup. It never treats a
+core id, full DID, or legacy `via_services` URL as network authority. A future
+implementation must fetch and independently verify current service-resolution
+records before it can mark rows `divergent=true`.
 
 ## Freshness Refresh
 

@@ -7,6 +7,50 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn config_rejects_missing_resolution_commitment_even_in_development() {
+    use std::env;
+
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    unsafe {
+        env::set_var("TEABAY_BIND", "127.0.0.1:0");
+        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        env::remove_var("TEABAY_SERVICE_ID");
+        env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
+        env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
+        env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
+        env::remove_var("TEABAY_SERVICE_METHOD_HISTORY_HEAD");
+        env::remove_var("TEABAY_SERVICE_VERSION_ID");
+    }
+    let missing_head = server::AppConfig::from_env().expect_err("history head must be required");
+    assert!(
+        missing_head
+            .to_string()
+            .contains("TEABAY_SERVICE_METHOD_HISTORY_HEAD is required")
+    );
+
+    unsafe {
+        env::set_var(
+            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "did-web-document-etag-fixture",
+        );
+    }
+    let missing_version =
+        server::AppConfig::from_env().expect_err("method version must be required");
+    assert!(
+        missing_version
+            .to_string()
+            .contains("TEABAY_SERVICE_VERSION_ID is required")
+    );
+
+    unsafe {
+        env::set_var(
+            "TEABAY_SERVICE_VERSION_ID",
+            "did-web-document-version-fixture",
+        );
+    }
+}
+
+#[test]
 fn config_builds_with_minimal_state() {
     use std::env;
 
@@ -17,6 +61,14 @@ fn config_builds_with_minimal_state() {
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
         env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        env::set_var(
+            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "did-web-document-etag-fixture",
+        );
+        env::set_var(
+            "TEABAY_SERVICE_VERSION_ID",
+            "did-web-document-version-fixture",
+        );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
@@ -26,7 +78,12 @@ fn config_builds_with_minimal_state() {
     }
 
     let config = server::AppConfig::from_env().expect("config builds");
-    assert!(!config.service_id.is_empty());
+    assert_eq!(config.service_id, "ak:did_core:web:directory.test");
+    assert_eq!(config.service_full_id.as_str(), "did:web:directory.test");
+    assert_eq!(
+        config.service_resolution.method_history_head,
+        "did-web-document-etag-fixture"
+    );
     assert_eq!(
         config.accept_policy_kind,
         server::config::AcceptPolicyKind::Open
@@ -48,6 +105,14 @@ fn hardening_status_shape_matches_cross_service_contract() {
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
         env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        env::set_var(
+            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "did-web-document-etag-fixture",
+        );
+        env::set_var(
+            "TEABAY_SERVICE_VERSION_ID",
+            "did-web-document-version-fixture",
+        );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
