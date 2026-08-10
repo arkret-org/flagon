@@ -55,10 +55,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   peer service-resolution carriers are wired. A non-zero interval fails
   startup, and legacy DIDs/URLs in `via_services` are never used as network
   authority.
-- Migration `20260810010000_service_core_ids` projects active-method full DIDs
-  already stored in `directory_resources.via_services` to core ids and drops
-  legacy URL/unknown pseudo-authorities. The migration is intentionally lossy
-  and its down step cannot recreate unsafe route strings.
+- The existing initial schema now documents `directory_resources.via_services`
+  as stable service core ids only. Admission rejects full DIDs, URLs, and
+  unknown pseudo-authorities before they can be persisted or used for routing.
 - Realm responses omit `join_candidates` while Teabay has only Principal
   Server core ids. A candidate requires a fully verified
   `ServiceResolutionCarrier`; Teabay does not fabricate one from its own

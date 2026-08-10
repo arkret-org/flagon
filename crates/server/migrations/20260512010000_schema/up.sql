@@ -90,6 +90,8 @@ CREATE TABLE directory_resources (
     next_revalidation_after TIMESTAMPTZ NOT NULL,
     stale             BOOLEAN           NOT NULL DEFAULT false,
     divergent         BOOLEAN           NOT NULL DEFAULT false,
+    -- Stable service core ids only. Full DIDs and URL-shaped route hints are
+    -- rejected by application admission and never persisted as authority.
     via_services      TEXT[]            NOT NULL DEFAULT '{}',
     last_announce_id  TEXT,
     search_text       TEXT GENERATED ALWAYS AS (
