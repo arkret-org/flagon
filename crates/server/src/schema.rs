@@ -36,7 +36,7 @@ diesel::table! {
     directory_resources (resource_kind, resource_id) {
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        principal_server_did -> Text,
+        principal_server_service_id -> Text,
         discovery_state -> Jsonb,
         public_projection -> Jsonb,
         discoverability -> Discoverability,
@@ -75,7 +75,7 @@ diesel::table! {
         announce_id -> Text,
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        principal_server_did -> Text,
+        principal_server_service_id -> Text,
         ingest_mode -> IngestMode,
         discovery_state -> Jsonb,
         source_refs -> Array<Text>,
@@ -118,7 +118,7 @@ diesel::table! {
 diesel::table! {
     webhook_subscriptions (subscription_id) {
         subscription_id -> Text,
-        subscriber_did -> Text,
+        subscriber_principal_id -> Text,
         resource_filter -> Jsonb,
         webhook_endpoint -> Text,
         secret -> Nullable<Bytea>,
@@ -297,7 +297,7 @@ diesel::table! {
         takedown_id -> Text,
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        appellant_did -> Text,
+        appellant_actor_id -> Text,
         requested_outcome -> Text,
         argument_digest -> Text,
         appeal_packet -> Jsonb,
@@ -317,9 +317,9 @@ diesel::table! {
 
     // TBY-ORG-01/02/03 — verified `ak.realm.organization` relationships. See
     // migration 20260625010000_verified_realm_organizations.
-    verified_realm_organizations (realm_id, organization_did, relationship) {
+    verified_realm_organizations (realm_id, organization_principal_id, relationship) {
         realm_id -> Text,
-        organization_did -> Text,
+        organization_principal_id -> Text,
         relationship -> Text,
         control_scopes -> Array<Text>,
         statement_id -> Text,

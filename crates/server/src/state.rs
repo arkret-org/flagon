@@ -34,7 +34,6 @@ struct Inner {
     rate_limiter: RateLimiter,
     announce_replay_cache: AnnounceReplayCache,
     metrics: Metrics,
-    workers: WorkerRuntime,
 }
 
 impl AppState {
@@ -49,7 +48,6 @@ impl AppState {
     /// resolver that cannot be built is a configuration error, and
     /// configuration errors belong at boot.
     pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
-        let workers = WorkerRuntime::from_config(&config);
         // Built before the resolver so the DID counters land on the same
         // `Metrics` instance `/metrics` renders.
         let metrics = Metrics::default();
@@ -73,7 +71,6 @@ impl AppState {
                 rate_limiter: RateLimiter::default(),
                 announce_replay_cache: AnnounceReplayCache::default(),
                 metrics,
-                workers,
             }),
         })
     }
@@ -137,31 +134,6 @@ impl AppState {
     ) {
         self.inner.announce_replay_cache.put(key, response);
     }
-
-    pub fn worker_started(&self, worker: BackgroundWorker, period: Duration) {
-        self.inner.workers.started(worker, period);
-    }
-
-    pub fn worker_heartbeat(&self, worker: BackgroundWorker) {
-        self.inner.workers.heartbeat(worker);
-    }
-
-    pub fn worker_readiness(&self, worker: BackgroundWorker) -> WorkerReadiness {
-        self.inner.workers.readiness(worker)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackgroundWorker {
-    Divergence,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct WorkerReadiness {
-    pub enabled: bool,
-    pub ready: bool,
-    pub last_seen_ms_ago: Option<u128>,
-    pub stale_after_ms: Option<u128>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,92 +162,6 @@ struct AnnounceReplayCache {
 struct CachedAnnounceCacheRow {
     response: CachedDirectoryAnnounceOutcome,
     inserted_at: Instant,
-}
-
-struct WorkerRuntime {
-    divergence: Mutex<WorkerSlot>,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct WorkerSlot {
-    enabled: bool,
-    period: Option<Duration>,
-    last_seen: Option<Instant>,
-}
-
-impl WorkerRuntime {
-    fn from_config(config: &AppConfig) -> Self {
-        Self {
-            divergence: Mutex::new(WorkerSlot {
-                enabled: config.divergence_interval.is_some(),
-                period: config.divergence_interval,
-                last_seen: None,
-            }),
-        }
-    }
-
-    fn started(&self, worker: BackgroundWorker, period: Duration) {
-        let mut slot = self
-            .slot(worker)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        slot.enabled = true;
-        slot.period = Some(period);
-        slot.last_seen = Some(Instant::now());
-    }
-
-    fn heartbeat(&self, worker: BackgroundWorker) {
-        let mut slot = self
-            .slot(worker)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if slot.enabled {
-            slot.last_seen = Some(Instant::now());
-        }
-    }
-
-    fn readiness(&self, worker: BackgroundWorker) -> WorkerReadiness {
-        let slot = *self
-            .slot(worker)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if !slot.enabled {
-            return WorkerReadiness {
-                enabled: false,
-                ready: true,
-                last_seen_ms_ago: None,
-                stale_after_ms: None,
-            };
-        }
-
-        let stale_after = stale_after_for(slot.period);
-        let last_seen_ms_ago = slot
-            .last_seen
-            .map(|last_seen| last_seen.elapsed().as_millis());
-        let ready = slot
-            .last_seen
-            .map(|last_seen| last_seen.elapsed() <= stale_after)
-            .unwrap_or(false);
-        WorkerReadiness {
-            enabled: true,
-            ready,
-            last_seen_ms_ago,
-            stale_after_ms: Some(stale_after.as_millis()),
-        }
-    }
-
-    fn slot(&self, worker: BackgroundWorker) -> &Mutex<WorkerSlot> {
-        match worker {
-            BackgroundWorker::Divergence => &self.divergence,
-        }
-    }
-}
-
-fn stale_after_for(period: Option<Duration>) -> Duration {
-    period
-        .unwrap_or_else(|| Duration::from_secs(30))
-        .saturating_mul(3)
-        + Duration::from_secs(30)
 }
 
 impl AnnounceReplayCache {

@@ -11,10 +11,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_sdk::{FullId, ResolutionCommitment, ServiceId, project_full_id_to_core_id};
+use arkret_sdk::{DidFullId, ResolutionCommitment, project_full_id_to_core_id};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 
@@ -22,8 +21,6 @@ use crate::did_resolver::SharedDidResolver;
 use crate::middleware::http_sig::{DidResolverKeyDirectory, Ed25519PublicKey};
 
 const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
-const TEABAY_ALLOW_MISSING_CSRF: &str = "TEABAY_ALLOW_MISSING_CSRF";
-const TEABAY_ALLOW_MISSING_CSRF_UNTIL: &str = "TEABAY_ALLOW_MISSING_CSRF_UNTIL";
 const CONFIG_ARG: &str = "--config";
 const NO_ENV_OVERRIDES_ARG: &str = "--no-env-overrides";
 
@@ -122,7 +119,7 @@ pub struct AppConfig {
     pub service_id: String,
     /// Current resolvable service DID retained for method verification and
     /// DID-URL verification-method construction.
-    pub service_full_id: FullId,
+    pub service_full_id: DidFullId,
     /// Operator-verified current resolution commitment published by
     /// `ServiceDescribe`. Teabay never manufactures history heads or version
     /// identifiers from the DID text.
@@ -137,12 +134,11 @@ pub struct AppConfig {
     pub cors_allow_origin: Option<String>,
     /// C.10.10 — require browser callers to mint an X-CSRF-Token header
     /// matching this configured value on every state-changing admin
-    /// call. Disabled by default for backwards compatibility; enable
-    /// via `TEABAY_ADMIN_CSRF_TOKEN`. When set, Set-Cookie is also
-    /// emitted with `SameSite=Strict` so cookie-bearing strands are
-    /// additionally CSRF-hardened.
+    /// call. Required in production mode (startup fails closed without
+    /// it); optional only when `TEABAY_DEVELOPMENT_MODE=true`. When set,
+    /// Set-Cookie is also emitted with `SameSite=Strict` so cookie-bearing
+    /// strands are additionally CSRF-hardened.
     pub admin_csrf_token: Option<String>,
-    pub admin_csrf_missing_allowed_until: Option<DateTime<Utc>>,
     pub admin_token: Option<String>,
     /// A.8.4 — sliding window during which a rotating HMAC token
     /// remains valid. Defaults to 30 minutes; clients sign
@@ -164,8 +160,6 @@ pub struct AppConfig {
     pub max_ttl: Duration,
     pub revalidation_grace: Duration,
     pub as_of_skew: Duration,
-
-    pub divergence_interval: Option<Duration>,
 
     pub ingest_modes: Vec<IngestModeAdvert>,
 
@@ -237,7 +231,7 @@ pub struct AppConfig {
 pub struct DbPoolConfig {
     /// Hard ceiling on concurrent Postgres connections this teabay
     /// instance will open. Includes connections held by background
-    /// workers (`divergence_worker`, expiry, freshness) and admin queries.
+    /// workers (expiry, freshness, takedown notifier) and admin queries.
     /// Default: 16. Env: `TEABAY_DB_POOL_MAX_SIZE`.
     pub max_size: u32,
     /// How long `pool.get()` waits for an available connection before
@@ -394,27 +388,15 @@ impl AppConfig {
 
         // The configured identity is the current resolvable full DID. Business
         // DTOs and persistence keys use only its adapter-projected core id.
-        // `TEABAY_SERVICE_ID` remains a compatibility alias for deployments
-        // that supplied the full DID under the historical name.
-        let service_full_id_raw = match (
-            std::env::var("TEABAY_SERVICE_FULL_ID").ok(),
-            std::env::var("TEABAY_SERVICE_ID").ok(),
-        ) {
-            (Some(full_id), Some(legacy)) if full_id != legacy => {
-                anyhow::bail!("TEABAY_SERVICE_FULL_ID and legacy TEABAY_SERVICE_ID disagree")
-            }
-            (Some(full_id), _) | (None, Some(full_id)) => full_id,
-            (None, None) => anyhow::bail!(
-                "TEABAY_SERVICE_FULL_ID is required (TEABAY_SERVICE_ID is accepted as a compatibility alias)"
-            ),
-        };
-        let service_full_id = FullId::new(service_full_id_raw.clone()).map_err(|error| {
+        let service_full_id_raw = required_non_empty_env("TEABAY_SERVICE_FULL_ID")?;
+        let service_full_id = DidFullId::new(service_full_id_raw.clone()).map_err(|error| {
             anyhow::anyhow!("TEABAY_SERVICE_FULL_ID is not a valid full DID: {error}")
         })?;
-        let service_id = ServiceId::from(project_full_id_to_core_id(&service_full_id).map_err(
-            |error| anyhow::anyhow!("TEABAY_SERVICE_FULL_ID has no active method adapter: {error}"),
-        )?)
-        .into_string();
+        let service_id = project_full_id_to_core_id(&service_full_id)
+            .map_err(|error| {
+                anyhow::anyhow!("TEABAY_SERVICE_FULL_ID has no active method adapter: {error}")
+            })?
+            .into_string();
         let method_history_head = required_non_empty_env("TEABAY_SERVICE_METHOD_HISTORY_HEAD")?;
         let version_id = required_non_empty_env("TEABAY_SERVICE_VERSION_ID")?;
         let service_resolution = ResolutionCommitment {
@@ -459,28 +441,15 @@ impl AppConfig {
             .ok()
             .filter(|token| !token.trim().is_empty());
 
-        // P5 HIGH — CSRF is required when production-mode (i.e. not
-        // development_mode). Fail-closed at startup so an operator
-        // cannot silently expose the admin SPA without CSRF protection.
+        // P5 HIGH — CSRF is required in production mode (i.e. not
+        // development_mode). Fail-closed at startup so an operator cannot
+        // expose the admin SPA without CSRF protection. There is no opt-out.
         // See docs/deployment.md hardening checklist.
-        let mut admin_csrf_missing_allowed_until = None;
         if !development_mode && admin_csrf_token.is_none() {
-            if read_bool(TEABAY_ALLOW_MISSING_CSRF, false)? {
-                let expires_at = missing_csrf_escape_hatch_until()?;
-                admin_csrf_missing_allowed_until = Some(expires_at);
-                tracing::error!(
-                    expires_at = %expires_at.to_rfc3339(),
-                    "TEABAY_ADMIN_CSRF_TOKEN is unset in production mode; \
-                     TEABAY_ALLOW_MISSING_CSRF is active only until the configured expiry"
-                );
-            } else {
-                anyhow::bail!(
-                    "TEABAY_ADMIN_CSRF_TOKEN is required in production mode \
-                     (TEABAY_DEVELOPMENT_MODE=false); set it or temporarily \
-                     opt out with TEABAY_ALLOW_MISSING_CSRF=1 and \
-                     TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>"
-                );
-            }
+            anyhow::bail!(
+                "TEABAY_ADMIN_CSRF_TOKEN is required in production mode \
+                 (TEABAY_DEVELOPMENT_MODE=false)"
+            );
         }
         let admin_token_rotation_window_secs =
             read_u64("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", 1_800)?;
@@ -532,15 +501,6 @@ impl AppConfig {
                  TEABAY_MAX_TTL_SECONDS ({max_ttl_seconds})"
             );
         }
-
-        let divergence_interval_seconds = read_u64("TEABAY_DIVERGENCE_INTERVAL_SECONDS", 0)?;
-        let divergence_interval = if divergence_interval_seconds == 0 {
-            None
-        } else {
-            anyhow::bail!(
-                "TEABAY_DIVERGENCE_INTERVAL_SECONDS cannot be enabled: peer directory core ids have no configured verified service-resolution carrier"
-            )
-        };
 
         let ingest_modes = vec![IngestModeAdvert::Push];
 
@@ -659,7 +619,6 @@ impl AppConfig {
             database_url,
             cors_allow_origin,
             admin_csrf_token,
-            admin_csrf_missing_allowed_until,
             admin_token,
             admin_token_rotation_window,
             development_mode,
@@ -673,7 +632,6 @@ impl AppConfig {
             max_ttl: Duration::from_secs(max_ttl_seconds),
             revalidation_grace: Duration::from_secs(revalidation_grace_seconds),
             as_of_skew: Duration::from_secs(as_of_skew_seconds),
-            divergence_interval,
             ingest_modes,
             rate_limit_per_resource_per_min,
             query_max_queries_per_ip_per_min,
@@ -835,33 +793,6 @@ fn read_u64(key: &str, default: u64) -> anyhow::Result<u64> {
     }
 }
 
-fn missing_csrf_escape_hatch_until() -> anyhow::Result<DateTime<Utc>> {
-    let raw = std::env::var(TEABAY_ALLOW_MISSING_CSRF_UNTIL).map_err(|_| {
-        anyhow::anyhow!(
-            "{TEABAY_ALLOW_MISSING_CSRF_UNTIL} is required when \
-             {TEABAY_ALLOW_MISSING_CSRF}=1 in production mode"
-        )
-    })?;
-    parse_missing_csrf_expiry(&raw, Utc::now())
-}
-
-fn parse_missing_csrf_expiry(raw: &str, now: DateTime<Utc>) -> anyhow::Result<DateTime<Utc>> {
-    let expires_at = DateTime::parse_from_rfc3339(raw.trim())
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "{TEABAY_ALLOW_MISSING_CSRF_UNTIL} must be an RFC3339 timestamp: {error}"
-            )
-        })?
-        .with_timezone(&Utc);
-    if expires_at <= now {
-        anyhow::bail!(
-            "{TEABAY_ALLOW_MISSING_CSRF_UNTIL}={raw} has expired; \
-             set TEABAY_ADMIN_CSRF_TOKEN or provide a new short-lived expiry"
-        );
-    }
-    Ok(expires_at)
-}
-
 fn csv_env(key: &str, fallback: &[&str]) -> Vec<String> {
     match std::env::var(key) {
         Ok(v) if !v.trim().is_empty() => v
@@ -881,20 +812,4 @@ fn arg_value(name: &str) -> Option<String> {
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::{TimeZone, Utc};
-
-    use super::parse_missing_csrf_expiry;
-
-    #[test]
-    fn missing_csrf_escape_hatch_requires_future_expiry() {
-        let now = Utc.with_ymd_and_hms(2026, 5, 31, 12, 0, 0).unwrap();
-
-        assert!(parse_missing_csrf_expiry("2026-05-31T12:00:01Z", now).is_ok());
-        assert!(parse_missing_csrf_expiry("2026-05-31T12:00:00Z", now).is_err());
-        assert!(parse_missing_csrf_expiry("not-a-date", now).is_err());
-    }
 }

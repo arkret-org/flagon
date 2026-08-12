@@ -1,5 +1,4 @@
 use salvo::prelude::*;
-use server::ingest::divergence_worker::DivergenceWorker;
 use server::ingest::freshness_worker::{DEFAULT_FRESHNESS_TICK, FreshnessWorker};
 use server::workers::expiry::ExpiryWorker;
 use server::workers::takedown_notifier::TakedownNotifier;
@@ -39,9 +38,6 @@ async fn run() -> anyhow::Result<()> {
     // Fails closed at boot if the shared DID resolver chain cannot be built.
     let state = AppState::new(config.clone(), db)?;
 
-    if let Some(period) = config.divergence_interval {
-        let _worker = DivergenceWorker::new(state.clone(), period).spawn();
-    }
     // P2E.5 follow-up — freshness sweep marks `stale=true` for rows
     // whose announce-driven `expires_at` plus revalidation grace lapsed.
     // Always-on with a 10-minute tick; cheap (single UPDATE, partial index).

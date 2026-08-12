@@ -14,7 +14,6 @@ fn config_rejects_missing_resolution_commitment_even_in_development() {
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
         env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
-        env::remove_var("TEABAY_SERVICE_ID");
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
@@ -60,7 +59,7 @@ fn config_builds_with_minimal_state() {
     // test harness.
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
         env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
@@ -104,7 +103,7 @@ fn hardening_status_shape_matches_cross_service_contract() {
 
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
         env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
@@ -130,7 +129,7 @@ fn hardening_status_shape_matches_cross_service_contract() {
     // Now flip to production posture and ensure the config-level
     // signals required by `hardening_status` are present. P5 — CSRF is
     // now required in production mode, so we must also set
-    // TEABAY_ADMIN_CSRF_TOKEN (or a time-bounded TEABAY_ALLOW_MISSING_CSRF).
+    // TEABAY_ADMIN_CSRF_TOKEN.
     unsafe {
         env::set_var("TEABAY_DEVELOPMENT_MODE", "false");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "true");

@@ -199,10 +199,10 @@ async fn lookup_admin_secret(state: &AppState, key_id: &str) -> Result<Vec<u8>, 
 }
 
 /// C.10.10 — enforce the configured CSRF token on state-changing
-/// admin requests. Returns `Ok(())` when the configured token is
-/// `None` (CSRF disabled, the default) or when the request carries an
-/// `X-CSRF-Token` header matching the configured value. Reads safely
-/// (GET / HEAD) are exempt because they cannot mutate state.
+/// admin requests. The request must carry an `X-CSRF-Token` header matching
+/// the configured value. Safe reads (GET / HEAD / OPTIONS) are exempt because
+/// they cannot mutate state; an unset token is only tolerated in development
+/// mode, since `AppConfig::from_env` refuses to boot production without one.
 pub fn require_admin_csrf(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {
     let method = req.method();
     if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
@@ -210,13 +210,6 @@ pub fn require_admin_csrf(req: &Request, state: &AppState) -> Result<(), ApiErro
     }
     let Some(expected) = state.config().admin_csrf_token.as_deref() else {
         if state.config().development_mode {
-            return Ok(());
-        }
-        if state
-            .config()
-            .admin_csrf_missing_allowed_until
-            .is_some_and(|expires_at| Utc::now() < expires_at)
-        {
             return Ok(());
         }
         return Err(ApiErrorCode::Unauthenticated);

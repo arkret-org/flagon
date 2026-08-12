@@ -83,7 +83,7 @@ Set these for every deployment:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `TEABAY_SERVICE_FULL_ID` | Current resolvable full DID; `TEABAY_SERVICE_ID` remains a compatibility alias. |
+| `TEABAY_SERVICE_FULL_ID` | Current resolvable full DID. Teabay projects the stable core service id from it. |
 | `TEABAY_SERVICE_METHOD_HISTORY_HEAD` | Verified current method-history head published in `service_resolution`; missing/empty fails startup. |
 | `TEABAY_SERVICE_VERSION_ID` | Verified current method version published in `service_resolution`; missing/empty fails startup. |
 | `TEABAY_PUBLIC_BASE_URL` | Public URL advertised only as the `http_json` binding base URL. |
@@ -103,7 +103,7 @@ Recommended production settings:
 | `TEABAY_REQUIRE_HTTP_SIG` | `true` for ingest endpoints. |
 | `TEABAY_HTTP_SIG_PUBKEYS` | Comma-separated `keyid=BASE64URL32` Ed25519 keys. |
 | `TEABAY_ADMIN_TOKEN` | Development-only bearer token for local `/_teabay/admin/*` access. Ignored when `TEABAY_DEVELOPMENT_MODE=false`; production uses rotating HMAC rows in `admin_tokens`. |
-| `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. The temporary rotation-only override requires both `TEABAY_ALLOW_MISSING_CSRF=1` and `TEABAY_ALLOW_MISSING_CSRF_UNTIL=<RFC3339 future timestamp>`; while active the server emits an error-level warning and fails closed after expiry. |
+| `TEABAY_ADMIN_CSRF_TOKEN` | **Required in production.** Browser callers must echo this on every state-changing admin call via `X-CSRF-Token`. The server `bail!`s at startup if unset and `TEABAY_DEVELOPMENT_MODE=false`. There is no opt-out. |
 | `TEABAY_TRUSTED_PROXY` | Comma-separated list of IPs whose `X-Forwarded-For` the rate-limiter trusts. Unset = trust only the direct `remote_addr`. Set to your TLS-terminating reverse proxy's IPs to avoid spoofed buckets. |
 | `TEABAY_RECEIPT_SIGNING_KEY_B64` | Raw 32-byte Ed25519 signing key for operator takedown receipts. |
 | `TEABAY_RECEIPT_KEY_ID` | Verification method recorded in signed operator receipts. |
@@ -177,7 +177,6 @@ verification procedure.
 | `TEABAY_MAX_TTL_SECONDS` | `604800` | Operator cap for accepted announce TTLs. |
 | `TEABAY_REVALIDATION_GRACE_SECONDS` | `3600` | Grace window before stale rows are marked stale. |
 | `TEABAY_AS_OF_SKEW_SECONDS` | `300` | Maximum accepted clock skew for announce `as_of`. |
-| `TEABAY_DIVERGENCE_INTERVAL_SECONDS` | `0` | Reserved; non-zero fails startup until verified peer service-resolution carriers are implemented. |
 
 The hard maximum TTL accepted by the server is 30 days.
 

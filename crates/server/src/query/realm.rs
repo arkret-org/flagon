@@ -10,7 +10,7 @@
 //! `resource_kind=space` row type and are intentionally not returned here.
 
 use arkret_sdk::{
-    Did, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
+    DidCoreId, DirectoryRealmResolutionOutcome, DirectoryRealmSearchOutcome,
     DirectoryResolveRealmRequestBody, DirectorySearchRealmsRequestBody, RealmId,
     RealmJoinCandidate, RealmPreview,
 };
@@ -35,7 +35,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Default)]
 struct SearchScope {
-    organization_did: Option<Did>,
+    organization_principal_id: Option<DidCoreId>,
     source_realm_id: Option<RealmId>,
 }
 
@@ -63,20 +63,20 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
     let scope = SearchScope {
-        organization_did: body.organization_did,
+        organization_principal_id: body.organization_principal_id,
         source_realm_id: body.source_realm_id,
     };
     let requester = body.requester;
     let verified_claims = verified_restricted_claims_for_realm_query(
         &state,
-        requester.as_ref().map(Did::as_str),
+        requester.as_ref().map(DidCoreId::as_str),
         body.proof_challenge.as_deref(),
         &body.claim_presentations,
     );
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": "ak.find.directory.read.search_realms",
         "query": &needle,
-        "organization_did": scope.organization_did.as_ref(),
+        "organization_principal_id": scope.organization_principal_id.as_ref(),
         "source_realm_id": scope.source_realm_id.as_ref(),
     })) {
         Ok(digest) => digest,
@@ -86,7 +86,10 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
     };
     let cursor_context = CursorBindingContext::new(
-        requester.as_ref().map(Did::as_str).unwrap_or("anonymous"),
+        requester
+            .as_ref()
+            .map(DidCoreId::as_str)
+            .unwrap_or("anonymous"),
         None,
         state.config().service_id.clone(),
         filter_digest,
@@ -115,9 +118,9 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let privacy_key = format!(
         "q={needle};org={};source={};cursor={};limit={limit}",
         scope
-            .organization_did
+            .organization_principal_id
             .as_ref()
-            .map(Did::as_str)
+            .map(DidCoreId::as_str)
             .unwrap_or_default(),
         scope
             .source_realm_id
@@ -144,7 +147,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 &needle,
                 &scope,
                 cursor.as_ref(),
-                requester.as_ref().map(Did::as_str),
+                requester.as_ref().map(DidCoreId::as_str),
                 &verified_claims,
                 limit + 1,
             )
@@ -235,7 +238,11 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
     };
 
-    let requester = body.requester.as_ref().map(Did::as_str).map(str::to_owned);
+    let requester = body
+        .requester
+        .as_ref()
+        .map(DidCoreId::as_str)
+        .map(str::to_owned);
     let verified_claims = verified_restricted_claims_for_realm_query(
         &state,
         requester.as_deref(),
@@ -499,7 +506,10 @@ async fn run_realm_search(
     let mut conn = state.db().get().await?;
 
     let needle = needle.trim();
-    let organization_did = scope.organization_did.as_ref().map(Did::as_str);
+    let organization_principal_id = scope
+        .organization_principal_id
+        .as_ref()
+        .map(DidCoreId::as_str);
     let source_realm_id = scope.source_realm_id.as_ref().map(RealmId::as_str);
     let cursor_score = cursor.map(|c| c.score);
     let cursor_indexed_at = cursor.map(|c| c.indexed_at);
@@ -507,7 +517,7 @@ async fn run_realm_search(
 
     let rows: Vec<RealmSqlRow> = diesel::sql_query(REALM_SEARCH_SQL)
         .bind::<Text, _>(needle)
-        .bind::<Nullable<Text>, _>(organization_did)
+        .bind::<Nullable<Text>, _>(organization_principal_id)
         .bind::<Nullable<Text>, _>(source_realm_id)
         .bind::<Nullable<Double>, _>(cursor_score)
         .bind::<Nullable<Timestamptz>, _>(cursor_indexed_at)
@@ -656,14 +666,14 @@ pub(crate) fn realm_preview_from_envelope(
         "realm_id".to_owned(),
         JsonValue::String(realm_id.to_owned()),
     );
-    // TBY-ORG-02 — `owning_organizations` / `organization_did` carried by the
+    // TBY-ORG-02 — `owning_organizations` / `organization_principal_id` carried by the
     // public projection are DECLARED hints only. They MUST NOT auto-populate the
     // verified-relationship surface of the preview; the official badge / verified
     // organization set is re-derived from the `verified_realm_organizations`
     // index by `apply_verified_organizations`. Drop the declared values here so a
     // realm with only declared hints surfaces an EMPTY verified set (no badge).
     object.remove("owning_organizations");
-    object.remove("organization_did");
+    object.remove("organization_principal_id");
     serde_json::from_value(value).map_err(|e| format!("realm preview is not SDK-compatible: {e}"))
 }
 
@@ -674,11 +684,11 @@ fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
 }
 
 /// TBY-ORG-02 — overwrite a Realm preview's verified-relationship surface
-/// (`owning_organizations` + the single `organization_did` convenience field)
+/// (`owning_organizations` + the single `organization_principal_id` convenience field)
 /// from the `verified_realm_organizations` index. Only `active`,
 /// in-validity-window, non-stale relationships whose verified `control_scopes`
 /// cover `official_badge` are surfaced as owning organizations, so a Realm that
-/// carries only a declared `owning_organizations` / `organization_did` hint (or
+/// carries only a declared `owning_organizations` / `organization_principal_id` hint (or
 /// a relationship that lacks the `official_badge` scope) shows NO official
 /// verified organization. `owner` and `governance` relationships are the
 /// ownership / governance surface; `sponsor` and `directory_certifier` are not
@@ -701,12 +711,12 @@ async fn apply_verified_organizations(
             // Fail closed: an index read error must not fabricate a badge.
             tracing::warn!(%realm_id, %error, "failed to load verified realm organizations");
             preview.owning_organizations.clear();
-            preview.organization_did = None;
+            preview.organization_principal_id = None;
             return;
         }
     };
 
-    let mut owning: Vec<Did> = Vec::new();
+    let mut owning: Vec<DidCoreId> = Vec::new();
     for row in rows {
         if !row.is_effective_active(now) {
             continue;
@@ -717,18 +727,18 @@ async fn apply_verified_organizations(
         if !is_owning || !row.covers_scope("official_badge") {
             continue;
         }
-        if let Ok(did) = Did::new(row.organization_did.clone())
+        if let Ok(did) = DidCoreId::new(row.organization_principal_id.clone())
             && !owning.contains(&did)
         {
             owning.push(did);
         }
     }
 
-    // `organization_did` is the single-org convenience mirror; only set it when
+    // `organization_principal_id` is the single-org convenience mirror; only set it when
     // exactly one verified owning organization exists, never from a declared
     // hint.
-    preview.organization_did = if owning.len() == 1 {
-        <[Did]>::first(&owning).cloned()
+    preview.organization_principal_id = if owning.len() == 1 {
+        <[DidCoreId]>::first(&owning).cloned()
     } else {
         None
     };
@@ -866,7 +876,7 @@ WITH ranked AS (
           OR search_text % $1
           OR public_projection::text ILIKE ('%' || $1 || '%')
       )
-      -- TBY-ORG-02 — `organization_did` here is the DECLARED announce hint, so
+      -- TBY-ORG-02 — `organization_principal_id` here is the DECLARED announce hint, so
       -- this is a declared-hint filter (a cheap pre-filter / discovery aid). It
       -- is NOT a verified-relationship filter: each returned preview's
       -- `owning_organizations` is re-derived from the verified
@@ -875,7 +885,7 @@ WITH ranked AS (
       -- official relationship" (present in the preview's owning_organizations).
       AND (
           $2::text IS NULL
-          OR public_projection->>'organization_did' = $2
+          OR public_projection->>'organization_principal_id' = $2
           OR public_projection->>'organization' = $2
       )
       AND (
@@ -927,8 +937,8 @@ mod tests {
                     {
                         "type": "claim",
                         "claim_kind": "organization_membership",
-                        "organization": "did:web:acme.example",
-                        "issuer": "did:web:acme.example"
+                        "organization": "ak:did_core:web:acme.example",
+                        "issuer": "ak:did_core:web:acme.example"
                     }
                 ]
             }
@@ -936,25 +946,25 @@ mod tests {
 
         assert!(!has_restricted_query_authorization(
             &projection,
-            Some("did:web:alice.example"),
+            Some("ak:did_core:web:alice.example"),
             &VerifiedRestrictedClaims::default(),
         ));
         let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
-            arkret_sdk::Did::new("did:web:bob.example".to_owned()).unwrap(),
-            arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
-            arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap(),
+            arkret_sdk::DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap(),
+            arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap(),
+            arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap(),
             vec!["member".to_owned()],
         );
         let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
         assert!(has_restricted_query_authorization(
             &projection,
-            Some("did:web:bob.example"),
+            Some("ak:did_core:web:bob.example"),
             &verified_claims,
         ));
         assert!(!has_restricted_query_authorization(
             &projection,
-            Some("did:web:bob.example"),
+            Some("ak:did_core:web:bob.example"),
             &VerifiedRestrictedClaims::default(),
         ));
     }
@@ -980,7 +990,7 @@ mod tests {
 
         assert!(!is_result_visible(
             &row,
-            Some("did:web:alice.example"),
+            Some("ak:did_core:web:alice.example"),
             &VerifiedRestrictedClaims::default(),
         ));
     }

@@ -87,11 +87,11 @@ announce history remains in `ingest_announces`.
 
 ## Divergence
 
-The divergence worker is disabled (`TEABAY_DIVERGENCE_INTERVAL_SECONDS=0`).
-Teabay currently has no verified current-resolution carrier for optional peer
-directory core ids, so any non-zero value fails startup. It never treats a
-core id, full DID, or legacy `via_services` URL as network authority. A future
-implementation must fetch and independently verify current service-resolution
+Cross-directory divergence detection is not implemented. Teabay has no
+verified current-resolution carrier for optional peer directory core ids, and
+it never treats a core id, full DID, or legacy `via_services` URL as network
+authority. A future implementation must fetch and independently verify current
+service-resolution
 records before it can mark rows `divergent=true`.
 
 ## Freshness Refresh

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    Did, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
+    DidCoreId, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
     DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
     OrganizationPreview,
 };
@@ -54,7 +54,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     let requester = claims
         .requester
         .as_ref()
-        .map(Did::as_str)
+        .map(DidCoreId::as_str)
         .map(str::to_owned);
     let verified_claims = verified_restricted_claims_for_org_query(
         &state,
@@ -198,7 +198,7 @@ fn org_cursor_from_row(row: &OrgRow) -> OrgCursor {
 
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
 // Spec sync 37ce729 (B-E) — identity-handles §6: `resolve_organization`
-// looks up rows by `organization_did` (canonical key) or by a Directory
+// looks up rows by `organization_principal_id` (canonical key) or by a Directory
 // `handle`. It MUST NOT consult any `alsoKnownAs` claim cached in
 // `public_projection` as an alternate key; that field is a holder-side
 // reverse endorsement and is not a Directory routing input.
@@ -220,14 +220,15 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let key = body
-        .organization_did
+        .organization_principal_id
         .as_ref()
         .map(|did| did.as_str().to_owned())
         .or(body.handle);
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            ApiErrorCode::MissingParam.render(res, "organization_did or handle is required");
+            ApiErrorCode::MissingParam
+                .render(res, "organization_principal_id or handle is required");
             return;
         }
     };
@@ -239,7 +240,11 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let requester = body.requester.as_ref().map(Did::as_str).map(str::to_owned);
+    let requester = body
+        .requester
+        .as_ref()
+        .map(DidCoreId::as_str)
+        .map(str::to_owned);
     let verified_claims = verified_restricted_claims_for_org_query(
         &state,
         requester.as_deref(),
@@ -290,7 +295,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
 #[derive(Debug, Default, Deserialize)]
 struct OrganizationRestrictedClaims {
     #[serde(default)]
-    requester: Option<Did>,
+    requester: Option<DidCoreId>,
     #[serde(default)]
     proof_challenge: Option<String>,
     #[serde(default)]
@@ -300,11 +305,11 @@ struct OrganizationRestrictedClaims {
 #[derive(Debug, Default, Deserialize)]
 struct OrganizationResolveRequestView {
     #[serde(default)]
-    organization_did: Option<Did>,
+    organization_principal_id: Option<DidCoreId>,
     #[serde(default)]
     handle: Option<String>,
     #[serde(default)]
-    requester: Option<Did>,
+    requester: Option<DidCoreId>,
     #[serde(default)]
     proof_challenge: Option<String>,
     #[serde(default)]
@@ -496,7 +501,7 @@ fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
         obj.insert(
-            "organization_did".into(),
+            "organization_principal_id".into(),
             JsonValue::String(row.resource_id),
         );
         obj.insert(

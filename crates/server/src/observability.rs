@@ -3,7 +3,6 @@
 //! Kept dependency-free so the Prometheus surface can be used in local
 //! release-hygiene slices without changing the workspace lockfile.
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -169,8 +168,6 @@ struct MetricsInner {
     ingest: Mutex<BTreeMap<IngestKey, u64>>,
     query_latency: Mutex<BTreeMap<String, QueryLatencyStats>>,
     anti_enum_pad: Mutex<BTreeMap<String, PadHistogram>>,
-    // Pure scalar counter — an atomic avoids taking a lock on this hot path.
-    divergence_detected: AtomicU64,
     expired_rows_purged: Mutex<BTreeMap<String, u64>>,
     takedown_notification_failures: Mutex<BTreeMap<String, u64>>,
     // R3.2 (METRICS-TBY-1) — directory query / filter-drop / cardinality
@@ -282,12 +279,6 @@ impl Metrics {
             .entry(op.to_owned())
             .or_default()
             .record(seconds);
-    }
-
-    pub fn record_divergence_detected(&self) {
-        self.inner
-            .divergence_detected
-            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// P5 — increment the `teabay_expired_rows_purged_total{table}`
@@ -440,7 +431,6 @@ impl Metrics {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
-        let divergence_detected = self.inner.divergence_detected.load(Ordering::Relaxed);
         let expired_rows_purged = self
             .inner
             .expired_rows_purged
@@ -543,15 +533,6 @@ impl Metrics {
         {
             push_pad_histogram_samples(&mut out, op, histogram);
         }
-
-        out.push_str("# HELP teabay_divergence_detected_total Cross-directory divergence transitions detected.\n");
-        out.push_str("# TYPE teabay_divergence_detected_total counter\n");
-        push_sample(
-            &mut out,
-            "teabay_divergence_detected_total",
-            &[],
-            divergence_detected as f64,
-        );
 
         // P5 — expiry worker counter (24h+grace purge).
         out.push_str(
@@ -905,14 +886,12 @@ mod tests {
         metrics.record_ingest("announce", "verify_ok");
         metrics.record_query_latency("search-realms", Duration::from_millis(12));
         metrics.record_anti_enum_pad("search-realms", Duration::from_millis(25));
-        metrics.record_divergence_detected();
 
         let body = metrics.render_prometheus();
 
         assert!(body.contains("teabay_ingest_total{kind=\"announce\",outcome=\"verify_ok\"}"));
         assert!(body.contains("teabay_query_latency_seconds{op=\"search-realms\"}"));
         assert!(body.contains("teabay_query_anti_enum_pad_seconds_bucket"));
-        assert!(body.contains("teabay_divergence_detected_total 1.000000"));
     }
 
     #[test]

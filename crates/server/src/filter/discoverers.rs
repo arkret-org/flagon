@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
     ClaimDisclosurePolicy, ClaimDisclosureRequirement,
-    DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DirectoryPresentedClaim,
+    DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, DidCoreId, DirectoryPresentedClaim,
     DirectoryRestrictedClaimPresentation, PresentationRequestBody, PresentedClaim, canonical,
     validate_presentation,
 };
@@ -21,15 +21,15 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::did_binding::DidBindingDirectory;
-use crate::did_resolver::verification_method_issuer;
+use crate::did_resolver::{verification_method_controller_core_id, verification_method_issuer};
 use crate::observability::SIGNATURE_KIND_RESTRICTED_CLAIM;
 
 #[derive(Debug, Serialize)]
 struct RestrictedClaimPresentationPayload<'a> {
     kind: &'a str,
-    iss: &'a Did,
+    iss: &'a DidCoreId,
     verification_method: &'a str,
-    audience: &'a Did,
+    audience: &'a DidCoreId,
     nonce: &'a str,
     claim: &'a DirectoryPresentedClaim,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -155,11 +155,20 @@ fn verify_presentation_envelope(
     if presentation.claim.issuer != presentation.iss {
         return Err("restricted claim issuer mismatch".to_owned());
     }
-    if verification_method_issuer(&presentation.verification_method)
-        != Some(presentation.iss.as_str())
+    // `verification_method` names a key on a resolvable DID; `iss` is the
+    // stable identity core. Project the controller before comparing — the two
+    // value categories are never byte-equal. The controller is also the only
+    // resolvable identity in the envelope, so it (not `iss`) is what the JWS
+    // key lookup below is given.
+    let Some(signer_full_id) = verification_method_issuer(&presentation.verification_method) else {
+        return Err("restricted claim verification method has no controller".to_owned());
+    };
+    if verification_method_controller_core_id(presentation.verification_method.as_str()).as_ref()
+        != Some(&presentation.iss)
     {
         return Err("restricted claim verification method issuer mismatch".to_owned());
     }
+    let signer_full_id = signer_full_id.to_owned();
     let now = Utc::now();
     if presentation
         .expires_at
@@ -185,7 +194,7 @@ fn verify_presentation_envelope(
         &canonical_bytes,
         &presentation.jws,
         &presentation.verification_method,
-        presentation.iss.as_str(),
+        &signer_full_id,
         bindings,
     )
 }
@@ -236,10 +245,10 @@ fn claim_selector_matches(
     let Some(requester) = requester else {
         return false;
     };
-    let Ok(subject) = Did::new(requester.to_owned()) else {
+    let Ok(subject) = DidCoreId::new(requester.to_owned()) else {
         return false;
     };
-    let Ok(issuer_did) = Did::new(issuer.to_owned()) else {
+    let Ok(issuer_did) = DidCoreId::new(issuer.to_owned()) else {
         return false;
     };
     verified_claims
@@ -251,8 +260,8 @@ fn claim_selector_matches(
 fn claim_satisfies_selector(
     claim: &PresentedClaim,
     selector: &serde_json::Map<String, JsonValue>,
-    subject: &Did,
-    issuer: &Did,
+    subject: &DidCoreId,
+    issuer: &DidCoreId,
     claim_kind: &str,
 ) -> bool {
     if claim
@@ -282,7 +291,7 @@ fn claim_satisfies_selector(
             fail_closed: true,
         },
         created_at: Utc::now(),
-        verifier_did: None,
+        verifier_service_id: None,
         represented_org: None,
         verifier_authority_chain: Vec::new(),
     };
@@ -331,7 +340,7 @@ mod tests {
     fn test_bindings() -> DidBindingDirectory {
         DidBindingDirectory::new(
             &["did:key".to_owned()],
-            "did:web:directory.example",
+            "ak:did_core:web:directory.example",
             crate::observability::Metrics::default(),
         )
         .expect("binding directory builds")
@@ -341,11 +350,12 @@ mod tests {
     async fn signed_restricted_claim_presentation_authorizes_claim_selector() {
         let signing_key = SigningKey::from_bytes(&SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
-        let issuer = Did::new(format!("did:key:{multibase}")).unwrap();
+        let issuer_full_id = arkret_sdk::DidFullId::new(format!("did:key:{multibase}")).unwrap();
         let verification_method =
-            arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer.as_str())).unwrap();
-        let subject = Did::new("did:web:bob.example".to_owned()).unwrap();
-        let org = Did::new("did:web:acme.example".to_owned()).unwrap();
+            arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_full_id.as_str())).unwrap();
+        let issuer = arkret_sdk::project_full_id_to_core_id(&issuer_full_id).unwrap();
+        let subject = DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap();
+        let org = DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
         let claim = PresentedClaim::organization_membership(
             "claim-1",
             subject.clone(),
@@ -357,7 +367,7 @@ mod tests {
             &signing_key,
             issuer.clone(),
             verification_method,
-            "did:web:directory.example",
+            "ak:did_core:web:directory.example",
             "challenge-1",
             claim,
         );
@@ -367,7 +377,7 @@ mod tests {
             std::slice::from_ref(&presentation),
             Some(subject.as_str()),
             Some("challenge-1"),
-            "did:web:directory.example",
+            "ak:did_core:web:directory.example",
             &bindings,
         )
         .expect("presentation verifies");
@@ -390,7 +400,7 @@ mod tests {
                 &[presentation],
                 Some(subject.as_str()),
                 Some("wrong-challenge"),
-                "did:web:directory.example",
+                "ak:did_core:web:directory.example",
                 &bindings,
             )
             .is_err()
@@ -399,7 +409,7 @@ mod tests {
 
     fn signed_presentation(
         signing_key: &SigningKey,
-        iss: Did,
+        iss: DidCoreId,
         verification_method: arkret_wire::DidUrl,
         audience: &str,
         nonce: &str,
@@ -407,7 +417,7 @@ mod tests {
     ) -> DirectoryRestrictedClaimPresentation {
         let created_at = Utc::now();
         let expires_at = Some(created_at + Duration::minutes(5));
-        let audience = Did::new(audience.to_owned()).unwrap();
+        let audience = DidCoreId::new(audience.to_owned()).unwrap();
         let claim: DirectoryPresentedClaim = claim.into();
         let payload = RestrictedClaimPresentationPayload {
             kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,

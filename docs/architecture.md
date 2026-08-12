@@ -55,7 +55,7 @@ withdrawal runs the handler-level verification chain.
 - `crates/server/src/config.rs` reads environment configuration and builds the
   advertised service capabilities used by `/_arkret/find/directory/describe`.
 - `crates/server/src/ingest/` handles push announce, withdrawal, webhook
-  subscription, verification, freshness, and divergence checks.
+  subscription, verification, and freshness checks.
 - `crates/server/src/query/` builds the search and resolve responses from
   indexed `directory_resources` rows.
 - `crates/server/src/filter/` contains the shared result envelope and
@@ -112,12 +112,11 @@ Pull ingest is not implemented because v1 does not yet define the required
 Directory-specific state-only read operation and DTO. Teabay advertises push
 ingest only and never falls back to the forbidden self Events API.
 
-The divergence worker is reserved but unavailable: keep
-`TEABAY_DIVERGENCE_INTERVAL_SECONDS=0`. A non-zero value fails startup until
-peer core ids can be mapped through verified current service-resolution
-records; Teabay never derives a URL from an id.
+Cross-directory divergence detection is not implemented: peer core ids cannot
+be mapped through verified current service-resolution records yet, and Teabay
+never derives a URL from an id.
 
-`/readyz` checks PostgreSQL reachability and enabled worker heartbeats. Metrics
+`/readyz` checks PostgreSQL reachability. Metrics
 are isolated from public API traffic by binding `/metrics` to
 `TEABAY_METRICS_BIND`, defaulting to loopback.
 

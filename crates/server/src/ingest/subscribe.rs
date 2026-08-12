@@ -35,7 +35,7 @@ pub struct AcceptedIngestEvent {
     pub ingest_mode: IngestModeWire,
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    pub principal_server_did: String,
+    pub principal_server_service_id: String,
     pub indexed_at: DateTime<Utc>,
     pub as_of: DateTime<Utc>,
     pub source_refs: Vec<String>,
@@ -49,7 +49,7 @@ pub struct ReachabilityTombstone {
     pub kind: TombstoneKind,
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    pub principal_server_did: String,
+    pub principal_server_service_id: String,
     pub reason: String,
     pub revoked_at: DateTime<Utc>,
 }
@@ -89,8 +89,8 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         }
     };
 
-    let subscriber_did = body.subscriber_did.as_str();
-    if !enforce_ingest_rate_limit(req, res, &state, subscriber_did, None) {
+    let subscriber_principal_id = body.subscriber_principal_id.as_str();
+    if !enforce_ingest_rate_limit(req, res, &state, subscriber_principal_id, None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
@@ -126,7 +126,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
             crate::audit::AuditEventKind::IngestRejected,
             None,
             None,
-            Some(subscriber_did),
+            Some(subscriber_principal_id),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "circle_isolation_violation",
@@ -154,13 +154,13 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
             tracing::warn!(%error, "invalid supplied webhook secret; generated a replacement");
             generate_secret(
                 subscription_id.as_str(),
-                subscriber_did,
+                subscriber_principal_id,
                 &body.webhook_endpoint,
             )
         }
         None => generate_secret(
             subscription_id.as_str(),
-            subscriber_did,
+            subscriber_principal_id,
             &body.webhook_endpoint,
         ),
     };
@@ -209,7 +209,7 @@ pub async fn fanout_reachability_tombstone(
                 ingest_mode: IngestModeWire::Push,
                 resource_kind: tombstone.resource_kind,
                 resource_id: tombstone.resource_id.clone(),
-                principal_server_did: tombstone.principal_server_did.clone(),
+                principal_server_service_id: tombstone.principal_server_service_id.clone(),
                 indexed_at: now,
                 as_of: now,
                 source_refs: Vec::new(),
@@ -263,7 +263,7 @@ async fn deliver_tombstone(
         },
         "resource_kind": tombstone.resource_kind,
         "resource_id": tombstone.resource_id,
-        "principal_server_did": tombstone.principal_server_did,
+        "principal_server_service_id": tombstone.principal_server_service_id,
     });
     let bytes = serde_json::to_vec(&body)?;
     let secret = subscription
@@ -369,10 +369,14 @@ fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn generate_secret(subscription_id: &str, subscriber_did: &str, endpoint: &str) -> Vec<u8> {
+fn generate_secret(
+    subscription_id: &str,
+    subscriber_principal_id: &str,
+    endpoint: &str,
+) -> Vec<u8> {
     let mut h = Sha256::new();
     h.update(subscription_id.as_bytes());
-    h.update(subscriber_did.as_bytes());
+    h.update(subscriber_principal_id.as_bytes());
     h.update(endpoint.as_bytes());
     h.update(
         Utc::now()
@@ -396,7 +400,7 @@ async fn persist_subscription(
     diesel::insert_into(s::webhook_subscriptions)
         .values((
             s::subscription_id.eq(subscription_id),
-            s::subscriber_did.eq(body.subscriber_did.as_str()),
+            s::subscriber_principal_id.eq(body.subscriber_principal_id.as_str()),
             s::resource_filter.eq(resource_filter),
             s::webhook_endpoint.eq(&body.webhook_endpoint),
             s::secret.eq(Some(secret)),
@@ -444,7 +448,11 @@ fn filter_matches(filter: &JsonValue, event: &AcceptedIngestEvent) -> bool {
     };
     field_matches(obj, "resource_kind", event.resource_kind.as_pg())
         && field_matches(obj, "resource_id", &event.resource_id)
-        && field_matches(obj, "principal_server_did", &event.principal_server_did)
+        && field_matches(
+            obj,
+            "principal_server_service_id",
+            &event.principal_server_service_id,
+        )
 }
 
 fn field_matches(obj: &serde_json::Map<String, JsonValue>, key: &str, actual: &str) -> bool {
@@ -466,7 +474,7 @@ async fn deliver_webhook(
         "ingest_mode": event.ingest_mode,
         "resource_kind": event.resource_kind,
         "resource_id": event.resource_id,
-        "principal_server_did": event.principal_server_did,
+        "principal_server_service_id": event.principal_server_service_id,
         "as_of": event.as_of,
         "source_refs": event.source_refs,
         "policy_revision": event.policy_revision,

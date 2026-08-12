@@ -612,7 +612,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
     if projection_subject(&row.public_projection) != Some(subject) {
         return None;
     }
-    let subject_did = arkret_sdk::Did::new(subject.to_owned()).ok()?;
+    let subject_did = arkret_sdk::DidCoreId::new(subject.to_owned()).ok()?;
     // The handle string must come from the projection's canonical
     // `handle` field. The directory index key may use a dot-form
     // resource_id, so it is intentionally not a fallback.
@@ -628,11 +628,18 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
 
-    let issuer = row
+    // `issuer` is a stable identity core. A present-but-unparseable issuer is
+    // not "no issuer": it would strip the trust anchor a caller filters on, so
+    // the whole claim is dropped instead (same fail-closed path as a subject
+    // mismatch above).
+    let issuer = match row
         .public_projection
         .get("issuer")
         .and_then(JsonValue::as_str)
-        .map(str::to_owned);
+    {
+        Some(raw) => Some(arkret_sdk::DidCoreId::new(raw.to_owned()).ok()?),
+        None => None,
+    };
 
     let claim_kind = row
         .public_projection
@@ -838,12 +845,14 @@ mod tests {
     #[test]
     fn projection_subject_prefers_subject_then_did() {
         assert_eq!(
-            projection_subject(&json!({"subject":"did:web:alice.example","did":"did:web:other"})),
-            Some("did:web:alice.example")
+            projection_subject(
+                &json!({"subject":"ak:did_core:web:alice.example","did":"ak:did_core:web:other"})
+            ),
+            Some("ak:did_core:web:alice.example")
         );
         assert_eq!(
-            projection_subject(&json!({"did":"did:web:alice.example"})),
-            Some("did:web:alice.example")
+            projection_subject(&json!({"did":"ak:did_core:web:alice.example"})),
+            Some("ak:did_core:web:alice.example")
         );
         assert_eq!(
             projection_subject(&json!({"handle":"alice:example.com"})),
@@ -854,13 +863,14 @@ mod tests {
     #[test]
     fn claim_from_projection_binds_request_subject() {
         let row = handle_row(
-            json!({"did":"did:web:alice.example","handle":"alice:example.com","verified":true}),
+            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
             DiscoverabilityDb::Public,
         );
-        let claim = claim_from_projection(&row, "did:web:alice.example").expect("claim built");
+        let claim =
+            claim_from_projection(&row, "ak:did_core:web:alice.example").expect("claim built");
         assert_eq!(
             claim.subject.as_ref().unwrap().as_str(),
-            "did:web:alice.example"
+            "ak:did_core:web:alice.example"
         );
         assert_eq!(
             claim.handle.as_ref().unwrap().canonical(),
@@ -877,10 +887,10 @@ mod tests {
         // The row asserts a different subject than the request — fail-closed
         // DROP so claims[].subject == response.subject always holds.
         let row = handle_row(
-            json!({"did":"did:web:eve.example","handle":"alice:example.com"}),
+            json!({"did":"ak:did_core:web:eve.example","handle":"alice:example.com"}),
             DiscoverabilityDb::Public,
         );
-        assert!(claim_from_projection(&row, "did:web:alice.example").is_none());
+        assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
     }
 
     #[test]
@@ -898,13 +908,13 @@ mod tests {
 
     #[test]
     fn issuer_trust_filter_matches_accepted_set() {
-        let accepted = vec!["did:web:issuer.tea".to_owned()];
+        let accepted = vec!["ak:did_core:web:issuer.tea".to_owned()];
         assert!(issuer_in_accepted(
-            &json!({"issuer":"did:web:issuer.tea"}),
+            &json!({"issuer":"ak:did_core:web:issuer.tea"}),
             &accepted
         ));
         assert!(!issuer_in_accepted(
-            &json!({"issuer":"did:web:issuer.other"}),
+            &json!({"issuer":"ak:did_core:web:issuer.other"}),
             &accepted
         ));
         // No issuer declared ⇒ fails closed against a non-empty accepted set.
@@ -917,10 +927,13 @@ mod tests {
     #[test]
     fn audience_filter_passes_unpinned_and_matching() {
         let body = DirectoryListHandlesForSubjectRequestBody {
-            subject: arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap(),
+            subject: arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned())
+                .unwrap(),
             realm_id: None,
             intent: None,
-            requester: Some(arkret_sdk::Did::new("did:web:tea-org.example".to_owned()).unwrap()),
+            requester: Some(
+                arkret_sdk::DidCoreId::new("ak:did_core:web:tea-org.example".to_owned()).unwrap(),
+            ),
             proof_challenge: None,
             proofs: Vec::new(),
             as_of: None,
@@ -931,12 +944,12 @@ mod tests {
         assert!(audience_compatible(&json!({"handle":"a:b.com"}), &body));
         // Pinned audience matching the requester is compatible.
         assert!(audience_compatible(
-            &json!({"audience":"did:web:tea-org.example"}),
+            &json!({"audience":"ak:did_core:web:tea-org.example"}),
             &body
         ));
         // Pinned audience mutually exclusive with the requester is dropped.
         assert!(!audience_compatible(
-            &json!({"audience":"did:web:someone-else.example"}),
+            &json!({"audience":"ak:did_core:web:someone-else.example"}),
             &body
         ));
     }
@@ -945,13 +958,17 @@ mod tests {
     fn primary_handle_prefers_verified() {
         let verified = HandleClaim {
             handle: Some(Handle::parse("zed:example.com").unwrap()),
-            subject: Some(arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()),
+            subject: Some(
+                arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
+            ),
             binding_state: Some(arkret_sdk::HandleBindingState::Verified),
             ..Default::default()
         };
         let unverified = HandleClaim {
             handle: Some(Handle::parse("aaa:example.com").unwrap()),
-            subject: Some(arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()),
+            subject: Some(
+                arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
+            ),
             ..Default::default()
         };
         let claims = vec![unverified, verified];

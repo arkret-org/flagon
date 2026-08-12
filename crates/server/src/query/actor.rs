@@ -63,9 +63,9 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
             .as_ref()
             .map(arkret_sdk::RealmId::as_str)
             .unwrap_or_default(),
-        body.organization_did
+        body.organization_principal_id
             .as_ref()
-            .map(arkret_sdk::Did::as_str)
+            .map(arkret_sdk::DidCoreId::as_str)
             .unwrap_or_default(),
         body.cursor.as_deref().unwrap_or_default(),
     );
@@ -174,7 +174,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
                     user_search_outcome_from_envelope(envelope_from_row(scored.row)).map(
                         |mut outcome| {
                             if !did_authorized {
-                                outcome.did = None;
+                                outcome.principal_id = None;
                             }
                             outcome
                         },

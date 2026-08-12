@@ -40,7 +40,7 @@ Always confirm against `pg_stat_activity` — if Postgres's own
 `max_connections` is below `instances × max_size`, you'll get
 connection-refused errors well before saturating CPU. Reserve at
 least 8 connections per instance for diesel migrations, admin
-queries, and the pull/divergence workers.
+queries, and the background workers.
 
 ### Per-resource rate limit interplay
 
@@ -90,12 +90,6 @@ The ingest histogram (`teabay_ingest_total{kind,outcome}`) and the
 query latency gauge (`teabay_query_latency_seconds{op}`) are the two
 other dials that let you derive the right `max_size` empirically from
 production traffic.
-
-## Background workers
-
-- `divergence_worker` is unavailable until verified peer service-resolution
-  carriers are wired; a non-zero interval fails startup and consumes no pool
-  connection.
 
 ## Future work
 

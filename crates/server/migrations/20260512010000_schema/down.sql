@@ -16,13 +16,13 @@ DROP TABLE IF EXISTS http_signature_replays;
 -- Squashed from 20260526040000_did_normalization_audit.
 -- Phase P2 — revert DID normalization audit CHECK constraints.
 ALTER TABLE ingest_announces
-    DROP CONSTRAINT IF EXISTS ingest_announces_principal_server_did_shape_chk;
+    DROP CONSTRAINT IF EXISTS ingest_announces_principal_server_service_id_core_shape_chk;
 ALTER TABLE ingest_announces
-    DROP CONSTRAINT IF EXISTS ingest_announces_resource_id_did_shape_chk;
+    DROP CONSTRAINT IF EXISTS ingest_announces_resource_id_core_shape_chk;
 ALTER TABLE directory_resources
-    DROP CONSTRAINT IF EXISTS directory_resources_principal_server_did_shape_chk;
+    DROP CONSTRAINT IF EXISTS directory_resources_principal_server_service_id_core_shape_chk;
 ALTER TABLE directory_resources
-    DROP CONSTRAINT IF EXISTS directory_resources_resource_id_did_shape_chk;
+    DROP CONSTRAINT IF EXISTS directory_resources_resource_id_core_shape_chk;
 
 -- Squashed from 20260526030000_pending_takedowns.
 -- Revert B.8.8.

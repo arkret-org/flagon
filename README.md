@@ -172,7 +172,7 @@ curl http://127.0.0.1:9095/metrics
 ```
 
 The metrics surface includes ingest outcomes, query latency, anti-enumeration
-pad targets, expiry outcomes, and divergence detections. For
+pad targets, and expiry outcomes. For
 OpenTelemetry, run an OTel Collector next to teabay and scrape the Prometheus
 endpoint plus stdout/stderr tracing logs.
 

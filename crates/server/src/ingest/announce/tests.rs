@@ -1,3 +1,4 @@
+use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 use serde_json::{Value as JsonValue, json};
 use teabay_contracts::DirectoryDiscoveryState;
@@ -147,7 +148,7 @@ fn handle_claim_ingest_rejects_non_principal_subject() {
 /// with no handle-claim fields passes through untouched.
 #[test]
 fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
-    let ok = json!({ "subject": "did:web:alice.example", "handle": "alice:example.com" });
+    let ok = json!({ "subject": "ak:did_core:web:alice.example", "handle": "alice:example.com" });
     assert!(validate_handle_claim_ingest(&ok).is_ok());
 
     // A realm announce with no handle-claim fields is untouched.
@@ -277,7 +278,8 @@ fn announce_digest_uses_canonical_json_body() {
     let first = DirectoryAnnounceIngest {
         resource_kind: DirectoryResourceKindDb::Realm,
         resource_id: "ak:realm:tea".to_owned(),
-        principal_server_did: "did:web:principal.test".to_owned(),
+        principal_server_service_id: DidCoreId::new("ak:did_core:web:principal.test")
+            .expect("fixture principal server core id"),
         discovery_state: DirectoryDiscoveryState::from_json(JsonValue::Object(first_state)),
         source_refs: vec!["evt-1".to_owned()],
         as_of,
@@ -302,7 +304,8 @@ fn digest_request_rejects_non_canonical_float_values() {
     let request = DirectoryAnnounceIngest {
         resource_kind: DirectoryResourceKindDb::Realm,
         resource_id: "ak:realm:tea".to_owned(),
-        principal_server_did: "did:web:principal.test".to_owned(),
+        principal_server_service_id: DidCoreId::new("ak:did_core:web:principal.test")
+            .expect("fixture principal server core id"),
         discovery_state: DirectoryDiscoveryState::from_json(json!({
             "kind": "ak.realm.discovery",
             "discoverability": "public",

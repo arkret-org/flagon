@@ -78,7 +78,7 @@ $$;
 CREATE TABLE directory_resources (
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    principal_server_did TEXT           NOT NULL,
+    principal_server_service_id TEXT           NOT NULL,
     discovery_state   JSONB             NOT NULL,
     public_projection JSONB             NOT NULL,
     discoverability   discoverability   NOT NULL,
@@ -123,7 +123,7 @@ CREATE INDEX directory_resources_search_vector_gin_idx
     ON directory_resources USING GIN (search_vector);
 
 CREATE INDEX directory_resources_realm_scope_org_idx
-    ON directory_resources ((public_projection->>'organization_did'))
+    ON directory_resources ((public_projection->>'organization_principal_id'))
     WHERE resource_kind = 'realm';
 
 CREATE INDEX directory_resources_realm_scope_parent_idx
@@ -136,7 +136,7 @@ CREATE TABLE ingest_announces (
     announce_id       TEXT              PRIMARY KEY,
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    principal_server_did TEXT           NOT NULL,
+    principal_server_service_id TEXT           NOT NULL,
     ingest_mode       ingest_mode       NOT NULL,
     discovery_state   JSONB             NOT NULL,
     source_refs       TEXT[]            NOT NULL,
@@ -187,7 +187,7 @@ CREATE TABLE takedown_appeals (
         REFERENCES withdrawals (withdraw_id) ON DELETE CASCADE,
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    appellant_did     TEXT              NOT NULL,
+    appellant_actor_id     TEXT              NOT NULL,
     requested_outcome TEXT              NOT NULL,
     -- Spec wire carries only a sha256 digest of the appeal argument/evidence;
     -- the directory never stores plaintext appeal content (privacy: the
@@ -216,7 +216,7 @@ CREATE INDEX takedown_appeals_status_idx
 
 CREATE TABLE webhook_subscriptions (
     subscription_id   TEXT              PRIMARY KEY,
-    subscriber_did    TEXT              NOT NULL,
+    subscriber_principal_id    TEXT              NOT NULL,
     resource_filter   JSONB             NOT NULL,
     webhook_endpoint  TEXT              NOT NULL,
     secret            BYTEA,
@@ -225,7 +225,7 @@ CREATE TABLE webhook_subscriptions (
 );
 
 CREATE INDEX webhook_subscriptions_subscriber_idx
-    ON webhook_subscriptions (subscriber_did);
+    ON webhook_subscriptions (subscriber_principal_id);
 
 -- ---- PSI epoch keys ------------------------------------------------------
 
@@ -564,53 +564,53 @@ CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
 );
 
 -- Squashed from 20260526040000_did_normalization_audit.
--- Phase P2 (spec 37ce729 / B-D) — DID format normalization audit.
+-- Identity core/full split — stable-identity shape audit.
 --
--- The ingest verify-chain now rejects any `resource_id` /
--- `principal_server_did` that does not conform to the tightened DID
--- syntax `^did:[a-z0-9]+:[^\s]+$` (lowercase ASCII method, non-empty
--- whitespace-free method-specific-id). This migration adds a
--- diagnostic CHECK constraint that mirrors the SDK `Did::new` parser
--- so any future direct INSERT into `directory_resources` (e.g. a
--- replay tool, an admin-side data load) also fails closed against
--- malformed DID shapes. The constraint is intentionally a superset of
--- what the application enforces — application-layer validation runs
--- first and is more precise; this is a last-resort DB safety net.
+-- `discovery-directory.md` §8.3 types the Organization / Actor / Applet
+-- `resource_id` and the `principal_server_service_id` as `did_core_id`, not
+-- as resolvable DIDs. Both columns therefore carry the stable core form
+-- `ak:did_core:<method>:<core>` (lowercase ASCII method, non-empty
+-- whitespace-free core). These diagnostic CHECK constraints mirror the SDK
+-- `DidCoreId::new` parser so any future direct INSERT (e.g. a replay tool,
+-- an admin-side data load) also fails closed against a full DID smuggled
+-- into a stable-identity column. The constraint is intentionally a superset
+-- of what the application enforces — application-layer validation runs first
+-- and is more precise; this is a last-resort DB safety net.
 --
 -- Round-trip clean: the constraint is enforced immediately. Aggressive-mode
 -- policy is fail-closed on both existing rows and new inserts.
 
 ALTER TABLE directory_resources
-    ADD CONSTRAINT directory_resources_resource_id_did_shape_chk
+    ADD CONSTRAINT directory_resources_resource_id_core_shape_chk
         CHECK (
             resource_kind NOT IN ('organization', 'actor', 'applet')
-            OR resource_id ~ '^did:[a-z0-9]+:[^[:space:]]+$'
+            OR resource_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$'
         );
 
 ALTER TABLE directory_resources
-    ADD CONSTRAINT directory_resources_principal_server_did_shape_chk
-        CHECK (principal_server_did ~ '^did:[a-z0-9]+:[^[:space:]]+$');
+    ADD CONSTRAINT directory_resources_principal_server_service_id_core_shape_chk
+        CHECK (principal_server_service_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 -- Mirror on ingest_announces so the announce ledger and the
--- projected table agree on DID shape.
+-- projected table agree on stable-identity shape.
 ALTER TABLE ingest_announces
-    ADD CONSTRAINT ingest_announces_resource_id_did_shape_chk
+    ADD CONSTRAINT ingest_announces_resource_id_core_shape_chk
         CHECK (
             resource_kind NOT IN ('organization', 'actor', 'applet')
-            OR resource_id ~ '^did:[a-z0-9]+:[^[:space:]]+$'
+            OR resource_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$'
         );
 
 ALTER TABLE ingest_announces
-    ADD CONSTRAINT ingest_announces_principal_server_did_shape_chk
-        CHECK (principal_server_did ~ '^did:[a-z0-9]+:[^[:space:]]+$');
+    ADD CONSTRAINT ingest_announces_principal_server_service_id_core_shape_chk
+        CHECK (principal_server_service_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
-COMMENT ON CONSTRAINT directory_resources_resource_id_did_shape_chk
+COMMENT ON CONSTRAINT directory_resources_resource_id_core_shape_chk
     ON directory_resources IS
-    'Round 4 (spec 37ce729) DID syntax: ^did:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
+    'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 
-COMMENT ON CONSTRAINT directory_resources_principal_server_did_shape_chk
+COMMENT ON CONSTRAINT directory_resources_principal_server_service_id_core_shape_chk
     ON directory_resources IS
-    'Round 4 (spec 37ce729) DID syntax: ^did:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
+    'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 
 -- Squashed from 20260531010000_http_signature_replays.
 CREATE TABLE IF NOT EXISTS http_signature_replays (
@@ -659,7 +659,7 @@ UPDATE directory_resources
 -- Squashed from 20260625010000_verified_realm_organizations.
 -- TBY-ORG-01/02/03 — verified `ak.realm.organization` relationship index.
 --
--- The directory MUST NOT treat a bare `organization_did` /
+-- The directory MUST NOT treat a bare `organization_principal_id` /
 -- `owning_organizations` projection hint as an official organization
 -- relationship. An official badge, organization scoping, or
 -- directory-certifier relationship is only valid when it derives from an
@@ -667,7 +667,7 @@ UPDATE directory_resources
 -- statement that passed the SDK verifier
 -- (`verify_realm_organization_statement`).
 --
--- Each verified statement is keyed by `(realm_id, organization_did,
+-- Each verified statement is keyed by `(realm_id, organization_principal_id,
 -- relationship)` — the spec reducer cell subject — so a newer statement for
 -- the same triple supersedes (or revokes) the prior one. `statement_issued_at`
 -- is the monotonic ordering key used to reject replayed older statements
@@ -675,7 +675,7 @@ UPDATE directory_resources
 
 CREATE TABLE verified_realm_organizations (
     realm_id            TEXT        NOT NULL,
-    organization_did    TEXT        NOT NULL,
+    organization_principal_id    TEXT        NOT NULL,
     relationship        TEXT        NOT NULL
         CHECK (relationship IN ('owner', 'governance', 'sponsor', 'directory_certifier')),
     -- Verified machine-readable endorsement scopes (e.g. `official_badge`,
@@ -699,7 +699,7 @@ CREATE TABLE verified_realm_organizations (
     stale               BOOLEAN     NOT NULL DEFAULT false,
     verified_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     source_announce_id  TEXT,
-    PRIMARY KEY (realm_id, organization_did, relationship)
+    PRIMARY KEY (realm_id, organization_principal_id, relationship)
 );
 
 CREATE INDEX verified_realm_organizations_realm_idx
@@ -707,7 +707,7 @@ CREATE INDEX verified_realm_organizations_realm_idx
     WHERE stale = false;
 
 CREATE INDEX verified_realm_organizations_org_idx
-    ON verified_realm_organizations (organization_did)
+    ON verified_realm_organizations (organization_principal_id)
     WHERE stale = false;
 
 CREATE INDEX verified_realm_organizations_expiry_idx

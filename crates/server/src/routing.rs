@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::error::ApiErrorCode;
 use crate::middleware::http_sig::{HttpSigKeyDirectory, HttpSigMiddleware};
-use crate::state::{AppState, BackgroundWorker, WorkerReadiness};
+use crate::state::AppState;
 use crate::{ingest, query};
 
 #[derive(Clone)]
@@ -233,15 +233,13 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
                 "ok": false,
                 "service": "teabay",
                 "database": { "ok": false, "error": "state_not_injected" },
-                "workers": {},
             })));
             return;
         }
     };
 
     let database = database_ready(state).await;
-    let divergence = state.worker_readiness(BackgroundWorker::Divergence);
-    let ok = database.is_ok() && divergence.ready;
+    let ok = database.is_ok();
     if !ok {
         res.status_code(StatusCode::SERVICE_UNAVAILABLE);
     }
@@ -251,9 +249,6 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
         "database": match database {
             Ok(()) => json!({ "ok": true }),
             Err(error) => json!({ "ok": false, "error": error }),
-        },
-        "workers": {
-            "divergence": worker_readiness_json(divergence),
         },
     })));
 }
@@ -315,15 +310,6 @@ async fn database_ready(state: &AppState) -> Result<(), String> {
         .await
         .map(|_| ())
         .map_err(|error| error.to_string())
-}
-
-fn worker_readiness_json(readiness: WorkerReadiness) -> serde_json::Value {
-    json!({
-        "enabled": readiness.enabled,
-        "ready": readiness.ready,
-        "last_seen_ms_ago": readiness.last_seen_ms_ago,
-        "stale_after_ms": readiness.stale_after_ms,
-    })
 }
 
 /// T8.3 — derive a non-sensitive production hardening snapshot from

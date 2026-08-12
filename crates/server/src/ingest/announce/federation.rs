@@ -1,7 +1,7 @@
 //! Federation idempotency cache key + trust-domain pair verifier.
 
 use arkret_sdk::{
-    HEADER_DESTINATION_TRUST_DOMAIN, HEADER_SOURCE_TRUST_DOMAIN, ServiceId,
+    DidCoreId, HEADER_DESTINATION_TRUST_DOMAIN, HEADER_SOURCE_TRUST_DOMAIN,
     federation_trust_domain_transcript_fragment,
 };
 use salvo::prelude::*;
@@ -127,7 +127,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     expected_destination_trust_domain: &str,
 ) -> Result<Option<String>, (ApiErrorCode, String)> {
     if !inputs.source_service_id.is_empty()
-        && ServiceId::new(inputs.source_service_id.clone()).is_err()
+        && DidCoreId::new(inputs.source_service_id.clone()).is_err()
     {
         return Err((
             ApiErrorCode::CrossDomainReplayRejected,

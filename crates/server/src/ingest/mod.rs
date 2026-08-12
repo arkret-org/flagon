@@ -2,7 +2,6 @@
 
 pub mod announce;
 pub mod appeal;
-pub mod divergence_worker;
 pub mod freshness_worker;
 pub mod operator;
 pub mod organization_statement;

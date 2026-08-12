@@ -51,12 +51,6 @@ pub(crate) fn validate_request_shape(
     if req.resource_id.is_empty() {
         return Err((ApiErrorCode::MissingParam, "resource_id is required".into()));
     }
-    if req.principal_server_did.is_empty() {
-        return Err((
-            ApiErrorCode::MissingParam,
-            "principal_server_did is required".into(),
-        ));
-    }
     if !req.discovery_state.is_object() {
         return Err((
             ApiErrorCode::SchemaViolation,
@@ -139,14 +133,14 @@ pub(crate) fn derive_public_projection(
         obj.remove("directory_services");
         // `official_organizations` is a forbidden directory-projection field
         // (spec §4.5). Strip it so it never enters the index or search SQL;
-        // organization scoping uses the canonical `organization_did`.
+        // organization scoping uses the canonical `organization_principal_id`.
         obj.remove("official_organizations");
         // TBY-ORG-01/02 — the `ak.realm.organization` statements are verified
         // and projected into a separate `verified_realm_organizations` index;
         // they MUST NOT leak verbatim into the public projection (which is
         // served to unauthenticated callers and indexed for search).
         obj.remove("organization_statements");
-        // TBY-ORG-02 — `owning_organizations` / `organization_did` that survive
+        // TBY-ORG-02 — `owning_organizations` / `organization_principal_id` that survive
         // here are DECLARED hints only (realm.schema: "This field alone is not a
         // verified ownership/governance endorsement; directories MUST require an
         // active ak.realm.organization statement"). They are retained for
@@ -259,36 +253,20 @@ pub(crate) fn validate_handle_claim_ingest(
         ));
     }
 
-    // (2) handle-claim subject MUST be a holder/principal DID.
+    // (2) handle-claim subject MUST be a holder/principal identity core.
+    // `ak:actor:` / `ak:account:` resource ids and bare `did:` full DIDs fall
+    // into the same rejection family: only `ak:did_core:` is a subject.
     if let Some(subject) = obj.get("subject").and_then(JsonValue::as_str) {
-        match arkret_sdk::Did::new(subject.to_owned()) {
-            Ok(did) => {
-                if arkret_sdk::validate_handle_claim_subject(&did).is_err() {
-                    return Err((
-                        ApiErrorCode::SchemaViolation,
-                        format!(
-                            "handle_claim_subject_not_principal_did: subject {subject} is not a \
-                             holder/principal DID"
-                        ),
-                    ));
-                }
-            }
-            Err(_) => {
-                // `ak:actor:` / `ak:account:` / generic resource ids are not
-                // valid DIDs at all — same rejection family.
-                if subject.starts_with("ak:actor:")
-                    || subject.starts_with("ak:account:")
-                    || !subject.starts_with("did:")
-                {
-                    return Err((
-                        ApiErrorCode::SchemaViolation,
-                        format!(
-                            "handle_claim_subject_not_principal_did: subject {subject} is not a \
-                             holder/principal DID"
-                        ),
-                    ));
-                }
-            }
+        let is_principal_core = arkret_sdk::DidCoreId::new(subject.to_owned())
+            .is_ok_and(|core_id| arkret_sdk::validate_handle_claim_subject(&core_id).is_ok());
+        if !is_principal_core {
+            return Err((
+                ApiErrorCode::SchemaViolation,
+                format!(
+                    "handle_claim_subject_not_principal_did: subject {subject} is not a \
+                     holder/principal identity core"
+                ),
+            ));
         }
     }
 

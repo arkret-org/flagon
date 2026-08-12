@@ -994,7 +994,7 @@ fn trim_realm_preview_for_policy(
         preview.avatar_blob_ref = None;
     }
     if !preview_policy_field_allowed(policy, "owning_organizations") {
-        preview.organization_did = None;
+        preview.organization_principal_id = None;
         preview.owning_organizations.clear();
     }
     if !preview_policy_field_allowed(policy, "join_rule") {
@@ -1551,9 +1551,11 @@ mod tests {
 
     #[test]
     fn object_access_accepts_matching_verified_claim_presentation() {
-        let issuer = arkret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
-        let org = arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
-        let requester = arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let issuer =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned()).unwrap();
+        let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
+        let requester =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
         let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
             requester.clone(),

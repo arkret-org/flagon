@@ -13,9 +13,9 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, DirectoryAcceptPolicyKind,
-    DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, PlaintextVisibility,
-    RateLimitPolicy, ServerLimits, ServiceDescribe, ServiceId, SupportedBinding,
+    AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, DidCoreId,
+    DirectoryAcceptPolicyKind, DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy,
+    PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding,
     TypedTrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
@@ -52,7 +52,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
-    let service_id = ServiceId::new(cfg.service_id.clone())
+    let service_id = DidCoreId::new(cfg.service_id.clone())
         .map_err(|err| format!("configured service core id is invalid: {err}"))?;
     let trust_domain = TypedTrustDomainId::new(cfg.trust_domain.clone())
         .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
@@ -439,7 +439,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use arkret_sdk::{Did, FullId, ResolutionCommitment};
+    use arkret_sdk::{DidFullId, ResolutionCommitment};
 
     use super::*;
     use crate::config::{AcceptPolicyKind, IngestModeAdvert, ResourceKindAccept};
@@ -450,9 +450,9 @@ mod tests {
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
             service_id: "ak:did_core:web:directory.test".to_owned(),
-            service_full_id: FullId::new("did:web:directory.test").unwrap(),
+            service_full_id: DidFullId::new("did:web:directory.test").unwrap(),
             service_resolution: ResolutionCommitment {
-                full_id: FullId::new("did:web:directory.test").unwrap(),
+                full_id: DidFullId::new("did:web:directory.test").unwrap(),
                 method_history_head: "did-web-document-etag-fixture".to_owned(),
                 version_id: "did-web-document-version-fixture".to_owned(),
             },
@@ -460,7 +460,6 @@ mod tests {
             database_url: "postgres://localhost/teabay".to_owned(),
             cors_allow_origin: None,
             admin_csrf_token: None,
-            admin_csrf_missing_allowed_until: None,
             admin_token: None,
             admin_token_rotation_window: Duration::from_secs(1800),
             development_mode,
@@ -474,7 +473,6 @@ mod tests {
             max_ttl: Duration::from_secs(86400),
             revalidation_grace: Duration::from_secs(300),
             as_of_skew: Duration::from_secs(60),
-            divergence_interval: None,
             ingest_modes: vec![IngestModeAdvert::Push],
             rate_limit_per_resource_per_min: 60,
             query_max_queries_per_ip_per_min: 0,
@@ -594,9 +592,9 @@ mod tests {
     #[test]
     fn describe_rejects_dev_mode_with_verified_profiles() {
         let describe_body = ServiceDescribe {
-            service_id: ServiceId::new("ak:did_core:web:directory.test").unwrap(),
+            service_id: DidCoreId::new("ak:did_core:web:directory.test").unwrap(),
             service_resolution: ResolutionCommitment {
-                full_id: FullId::new("did:web:directory.test").unwrap(),
+                full_id: DidFullId::new("did:web:directory.test").unwrap(),
                 method_history_head: "did-web-document-etag-fixture".to_owned(),
                 version_id: "did-web-document-version-fixture".to_owned(),
             },
@@ -625,7 +623,7 @@ mod tests {
                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                         .to_owned(),
                 artifact_ref: "file:///tmp/verified-profiles.json".to_owned(),
-                verifier_did: Did::new("did:web:cotest.example").unwrap(),
+                verifier_service_id: DidCoreId::new("ak:did_core:web:cotest.example").unwrap(),
                 signature: "eddsa-jcs-b64url:test-signature".to_owned(),
                 timestamp: chrono::Utc::now(),
                 expires_at: None,

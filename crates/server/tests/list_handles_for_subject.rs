@@ -23,8 +23,8 @@ use server::filter::discoverers::VerifiedRestrictedClaims;
 use server::ingest::DiscoverabilityDb;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 
-fn subject() -> arkret_sdk::Did {
-    arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap()
+fn subject() -> arkret_sdk::DidCoreId {
+    arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap()
 }
 
 fn req(
@@ -35,7 +35,7 @@ fn req(
         subject: subject(),
         realm_id: realm_id.map(|r| arkret_sdk::RealmId::new(r.to_owned()).unwrap()),
         intent: None,
-        requester: requester.map(|r| arkret_sdk::Did::new(r.to_owned()).unwrap()),
+        requester: requester.map(|r| arkret_sdk::DidCoreId::new(r.to_owned()).unwrap()),
         proof_challenge: None,
         proofs: Vec::new(),
         as_of: None,
@@ -59,7 +59,7 @@ fn row(projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleR
 fn happy_path_single_active_claim() {
     let rows = vec![row(
         json!({
-            "did": "did:web:alice.example",
+            "did": "ak:did_core:web:alice.example",
             "handle": "alice:example.com",
             "verified": true
         }),
@@ -78,10 +78,10 @@ fn happy_path_single_active_claim() {
     .expect("happy path must not fail closed");
 
     assert_eq!(response.claims.len(), 1);
-    assert_eq!(response.subject.as_str(), "did:web:alice.example");
+    assert_eq!(response.subject.as_str(), "ak:did_core:web:alice.example");
     assert_eq!(
         response.claims[0].subject.as_ref().unwrap().as_str(),
-        "did:web:alice.example"
+        "ak:did_core:web:alice.example"
     );
     assert_eq!(
         response.primary_handle.as_ref().unwrap().canonical(),
@@ -100,11 +100,11 @@ fn happy_path_single_active_claim() {
 fn subject_mismatch_claim_is_dropped() {
     let rows = vec![
         row(
-            json!({ "did": "did:web:eve.example", "handle": "eve:example.com" }),
+            json!({ "did": "ak:did_core:web:eve.example", "handle": "eve:example.com" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "did": "did:web:alice.example", "handle": "alice:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "alice:example.com" }),
             DiscoverabilityDb::Public,
         ),
     ];
@@ -124,7 +124,7 @@ fn subject_mismatch_claim_is_dropped() {
     for claim in &response.claims {
         assert_eq!(
             claim.subject.as_ref().unwrap().as_str(),
-            "did:web:alice.example",
+            "ak:did_core:web:alice.example",
             "every surviving claim's subject must equal response.subject"
         );
     }
@@ -137,7 +137,7 @@ fn subject_mismatch_claim_is_dropped() {
 #[test]
 fn subject_mismatch_only_candidate_returns_empty() {
     let rows = vec![row(
-        json!({ "did": "did:web:eve.example", "handle": "eve:example.com" }),
+        json!({ "did": "ak:did_core:web:eve.example", "handle": "eve:example.com" }),
         DiscoverabilityDb::Public,
     )];
 
@@ -164,15 +164,15 @@ fn audience_out_of_scope_is_filtered() {
     let rows = vec![
         row(
             json!({
-                "did": "did:web:alice.example",
+                "did": "ak:did_core:web:alice.example",
                 "handle": "scoped:example.com",
-                "audience": "did:web:someone-else.example"
+                "audience": "ak:did_core:web:someone-else.example"
             }),
             DiscoverabilityDb::Public,
         ),
         row(
             json!({
-                "did": "did:web:alice.example",
+                "did": "ak:did_core:web:alice.example",
                 "handle": "open:example.com"
             }),
             DiscoverabilityDb::Public,
@@ -181,7 +181,7 @@ fn audience_out_of_scope_is_filtered() {
 
     // Requester is tea-org; the scoped claim's audience is someone-else, so it
     // is filtered; the unpinned claim survives.
-    let body = req(None, Some("did:web:tea-org.example"));
+    let body = req(None, Some("ak:did_core:web:tea-org.example"));
     let response = assemble_response(
         &body,
         rows,
@@ -206,14 +206,14 @@ fn audience_out_of_scope_is_filtered() {
 fn audience_matching_requester_is_retained() {
     let rows = vec![row(
         json!({
-            "did": "did:web:alice.example",
+            "did": "ak:did_core:web:alice.example",
             "handle": "scoped:example.com",
-            "audience": "did:web:tea-org.example"
+            "audience": "ak:did_core:web:tea-org.example"
         }),
         DiscoverabilityDb::Public,
     )];
 
-    let body = req(None, Some("did:web:tea-org.example"));
+    let body = req(None, Some("ak:did_core:web:tea-org.example"));
     let response = assemble_response(
         &body,
         rows,
@@ -234,23 +234,23 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
     let rows = vec![
         row(
             json!({
-                "did": "did:web:alice.example",
+                "did": "ak:did_core:web:alice.example",
                 "handle": "trusted:example.com",
-                "issuer": "did:web:issuer.tea"
+                "issuer": "ak:did_core:web:issuer.tea"
             }),
             DiscoverabilityDb::Public,
         ),
         row(
             json!({
-                "did": "did:web:alice.example",
+                "did": "ak:did_core:web:alice.example",
                 "handle": "untrusted:example.com",
-                "issuer": "did:web:issuer.rogue"
+                "issuer": "ak:did_core:web:issuer.rogue"
             }),
             DiscoverabilityDb::Public,
         ),
     ];
 
-    let accepted = vec!["did:web:issuer.tea".to_owned()];
+    let accepted = vec!["ak:did_core:web:issuer.tea".to_owned()];
     // RealmId is a strict typed id carrying the complete 44-character token.
     let body = req(
         Some("ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb"),
@@ -269,8 +269,11 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
-        response.claims[0].issuer.as_deref(),
-        Some("did:web:issuer.tea")
+        response.claims[0]
+            .issuer
+            .as_ref()
+            .map(arkret_sdk::DidCoreId::as_str),
+        Some("ak:did_core:web:issuer.tea")
     );
 }
 
@@ -282,15 +285,15 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
 fn cursor_pagination_boundary() {
     let rows = vec![
         row(
-            json!({ "did": "did:web:alice.example", "handle": "a:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "a:example.com" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "did": "did:web:alice.example", "handle": "b:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "b:example.com" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "did": "did:web:alice.example", "handle": "c:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "c:example.com" }),
             DiscoverabilityDb::Public,
         ),
     ];
@@ -345,7 +348,7 @@ fn cursor_pagination_boundary() {
 #[test]
 fn non_visible_row_is_dropped_by_disclosure_gate() {
     let rows = vec![row(
-        json!({ "did": "did:web:alice.example", "handle": "secret:example.com" }),
+        json!({ "did": "ak:did_core:web:alice.example", "handle": "secret:example.com" }),
         DiscoverabilityDb::Secret,
     )];
 
@@ -368,19 +371,19 @@ fn non_visible_row_is_dropped_by_disclosure_gate() {
 fn restricted_claim_handle_requires_verified_presentation() {
     let rows = vec![row(
         json!({
-            "did": "did:web:alice.example",
+            "did": "ak:did_core:web:alice.example",
             "handle": "restricted:example.com",
             "allowed_discoverers": [{
                 "type": "claim",
                 "claim_kind": "organization_membership",
-                "issuer": "did:web:issuer.tea",
-                "organization": "did:web:tea-org.example"
+                "issuer": "ak:did_core:web:issuer.tea",
+                "organization": "ak:did_core:web:tea-org.example"
             }]
         }),
         DiscoverabilityDb::Restricted,
     )];
 
-    let body = req(None, Some("did:web:alice.example"));
+    let body = req(None, Some("ak:did_core:web:alice.example"));
     let response = assemble_response(
         &body,
         rows,

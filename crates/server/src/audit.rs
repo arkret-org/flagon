@@ -81,7 +81,7 @@ struct NewAuditRow<'a> {
     resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&'a str>,
     /// DID that initiated the audited operation — the resource's
-    /// `principal_server_did`, the directory's own `service_id`, or an
+    /// `principal_server_service_id`, the directory's own `service_id`, or an
     /// operator DID depending on the path. This is NOT a spec Realm `Actor`
     /// object; it is the initiating principal. For credential-vs-claim
     /// disambiguation prefer `authenticated_actor` / `asserted_operator`.

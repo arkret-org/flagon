@@ -34,7 +34,6 @@ Required series:
 - `teabay_ingest_total{kind,outcome}`
 - `teabay_query_latency_seconds{op}`
 - `teabay_query_anti_enum_pad_seconds`
-- `teabay_divergence_detected_total`
 - `teabay_expired_rows_purged_total{table}` (P5 — expiry worker)
 - `teabay_takedown_notification_failures_total{stage}` (P5 — takedown notifier)
 

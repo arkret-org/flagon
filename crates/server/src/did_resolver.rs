@@ -44,7 +44,7 @@ use arkret_identity::verifier::{BindingResolveRequest, resolve_and_verify_bindin
 use arkret_sdk::identity::{
     DidDocument, DidKeyResolver, DidResolver, ResolvedDid, ResolverPolicy, Result as IdentityResult,
 };
-use arkret_sdk::{CompositeDidResolver, Did, HttpDidResolver};
+use arkret_sdk::{CompositeDidResolver, DidCoreId, DidFullId, HttpDidResolver};
 use arkret_signatures::http_signature::Ed25519PublicKey;
 use chrono::{DateTime, Utc};
 use reqwest::Client;
@@ -193,7 +193,7 @@ impl SharedDidResolver {
 
     /// Whether the chain can serve this DID at all (method allowlist + adapter
     /// support). Read-only; hands out no resolver.
-    pub fn supports(&self, did: &Did) -> bool {
+    pub fn supports(&self, did: &DidFullId) -> bool {
         self.chain.supports(did)
     }
 
@@ -307,7 +307,7 @@ impl SharedDidResolver {
     /// request rather than read from a URL cache.
     pub fn accepted_or_resolved(
         &self,
-        did: &Did,
+        did: &DidFullId,
         purpose: DidBindingPurpose,
         verification_method: Option<&arkret_wire::DidUrl>,
         now: DateTime<Utc>,
@@ -388,7 +388,7 @@ impl SharedDidResolver {
     pub fn http_signature_public_key(&self, key_id: &str) -> Option<Ed25519PublicKey> {
         let verification_method = arkret_wire::DidUrl::new(key_id.trim().to_owned()).ok()?;
         let (did, _) = verification_method.as_str().split_once('#')?;
-        let did = Did::new(did.to_owned()).ok()?;
+        let did = DidFullId::new(did.to_owned()).ok()?;
         if !self.method_allowed(&format!("did:{}", did.method())) {
             return None;
         }
@@ -425,11 +425,11 @@ impl SharedDidResolver {
 struct PinnedDocumentResolver(DidDocument);
 
 impl DidResolver for PinnedDocumentResolver {
-    fn supports(&self, did: &Did) -> bool {
+    fn supports(&self, did: &DidFullId) -> bool {
         did == &self.0.id
     }
 
-    fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
+    fn resolve_did(&self, did: &DidFullId) -> IdentityResult<ResolvedDid> {
         if did == &self.0.id {
             // Already pinned; this adapter exists only to reuse the SDK's key
             // lookup, so it asserts no method evidence of its own.
@@ -472,11 +472,11 @@ impl<'a> MeteredAuthorityResolver<'a> {
 }
 
 impl DidResolver for MeteredAuthorityResolver<'_> {
-    fn supports(&self, did: &Did) -> bool {
+    fn supports(&self, did: &DidFullId) -> bool {
         self.inner.supports(did)
     }
 
-    fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
+    fn resolve_did(&self, did: &DidFullId) -> IdentityResult<ResolvedDid> {
         self.metrics.record_did_resolve(did.method(), self.source);
         self.inner.resolve_did(did)
     }
@@ -493,6 +493,21 @@ pub fn verification_method_issuer(verification_method: &str) -> Option<&str> {
         .unwrap_or(verification_method)
         .trim();
     (!issuer.is_empty()).then_some(issuer)
+}
+
+/// The stable identity core of the DID that owns a `verification_method`
+/// DID URL.
+///
+/// A DID URL's bare controller is a resolvable `DidFullId`; a subject id is a
+/// `DidCoreId`. Comparing the two directly is always false, so anything that
+/// checks "this key belongs to that subject" MUST project the controller
+/// through the active method adapter first. Returns `None` when the DID URL
+/// has no controller, the controller is not a canonical DID, or the DID method
+/// has no registry-active adapter — all fail-closed for the callers.
+pub fn verification_method_controller_core_id(verification_method: &str) -> Option<DidCoreId> {
+    let controller = verification_method_issuer(verification_method)?;
+    let full_id = DidFullId::new(controller.to_owned()).ok()?;
+    arkret_sdk::project_full_id_to_core_id(&full_id).ok()
 }
 
 /// Build the production resolver chain for the DID methods accepted by
@@ -754,11 +769,11 @@ mod tests {
     }
 
     impl DidResolver for CountingDidResolver {
-        fn supports(&self, did: &Did) -> bool {
+        fn supports(&self, did: &DidFullId) -> bool {
             self.documents.contains_key(did.as_str())
         }
 
-        fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
+        fn resolve_did(&self, did: &DidFullId) -> IdentityResult<ResolvedDid> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.documents
                 .get(did.as_str())
@@ -772,12 +787,12 @@ mod tests {
         }
     }
 
-    fn web_signer(seed: u8) -> (SigningKey, Did, DidUrl, DidDocument) {
+    fn web_signer(seed: u8) -> (SigningKey, DidFullId, DidUrl, DidDocument) {
         let signing_key = SigningKey::from_bytes(&[seed; 32]);
         let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
             signing_key.verifying_key().as_bytes(),
         );
-        let did = Did::new(format!("did:web:signer{seed}.example")).expect("did");
+        let did = DidFullId::new(format!("did:web:signer{seed}.example")).expect("did");
         let verification_method = DidUrl::new(format!("{did}#key-1")).expect("did url");
         let document = DidDocument {
             id: did.clone(),

@@ -133,7 +133,7 @@ pub(crate) async fn upsert_resource_and_audit(
                     a::announce_id.eq(announce_id),
                     a::resource_kind.eq(body.resource_kind),
                     a::resource_id.eq(&body.resource_id),
-                    a::principal_server_did.eq(&body.principal_server_did),
+                    a::principal_server_service_id.eq(body.principal_server_service_id.as_str()),
                     a::ingest_mode.eq(ingest_mode),
                     a::discovery_state.eq(body.discovery_state.as_value()),
                     a::source_refs.eq(&body.source_refs),
@@ -250,7 +250,7 @@ pub(crate) async fn upsert_resource_and_audit(
             .values((
                 r::resource_kind.eq(body.resource_kind),
                 r::resource_id.eq(&body.resource_id),
-                r::principal_server_did.eq(&body.principal_server_did),
+                r::principal_server_service_id.eq(body.principal_server_service_id.as_str()),
                 r::discovery_state.eq(body.discovery_state.as_value()),
                 r::public_projection.eq(&public_projection),
                 r::discoverability.eq(verified.discoverability),
@@ -278,7 +278,7 @@ pub(crate) async fn upsert_resource_and_audit(
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
             .set((
-                r::principal_server_did.eq(&body.principal_server_did),
+                r::principal_server_service_id.eq(body.principal_server_service_id.as_str()),
                 r::discovery_state.eq(body.discovery_state.as_value()),
                 r::public_projection.eq(&public_projection),
                 r::discoverability.eq(verified.discoverability),

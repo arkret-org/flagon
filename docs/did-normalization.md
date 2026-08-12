@@ -44,13 +44,17 @@ ORDER BY table_name, row_pk;
 -- 2. For each row, either update the live table to the normalized DID
 --    or hard-delete the row when the resource no longer exists.
 UPDATE directory_resources
-SET principal_server_did = 'did:web:example.com'
-WHERE principal_server_did = 'did:WEB:example.com';
+SET resource_id = 'did:web:example.com'
+WHERE resource_id = 'did:WEB:example.com';
 
 -- 3. Once the audit table is empty, promote the constraint to validated.
 ALTER TABLE directory_resources
-VALIDATE CONSTRAINT directory_resources_principal_server_did_normalized;
+VALIDATE CONSTRAINT directory_resources_resource_id_normalized;
 ```
+
+Note: `principal_server_service_id` is **not** covered by these rules. It stores a
+stable service core id (`ak:did_core:<method>:<core>`), not a DID, and has its
+own core-id shape constraint.
 
 ## History-Row Handling
 
@@ -58,10 +62,9 @@ VALIDATE CONSTRAINT directory_resources_principal_server_did_normalized;
 once written. The migration treats them as follows:
 
 - **`ingest_announces`**: the original wire payload is preserved verbatim in
-  `discovery_state`. The denormalized `principal_server_did`, however, is
-  normalized on the way in — historical lookups MUST query the
-  `discovery_state` JSON, not the column, when bit-for-bit reproducibility
-  matters.
+  `discovery_state`. The denormalized `resource_id`, however, is normalized on
+  the way in — historical lookups MUST query the `discovery_state` JSON, not
+  the column, when bit-for-bit reproducibility matters.
 - **`directory_audit`**: rows older than the migration boundary remain in
   their original form. The chained `audit_digest` would otherwise break, so
   the constraint is `NOT VALID FOR EXISTING ROWS` permanently on this

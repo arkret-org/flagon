@@ -39,7 +39,7 @@ async fn test_app_state(
     unsafe {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
         std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
-        std::env::set_var("TEABAY_SERVICE_ID", "did:web:directory.test");
+        std::env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
         std::env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
@@ -74,7 +74,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
         // the 1-second grace we configure below.
         diesel::sql_query(
             "INSERT INTO directory_resources (\
-                 resource_kind, resource_id, principal_server_did, discovery_state, \
+                 resource_kind, resource_id, principal_server_service_id, discovery_state, \
                  public_projection, discoverability, as_of, source_refs, policy_revision, indexed_at, \
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
@@ -123,7 +123,7 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
         let mut conn = state.db().get().await?;
         diesel::sql_query(
             "INSERT INTO directory_resources (\
-                 resource_kind, resource_id, principal_server_did, discovery_state, \
+                 resource_kind, resource_id, principal_server_service_id, discovery_state, \
                  public_projection, discoverability, as_of, source_refs, policy_revision, indexed_at, \
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \

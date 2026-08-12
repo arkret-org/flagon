@@ -136,7 +136,7 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
         &body.takedown_id,
         resource_kind.as_pg(),
         &body.resource_id,
-        body.appellant_did.as_str(),
+        body.appellant_actor_id.as_str(),
         requested_outcome,
         body.argument_digest.as_str(),
         received_at,
@@ -164,11 +164,11 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
         AuditEventKind::TakedownAppealSubmitted,
         Some(resource_kind),
         Some(&body.resource_id),
-        Some(body.appellant_did.as_str()),
+        Some(body.appellant_actor_id.as_str()),
         json!({
             "appeal_id": &appeal_id,
             "takedown_id": &body.takedown_id,
-            "appellant_did": body.appellant_did.as_str(),
+            "appellant_actor_id": body.appellant_actor_id.as_str(),
             "requested_outcome": requested_outcome,
             "argument_digest": body.argument_digest.as_str(),
             "received_at": received_at,
@@ -265,7 +265,7 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
         &appeal.takedown_id,
         appeal.resource_kind.as_pg(),
         &appeal.resource_id,
-        &appeal.appellant_did,
+        &appeal.appellant_actor_id,
         &appeal.requested_outcome,
         &appeal.argument_digest,
         body.evidence_digest.as_deref(),
@@ -344,7 +344,7 @@ fn validate_appeal_body(
             "resource_id is required".to_owned(),
         ));
     }
-    // `appellant_did` (Did), `argument_digest` (Hash), and `requested_outcome`
+    // `appellant_actor_id` (Did), `argument_digest` (Hash), and `requested_outcome`
     // (closed enum) are validated structurally by the SDK types during
     // deserialization, so no further string checks are needed here.
     Ok(())
@@ -417,7 +417,7 @@ async fn persist_takedown_appeal(
             a::takedown_id.eq(&body.takedown_id),
             a::resource_kind.eq(resource_kind),
             a::resource_id.eq(&body.resource_id),
-            a::appellant_did.eq(body.appellant_did.as_str()),
+            a::appellant_actor_id.eq(body.appellant_actor_id.as_str()),
             a::requested_outcome.eq(requested_outcome),
             a::argument_digest.eq(body.argument_digest.as_str()),
             a::appeal_packet.eq(appeal_packet),
@@ -436,7 +436,7 @@ struct AppealRow {
     takedown_id: String,
     resource_kind: DirectoryResourceKindDb,
     resource_id: String,
-    appellant_did: String,
+    appellant_actor_id: String,
     requested_outcome: String,
     argument_digest: String,
     status: String,
@@ -456,7 +456,7 @@ async fn load_pending_appeal(
             a::takedown_id,
             a::resource_kind,
             a::resource_id,
-            a::appellant_did,
+            a::appellant_actor_id,
             a::requested_outcome,
             a::argument_digest,
             a::status,
@@ -523,12 +523,13 @@ mod tests {
 
     #[test]
     fn appeal_packet_without_jws_keeps_signed_fields() {
-        use arkret_sdk::{Did, DirectoryTakedownAppealOutcomeRequest, Hash};
+        use arkret_sdk::{DidCoreId, DirectoryTakedownAppealOutcomeRequest, Hash};
 
         let body = DirectoryTakedownAppealRequestBody {
             takedown_id: "teabay:withdraw:01904100-0000-7000-8000-000000000001".to_owned(),
             resource_id: "ak:realm:AT0jIIg6naB0Vkqbb-ip6eunf-bHr5-nh4pz2_kYNyVX".to_owned(),
-            appellant_did: Did::new("did:webvh:realm.example").expect("did"),
+            appellant_actor_id: DidCoreId::new("ak:did_core:webvh:zRealmExampleScid")
+                .expect("appellant core id"),
             argument_digest: Hash::new(
                 "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             )

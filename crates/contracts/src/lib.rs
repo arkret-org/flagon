@@ -188,7 +188,7 @@ pub struct TakedownAppealDecisionOutcome {
 pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,
     pub resource_id: String,
-    pub principal_server_did: String,
+    pub principal_server_service_id: String,
     pub discoverability: DirectoryDiscoverability,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,
@@ -239,7 +239,7 @@ pub struct ResourceList {
 pub struct ResourceItem {
     pub resource_kind: String,
     pub resource_id: String,
-    pub principal_server_did: String,
+    pub principal_server_service_id: String,
     pub discovery_state: DirectoryDiscoveryState,
     pub public_projection: DirectoryPublicProjection,
     pub discoverability: String,

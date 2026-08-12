@@ -1,6 +1,6 @@
 //! Parsed `ak.find.directory.command.announce` request body.
 
-use arkret_sdk::DirectoryAnnounceRequestBody;
+use arkret_sdk::{DidCoreId, DirectoryAnnounceRequestBody};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -9,10 +9,16 @@ use teabay_contracts::DirectoryDiscoveryState;
 use crate::ingest::DirectoryResourceKindDb;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DirectoryAnnounceIngest {
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    pub principal_server_did: String,
+    /// Stable service core id of the Principal Server that owns the resource's
+    /// truth source (`discovery-directory.md` §8.3). This is **not** a
+    /// resolvable DID: mapping it to a current `full_id` / URL requires a
+    /// verified `ServiceResolutionRecord`, and the spec forbids handing this
+    /// value to a DID resolver.
+    pub principal_server_service_id: DidCoreId,
     pub discovery_state: DirectoryDiscoveryState,
     pub source_refs: Vec<String>,
     pub as_of: DateTime<Utc>,
@@ -39,7 +45,7 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
         Ok(Self {
             resource_kind: DirectoryResourceKindDb::from_sdk(value.resource_kind),
             resource_id: value.resource_id,
-            principal_server_did: value.principal_server_did.to_string(),
+            principal_server_service_id: value.principal_server_service_id,
             discovery_state,
             source_refs: value.source_refs,
             as_of: value.as_of,

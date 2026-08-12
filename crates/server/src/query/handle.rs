@@ -9,7 +9,7 @@
 //! the same response shape and latency tier as a genuine miss (§10).
 
 use arkret_sdk::{
-    Did, DirectoryHandleResolutionOutcome,
+    DidCoreId, DirectoryHandleResolutionOutcome,
     DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody, Handle as SdkHandle,
 };
 use base64::Engine as _;
@@ -34,7 +34,7 @@ use crate::state::AppState;
 #[derive(Debug, Clone)]
 pub struct ResolveHandleRequestView {
     pub handle: String,
-    pub expected_did: Option<String>,
+    pub expected_principal_id: Option<String>,
     pub proof_challenge: Option<String>,
     pub claim_presentations: Vec<arkret_sdk::DirectoryRestrictedClaimPresentation>,
     /// Why the handle is being resolved. Spec 0a5ab85:
@@ -59,7 +59,9 @@ impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
     fn from(body: SdkDirectoryResolveHandleRequestBody) -> Self {
         Self {
             handle: body.handle,
-            expected_did: body.expected_did.map(|did| did.as_str().to_owned()),
+            expected_principal_id: body
+                .expected_principal_id
+                .map(|did| did.as_str().to_owned()),
             proof_challenge: body.proof_challenge,
             claim_presentations: body.claim_presentations,
             intent: body.intent.map(|intent| intent.to_string()),
@@ -169,7 +171,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
 
     let body = ResolveHandleRequestView {
         handle: handle.clone(),
-        expected_did: None,
+        expected_principal_id: None,
         proof_challenge: None,
         claim_presentations: Vec::new(),
         intent: None,
@@ -681,7 +683,7 @@ fn binding_passes(
 }
 
 fn is_service_core_id(service_id: &str) -> bool {
-    arkret_sdk::ServiceId::new(service_id.to_owned()).is_ok()
+    arkret_sdk::DidCoreId::new(service_id.to_owned()).is_ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -750,10 +752,10 @@ fn handle_resolution_from_envelope(
     let did_raw = payload
         .get("did")
         .and_then(JsonValue::as_str)
-        .filter(|did| arkret_sdk::Did::new((*did).to_owned()).is_ok())
+        .filter(|did| arkret_sdk::DidCoreId::new((*did).to_owned()).is_ok())
         .ok_or_else(|| "handle projection did is missing or invalid".to_owned())?
         .to_owned();
-    let did = Did::new(did_raw.clone())
+    let did = DidCoreId::new(did_raw.clone())
         .map_err(|error| format!("handle projection did is invalid: {error}"))?;
     let subject = payload
         .get("subject")
@@ -799,7 +801,7 @@ fn handle_resolution_from_envelope(
         .transpose()
         .map_err(|error| format!("handle projection handle_claim is invalid: {error}"))?;
     Ok(DirectoryHandleResolutionOutcome {
-        did,
+        principal_id: did,
         handle,
         verified,
         claims,
@@ -841,7 +843,7 @@ mod tests {
     fn member_add_request(realm_id: &str, requester: &str) -> ResolveHandleRequestView {
         ResolveHandleRequestView {
             handle: "alice:example.com".to_string(),
-            expected_did: None,
+            expected_principal_id: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("member_add".to_string()),
@@ -1186,9 +1188,11 @@ mod tests {
 
     #[test]
     fn audience_authorization_falls_back_to_allowed_discoverers() {
-        let issuer = arkret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
-        let org = arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
-        let requester = arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let issuer =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned()).unwrap();
+        let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
+        let requester =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
         let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
             requester.clone(),
@@ -1214,9 +1218,11 @@ mod tests {
 
     #[test]
     fn restricted_handle_accepts_verified_claim_presentation() {
-        let issuer = arkret_sdk::Did::new("did:web:issuer.example".to_owned()).unwrap();
-        let org = arkret_sdk::Did::new("did:web:acme.example".to_owned()).unwrap();
-        let requester = arkret_sdk::Did::new("did:web:alice.example".to_owned()).unwrap();
+        let issuer =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned()).unwrap();
+        let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
+        let requester =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
         let claim = arkret_sdk::PresentedClaim::organization_membership(
             "claim-1",
             requester.clone(),
@@ -1238,7 +1244,7 @@ mod tests {
         row.discoverability = DiscoverabilityDb::Restricted;
         let body = ResolveHandleRequestView {
             handle: "alice:example.com".to_owned(),
-            expected_did: None,
+            expected_principal_id: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("lookup".to_owned()),
