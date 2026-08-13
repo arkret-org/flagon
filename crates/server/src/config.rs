@@ -95,6 +95,10 @@ fn relevant_environment() -> Vec<(String, String)> {
         .collect()
 }
 
+#[allow(
+    unsafe_code,
+    reason = "startup configuration mutates process environment before the Tokio runtime exists"
+)]
 fn clear_relevant_environment() {
     for (key, _) in relevant_environment() {
         // SAFETY: `main` calls this before constructing the Tokio runtime.
@@ -102,6 +106,10 @@ fn clear_relevant_environment() {
     }
 }
 
+#[allow(
+    unsafe_code,
+    reason = "startup configuration mutates process environment before the Tokio runtime exists"
+)]
 fn install_environment(values: Vec<(String, String)>) {
     for (key, value) in values {
         // SAFETY: `main` calls this before constructing the Tokio runtime.

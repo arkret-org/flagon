@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "integration tests mutate process environment before server startup and restore it"
+)]
+
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;

@@ -13,6 +13,15 @@ homepage = "https://github.com/arkret-org/teabay"
 readme = "README.md"
 authors = ["Arkret contributors"]
 
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+mem_forget = "deny"
+todo = "deny"
+unimplemented = "deny"
+
 [workspace.dependencies]
 anyhow = "1.0.102"
 async-trait = "0.1.89"

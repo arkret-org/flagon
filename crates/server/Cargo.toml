@@ -12,6 +12,9 @@ keywords = ["arkret", "directory", "discovery", "salvo", "diesel"]
 categories = ["network-programming", "web-programming::http-server"]
 authors.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = {workspace = true}
 async-trait = {workspace = true}

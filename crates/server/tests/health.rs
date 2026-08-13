@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "integration tests mutate process environment before server startup and restore it"
+)]
+
 //! Sanity test ensuring the router builds without a database.
 //! Database-backed integration tests live under `tests/it/` once we have a
 //! testcontainers fixture in M0-T3.

@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "integration tests mutate process environment before server startup and restore it"
+)]
+
 //! DID-P0-C04 — the `/metrics` face really exposes the two DID counters the
 //! cotest joint call-count contract (`DID-P1-C01`) consumes, and they move.
 //!

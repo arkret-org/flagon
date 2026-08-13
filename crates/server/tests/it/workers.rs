@@ -1,3 +1,8 @@
+#![allow(
+    unsafe_code,
+    reason = "integration tests mutate process environment before server startup and restore it"
+)]
+
 //! P5 — integration tests for the background workers (expiry +
 //! takedown notifier). All Postgres tests are gated on the
 //! `TEABAY_RUN_DOCKER_TESTS=1` env so the test suite remains green on

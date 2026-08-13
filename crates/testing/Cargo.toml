@@ -7,4 +7,7 @@ rust-version.workspace = true
 description = "Shared teabay conformance seed data: the directory_resources seed SQL and the seeded resource-id constants used by the integration tests."
 license.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
