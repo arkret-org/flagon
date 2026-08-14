@@ -69,8 +69,8 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let wire_body: arkret_sdk::DirectoryAnnounceRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ingest_metric.set_outcome("bad_json");
-            ApiErrorCode::BadJson.render(res, format!("malformed announce body: {e}"));
+            ingest_metric.set_outcome("json_invalid");
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed announce body: {e}"));
             return;
         }
     };

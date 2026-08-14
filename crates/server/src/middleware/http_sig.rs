@@ -31,16 +31,16 @@
 //! | Condition                                  | HTTP | errcode              |
 //! |--------------------------------------------|------|----------------------|
 //! | Missing `Signature-Input` / `Signature`    | 401  | `unauthenticated`    |
-//! | Malformed `Signature-Input`                | 400  | `signature_invalid`  |
-//! | Unknown `keyid`                            | 401  | `invalid_signature`  |
-//! | Ed25519 verify failure                     | 401  | `invalid_signature`  |
-//! | Replay of previously accepted signature    | 401  | `invalid_signature`  |
-//! | `Content-Digest` present but mismatches    | 401  | `invalid_signature`  |
-//! | Required signed component missing on req   | 400  | `signature_invalid`  |
+//! | Malformed `Signature-Input`                | 400  | `directory_governance_proof_signature_invalid`  |
+//! | Unknown `keyid`                            | 401  | `signature_invalid`  |
+//! | Ed25519 verify failure                     | 401  | `signature_invalid`  |
+//! | Replay of previously accepted signature    | 401  | `signature_invalid`  |
+//! | `Content-Digest` present but mismatches    | 401  | `signature_invalid`  |
+//! | Required signed component missing on req   | 400  | `directory_governance_proof_signature_invalid`  |
 //!
-//! `invalid_signature` is the canonical Arkret v1 code per
-//! `error-code-registry.json` (401, scope=both); `signature_invalid` is the
-//! ingest-specific §8 code (400) for header-shape problems.
+//! `signature_invalid` is the canonical Arkret v1 code per
+//! `error-code-registry.json` (401, scope=both); `directory_governance_proof_signature_invalid` is
+//! the ingest-specific §8 code (400) for header-shape problems.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -455,7 +455,7 @@ impl Handler for HttpSigMiddleware {
         let body_bytes = match req.payload().await {
             Ok(bytes) => bytes.clone(),
             Err(err) => {
-                ApiErrorCode::BadJson.render(
+                ApiErrorCode::JsonInvalid.render(
                     res,
                     format!("could not read request body for signature check: {err}"),
                 );
@@ -695,15 +695,15 @@ fn reject_unauthenticated(res: &mut Response, ctrl: &mut FlowCtrl, message: impl
 
 fn reject_invalid_signature(res: &mut Response, ctrl: &mut FlowCtrl, message: impl Into<String>) {
     let message = message.into();
-    tracing::debug!(reason = %message, "rejecting ingest request: invalid_signature");
-    ApiErrorCode::InvalidSignature.render(res, message);
+    tracing::debug!(reason = %message, "rejecting ingest request: signature_invalid");
+    ApiErrorCode::SignatureInvalid.render(res, message);
     ctrl.skip_rest();
 }
 
 fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: impl Into<String>) {
     let message = message.into();
-    tracing::debug!(reason = %message, "rejecting ingest request: signature_invalid");
-    ApiErrorCode::SignatureInvalid.render(res, message);
+    tracing::debug!(reason = %message, "rejecting ingest request: directory_governance_proof_signature_invalid");
+    ApiErrorCode::DirectoryGovernanceProofSignatureInvalid.render(res, message);
     ctrl.skip_rest();
 }
 
@@ -939,7 +939,7 @@ mod tests {
         assert_eq!(second_status, StatusCode::UNAUTHORIZED);
         let second_body_text = second.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&second_body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -977,7 +977,7 @@ mod tests {
         assert_eq!(second_status, StatusCode::UNAUTHORIZED);
         let second_body_text = second.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&second_body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1029,7 +1029,7 @@ mod tests {
         let body_text = res.take_string().await.unwrap_or_default();
         assert_eq!(status, StatusCode::UNAUTHORIZED, "body: {body_text}");
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1058,7 +1058,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1084,7 +1084,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1110,7 +1110,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1136,7 +1136,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1170,7 +1170,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1191,7 +1191,7 @@ mod tests {
         assert_eq!(res.status_code, Some(StatusCode::UNAUTHORIZED));
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("invalid_signature"));
+        assert_eq!(body["error"]["code"], json!("signature_invalid"));
     }
 
     #[tokio::test]
@@ -1218,7 +1218,10 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["error"]["code"],
+            json!("directory_governance_proof_signature_invalid")
+        );
     }
 
     #[tokio::test]

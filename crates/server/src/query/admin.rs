@@ -147,7 +147,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
     let query: AuditQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed audit query: {error}"));
+            ApiErrorCode::QueryInvalid.render(res, format!("malformed audit query: {error}"));
             return;
         }
     };
@@ -155,7 +155,7 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
     let since = match query.since.as_deref().map(parse_since).transpose() {
         Ok(since) => since,
         Err(message) => {
-            ApiErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::ParamInvalid.render(res, message);
             return;
         }
     };
@@ -206,7 +206,7 @@ pub async fn allowlist_list(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let query: AllowlistQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed allowlist query: {error}"));
+            ApiErrorCode::QueryInvalid.render(res, format!("malformed allowlist query: {error}"));
             return;
         }
     };
@@ -230,12 +230,12 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
     let body: DirectoryAdminAllowlistUpsertRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed allowlist body: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed allowlist body: {error}"));
             return;
         }
     };
     if body.resource_did.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "resource_did is required");
+        ApiErrorCode::ParamMissing.render(res, "resource_did is required");
         return;
     }
     let actor = body
@@ -270,7 +270,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
     let query: AllowlistDeleteQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ApiErrorCode::BadQuery
+            ApiErrorCode::QueryInvalid
                 .render(res, format!("malformed allowlist delete query: {error}"));
             return;
         }
@@ -282,7 +282,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
     {
         Some(resource_did) => resource_did,
         None => {
-            ApiErrorCode::MissingParam.render(res, "resource_did query parameter is required");
+            ApiErrorCode::ParamMissing.render(res, "resource_did query parameter is required");
             return;
         }
     };
@@ -317,7 +317,7 @@ pub async fn resources_browser(req: &mut Request, depot: &mut Depot, res: &mut R
     let query: ResourcesQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed resources query: {error}"));
+            ApiErrorCode::QueryInvalid.render(res, format!("malformed resources query: {error}"));
             return;
         }
     };
@@ -343,17 +343,17 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     let body: DirectoryAdminResourceUpsertRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed resource body: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed resource body: {error}"));
             return;
         }
     };
 
     if body.resource_id.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "resource_id is required");
+        ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
     if body.principal_server_service_id.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "principal_server_service_id is required");
+        ApiErrorCode::ParamMissing.render(res, "principal_server_service_id is required");
         return;
     }
     // The operator supplies the Principal Server's *stable service core id*,
@@ -377,7 +377,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         };
     let policy_revision = body.policy_revision.trim();
     if policy_revision.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "policy_revision is required");
+        ApiErrorCode::ParamMissing.render(res, "policy_revision is required");
         return;
     }
     if !body.public_projection.is_object() {
@@ -477,14 +477,15 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
     let query: ResourceDeleteQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed resource delete query: {error}"));
+            ApiErrorCode::QueryInvalid
+                .render(res, format!("malformed resource delete query: {error}"));
             return;
         }
     };
     let resource_kind = match query.resource_kind {
         Some(kind) => kind,
         None => {
-            ApiErrorCode::MissingParam.render(res, "resource_kind query parameter is required");
+            ApiErrorCode::ParamMissing.render(res, "resource_kind query parameter is required");
             return;
         }
     };
@@ -496,7 +497,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
     {
         Some(resource_id) => resource_id,
         None => {
-            ApiErrorCode::MissingParam.render(res, "resource_id query parameter is required");
+            ApiErrorCode::ParamMissing.render(res, "resource_id query parameter is required");
             return;
         }
     };
@@ -575,17 +576,18 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
     let body: DirectoryAdminConsentRevokeRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed consent revoke body: {error}"));
+            ApiErrorCode::JsonInvalid
+                .render(res, format!("malformed consent revoke body: {error}"));
             return;
         }
     };
     if body.actor_id.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "actor_id is required");
+        ApiErrorCode::ParamMissing.render(res, "actor_id is required");
         return;
     }
     let scope = body.scope.as_deref().unwrap_or("any").trim().to_owned();
     if !scope.eq_ignore_ascii_case("any") {
-        ApiErrorCode::InvalidParam.render(
+        ApiErrorCode::ParamInvalid.render(
             res,
             format!("scope `{scope}` not supported; only `any` invalidates directory reachability"),
         );
@@ -1300,21 +1302,22 @@ pub async fn takedown_audit_export(req: &mut Request, depot: &mut Depot, res: &m
     let query: TakedownExportQuery = match req.parse_queries() {
         Ok(query) => query,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed takedown export query: {error}"));
+            ApiErrorCode::QueryInvalid
+                .render(res, format!("malformed takedown export query: {error}"));
             return;
         }
     };
     let since = match query.since.as_deref().map(parse_since).transpose() {
         Ok(since) => since,
         Err(message) => {
-            ApiErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::ParamInvalid.render(res, message);
             return;
         }
     };
     let until = match query.until.as_deref().map(parse_since).transpose() {
         Ok(until) => until,
         Err(message) => {
-            ApiErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::ParamInvalid.render(res, message);
             return;
         }
     };

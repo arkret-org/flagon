@@ -157,7 +157,7 @@ impl<'a> VerifyContext<'a> {
         let listed = directory_services_lists_self(&req.discovery_state, &self.config.service_id);
         if !listed {
             return Err((
-                ApiErrorCode::DirectoryNotAuthorized,
+                ApiErrorCode::DirectoryUnauthorized,
                 format!(
                     "discovery_state.directory_services does not list this directory ({})",
                     self.config.service_id
@@ -318,7 +318,7 @@ pub(crate) fn verify_discovery_proof(
 ) -> Result<(), (ApiErrorCode, String)> {
     let proof = discovery_state.get("proof").ok_or_else(|| {
         (
-            ApiErrorCode::SignatureInvalid,
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
             "discovery_state.proof is missing".into(),
         )
     })?;
@@ -342,7 +342,7 @@ pub(crate) fn verify_governance_proof_payload(
     resolver: &SharedDidResolver,
 ) -> Result<(), (ApiErrorCode, String)> {
     let canonical = canonical_json_bytes(canonical_payload_without_jws)
-        .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))?;
+        .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))?;
     let proof = JsonValue::Object(proof.clone().into_iter().collect());
     verify_detached_jws_payload(
         &canonical,
@@ -373,7 +373,7 @@ fn verify_detached_jws_payload(
         &verification_method,
     )?;
     verify_jws_ed25519(canonical_bytes, &jws, &verification_method, resolver)
-        .map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
+        .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))
 }
 
 struct DetachedProof {
@@ -385,10 +385,15 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, Str
     let kind = proof
         .get("kind")
         .and_then(JsonValue::as_str)
-        .ok_or_else(|| (ApiErrorCode::SignatureInvalid, "proof.kind missing".into()))?;
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                "proof.kind missing".into(),
+            )
+        })?;
     if kind != "detached_jws" {
         return Err((
-            ApiErrorCode::SignatureInvalid,
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
             format!("unsupported proof.kind {kind}; expected detached_jws"),
         ));
     }
@@ -398,7 +403,7 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, Str
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
             (
-                ApiErrorCode::SignatureInvalid,
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
                 "proof.verification_method missing".into(),
             )
         })?
@@ -407,7 +412,12 @@ fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, Str
         .get("jws")
         .and_then(JsonValue::as_str)
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| (ApiErrorCode::SignatureInvalid, "proof.jws missing".into()))?
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                "proof.jws missing".into(),
+            )
+        })?
         .to_owned();
     Ok(DetachedProof {
         verification_method,
@@ -425,14 +435,18 @@ fn canonical_payload_without_jws(
         .and_then(JsonValue::as_object_mut)
         .ok_or_else(|| {
             (
-                ApiErrorCode::SignatureInvalid,
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
                 format!("{proof_key} proof object missing"),
             )
         })?;
     if proof.remove("jws").is_none() {
-        return Err((ApiErrorCode::SignatureInvalid, "proof.jws missing".into()));
+        return Err((
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+            "proof.jws missing".into(),
+        ));
     }
-    canonical_json_bytes(&unsigned).map_err(|msg| (ApiErrorCode::SignatureInvalid, msg))
+    canonical_json_bytes(&unsigned)
+        .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))
 }
 
 /// Arkret canonical JSON bytes via the SDK's `arkret_sdk::canonical`
@@ -441,7 +455,7 @@ fn canonical_payload_without_jws(
 /// This replaces a previously hand-written serializer that sorted object
 /// keys by byte order (`sort_unstable()`) — divergent from the SDK and
 /// every other Arkret service. Errors are flattened to `String` so the
-/// existing `(ApiErrorCode::SignatureInvalid, _)` call sites are unchanged.
+/// existing `(ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, _)` call sites are unchanged.
 fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
     canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }

@@ -383,7 +383,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         StatusCode::BAD_REQUEST
     );
     let invalid_body: JsonValue = res.take_json().await?;
-    assert_eq!(invalid_body["error"]["code"], "invalid_param");
+    assert_eq!(invalid_body["error"]["code"], "param_invalid");
 
     assert_resolve_realm_status(service, "ak:realm:tea", StatusCode::OK, json!({})).await?;
     assert_resolve_realm_status(service, "ak:realm:secret", StatusCode::NOT_FOUND, json!({}))

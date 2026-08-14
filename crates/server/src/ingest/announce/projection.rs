@@ -49,7 +49,7 @@ pub(crate) fn validate_request_shape(
     max_ttl: Duration,
 ) -> Result<(), (ApiErrorCode, String)> {
     if req.resource_id.is_empty() {
-        return Err((ApiErrorCode::MissingParam, "resource_id is required".into()));
+        return Err((ApiErrorCode::ParamMissing, "resource_id is required".into()));
     }
     if !req.discovery_state.is_object() {
         return Err((
@@ -59,7 +59,7 @@ pub(crate) fn validate_request_shape(
     }
     if req.policy_revision.trim().is_empty() {
         return Err((
-            ApiErrorCode::MissingParam,
+            ApiErrorCode::ParamMissing,
             "policy_revision is required".into(),
         ));
     }
@@ -292,7 +292,7 @@ fn normalize_member_count_projection(
         && !is_valid_member_count_bucket(bucket)
     {
         return Err((
-            ApiErrorCode::InvalidResponse,
+            ApiErrorCode::ResponseInvalid,
             format!("member_count_bucket {bucket} is outside the normative bucket grid"),
         ));
     }
@@ -300,7 +300,7 @@ fn normalize_member_count_projection(
     if let Some(exact) = obj.remove("member_count") {
         let count = exact.as_i64().ok_or_else(|| {
             (
-                ApiErrorCode::InvalidResponse,
+                ApiErrorCode::ResponseInvalid,
                 "member_count must be an integer when present".into(),
             )
         })?;

@@ -91,8 +91,8 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         Err(e) => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject", "bad_json");
-            ApiErrorCode::BadJson.render(res, format!("malformed body: {e}"));
+                .record_query_outcome("list-handles-for-subject", "json_invalid");
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed body: {e}"));
             return;
         }
     };

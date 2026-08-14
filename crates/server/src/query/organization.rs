@@ -43,7 +43,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     let body: DirectorySearchOrganizationsRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed search body: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed search body: {error}"));
             return;
         }
     };
@@ -139,7 +139,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 match rows.last() {
                     Some(row) => match serde_json::to_value(org_cursor_from_row(row))
                         .map_err(|error| {
-                            arkret_server::CursorAuthorityError::InvalidParam(error.to_string())
+                            arkret_server::CursorAuthorityError::ParamInvalid(error.to_string())
                         })
                         .and_then(|positions| {
                             state.cursor_authority().mint_stream(
@@ -215,7 +215,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     let body: OrganizationResolveRequestView = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed resolve body: {error}"));
             return;
         }
     };
@@ -227,7 +227,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            ApiErrorCode::MissingParam
+            ApiErrorCode::ParamMissing
                 .render(res, "organization_principal_id or handle is required");
             return;
         }

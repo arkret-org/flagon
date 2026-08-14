@@ -24,22 +24,26 @@ impl ApiErrorCode {
 
     // -------- canonical Arkret codes used here --------
     #[allow(non_upper_case_globals)]
-    pub const BadJson: Self = Self::new(arkret_sdk::ErrorCode::BAD_JSON, StatusCode::BAD_REQUEST);
+    pub const JsonInvalid: Self =
+        Self::new(arkret_sdk::ErrorCode::JSON_INVALID, StatusCode::BAD_REQUEST);
     #[allow(non_upper_case_globals)]
-    pub const BadQuery: Self = Self::new(arkret_sdk::ErrorCode::BAD_QUERY, StatusCode::BAD_REQUEST);
+    pub const QueryInvalid: Self = Self::new(
+        arkret_sdk::ErrorCode::QUERY_INVALID,
+        StatusCode::BAD_REQUEST,
+    );
     #[allow(non_upper_case_globals)]
     pub const SchemaViolation: Self = Self::new(
         arkret_sdk::ErrorCode::SCHEMA_VIOLATION,
         StatusCode::UNPROCESSABLE_ENTITY,
     );
     #[allow(non_upper_case_globals)]
-    pub const MissingParam: Self = Self::new(
-        arkret_sdk::ErrorCode::MISSING_PARAM,
+    pub const ParamMissing: Self = Self::new(
+        arkret_sdk::ErrorCode::PARAM_MISSING,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
-    pub const InvalidParam: Self = Self::new(
-        arkret_sdk::ErrorCode::INVALID_PARAM,
+    pub const ParamInvalid: Self = Self::new(
+        arkret_sdk::ErrorCode::PARAM_INVALID,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
@@ -51,8 +55,8 @@ impl ApiErrorCode {
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
-    pub const InvalidSignature: Self = Self::new(
-        arkret_sdk::ErrorCode::INVALID_SIGNATURE,
+    pub const SignatureInvalid: Self = Self::new(
+        arkret_sdk::ErrorCode::SIGNATURE_INVALID,
         StatusCode::UNAUTHORIZED,
     );
     #[allow(non_upper_case_globals)]
@@ -88,13 +92,13 @@ impl ApiErrorCode {
 
     // -------- directory ingest codes --------
     #[allow(non_upper_case_globals)]
-    pub const InvalidResponse: Self = Self::new(
-        arkret_sdk::ErrorCode::INVALID_RESPONSE,
+    pub const ResponseInvalid: Self = Self::new(
+        arkret_sdk::ErrorCode::RESPONSE_INVALID,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]
-    pub const DirectoryNotAuthorized: Self = Self::new(
-        arkret_sdk::ErrorCode::DIRECTORY_NOT_AUTHORIZED,
+    pub const DirectoryUnauthorized: Self = Self::new(
+        arkret_sdk::ErrorCode::DIRECTORY_UNAUTHORIZED,
         StatusCode::FORBIDDEN,
     );
     #[allow(non_upper_case_globals)]
@@ -103,8 +107,8 @@ impl ApiErrorCode {
         StatusCode::FORBIDDEN,
     );
     #[allow(non_upper_case_globals)]
-    pub const SignatureInvalid: Self = Self::new(
-        arkret_sdk::ErrorCode::SIGNATURE_INVALID,
+    pub const DirectoryGovernanceProofSignatureInvalid: Self = Self::new(
+        arkret_sdk::ErrorCode::DIRECTORY_GOVERNANCE_PROOF_SIGNATURE_INVALID,
         StatusCode::BAD_REQUEST,
     );
     #[allow(non_upper_case_globals)]

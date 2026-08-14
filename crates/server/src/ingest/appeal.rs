@@ -36,7 +36,8 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     let body: DirectoryTakedownAppealRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed takedown appeal body: {error}"));
+            ApiErrorCode::JsonInvalid
+                .render(res, format!("malformed takedown appeal body: {error}"));
             return;
         }
     };
@@ -221,16 +222,17 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     let body: TakedownAppealDecisionRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed appeal decision body: {error}"));
+            ApiErrorCode::JsonInvalid
+                .render(res, format!("malformed appeal decision body: {error}"));
             return;
         }
     };
     if ids::parse(&body.appeal_id) != Some(IdClass::Appeal) {
-        ApiErrorCode::InvalidParam.render(res, "appeal_id must be a teabay:appeal id");
+        ApiErrorCode::ParamInvalid.render(res, "appeal_id must be a teabay:appeal id");
         return;
     }
     if body.reason.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "reason is required");
+        ApiErrorCode::ParamMissing.render(res, "reason is required");
         return;
     }
 
@@ -334,13 +336,13 @@ fn validate_appeal_body(
 ) -> Result<(), (ApiErrorCode, String)> {
     if ids::parse(&body.takedown_id) != Some(IdClass::Withdraw) {
         return Err((
-            ApiErrorCode::InvalidParam,
+            ApiErrorCode::ParamInvalid,
             "takedown_id must be a teabay:withdraw id".to_owned(),
         ));
     }
     if body.resource_id.trim().is_empty() {
         return Err((
-            ApiErrorCode::MissingParam,
+            ApiErrorCode::ParamMissing,
             "resource_id is required".to_owned(),
         ));
     }
@@ -364,13 +366,13 @@ fn appeal_packet_without_jws(
         .and_then(JsonValue::as_object_mut)
         .ok_or_else(|| {
             (
-                ApiErrorCode::SignatureInvalid,
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
                 "governance_proof object missing".to_owned(),
             )
         })?;
     if proof.remove("jws").is_none() {
         return Err((
-            ApiErrorCode::SignatureInvalid,
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
             "governance_proof.jws missing".to_owned(),
         ));
     }

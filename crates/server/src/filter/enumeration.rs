@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 
 /// Spec §3.x normative member-count bucket grid. Implementations MUST emit
 /// exactly one of these strings; clients MUST treat any other value as
-/// `invalid_response` and discard the result.
+/// `response_invalid` and discard the result.
 pub const MEMBER_COUNT_BUCKETS: &[&str] =
     &["1-10", "11-50", "51-100", "101-500", "501-2000", "2000+"];
 

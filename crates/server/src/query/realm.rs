@@ -55,7 +55,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let body: DirectorySearchRealmsRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(e) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed search body: {e}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed search body: {e}"));
             return;
         }
     };
@@ -169,7 +169,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                         state.cursor_authority().mint_stream(
                             cursor_context.clone(),
                             serde_json::to_value(cursor_from_row(row)).map_err(|error| {
-                                arkret_server::CursorAuthorityError::InvalidParam(error.to_string())
+                                arkret_server::CursorAuthorityError::ParamInvalid(error.to_string())
                             })?,
                             60 * 60 * 1000,
                         )
@@ -233,7 +233,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let body: DirectoryResolveRealmRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed resolve body: {e}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed resolve body: {e}"));
             return;
         }
     };
@@ -259,7 +259,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            ApiErrorCode::MissingParam.render(
+            ApiErrorCode::ParamMissing.render(
                 res,
                 "at least one of realm_id / alias / invite_token / signed_link required",
             );

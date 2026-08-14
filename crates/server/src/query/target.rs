@@ -86,15 +86,15 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let body: SdkDirectoryResolveTargetRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(e) => {
-            state.metrics().record_query_outcome(OP, "bad_json");
-            ApiErrorCode::BadJson.render(res, format!("malformed resolve-target body: {e}"));
+            state.metrics().record_query_outcome(OP, "json_invalid");
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed resolve-target body: {e}"));
             return;
         }
     };
 
     if body.address.trim().is_empty() {
-        state.metrics().record_query_outcome(OP, "bad_json");
-        ApiErrorCode::MissingParam.render(res, "address required");
+        state.metrics().record_query_outcome(OP, "json_invalid");
+        ApiErrorCode::ParamMissing.render(res, "address required");
         return;
     }
 

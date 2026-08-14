@@ -119,7 +119,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
     let body: DirectoryPrivateContactDiscoveryRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed PSI request: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed PSI request: {error}"));
             return;
         }
     };
@@ -129,7 +129,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
     }
 
     if body.profile() != PRIVATE_DISCOVERY_PROFILE {
-        ApiErrorCode::InvalidParam.render(res, "unsupported private discovery profile");
+        ApiErrorCode::ParamInvalid.render(res, "unsupported private discovery profile");
         return;
     }
 
@@ -142,11 +142,11 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             ..
         } => {
             if ciphersuite != VOPRF_CIPHERSUITE {
-                ApiErrorCode::InvalidParam.render(res, "unsupported private discovery ciphersuite");
+                ApiErrorCode::ParamInvalid.render(res, "unsupported private discovery ciphersuite");
                 return;
             }
             if key_epoch != current_epoch(state.config()) {
-                ApiErrorCode::InvalidParam.render(res, "key_epoch is not the current OPRF epoch");
+                ApiErrorCode::ParamInvalid.render(res, "key_epoch is not the current OPRF epoch");
                 return;
             }
             let key = match load_or_create_epoch_key(&state, key_epoch).await {
@@ -195,7 +195,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             let key = match load_epoch_key(&state, key_epoch).await {
                 Ok(Some(key)) => key,
                 Ok(None) => {
-                    ApiErrorCode::InvalidParam.render(res, "key_epoch is unknown or expired");
+                    ApiErrorCode::ParamInvalid.render(res, "key_epoch is unknown or expired");
                     return;
                 }
                 Err(error) => {
@@ -246,11 +246,11 @@ async fn handle_blind_phase(
     res: &mut Response,
 ) {
     if blinded_elements.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "blinded_elements is required for phase=blind");
+        ApiErrorCode::ParamMissing.render(res, "blinded_elements is required for phase=blind");
         return;
     }
     if blinded_elements.len() > PSI_BATCH_SIZE {
-        ApiErrorCode::InvalidParam.render(
+        ApiErrorCode::ParamInvalid.render(
             res,
             format!("blinded_elements exceeds fixed batch size {PSI_BATCH_SIZE}"),
         );
@@ -263,7 +263,7 @@ async fn handle_blind_phase(
     {
         Ok(blinded) => blinded,
         Err(message) => {
-            ApiErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::ParamInvalid.render(res, message);
             return;
         }
     };
@@ -283,7 +283,7 @@ async fn handle_blind_phase(
             return;
         }
         Err(error) => {
-            ApiErrorCode::InvalidParam.render(res, error.to_string());
+            ApiErrorCode::ParamInvalid.render(res, error.to_string());
             return;
         }
     }
@@ -344,11 +344,11 @@ async fn handle_match_phase(
     res: &mut Response,
 ) {
     if derived_prefixes.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "derived_prefixes is required for phase=match");
+        ApiErrorCode::ParamMissing.render(res, "derived_prefixes is required for phase=match");
         return;
     }
     if derived_prefixes.len() > PSI_BATCH_SIZE {
-        ApiErrorCode::InvalidParam.render(
+        ApiErrorCode::ParamInvalid.render(
             res,
             format!("derived_prefixes exceeds fixed batch size {PSI_BATCH_SIZE}"),
         );
@@ -358,7 +358,7 @@ async fn handle_match_phase(
     let decoded_prefixes = match decode_derived_prefixes(&derived_prefixes) {
         Ok(prefixes) => prefixes,
         Err(message) => {
-            ApiErrorCode::InvalidParam.render(res, message);
+            ApiErrorCode::ParamInvalid.render(res, message);
             return;
         }
     };
@@ -378,7 +378,7 @@ async fn handle_match_phase(
         }
         Ok(None) => {}
         Err(error) => {
-            ApiErrorCode::InvalidParam.render(res, error.to_string());
+            ApiErrorCode::ParamInvalid.render(res, error.to_string());
             return;
         }
     }

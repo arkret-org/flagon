@@ -11,12 +11,12 @@ const PAD_BUCKET_COUNT: usize = 9;
 const INGEST_KINDS: &[&str] = &["announce", "withdraw", "subscribe"];
 const INGEST_OUTCOMES: &[&str] = &[
     "verify_ok",
-    "bad_json",
+    "json_invalid",
     "schema_rejected",
     "rate_limited",
     "verify_rejected",
     "digest_mismatch",
-    "signature_invalid",
+    "directory_governance_proof_signature_invalid",
     "invalid_endpoint",
     "replay",
     "historical_only",
@@ -50,7 +50,7 @@ const QUERY_OUTCOMES: &[&str] = &[
     "ok",
     "not_found",
     "fail_closed",
-    "bad_json",
+    "json_invalid",
     "rate_limited",
     "invalid_subject_kind",
     // R3.3 (AKP-0011) — resolve_target invite-token binding rejection

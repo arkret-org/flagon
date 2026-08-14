@@ -128,13 +128,13 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
 
     let localpart = req.queries().get("localpart").cloned().unwrap_or_default();
     if localpart.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "localpart query parameter is required");
+        ApiErrorCode::ParamMissing.render(res, "localpart query parameter is required");
         return;
     }
     let localpart = match prepare_handle_localpart_input(&localpart) {
         Ok(localpart) => localpart,
         Err(reason) => {
-            ApiErrorCode::InvalidParam.render(res, reason);
+            ApiErrorCode::ParamInvalid.render(res, reason);
             return;
         }
     };
@@ -154,13 +154,13 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         })
         .unwrap_or_default();
     if domain.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "domain query parameter or Host header is required");
+        ApiErrorCode::ParamMissing.render(res, "domain query parameter or Host header is required");
         return;
     }
     let handle = match SdkHandle::prepare(&format!("{localpart}:{domain}")) {
         Ok(handle) => handle.canonical().to_owned(),
         Err(error) => {
-            ApiErrorCode::InvalidParam.render(res, format!("invalid handle domain: {error}"));
+            ApiErrorCode::ParamInvalid.render(res, format!("invalid handle domain: {error}"));
             return;
         }
     };
@@ -229,17 +229,17 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let sdk_body: SdkDirectoryResolveHandleRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed body: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed body: {error}"));
             return;
         }
     };
     let body = ResolveHandleRequestView::from(sdk_body);
     if body.handle.is_empty() {
-        ApiErrorCode::MissingParam.render(res, "handle is required");
+        ApiErrorCode::ParamMissing.render(res, "handle is required");
         return;
     }
     if let Err(error) = SdkHandle::parse(&body.handle) {
-        ApiErrorCode::InvalidParam.render(res, format!("handle is not canonical: {error}"));
+        ApiErrorCode::ParamInvalid.render(res, format!("handle is not canonical: {error}"));
         return;
     }
     if !enforce_resolve_rate_limit(req, res, &state, &body.handle) {

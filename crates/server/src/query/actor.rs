@@ -40,7 +40,8 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let body: DirectorySearchActorsRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed search_actors body: {error}"));
+            ApiErrorCode::QueryInvalid
+                .render(res, format!("malformed search_actors body: {error}"));
             return;
         }
     };
@@ -127,14 +128,14 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
     let query: DirectorySearchUsersRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadQuery.render(res, format!("malformed search_users body: {error}"));
+            ApiErrorCode::QueryInvalid.render(res, format!("malformed search_users body: {error}"));
             return;
         }
     };
     let realm_id = match query.realm_id.as_ref() {
         Some(realm_id) => realm_id,
         None => {
-            ApiErrorCode::MissingParam.render(res, "realm_id is required");
+            ApiErrorCode::ParamMissing.render(res, "realm_id is required");
             return;
         }
     };

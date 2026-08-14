@@ -19,7 +19,7 @@ Every DID stored in teabay tables MUST satisfy:
 6. **No path-relative components** (`.` or `..`).
 
 Violations are rejected at the ingest verify layer with
-`bad_json` outcome and an `invalid_did` detail.
+`json_invalid` outcome and an `invalid_did` detail.
 
 ## Migration SQL
 

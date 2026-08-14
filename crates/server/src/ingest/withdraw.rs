@@ -64,15 +64,15 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let wire_body: DirectoryWithdrawWireBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
-            ingest_metric.set_outcome("bad_json");
-            ApiErrorCode::BadJson.render(res, format!("malformed withdraw body: {e}"));
+            ingest_metric.set_outcome("json_invalid");
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed withdraw body: {e}"));
             return;
         }
     };
 
     if wire_body.resource_id.is_empty() {
         ingest_metric.set_outcome("schema_rejected");
-        ApiErrorCode::MissingParam.render(res, "resource_id is required");
+        ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
     if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id, None) {
@@ -98,7 +98,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let canonical_payload = match withdraw_payload_without_jws(&body) {
         Ok(payload) => payload,
         Err((code, msg)) => {
-            ingest_metric.set_outcome("signature_invalid");
+            ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
             code.render(res, msg);
             return;
         }
@@ -109,7 +109,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         {
             Ok(controller) => controller,
             Err((code, msg)) => {
-                ingest_metric.set_outcome("signature_invalid");
+                ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
                 code.render(res, msg);
                 return;
             }
@@ -122,7 +122,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         expected_controller.as_deref(),
         state.did_resolver(),
     ) {
-        ingest_metric.set_outcome("signature_invalid");
+        ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
         code.render(res, msg);
         return;
     }
@@ -226,13 +226,13 @@ pub(crate) fn withdraw_payload_without_jws(
         .and_then(JsonValue::as_object_mut)
         .ok_or_else(|| {
             (
-                ApiErrorCode::SignatureInvalid,
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
                 "governance_proof object missing".to_owned(),
             )
         })?;
     if proof.remove("jws").is_none() {
         return Err((
-            ApiErrorCode::SignatureInvalid,
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
             "governance_proof.jws missing".to_owned(),
         ));
     }

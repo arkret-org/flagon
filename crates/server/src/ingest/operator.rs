@@ -41,7 +41,7 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     let body: OperatorTakedownRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ApiErrorCode::BadJson.render(res, format!("malformed takedown body: {error}"));
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed takedown body: {error}"));
             return;
         }
     };
@@ -50,11 +50,11 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
     // always a non-empty resource_id (an empty id would collapse every
     // malformed request into a single shared bucket).
     if body.resource_id.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "resource_id is required");
+        ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
     if body.reason.trim().is_empty() {
-        ApiErrorCode::MissingParam.render(res, "reason is required");
+        ApiErrorCode::ParamMissing.render(res, "reason is required");
         return;
     }
     if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id, None) {

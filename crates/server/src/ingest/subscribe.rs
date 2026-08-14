@@ -83,8 +83,8 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     let body: DirectoryPushRegisterRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
-            ingest_metric.set_outcome("bad_json");
-            ApiErrorCode::BadJson.render(res, format!("malformed subscribe body: {error}"));
+            ingest_metric.set_outcome("json_invalid");
+            ApiErrorCode::JsonInvalid.render(res, format!("malformed subscribe body: {error}"));
             return;
         }
     };
@@ -141,7 +141,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     if let Err(message) = validate_endpoint(&body.webhook_endpoint, state.config().development_mode)
     {
         ingest_metric.set_outcome("invalid_endpoint");
-        ApiErrorCode::InvalidParam.render(res, message);
+        ApiErrorCode::ParamInvalid.render(res, message);
         return;
     }
 

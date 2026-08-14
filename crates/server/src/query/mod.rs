@@ -9,8 +9,8 @@ pub(crate) fn render_cursor_error(
     error: arkret_server::CursorAuthorityError,
 ) {
     match error {
-        arkret_server::CursorAuthorityError::InvalidParam(message) => {
-            ApiErrorCode::InvalidParam.render(response, message);
+        arkret_server::CursorAuthorityError::ParamInvalid(message) => {
+            ApiErrorCode::ParamInvalid.render(response, message);
         }
         arkret_server::CursorAuthorityError::Expired => {
             ApiErrorCode::CursorExpired.render(response, "cursor has expired");
