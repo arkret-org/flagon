@@ -61,7 +61,7 @@ use crate::observability::{
 /// accepted-method allowlist and the `allow_private_networks` egress decision
 /// are captured *inside* this value, a request handler has no way to widen
 /// either one: it cannot pass a different allowlist, and it cannot ask for a
-/// client that skips [`crate::egress::ValidatingDnsResolver`].
+/// client that skips [`crate::egress::guard`].
 ///
 /// ## What is deliberately NOT shared
 ///
@@ -74,7 +74,7 @@ use crate::observability::{
 /// stay per-target and per-request, on purpose.
 ///
 /// The resolver chain's own client is different: it is bound to no particular
-/// target, only to the egress *policy* (`https_only` + `ValidatingDnsResolver`),
+/// target, only to the egress *policy* (`https_only` + the shared guarded DNS resolver),
 /// which is exactly why it is safe — and required — to share.
 pub struct SharedDidResolver {
     /// The zero-network acceptance directory. Shared with the query face.
@@ -527,13 +527,10 @@ fn did_resolver_chain(
     allow_private_networks: bool,
 ) -> Result<CompositeDidResolver, String> {
     let policy = resolver_policy(accepted_did_methods);
-    let http_client = Client::builder()
-        .https_only(!allow_private_networks)
+    let http_client = crate::egress::guard(allow_private_networks)
+        .apply_to_client_builder(Client::builder())
         .timeout(Duration::from_millis(2_000))
         .redirect(reqwest::redirect::Policy::none())
-        .dns_resolver(Arc::new(crate::egress::ValidatingDnsResolver::new(
-            allow_private_networks,
-        )))
         .build()
         .map_err(|e| format!("HTTP DID resolver client init failed: {e}"))?;
     let http = HttpDidResolver::with_client(http_client, policy.clone())

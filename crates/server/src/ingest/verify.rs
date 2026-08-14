@@ -790,7 +790,7 @@ pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
 /// | --- | --- | --- |
 /// | method in `TEABAY_ACCEPTED_DID_METHODS` | `principal_did_method_allowed` + the chain's `ResolverPolicy` | unchanged, both still run |
 /// | document validation (content type, 64 KiB cap, `did:webvh` log chain + witness) | resolver | resolver |
-/// | SSRF / egress control on the fetch | `resolve_url_for_egress` inside the raw fetch | the shared chain's client: `https_only` + `egress::ValidatingDnsResolver`, both frozen from the startup config |
+/// | SSRF / egress control on the fetch | `resolve_url_for_egress` inside the raw fetch | the shared chain's client: `https_only` + the shared guarded DNS resolver, both frozen from the startup config |
 /// | `document.id == principal_server_full_id` | compared on the raw JSON here | still compared here, now against the resolved document |
 /// | `service[].type == "ArkretPrincipalServer"` | raw JSON | `DidDocument::raw_properties["service"]`, which preserves the wire document verbatim |
 /// | relative `serviceEndpoint` resolution | `service_endpoint_url` | unchanged |

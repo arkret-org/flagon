@@ -1,39 +1,22 @@
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+//! Directory-service binding of the shared Arkret egress guard.
+//!
+//! The parse/judge/resolve/bind sequence lives in `arkret-egress-reqwest`. What
+//! is directory-specific is only which posture a given deployment runs under,
+//! which is derived here from the startup `development_mode` flag.
 
-use arkret_egress_policy::OutboundPolicy;
-use reqwest::dns::{Addrs, Name, Resolve, Resolving};
-use reqwest::{ClientBuilder, Url};
-
-type DnsError = Box<dyn std::error::Error + Send + Sync>;
+use arkret_egress_reqwest::EgressGuard;
+pub(crate) use arkret_egress_reqwest::LockedEgressUrl;
+use reqwest::Url;
 
 pub(crate) const fn local_development_enabled(development_mode: bool) -> bool {
     development_mode
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct ValidatingDnsResolver {
-    development_mode: bool,
-}
-
-impl ValidatingDnsResolver {
-    pub(crate) fn new(development_mode: bool) -> Self {
-        Self { development_mode }
-    }
-}
-
-impl Resolve for ValidatingDnsResolver {
-    fn resolve(&self, name: Name) -> Resolving {
-        let host = name.as_str().to_owned();
-        let development_mode = self.development_mode;
-        Box::pin(async move {
-            let addrs = tokio::task::spawn_blocking(move || {
-                resolve_host_addrs(&host, 0, "reqwest egress DNS resolver", development_mode)
-            })
-            .await
-            .map_err(|join_err| dns_error(format!("egress DNS resolver task failed: {join_err}")))?
-            .map_err(dns_error)?;
-            Ok(Box::new(addrs.into_iter()) as Addrs)
-        })
+pub(crate) fn guard(development_mode: bool) -> EgressGuard {
+    if development_mode {
+        EgressGuard::local_development()
+    } else {
+        EgressGuard::public_https()
     }
 }
 
@@ -42,8 +25,9 @@ pub(crate) fn resolve_http_url_for_egress(
     purpose: &str,
     development_mode: bool,
 ) -> Result<LockedEgressUrl, String> {
-    let url = Url::parse(raw_url).map_err(|error| format!("{purpose}: invalid URL: {error}"))?;
-    resolve_url_for_egress(&url, purpose, development_mode)
+    guard(development_mode)
+        .lock_str(raw_url, purpose)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn validate_url_for_egress(
@@ -54,100 +38,14 @@ pub(crate) fn validate_url_for_egress(
     resolve_url_for_egress(url, purpose, development_mode).map(|_| ())
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct LockedEgressUrl {
-    url: Url,
-    resolve_host: Option<String>,
-    resolved_addrs: Vec<SocketAddr>,
-}
-
-impl LockedEgressUrl {
-    pub(crate) fn url(&self) -> &Url {
-        &self.url
-    }
-
-    pub(crate) fn apply_to_client_builder(&self, builder: ClientBuilder) -> ClientBuilder {
-        match self.resolve_host.as_deref() {
-            Some(host) if !self.resolved_addrs.is_empty() => {
-                builder.resolve_to_addrs(host, &self.resolved_addrs)
-            }
-            _ => builder,
-        }
-    }
-
-    #[cfg(test)]
-    fn resolved_addrs(&self) -> &[SocketAddr] {
-        &self.resolved_addrs
-    }
-}
-
 pub(crate) fn resolve_url_for_egress(
     url: &Url,
     purpose: &str,
     development_mode: bool,
 ) -> Result<LockedEgressUrl, String> {
-    let policy = policy(development_mode);
-    policy
-        .validate_url(url)
-        .map_err(|error| format!("{purpose}: {error}"))?;
-    let host = url.host_str().expect("validated URL has a host");
-    let port = url.port_or_known_default().unwrap_or(443);
-    let literal_ip = match url.host() {
-        Some(url::Host::Ipv4(ip)) => Some(IpAddr::V4(ip)),
-        Some(url::Host::Ipv6(ip)) => Some(IpAddr::V6(ip)),
-        _ => None,
-    };
-    if let Some(ip) = literal_ip {
-        policy
-            .validate_ip(ip)
-            .map_err(|error| format!("{purpose}: {error}"))?;
-        return Ok(LockedEgressUrl {
-            url: url.clone(),
-            resolve_host: None,
-            resolved_addrs: Vec::new(),
-        });
-    }
-    let resolved = resolve_host_addrs(host, port, purpose, development_mode)?;
-    Ok(LockedEgressUrl {
-        url: url.clone(),
-        resolve_host: Some(host.to_owned()),
-        resolved_addrs: resolved,
-    })
-}
-
-fn resolve_host_addrs(
-    host: &str,
-    port: u16,
-    purpose: &str,
-    development_mode: bool,
-) -> Result<Vec<SocketAddr>, String> {
-    let policy = policy(development_mode);
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        policy
-            .validate_ip(ip)
-            .map_err(|error| format!("{purpose}: {error}"))?;
-        return Ok(vec![SocketAddr::new(ip, port)]);
-    }
-    let resolved = (host, port)
-        .to_socket_addrs()
-        .map_err(|error| format!("{purpose}: DNS resolution for {host} failed: {error}"))?
-        .collect::<Vec<_>>();
-    policy
-        .validate_resolved_addresses(&resolved)
-        .map_err(|error| format!("{purpose}: {error}"))?;
-    Ok(resolved)
-}
-
-fn policy(development_mode: bool) -> OutboundPolicy {
-    if development_mode {
-        OutboundPolicy::local_development()
-    } else {
-        OutboundPolicy::public_https()
-    }
-}
-
-fn dns_error(message: String) -> DnsError {
-    Box::new(std::io::Error::other(message))
+    guard(development_mode)
+        .lock_url(url, purpose)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -185,9 +83,10 @@ mod tests {
         let target = resolve_url_for_egress(&url, "test", true).unwrap();
 
         assert_eq!(target.url().as_str(), "http://localhost:8080/sink");
+        let (host, addrs) = target.dns_override().expect("named host is pinned");
+        assert_eq!(host, "localhost");
         assert!(
-            target
-                .resolved_addrs()
+            addrs
                 .iter()
                 .any(|addr| addr.port() == 8080 && addr.ip().is_loopback())
         );
@@ -215,6 +114,6 @@ mod tests {
         let target = resolve_url_for_egress(&url, "test", false).unwrap();
 
         assert_eq!(target.url().as_str(), "https://93.184.216.34/path");
-        assert!(target.resolved_addrs().is_empty());
+        assert!(target.dns_override().is_none());
     }
 }

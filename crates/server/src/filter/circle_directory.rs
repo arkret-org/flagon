@@ -1,24 +1,24 @@
-//! Circle directory preview and locked-stub projection.
+//! Circle directory locked-stub projection for the public directory index.
 //!
-//! Arkret v1 keeps Circle membership/history scoped to the parent Realm. The
-//! directory may only surface a tightly bounded directory projection:
-//! non-authorized callers receive a fixed locked stub, while active parent
-//! Realm members may receive the `directory_visibility=realm_members`
-//! whitelist.
+//! Arkret v1 keeps Circle membership/history scoped to the parent Realm
+//! (`circle.md` §9.3). Two projections exist, and they belong to two different
+//! services:
+//!
+//! * the `directory_visibility=realm_members` preview whitelist, which is only servable to a caller
+//!   proven to be an active parent-Realm member. That authority is the Principal Server's — soland
+//!   gates it in `routing/circles.rs::circle_directory_visible_to_actor`;
+//! * the fixed locked stub every other caller receives. The directory has no Realm-membership
+//!   authority and serves an index built for unauthenticated callers, so this is the only Circle
+//!   projection teabay may produce.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde_json::{Map, Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
-use crate::filter::enumeration::is_valid_member_count_bucket;
-
 pub const LOCKED_VISIBILITY: &str = "locked";
-pub const REALM_MEMBERS_VISIBILITY: &str = "realm_members";
-pub const MEMBERS_VISIBILITY: &str = "members";
 
 const COMMITMENT_DOMAIN_LOCKED: &str = "ak.circle.directory.locked_stub.v1";
-const COMMITMENT_DOMAIN_PREVIEW: &str = "ak.circle.directory.realm_members_preview.v1";
 
 const DIRECTORY_CONTAINER_KEYS: &[&str] = &[
     "circle_directory",
@@ -28,36 +28,11 @@ const DIRECTORY_CONTAINER_KEYS: &[&str] = &[
     "circles",
 ];
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CircleDirectoryAudience {
-    Unauthorized,
-    ParentRealmMember,
-}
-
 pub fn locked_circle_stub() -> JsonValue {
     json!({
         "visibility": LOCKED_VISIBILITY,
         "opaque_commitment": fixed_locked_commitment(),
     })
-}
-
-/// Build the caller-facing projection for one Circle directory entry.
-///
-/// The input may be the durable Circle object or a pre-projected Circle
-/// directory row. This function never forwards raw member lists, exact member
-/// counts, title, summary, creator fields, history fields, or display
-/// short_name to non-Circle callers.
-pub fn project_circle_entry(entry: &JsonValue, audience: CircleDirectoryAudience) -> JsonValue {
-    match audience {
-        CircleDirectoryAudience::Unauthorized => locked_circle_stub(),
-        CircleDirectoryAudience::ParentRealmMember => {
-            if directory_visibility(entry) == Some(REALM_MEMBERS_VISIBILITY) {
-                realm_member_preview(entry).unwrap_or_else(locked_circle_stub)
-            } else {
-                locked_circle_stub()
-            }
-        }
-    }
 }
 
 /// Collapse any Circle directory subtree inside a public projection into one
@@ -74,152 +49,6 @@ pub fn is_circle_directory_container_key(key: &str) -> bool {
 
 pub fn fixed_locked_commitment() -> String {
     commitment([COMMITMENT_DOMAIN_LOCKED])
-}
-
-fn realm_member_preview(entry: &JsonValue) -> Option<JsonValue> {
-    let circle_id = string_field(entry, &["circle_id", "id"])?;
-    let realm_id = string_field(entry, &["realm_id"])?;
-    let display = realm_member_display(entry.get("display")?)?;
-    let member_count_bucket = entry
-        .get("member_count_bucket")
-        .and_then(JsonValue::as_str)
-        .filter(|bucket| is_valid_member_count_bucket(bucket))?;
-    let join_rule = entry
-        .get("join_rule")
-        .and_then(JsonValue::as_str)
-        .filter(|value| matches!(*value, "invite" | "request" | "open"))?;
-
-    let mut out = Map::new();
-    out.insert(
-        "circle_id".to_owned(),
-        JsonValue::String(circle_id.to_owned()),
-    );
-    out.insert(
-        "realm_id".to_owned(),
-        JsonValue::String(realm_id.to_owned()),
-    );
-    out.insert(
-        "visibility".to_owned(),
-        JsonValue::String(REALM_MEMBERS_VISIBILITY.to_owned()),
-    );
-    out.insert("display".to_owned(), JsonValue::Object(display));
-    out.insert(
-        "member_count_bucket".to_owned(),
-        JsonValue::String(member_count_bucket.to_owned()),
-    );
-    out.insert(
-        "join_rule".to_owned(),
-        JsonValue::String(join_rule.to_owned()),
-    );
-    out.insert(
-        "opaque_commitment".to_owned(),
-        JsonValue::String(realm_member_commitment(realm_id, circle_id)),
-    );
-    Some(JsonValue::Object(out))
-}
-
-fn realm_member_display(display: &JsonValue) -> Option<Map<String, JsonValue>> {
-    let obj = display.as_object()?;
-    let color_token = obj
-        .get("color_token")
-        .and_then(JsonValue::as_str)
-        .filter(|value| is_allowed_color_token(value))?;
-    let symbol = realm_member_symbol(obj.get("symbol")?)?;
-
-    let mut out = Map::new();
-    out.insert(
-        "color_token".to_owned(),
-        JsonValue::String(color_token.to_owned()),
-    );
-    out.insert("symbol".to_owned(), symbol);
-    Some(out)
-}
-
-fn realm_member_symbol(symbol: &JsonValue) -> Option<JsonValue> {
-    let obj = symbol.as_object()?;
-    if let Some(emoji) = obj.get("emoji").and_then(JsonValue::as_str)
-        && !emoji.is_empty()
-        && emoji.chars().count() <= 4
-    {
-        return Some(json!({ "emoji": emoji }));
-    }
-    if let Some(glyph) = obj
-        .get("glyph")
-        .and_then(JsonValue::as_str)
-        .filter(|value| is_allowed_glyph(value))
-    {
-        return Some(json!({ "glyph": glyph }));
-    }
-    None
-}
-
-fn is_allowed_color_token(value: &str) -> bool {
-    matches!(
-        value,
-        "slate"
-            | "red"
-            | "orange"
-            | "amber"
-            | "yellow"
-            | "lime"
-            | "green"
-            | "emerald"
-            | "teal"
-            | "cyan"
-            | "sky"
-            | "blue"
-            | "indigo"
-            | "violet"
-            | "fuchsia"
-            | "pink"
-            | "gray_high_contrast"
-    )
-}
-
-fn is_allowed_glyph(value: &str) -> bool {
-    matches!(
-        value,
-        "lock"
-            | "shield"
-            | "eye"
-            | "eye_off"
-            | "user_shield"
-            | "fingerprint"
-            | "key"
-            | "diamond"
-            | "flame"
-            | "leaf"
-            | "seal"
-            | "compass"
-            | "atom"
-            | "bolt"
-            | "moon"
-            | "sun"
-            | "star"
-            | "globe"
-            | "satellite"
-            | "ring"
-            | "chain"
-            | "tag"
-            | "flag"
-            | "scroll"
-            | "scale"
-            | "hourglass"
-            | "spark"
-    )
-}
-
-fn directory_visibility(entry: &JsonValue) -> Option<&str> {
-    entry
-        .get("directory_visibility")
-        .or_else(|| entry.get("visibility"))
-        .and_then(JsonValue::as_str)
-}
-
-fn string_field<'a>(entry: &'a JsonValue, keys: &[&str]) -> Option<&'a str> {
-    keys.iter()
-        .find_map(|key| entry.get(*key).and_then(JsonValue::as_str))
-        .filter(|value| !value.is_empty())
 }
 
 fn sanitize_at_value(value: &mut JsonValue) {
@@ -245,10 +74,6 @@ fn sanitize_at_object(obj: &mut Map<String, JsonValue>) {
             sanitize_at_value(value);
         }
     }
-}
-
-fn realm_member_commitment(realm_id: &str, circle_id: &str) -> String {
-    commitment([COMMITMENT_DOMAIN_PREVIEW, realm_id, circle_id])
 }
 
 fn commitment<const N: usize>(parts: [&str; N]) -> String {
@@ -304,99 +129,6 @@ mod tests {
     }
 
     #[test]
-    fn realm_member_preview_uses_only_spec_whitelist() {
-        let preview =
-            project_circle_entry(&circle_entry(), CircleDirectoryAudience::ParentRealmMember);
-        let object = preview.as_object().expect("preview object");
-        assert_eq!(object.get("visibility").unwrap(), REALM_MEMBERS_VISIBILITY);
-        assert_eq!(
-            object.get("circle_id").unwrap(),
-            "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH"
-        );
-        assert_eq!(
-            object.get("realm_id").unwrap(),
-            "ak:realm:AfUOZyPWNBbSVKNRXHMbULldhuzzMwa7DvqrqFSUksz3"
-        );
-        assert_eq!(object.get("member_count_bucket").unwrap(), "1-10");
-        assert_eq!(object.get("join_rule").unwrap(), "invite");
-        assert_eq!(
-            object
-                .get("opaque_commitment")
-                .and_then(JsonValue::as_str)
-                .unwrap()
-                .len(),
-            43
-        );
-
-        let display = object
-            .get("display")
-            .and_then(JsonValue::as_object)
-            .unwrap();
-        assert_eq!(display.get("color_token").unwrap(), "slate");
-        assert_eq!(
-            display.get("symbol").unwrap(),
-            &json!({ "glyph": "shield" })
-        );
-        assert!(!display.contains_key("short_name"));
-
-        for forbidden in [
-            "title",
-            "summary",
-            "member_count",
-            "members",
-            "created_by",
-            "created_at",
-            "history_visibility",
-            "join_history",
-        ] {
-            assert!(!object.contains_key(forbidden), "{forbidden} leaked");
-        }
-    }
-
-    #[test]
-    fn members_visibility_projects_to_locked_for_parent_realm_member() {
-        let mut entry = circle_entry();
-        entry["directory_visibility"] = JsonValue::String(MEMBERS_VISIBILITY.to_owned());
-        assert_eq!(
-            project_circle_entry(&entry, CircleDirectoryAudience::ParentRealmMember),
-            locked_circle_stub()
-        );
-    }
-
-    #[test]
-    fn unauthorized_projection_is_locked_for_realm_members_circle() {
-        assert_eq!(
-            project_circle_entry(&circle_entry(), CircleDirectoryAudience::Unauthorized),
-            locked_circle_stub()
-        );
-    }
-
-    #[test]
-    fn invalid_member_count_bucket_fails_closed_to_locked() {
-        let mut entry = circle_entry();
-        entry["member_count_bucket"] = JsonValue::String("7".to_owned());
-        assert_eq!(
-            project_circle_entry(&entry, CircleDirectoryAudience::ParentRealmMember),
-            locked_circle_stub()
-        );
-    }
-
-    #[test]
-    fn display_symbol_extra_fields_are_not_forwarded() {
-        let mut entry = circle_entry();
-        entry["display"]["symbol"] = json!({
-            "glyph": "shield",
-            "title": "Security Council",
-            "member_count": 7
-        });
-        let preview = project_circle_entry(&entry, CircleDirectoryAudience::ParentRealmMember);
-        assert_eq!(preview["display"]["symbol"], json!({ "glyph": "shield" }));
-        let serialized = preview.to_string();
-        assert!(!serialized.contains("Security Council"));
-        assert!(!serialized.contains("\"member_count\":"));
-    }
-
-    #[test]
     fn public_projection_sanitizer_collapses_circle_directory_to_one_stub() {
         let mut projection = json!({
             "name": "Tea Research",
@@ -426,5 +158,12 @@ mod tests {
         ] {
             assert!(!serialized.contains(forbidden), "{forbidden} leaked");
         }
+    }
+
+    #[test]
+    fn realm_members_visibility_still_collapses_in_the_public_index() {
+        let mut projection = json!({ "circles": [circle_entry()] });
+        sanitize_circle_directory_projection(&mut projection);
+        assert_eq!(projection["circles"], locked_circle_stub());
     }
 }

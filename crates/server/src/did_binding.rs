@@ -40,8 +40,8 @@
 use std::sync::Arc;
 
 use arkret_identity::binding::{
-    DidBindingPurpose, DidBindingStatus, FreshnessProfile, FreshnessRiskTier, LimitedTrust,
-    StaleBehavior, VerifiedDidBinding, VerifiedDidBindingDocumentInput, VerifiedDidBindingKey,
+    DidBindingPurpose, DidBindingStatus, FreshnessProfile, LimitedTrust, VerifiedDidBinding,
+    VerifiedDidBindingDocumentInput, VerifiedDidBindingKey,
 };
 use arkret_identity::binding_digest::{EvidenceReceipt, MethodEvidence};
 use arkret_identity::binding_store::{
@@ -74,25 +74,30 @@ const MAX_BINDINGS: usize = 4096;
 /// (`BINDING_REFRESH_AFTER` for the former, `FreshnessRequirement::any_accepted`
 /// for the latter) can no longer drift apart.
 ///
+/// The id is `unregistered_fail_closed`, and deliberately so. §5.4 forbids an
+/// implementation inventing a `freshness_profile_id`, and no directory
+/// operation carries a `did_authority` row that would name a better one — so
+/// the registry's own declared fallback is the only id this call site may
+/// reference. Behaviour is unchanged: that row is `high` with
+/// `synchronous_refresh_or_fail_closed`, which is what this path already did.
+/// Registering the directory's ingest/query call sites is tracked in
+/// `review/spec-open/2026-08-14-2126-service-local-did-authority-call-sites.md`.
+///
 /// Tier is `high`, and that is not a behaviour change for ordinary requests.
 /// The §5 rule "cache TTL expiry alone MUST NOT turn an ordinary business
 /// request into an online DID resolution" is carried by
 /// [`DidBindingDirectory::accepted`], which reads the store directly and returns
 /// a `Stale` entry unchanged; both faces consult it *before* any authority path
 /// exists. This profile is only ever exercised when there is no usable entry at
-/// all — a genuine §4 trigger — where "refresh synchronously or fail closed" is
-/// the only correct answer. The §5.4 `high` constraints hold: both windows are
-/// finite and `0 < 600 <= 86400`, with no stale-consumption window.
+/// all, where "refresh synchronously or fail closed" is the only correct
+/// answer. The §5.4 `high` constraints hold: both windows are finite and
+/// `0 < 600 <= 86400`, with no stale-consumption window.
 pub(crate) fn binding_freshness_profile() -> FreshnessProfile {
-    FreshnessProfile {
-        freshness_profile_id: "ak.did_freshness.teabay_directory_authority.v1".to_owned(),
-        risk_tier: FreshnessRiskTier::High,
-        did_method_selector: vec!["*".to_owned()],
-        fresh_for_seconds: Some(600),
-        stale_grace_seconds: None,
-        hard_expiry_seconds: Some(24 * 3_600),
-        stale_behavior: StaleBehavior::SynchronousRefreshOrFailClosed,
-    }
+    FreshnessProfile::high_tier(
+        arkret_wire::DidFreshnessProfileId::UnregisteredFailClosedV1,
+        chrono::Duration::seconds(600),
+        Some(chrono::Duration::seconds(24 * 3_600)),
+    )
 }
 
 /// The default trust-domain scope when the configured `service_id` yields no

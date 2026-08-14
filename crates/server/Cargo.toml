@@ -23,7 +23,7 @@ bs58 = {workspace = true}
 chrono = {workspace = true}
 arkret-canonical = {workspace = true}
 arkret-sdk = {workspace = true}
-arkret-egress-policy = {workspace = true}
+arkret-egress-reqwest = {workspace = true}
 arkret-identity = {workspace = true}
 arkret-models-collaboration = {workspace = true}
 arkret-models-identity = {workspace = true}
