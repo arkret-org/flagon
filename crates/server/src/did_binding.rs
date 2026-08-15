@@ -74,14 +74,17 @@ const MAX_BINDINGS: usize = 4096;
 /// (`BINDING_REFRESH_AFTER` for the former, `FreshnessRequirement::any_accepted`
 /// for the latter) can no longer drift apart.
 ///
-/// The id is `unregistered_fail_closed`, and deliberately so. §5.4 forbids an
-/// implementation inventing a `freshness_profile_id`, and no directory
-/// operation carries a `did_authority` row that would name a better one — so
-/// the registry's own declared fallback is the only id this call site may
-/// reference. Behaviour is unchanged: that row is `high` with
-/// `synchronous_refresh_or_fail_closed`, which is what this path already did.
-/// Registering the directory's ingest/query call sites is tracked in
-/// `review/spec-open/2026-08-14-2126-service-local-did-authority-call-sites.md`.
+/// The id is `ongoing_governance`, the profile the three registered directory
+/// ingest call sites name: `ak.find.directory.command.announce`,
+/// `ak.find.directory.command.withdraw` and
+/// `ak.find.directory.command.takedown_appeal` each carry a `did_authority`
+/// row with `evidence_class = ongoing_governance`, and
+/// `did-freshness-profile-registry.json` lists all three in `call_sites[]`.
+/// What this path verifies is the governance signer of a service or
+/// organization — the closed `ongoing_governance` trigger scenario — not a
+/// human principal's operation, so it does not collide with the §4 exclusion
+/// list. Behaviour is unchanged from the previous fallback id: both rows are
+/// `high` with `synchronous_refresh_or_fail_closed`.
 ///
 /// Tier is `high`, and that is not a behaviour change for ordinary requests.
 /// The §5 rule "cache TTL expiry alone MUST NOT turn an ordinary business
@@ -94,7 +97,7 @@ const MAX_BINDINGS: usize = 4096;
 /// `0 < 600 <= 86400`, with no stale-consumption window.
 pub(crate) fn binding_freshness_profile() -> FreshnessProfile {
     FreshnessProfile::high_tier(
-        arkret_wire::DidFreshnessProfileId::UnregisteredFailClosedV1,
+        arkret_wire::DidFreshnessProfileId::OngoingGovernanceV1,
         chrono::Duration::seconds(600),
         Some(chrono::Duration::seconds(24 * 3_600)),
     )
