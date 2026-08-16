@@ -554,7 +554,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
             principal_server_service_id: body.principal_server_service_id.as_str().to_owned(),
-            reason: "ak.realm.destroy".into(),
+            reason: arkret_wire::CapabilityActionId::REALM_DESTROY.into(),
             revoked_at: destroyed_at,
         };
         let _ =

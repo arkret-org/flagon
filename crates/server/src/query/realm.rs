@@ -74,7 +74,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         &body.claim_presentations,
     );
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": "ak.find.directory.read.search_realms",
+        "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS,
         "query": &needle,
         "organization_principal_id": scope.organization_principal_id.as_ref(),
         "source_realm_id": scope.source_realm_id.as_ref(),
@@ -134,7 +134,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        "ak.find.directory.read.search_realms",
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS,
         &privacy_key,
         |target| {
             state
@@ -276,7 +276,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let outcome = pad_to_budget_observed(
         budget,
-        "ak.find.directory.read.resolve_realm",
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM,
         &key,
         |target| {
             state

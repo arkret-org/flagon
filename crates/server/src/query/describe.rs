@@ -62,7 +62,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // Round 4 — `supported_profiles` is the union of the directory
     // baseline profile and (optionally) the private-contact-discovery
     // extension profile. Empty array is valid; missing is not.
-    let mut supported_profiles = vec!["ak.profile.directory_service.v1".to_owned()];
+    let mut supported_profiles = vec![arkret_wire::ProfileId::DIRECTORY_SERVICE_V1.to_owned()];
     if cfg.private_contact_discovery_enabled {
         supported_profiles.push("ak.private_contact_discovery.v1".to_owned());
     }
@@ -75,7 +75,10 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(|op| (*op).to_owned())
         .collect();
     if cfg.private_contact_discovery_enabled {
-        supported_operations.push("ak.find.directory.read.private_contact_discovery".to_owned());
+        supported_operations.push(
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_PRIVATE_CONTACT_DISCOVERY
+                .to_owned(),
+        );
     }
 
     // Transport / encoding bindings this service speaks. Strongly typed

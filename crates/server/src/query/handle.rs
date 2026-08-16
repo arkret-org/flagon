@@ -283,7 +283,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        "ak.find.directory.read.resolve_handle",
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
         &privacy_key,
         |target| {
             state

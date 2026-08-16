@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 
 pub const LOCKED_VISIBILITY: &str = "locked";
 
-const COMMITMENT_DOMAIN_LOCKED: &str = "ak.circle.directory.locked_stub.v1";
+const COMMITMENT_DOMAIN_LOCKED: &str = "org.arkret.teabay.circle_directory_locked_stub.v1";
 
 const DIRECTORY_CONTAINER_KEYS: &[&str] = &[
     "circle_directory",

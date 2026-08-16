@@ -80,11 +80,11 @@ impl DirectoryResourceKindDb {
     /// `resource_kind=space` is rejected at deserialization.
     pub fn discovery_event_kind(self) -> &'static str {
         match self {
-            Self::Realm => "ak.realm.discovery",
-            Self::Organization => "ak.organization.discovery",
-            Self::Actor => "ak.actor.discovery",
-            Self::Applet => "ak.applet.discovery",
-            Self::Handle => "ak.handle.discovery",
+            Self::Realm => arkret_wire::event_kind_str::REALM_DISCOVERY,
+            Self::Organization => arkret_wire::event_kind_str::ORGANIZATION_DISCOVERY,
+            Self::Actor => arkret_wire::event_kind_str::ACTOR_DISCOVERY,
+            Self::Applet => arkret_wire::event_kind_str::APPLET_DISCOVERY,
+            Self::Handle => arkret_wire::event_kind_str::HANDLE_DISCOVERY,
         }
     }
 }

@@ -167,7 +167,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             );
             pad_to_budget_observed(
                 budget,
-                "ak.find.directory.read.private_contact_discovery",
+                arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_PRIVATE_CONTACT_DISCOVERY,
                 &privacy_key,
                 |target| {
                     state
@@ -214,7 +214,7 @@ pub async fn private_contact_discovery(req: &mut Request, depot: &mut Depot, res
             );
             pad_to_budget_observed(
                 budget,
-                "ak.find.directory.read.private_contact_discovery",
+                arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_PRIVATE_CONTACT_DISCOVERY,
                 &privacy_key,
                 |target| {
                     state

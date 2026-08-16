@@ -136,7 +136,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             .record_cardinality_guard("page_limit_clamped", 1);
     }
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": "ak.find.directory.read.list_handles_for_subject",
+        "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT,
         "realm_id": body.realm_id.as_ref(),
         "intent": body.intent.as_deref(),
         "requester": body.requester.as_ref(),
@@ -204,7 +204,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let metrics = state.metrics().clone();
     let outcome = pad_to_budget_observed(
         budget,
-        "ak.find.directory.read.list_handles_for_subject",
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT,
         &privacy_key,
         |target| {
             state

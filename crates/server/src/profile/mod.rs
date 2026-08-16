@@ -50,7 +50,8 @@ pub fn verify_or_panic() {
     let baseline = BaselineProfile::load();
 
     assert_eq!(
-        baseline.profile, "ak.profile.directory_service.v1",
+        baseline.profile,
+        arkret_wire::ProfileId::DIRECTORY_SERVICE_V1,
         "teabay baseline profile JSON declares profile {:?} but this binary only implements ak.profile.directory_service.v1",
         baseline.profile,
     );
