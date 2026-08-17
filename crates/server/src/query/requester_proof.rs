@@ -27,8 +27,9 @@
 //!
 //! `proof.kind` is the production detached-JWS kind, `domain` is absent,
 //! `proof_purpose` is absent (`governance_authorization` belongs to the §8.7.1
-//! write surface only), `audience` is present and single-valued, and
-//! `proof.payload_digest` byte-equals `SHA-256(JCS(request_without_proofs))`.
+//! write surface only), `audience` is present, single-valued and in
+//! `did_core_id` form, and `proof.payload_digest` byte-equals
+//! `SHA-256(JCS(request_without_proofs))`.
 //! The family helper also fails closed when the request carries `proofs[]` but
 //! omits the family's originator wire field.
 //!
@@ -218,14 +219,18 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         ));
     }
 
-    // §9.0.1: `audience` MUST be the target Directory's service DID, single
-    // valued. The SDK helper rejects a missing or multi-valued audience; only
-    // this directory knows whether the value names *it*.
+    // §9.0.1: `audience` MUST be the target Directory `service_id` published by
+    // `ak.find.directory.read.describe`, single valued and in `did_core_id`
+    // form. The SDK helper rejects a missing, multi-valued, or full-DID
+    // audience; only this directory knows whether the value names *it*.
+    // `config().service_id` is the projected core id this directory publishes,
+    // which is the same value `filter::discoverers` compares §2 claim
+    // presentations against.
     match proof.audience.as_ref() {
         Some(Audience::Single(audience)) if audience == expected_audience => {}
         _ => {
             return Err(
-                "directory requester proof audience must be this directory's service DID"
+                "directory requester proof audience must be this directory's service_id"
                     .to_owned(),
             );
         }

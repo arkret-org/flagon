@@ -13,8 +13,8 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, DidCoreId,
-    DirectoryAcceptPolicyKind, DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy,
+    AuthMetadata, BindingKind, ClaimedProfileEntry, DidCoreId, DirectoryAcceptPolicyKind,
+    DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry,
     PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding,
     TrustDomainId, VerifiedProfileEntry,
 };
@@ -270,9 +270,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // `development_mode=true ⇒ verified_profiles=[]` invariant is
     // enforced by `ServiceDescribe::validate`.
     //
-    // Round 4 — `claimed_profiles` / `verified_profiles` / `compat_surfaces`
+    // Round 4 — `claimed_profiles` / `verified_profiles` / `interop_surfaces`
     // are typed entries in the SDK (`ClaimedProfileEntry` /
-    // `VerifiedProfileEntry` / `CompatSurfaceEntry`), not bare strings.
+    // `VerifiedProfileEntry` / `InteropSurfaceEntry`), not bare strings.
     let claimed_profiles: Vec<ClaimedProfileEntry> = supported_profiles
         .iter()
         .map(ClaimedProfileEntry::self_claimed)
@@ -287,9 +287,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     .map(str::to_owned)
     .collect();
 
-    // `compat_surfaces` — the directory bridges no foreign protocol and
+    // `interop_surfaces` — the directory bridges no foreign protocol and
     // serves no delegated resolver surface.
-    let compat_surfaces: Vec<CompatSurfaceEntry> = Vec::new();
+    let interop_surfaces: Vec<InteropSurfaceEntry> = Vec::new();
 
     let describe_body = ServiceDescribe {
         service_id,
@@ -311,7 +311,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         claimed_profiles,
         verified_profiles,
         experimental_features,
-        compat_surfaces,
+        interop_surfaces,
         extensions: BTreeMap::new(),
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
@@ -519,7 +519,7 @@ mod tests {
             "claimed_profiles",
             "verified_profiles",
             "experimental_features",
-            "compat_surfaces",
+            "interop_surfaces",
             "development_mode",
         ] {
             assert!(
@@ -632,7 +632,7 @@ mod tests {
                 extra: Default::default(),
             }],
             experimental_features: Vec::new(),
-            compat_surfaces: Vec::new(),
+            interop_surfaces: Vec::new(),
             development_mode: true,
             rate_limit_policy: Some(RateLimitPolicy::unspecified()),
             rate_limit_policy_id: None,
@@ -687,7 +687,7 @@ mod tests {
             "claimed_profiles",
             "verified_profiles",
             "experimental_features",
-            "compat_surfaces",
+            "interop_surfaces",
             "development_mode",
             "rate_limit_policy",
             "rate_limit_policy_id",
