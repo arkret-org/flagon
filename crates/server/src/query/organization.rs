@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use arkret_sdk::{
     DidCoreId, DirectoryOrganizationResolutionOutcome, DirectoryOrganizationSearchOutcome,
-    DirectoryRestrictedClaimPresentation, DirectorySearchOrganizationsRequestBody,
-    OrganizationPreview,
+    DirectoryResolveOrganizationRequestBody, DirectoryRestrictedClaimPresentation,
+    DirectorySearchOrganizationsRequestBody, OrganizationPreview,
 };
 use arkret_server::CursorBindingContext;
 use chrono::{DateTime, Utc};
@@ -212,7 +212,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-organization");
-    let body: OrganizationResolveRequestView = match req.parse_json().await {
+    let body: DirectoryResolveOrganizationRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::JsonInvalid.render(res, format!("malformed resolve body: {error}"));
@@ -223,7 +223,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         .organization_principal_id
         .as_ref()
         .map(|did| did.as_str().to_owned())
-        .or(body.handle);
+        .or_else(|| body.handle.clone());
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
@@ -240,17 +240,11 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    let requester = body
-        .requester
-        .as_ref()
-        .map(DidCoreId::as_str)
-        .map(str::to_owned);
-    let verified_claims = verified_restricted_claims_for_org_query(
-        &state,
-        requester.as_deref(),
-        body.proof_challenge.as_deref(),
-        &body.claim_presentations,
-    );
+    // `ak.find.directory.read.resolve_organization` has no requester,
+    // proof_challenge or claim_presentations input (spec §9 operation table):
+    // its only authorization channel is the §9.0.1 `proofs[]`. A `restricted`
+    // organization row therefore has no way to be unlocked here and collapses
+    // to the same blinded `not_found` as a genuine miss.
     let row = pad_to_budget_observed(
         budget,
         arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION,
@@ -261,9 +255,20 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
                 .record_anti_enum_pad("resolve-organization", target)
         },
         async {
+            // Inside the latency budget so a §9.0.1 proof failure is
+            // timing-equivalent to a genuine miss (§9.2).
+            if let Err(reason) = crate::query::requester_proof::verify_requester_proofs(
+                &body,
+                state.config().service_id.as_str(),
+                state.did_bindings(),
+                Utc::now(),
+            ) {
+                tracing::debug!(%reason, "resolve_organization requester proof rejected");
+                return Ok::<_, anyhow::Error>(None);
+            }
             let row = load_org_row(&state, &key).await?;
             Ok::<_, anyhow::Error>(
-                row.filter(|row| is_org_visible(row, requester.as_deref(), &verified_claims)),
+                row.filter(|row| is_org_visible(row, None, &VerifiedRestrictedClaims::default())),
             )
         },
     )
@@ -302,20 +307,6 @@ struct OrganizationRestrictedClaims {
     claim_presentations: Vec<DirectoryRestrictedClaimPresentation>,
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct OrganizationResolveRequestView {
-    #[serde(default)]
-    organization_principal_id: Option<DidCoreId>,
-    #[serde(default)]
-    handle: Option<String>,
-    #[serde(default)]
-    requester: Option<DidCoreId>,
-    #[serde(default)]
-    proof_challenge: Option<String>,
-    #[serde(default)]
-    claim_presentations: Vec<DirectoryRestrictedClaimPresentation>,
-}
-
 fn parse_org_restricted_claims(
     value: &Option<BTreeMap<String, JsonValue>>,
 ) -> OrganizationRestrictedClaims {
@@ -337,7 +328,7 @@ fn verified_restricted_claims_for_org_query(
         presentations,
         requester,
         proof_challenge,
-        state.config().service_full_id.as_str(),
+        state.config().service_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()

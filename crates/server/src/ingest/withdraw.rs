@@ -312,14 +312,61 @@ pub(crate) async fn resolve_withdraw_resource_kind(
     }
 }
 
+/// Classify a `resource_id` by parsing it as the SDK typed id / canonical form
+/// each kind actually uses, not by sniffing a prefix.
+///
+/// A prefix test is strictly looser than the wire contract: `ak:realm:x` and
+/// `ak:applet:x` both pass `starts_with` while neither is a legal id, so a
+/// caller could name a resource the announce face could never have indexed.
+/// `RealmId` enforces the 44-character realm token layout and `AppletId` the
+/// RFC 9562 UUIDv7 payload, so only a canonical id classifies.
+///
+/// There is no `handle` id kind in `registry/id-kind-registry.json` and no
+/// `ak:handle:` wire form: handles are indexed under the canonical
+/// `<localpart>:<domain>` form that `resolve_handle` looks up, so that is what
+/// this recognises.
+///
+/// `organization` and `actor` are both plain `did_core_id` values and are not
+/// distinguishable from the id alone; they resolve through the indexed row
+/// instead, which is the caller's preferred path anyway.
 fn infer_resource_kind(resource_id: &str) -> Option<DirectoryResourceKindDb> {
-    if resource_id.starts_with("ak:realm:") {
-        Some(DirectoryResourceKindDb::Realm)
-    } else if resource_id.starts_with("ak:applet:") {
-        Some(DirectoryResourceKindDb::Applet)
-    } else if resource_id.starts_with("ak:handle:") {
-        Some(DirectoryResourceKindDb::Handle)
-    } else {
-        None
+    if arkret_sdk::RealmId::new(resource_id).is_ok() {
+        return Some(DirectoryResourceKindDb::Realm);
+    }
+    if arkret_sdk::AppletId::new(resource_id).is_ok() {
+        return Some(DirectoryResourceKindDb::Applet);
+    }
+    if arkret_sdk::Handle::parse(resource_id).is_ok() {
+        return Some(DirectoryResourceKindDb::Handle);
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_kind_inference_requires_a_canonical_id() {
+        assert_eq!(
+            infer_resource_kind("ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb"),
+            Some(DirectoryResourceKindDb::Realm)
+        );
+        assert_eq!(
+            infer_resource_kind("ak:applet:01904100-0000-7000-8000-aaaaaaaaaaaa"),
+            Some(DirectoryResourceKindDb::Applet)
+        );
+        assert_eq!(
+            infer_resource_kind("alice:example.com"),
+            Some(DirectoryResourceKindDb::Handle)
+        );
+
+        // A bare prefix test would have accepted every one of these.
+        assert_eq!(infer_resource_kind("ak:realm:not-a-realm-token"), None);
+        assert_eq!(infer_resource_kind("ak:applet:not-a-uuid"), None);
+        // `ak:handle:` is not a registered id kind at all.
+        assert_eq!(infer_resource_kind("ak:handle:alice"), None);
+        // A DID core id is not classifiable from the id alone.
+        assert_eq!(infer_resource_kind("ak:did_core:web:acme.example"), None);
     }
 }

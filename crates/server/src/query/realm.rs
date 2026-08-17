@@ -335,7 +335,7 @@ fn verified_restricted_claims_for_realm_query(
         presentations,
         requester,
         proof_challenge,
-        state.config().service_full_id.as_str(),
+        state.config().service_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()

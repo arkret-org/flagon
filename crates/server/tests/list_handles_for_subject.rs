@@ -19,7 +19,6 @@
 use arkret_sdk::DirectoryListHandlesForSubjectRequestBody;
 use chrono::{TimeZone, Utc};
 use serde_json::json;
-use server::filter::discoverers::VerifiedRestrictedClaims;
 use server::ingest::DiscoverabilityDb;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 
@@ -66,16 +65,8 @@ fn happy_path_single_active_claim() {
         DiscoverabilityDb::Public,
     )];
 
-    let response = assemble_response(
-        &req(None, None),
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("happy path must not fail closed");
+    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
+        .expect("happy path must not fail closed");
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(response.subject.as_str(), "ak:did_core:web:alice.example");
@@ -109,16 +100,8 @@ fn subject_mismatch_claim_is_dropped() {
         ),
     ];
 
-    let response = assemble_response(
-        &req(None, None),
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("matching claim survives, foreign claim dropped");
+    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
+        .expect("matching claim survives, foreign claim dropped");
 
     assert_eq!(response.claims.len(), 1);
     for claim in &response.claims {
@@ -141,16 +124,8 @@ fn subject_mismatch_only_candidate_returns_empty() {
         DiscoverabilityDb::Public,
     )];
 
-    let response = assemble_response(
-        &req(None, None),
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("empty-but-valid response, not fail-closed");
+    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
+        .expect("empty-but-valid response, not fail-closed");
 
     assert!(response.claims.is_empty());
     assert!(response.primary_handle.is_none());
@@ -182,16 +157,7 @@ fn audience_out_of_scope_is_filtered() {
     // Requester is tea-org; the scoped claim's audience is someone-else, so it
     // is filtered; the unpinned claim survives.
     let body = req(None, Some("ak:did_core:web:tea-org.example"));
-    let response = assemble_response(
-        &body,
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("ok");
+    let response = assemble_response(&body, rows, &[], 0, 20, None).expect("ok");
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
@@ -214,16 +180,7 @@ fn audience_matching_requester_is_retained() {
     )];
 
     let body = req(None, Some("ak:did_core:web:tea-org.example"));
-    let response = assemble_response(
-        &body,
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("ok");
+    let response = assemble_response(&body, rows, &[], 0, 20, None).expect("ok");
     assert_eq!(response.claims.len(), 1);
 }
 
@@ -256,16 +213,7 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
         Some("ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb"),
         None,
     );
-    let response = assemble_response(
-        &body,
-        rows,
-        &accepted,
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("ok");
+    let response = assemble_response(&body, rows, &accepted, 0, 20, None).expect("ok");
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
@@ -299,16 +247,7 @@ fn cursor_pagination_boundary() {
     ];
 
     // First page (offset 0, limit 2).
-    let page1 = assemble_response(
-        &req(None, None),
-        rows.clone(),
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        2,
-        None,
-    )
-    .expect("ok");
+    let page1 = assemble_response(&req(None, None), rows.clone(), &[], 0, 2, None).expect("ok");
     assert_eq!(page1.claims.len(), 2);
     assert!(page1.has_more);
     assert!(page1.next_cursor.is_none());
@@ -324,16 +263,7 @@ fn cursor_pagination_boundary() {
     // The handler resolves the opaque cursor to offset 2 before invoking the
     // pure assembler.
     let body2 = req(None, None);
-    let page2 = assemble_response(
-        &body2,
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        2,
-        2,
-        None,
-    )
-    .expect("ok");
+    let page2 = assemble_response(&body2, rows, &[], 2, 2, None).expect("ok");
     assert_eq!(page2.claims.len(), 1);
     assert!(!page2.has_more);
     assert!(page2.next_cursor.is_none());
@@ -352,23 +282,16 @@ fn non_visible_row_is_dropped_by_disclosure_gate() {
         DiscoverabilityDb::Secret,
     )];
 
-    let response = assemble_response(
-        &req(None, None),
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("ok");
+    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None).expect("ok");
     assert!(response.claims.is_empty());
 }
 
-/// A restricted handle with claim-gated discoverers is invisible unless the
-/// caller supplied a verified restricted-claim presentation.
+/// A restricted handle stays invisible on this surface. The §9 operation table
+/// gives `list_handles_for_subject` no `claim_presentations[]` input, and
+/// `allowed_discoverers` selectors are claim-shaped, so there is no way to
+/// satisfy them here — fail closed rather than disclose.
 #[test]
-fn restricted_claim_handle_requires_verified_presentation() {
+fn restricted_claim_handle_is_never_disclosed_on_this_surface() {
     let rows = vec![row(
         json!({
             "did": "ak:did_core:web:alice.example",
@@ -384,16 +307,7 @@ fn restricted_claim_handle_requires_verified_presentation() {
     )];
 
     let body = req(None, Some("ak:did_core:web:alice.example"));
-    let response = assemble_response(
-        &body,
-        rows,
-        &[],
-        &VerifiedRestrictedClaims::default(),
-        0,
-        20,
-        None,
-    )
-    .expect("ok");
+    let response = assemble_response(&body, rows, &[], 0, 20, None).expect("ok");
 
     assert!(response.claims.is_empty());
     assert!(response.primary_handle.is_none());

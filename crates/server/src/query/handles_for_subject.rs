@@ -30,10 +30,22 @@
 //!
 //! ## Disclosure scope
 //!
-//! The full disclosure-policy engine (per-claim visibility and claim_scope
-//! evaluation) is shared with `resolve_handle`. This endpoint applies the
-//! directory-visibility gate, issuer-trust ordering, audience scope filter, and
-//! historical `as_of` replay for the indexed handle projections.
+//! This endpoint applies the directory-visibility gate, issuer-trust ordering,
+//! audience scope filter, and historical `as_of` replay for the indexed handle
+//! projections.
+//!
+//! Its authorization inputs are exactly the ones the §9 operation table lists:
+//! `requester` and the §9.0.1 `proofs[]`. There is no `claim_presentations[]`
+//! channel here, so a `restricted` row (whose `allowed_discoverers` selectors
+//! are claim-shaped) stays invisible on this surface.
+//!
+//! ## Requester proof (§9.0.1)
+//!
+//! `proofs[]` carries the per-object-family requester proof bound to
+//! `ak.directory-list-handles-for-subject-request-proof-v1`. Verification lives
+//! in [`crate::query::requester_proof`] and runs inside the latency budget; a
+//! rejected proof collapses to the same blinded `not_found` as any other
+//! failure.
 
 // NOTE: `arkret_sdk::HandleClaim` resolves to the SDK identity-layer claim
 // (`identity::handles::HandleClaim`), which shadows the wire-schema claim at
@@ -41,8 +53,8 @@
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
 use arkret_models_identity::HandleClaim;
 use arkret_sdk::{
-    DirectoryListHandlesForSubjectRequestBody, DirectoryRestrictedClaimPresentation,
-    DirectorySubjectHandleList, Handle, validate_handle_claim_subject,
+    DirectoryListHandlesForSubjectRequestBody, DirectorySubjectHandleList, Handle,
+    validate_handle_claim_subject,
 };
 use arkret_server::CursorBindingContext;
 use base64::Engine as _;
@@ -56,9 +68,6 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
-use crate::filter::discoverers::{
-    VerifiedRestrictedClaims, matches_allowed_discoverers, verify_restricted_claim_presentations,
-};
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
@@ -275,6 +284,21 @@ async fn build_response(
     limit: u32,
     metrics: &crate::observability::Metrics,
 ) -> ListOutcome {
+    // §9.0.1 requester proof. Runs inside the caller's latency budget so a
+    // proof-layer rejection is timing-equivalent to a genuine miss (§9.2), and
+    // BEFORE any row load so an invalid proof cannot be timed against the
+    // presence of the subject.
+    if let Err(reason) = crate::query::requester_proof::verify_requester_proofs(
+        body,
+        state.config().service_id.as_str(),
+        state.did_bindings(),
+        Utc::now(),
+    ) {
+        tracing::debug!(%reason, "list_handles_for_subject requester proof rejected");
+        metrics.record_filter_drop("requester_proof_invalid");
+        return ListOutcome::FailClosed;
+    }
+
     let (rows, scan_capped) =
         match load_subject_handle_rows(state, body.subject.as_str(), body.as_of).await {
             Ok(result) => result,
@@ -294,19 +318,10 @@ async fn build_response(
         Some(realm_id) => load_accepted_issuers(state, realm_id.as_str(), body.as_of).await,
         None => Vec::new(),
     };
-    let verified_claims = match verified_restricted_claims_for_body(state, body) {
-        Ok(claims) => claims,
-        Err(_) => {
-            metrics.record_filter_drop("restricted_proof_invalid");
-            VerifiedRestrictedClaims::default()
-        }
-    };
-
     match assemble_response(
         body,
         rows,
         &accepted_issuers,
-        &verified_claims,
         cursor_offset,
         limit,
         Some(metrics),
@@ -330,7 +345,6 @@ pub fn assemble_response(
     body: &DirectoryListHandlesForSubjectRequestBody,
     rows: Vec<SubjectHandleRow>,
     accepted_issuers: &[String],
-    verified_claims: &VerifiedRestrictedClaims,
     cursor_offset: usize,
     limit: u32,
     metrics: Option<&crate::observability::Metrics>,
@@ -350,7 +364,7 @@ pub fn assemble_response(
     for row in rows {
         // Disclosure gate: only directory-visible rows surface, shared with
         // resolve_handle.
-        if !handle_row_visible_to_requester(&row, body, verified_claims) {
+        if !handle_row_visible_to_requester(&row) {
             drop("disclosure");
             continue;
         }
@@ -420,47 +434,21 @@ pub fn assemble_response(
     Some(response)
 }
 
-fn verified_restricted_claims_for_body(
-    state: &AppState,
-    body: &DirectoryListHandlesForSubjectRequestBody,
-) -> Result<VerifiedRestrictedClaims, String> {
-    if body.proofs.is_empty() {
-        return Ok(VerifiedRestrictedClaims::default());
-    }
-    let presentations = parse_restricted_claim_presentations(&body.proofs)?;
-    verify_restricted_claim_presentations(
-        &presentations,
-        body.requester.as_ref().map(|did| did.as_str()),
-        body.proof_challenge.as_deref(),
-        state.config().service_full_id.as_str(),
-        state.did_bindings(),
-    )
-}
-
-fn parse_restricted_claim_presentations(
-    proofs: &[arkret_sdk::Proof],
-) -> Result<Vec<DirectoryRestrictedClaimPresentation>, String> {
-    proofs
-        .iter()
-        .map(|proof| {
-            serde_json::to_value(proof)
-                .and_then(serde_json::from_value)
-                .map_err(|error| format!("restricted claim presentation invalid: {error}"))
-        })
-        .collect()
-}
-
-fn handle_row_visible_to_requester(
-    row: &SubjectHandleRow,
-    body: &DirectoryListHandlesForSubjectRequestBody,
-    verified_claims: &VerifiedRestrictedClaims,
-) -> bool {
+/// Disclosure gate for one indexed handle row.
+///
+/// `ak.find.directory.read.list_handles_for_subject` has no
+/// `claim_presentations[]` channel (spec §9 operation table): its only
+/// authorization inputs are `requester` and the §9.0.1 `proofs[]`, and
+/// `allowed_discoverers` selectors are claim-shaped (§3). A `restricted` row
+/// therefore has no way to be unlocked on this surface and stays invisible —
+/// fail closed, and the same blinded outcome as a row that does not exist.
+///
+/// `proofs[]` MUST NOT be reinterpreted as claim presentations here: §2
+/// forbids parsing an Event/payload proof as a claim presentation, and the two
+/// wire shapes are disjoint.
+fn handle_row_visible_to_requester(row: &SubjectHandleRow) -> bool {
     match row.discoverability {
-        DiscoverabilityDb::Restricted => matches_allowed_discoverers(
-            &row.public_projection,
-            body.requester.as_ref().map(|did| did.as_str()),
-            verified_claims,
-        ),
+        DiscoverabilityDb::Restricted => false,
         other => other.is_directory_visible(),
     }
 }

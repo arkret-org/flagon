@@ -30,4 +30,5 @@ pub mod organization;
 pub mod psi;
 pub mod rate_limit;
 pub mod realm;
+pub mod requester_proof;
 pub mod target;

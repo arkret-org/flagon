@@ -31,6 +31,14 @@
 //!      minted for object A can never be replayed onto a different object B (scope-confusion
 //!      defence).
 //!
+//! ## Requester proof (§9.0.1)
+//!
+//! `proofs[]` carries the per-object-family requester proof bound to
+//! `ak.directory-resolve-target-request-proof-v1` — a distinct signature domain
+//! from every other directory request family, so a proof minted for
+//! `resolve_handle` (or any other family) can never be replayed here.
+//! Verification lives in [`crate::query::requester_proof`].
+//!
 //! On ANY mismatch — bad token JSON, invalid signature, expired token,
 //! missing/empty audience, digest mismatch, alias-vs-token `realm_id` mismatch,
 //! or an alias that cannot be resolved to a canonical id — we collapse to the
@@ -67,6 +75,7 @@ use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
 use crate::observability::{SIGNATURE_KIND_INVITE_TOKEN, SIGNATURE_KIND_PREVIEW_TOKEN};
 use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_rate_limit};
 use crate::query::realm::resolve_realm_visible;
+use crate::query::requester_proof::verify_requester_proofs;
 use crate::state::AppState;
 
 /// Dashed metric op label for this surface.
@@ -124,11 +133,12 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     // every input that changes the visible outcome so repeated probes from one
     // origin land on a stable tier without leaking hit/miss.
     let privacy_key = format!(
-        "addr={};req={};tok={};claims={}",
+        "addr={};req={};tok={};claims={};proofs={}",
         body.address,
         requester.as_deref().unwrap_or_default(),
         token.as_deref().map(|_| "1").unwrap_or("0"),
         body.claim_presentations.len(),
+        body.proofs.len(),
     );
 
     let outcome = pad_to_budget_observed(
@@ -136,13 +146,28 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
         arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_TARGET,
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad(OP, target),
-        resolve(
-            &state,
-            &body.address,
-            requester.as_deref(),
-            &verified_claims,
-            token.as_deref(),
-        ),
+        async {
+            // §9.0.1 requester proof, inside the latency budget so a
+            // proof-layer rejection is timing-equivalent to a genuine miss
+            // (§9.2) and before any address resolution.
+            if let Err(reason) = verify_requester_proofs(
+                &body,
+                state.config().service_id.as_str(),
+                state.did_bindings(),
+                Utc::now(),
+            ) {
+                tracing::debug!(%reason, "resolve_target requester proof rejected");
+                return ResolveOutcome::ProofReject;
+            }
+            resolve(
+                &state,
+                &body.address,
+                requester.as_deref(),
+                &verified_claims,
+                token.as_deref(),
+            )
+            .await
+        },
     )
     .await;
 
@@ -159,6 +184,12 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
         // mismatch → token-reject, surfaced to the SAME blinded not_found.
         ResolveOutcome::TokenReject => {
             state.metrics().record_query_outcome(OP, "token_reject");
+            ApiErrorCode::NotFound.render(res, "not found");
+        }
+        // §9.0.1 requester proof failed — same blinded not_found, split only
+        // for the operator metric.
+        ResolveOutcome::ProofReject => {
+            state.metrics().record_query_outcome(OP, "proof_reject");
             ApiErrorCode::NotFound.render(res, "not found");
         }
         // Hidden / withdrawn / unknown / unparseable address — blinded miss.
@@ -183,19 +214,21 @@ fn verified_restricted_claims_for_target_query(
         presentations,
         requester,
         proof_challenge,
-        state.config().service_full_id.as_str(),
+        state.config().service_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()
 }
 
-/// The internal resolve outcome. `TokenReject` and `NotFound` BOTH render the
-/// same blinded `not_found` wire response — the split exists ONLY so the
-/// `/metrics` surface can distinguish a scope-confusion / token failure from a
-/// genuine miss for operator dashboards. The wire bytes are identical.
+/// The internal resolve outcome. `TokenReject`, `ProofReject` and `NotFound`
+/// ALL render the same blinded `not_found` wire response — the split exists
+/// ONLY so the `/metrics` surface can distinguish a scope-confusion / token
+/// failure or a §9.0.1 requester-proof failure from a genuine miss for
+/// operator dashboards. The wire bytes are identical.
 enum ResolveOutcome {
     Ok(Box<DirectoryTargetResolutionOutcome>),
     TokenReject,
+    ProofReject,
     NotFound,
     Error(String),
 }

@@ -123,6 +123,9 @@ pub const DID_RESOLVE_SOURCE_NETWORK: &str = "network";
 /// verification" and "per-signature resolution" are independent counters).
 pub const SIGNATURE_KIND_INGEST_PROOF: &str = "ingest_governance_proof";
 pub const SIGNATURE_KIND_RESTRICTED_CLAIM: &str = "restricted_claim_presentation";
+/// `discovery-directory.md` §9.0.1 per-object-family requester proof carried in
+/// a directory read request's `proofs[]`.
+pub const SIGNATURE_KIND_DIRECTORY_REQUESTER_PROOF: &str = "directory_requester_proof";
 pub const SIGNATURE_KIND_INVITE_TOKEN: &str = "invite_token";
 pub const SIGNATURE_KIND_PREVIEW_TOKEN: &str = "preview_token";
 pub const SIGNATURE_KIND_HTTP_SIGNATURE: &str = "http_signature";
@@ -140,6 +143,7 @@ pub const SIGNATURE_OUTCOME_POLICY_REJECTED: &str = "policy_rejected";
 const SIGNATURE_VERIFY_KINDS: &[&str] = &[
     SIGNATURE_KIND_INGEST_PROOF,
     SIGNATURE_KIND_RESTRICTED_CLAIM,
+    SIGNATURE_KIND_DIRECTORY_REQUESTER_PROOF,
     SIGNATURE_KIND_INVITE_TOKEN,
     SIGNATURE_KIND_PREVIEW_TOKEN,
     SIGNATURE_KIND_HTTP_SIGNATURE,

@@ -7,6 +7,12 @@
 //! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
 //! the underlying subject / service DID — they collapse to `not_found` with
 //! the same response shape and latency tier as a genuine miss (§10).
+//!
+//! §9.0.1: `proofs[]` carries the per-object-family requester proof bound to
+//! `ak.directory-resolve-handle-request-proof-v1`. A signature minted under any
+//! other directory request family's context cannot verify here. Verification
+//! lives in [`crate::query::requester_proof`] and its failure collapses to the
+//! same blinded `not_found` inside the latency budget.
 
 use arkret_sdk::{
     DidCoreId, DirectoryHandleResolutionOutcome,
@@ -233,6 +239,16 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
             return;
         }
     };
+    // §9.0.1 requester proof. The proof binds the whole unsigned request body,
+    // so it is verified against the SDK wire type before the internal view
+    // drops anything.
+    let proof_count = sdk_body.proofs.len();
+    let requester_proof = crate::query::requester_proof::verify_requester_proofs(
+        &sdk_body,
+        state.config().service_id.as_str(),
+        state.did_bindings(),
+        Utc::now(),
+    );
     let body = ResolveHandleRequestView::from(sdk_body);
     if body.handle.is_empty() {
         ApiErrorCode::ParamMissing.render(res, "handle is required");
@@ -271,13 +287,14 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     ip_hasher.update(requester_ip.as_bytes());
     let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
     let privacy_key = format!(
-        "handle={};intent={};realm={};req={};aud={};claims={};iph={}",
+        "handle={};intent={};realm={};req={};aud={};claims={};proofs={};iph={}",
         body.handle,
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id.as_deref().unwrap_or_default(),
         body.requester.as_deref().unwrap_or_default(),
         body.audience.as_deref().unwrap_or_default(),
         body.claim_presentations.len(),
+        proof_count,
         requester_ip_hash,
     );
 
@@ -291,6 +308,13 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 .record_anti_enum_pad("resolve-handle", target)
         },
         async {
+            // Collapsed inside the latency budget so a §9.0.1 proof failure is
+            // timing-equivalent to a genuine miss (§9.2) and never reveals a
+            // proof-layer reason.
+            if let Err(reason) = &requester_proof {
+                tracing::debug!(%reason, "resolve_handle requester proof rejected");
+                return ResolveOutcome::NotFound;
+            }
             let row = match load_handle_row(&state, &body.handle).await {
                 Ok(row) => row,
                 Err(_) => return ResolveOutcome::NotFound,
@@ -343,7 +367,7 @@ fn verified_restricted_claims_for_handle_query(
         &body.claim_presentations,
         body.requester.as_deref(),
         body.proof_challenge.as_deref(),
-        state.config().service_full_id.as_str(),
+        state.config().service_id.as_str(),
         state.did_bindings(),
     )
     .unwrap_or_default()
