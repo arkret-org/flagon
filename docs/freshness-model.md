@@ -89,7 +89,7 @@ announce history remains in `ingest_announces`.
 
 Cross-directory divergence detection is not implemented. Teabay has no
 verified current-resolution carrier for optional peer directory core ids, and
-it never treats a core id, full DID, or legacy `via_services` URL as network
+it never treats a core id, full DID, or `via_services` URL as network
 authority. A future implementation must fetch and independently verify current
 service-resolution
 records before it can mark rows `divergent=true`.

@@ -23,7 +23,7 @@ use arkret_identity::binding::DidBindingPurpose;
 use arkret_identity::document_canonical_digest;
 use arkret_sdk::identity::DidWebvhResolver;
 use arkret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, DidCoreId, DidFullId, DidWebResolver, canonical};
-use arkret_wire::{Hash, TypedTrustDomainId};
+use arkret_wire::{Hash, TrustDomainId};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -756,7 +756,7 @@ async fn verify_first_source_ref_resolves(
 pub(crate) struct AcceptedServiceEndpoint {
     pub service_did: DidFullId,
     pub service_kind: &'static str,
-    pub trust_domain: TypedTrustDomainId,
+    pub trust_domain: TrustDomainId,
     pub endpoint: Url,
     pub endpoint_digest: Hash,
     pub document_digest: Hash,
@@ -907,7 +907,7 @@ fn json_digest(value: &JsonValue) -> anyhow::Result<Hash> {
 
 /// Assemble (and digest) the accepted five-tuple.
 fn accepted_service_endpoint(
-    trust_domain: TypedTrustDomainId,
+    trust_domain: TrustDomainId,
     service_did: DidFullId,
     endpoint: Url,
     document_digest: Hash,

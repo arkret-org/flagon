@@ -1,7 +1,7 @@
 //! `ak.find.directory.read.describe` — service capability advertisement.
 //!
 //! Round 4 (spec a77b995) — the response is the canonical `ServiceDescribe`
-//! v2 (17 required top-level fields, `trust_domain` included). Validated via
+//! shape (17 required top-level fields, `trust_domain` included). Validated via
 //! [`arkret_sdk::ServiceDescribe::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
@@ -16,7 +16,7 @@ use arkret_sdk::{
     AuthMetadata, BindingKind, ClaimedProfileEntry, CompatSurfaceEntry, DidCoreId,
     DirectoryAcceptPolicyKind, DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy,
     PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding,
-    TypedTrustDomainId, VerifiedProfileEntry,
+    TrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -46,7 +46,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
     }
 }
 
-/// Round 4 — build the `ServiceDescribe` v2 envelope plus the registered
+/// Round 4 — build the `ServiceDescribe` envelope plus the registered
 /// directory-service overlay fields. Runs
 /// [`ServiceDescribe::validate`] before returning so a misconfigured
 /// deployment (e.g. `development_mode=true` paired with non-empty
@@ -54,7 +54,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
     let service_id = DidCoreId::new(cfg.service_id.clone())
         .map_err(|err| format!("configured service core id is invalid: {err}"))?;
-    let trust_domain = TypedTrustDomainId::new(cfg.trust_domain.clone())
+    let trust_domain = TrustDomainId::new(cfg.trust_domain.clone())
         .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
 
     let development_mode = cfg.development_mode;
@@ -287,8 +287,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     .map(str::to_owned)
     .collect();
 
-    // `compat_surfaces` — none yet. Reserve the field for back-compat
-    // shims (e.g. a future pre-round-4 frontier-shape adapter).
+    // `compat_surfaces` — the directory bridges no foreign protocol and
+    // serves no delegated resolver surface.
     let compat_surfaces: Vec<CompatSurfaceEntry> = Vec::new();
 
     let describe_body = ServiceDescribe {
@@ -316,9 +316,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
         receive_policy_constraints: None,
-        // Canonical inline rate-limit policy (replaces the legacy
-        // top-level `rate_limit`). The directory enforces a per-resource
-        // windowed limit; expressed as a windowed policy entry. The
+        // Canonical inline rate-limit policy. The directory enforces a
+        // per-resource windowed limit; expressed as a windowed policy entry. The
         // ServiceDescribe `anyOf` requires `rate_limit_policy` or
         // `rate_limit_policy_id`.
         rate_limit_policy: Some(RateLimitPolicy::windowed_per_minute(
@@ -498,9 +497,9 @@ mod tests {
     }
 
     /// Round 4 — the describe response MUST carry every one of the 17
-    /// required `ServiceDescribe` v2 fields, including `trust_domain`.
+    /// required `ServiceDescribe` fields, including `trust_domain`.
     #[test]
-    fn describe_emits_v2_required_fields() {
+    fn describe_emits_required_fields() {
         let value = build_describe_response_value(&cfg(true, true)).expect("describe builds");
 
         for required in [
@@ -601,7 +600,7 @@ mod tests {
                 method_history_head: "did-web-document-etag-fixture".to_owned(),
                 version_id: "did-web-document-version-fixture".to_owned(),
             },
-            trust_domain: TypedTrustDomainId::new("ak:trust_domain:local.test").unwrap(),
+            trust_domain: TrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_kind: arkret_sdk::ServiceKind::DirectoryService,
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
@@ -665,8 +664,9 @@ mod tests {
     /// `service-describe.schema.json` top-level shape: `additionalProperties:
     /// false` apart from the `^x_[a-z][a-z0-9_]{0,63}$` extension pattern.
     /// So every top-level key is either one of the canonical ServiceDescribe
-    /// properties or a namespaced `x_teabay_*` extension. The legacy
-    /// `rate_limit` field MUST be gone, replaced by `rate_limit_policy`.
+    /// properties or a namespaced `x_teabay_*` extension. A top-level
+    /// `rate_limit` key MUST NOT appear; the policy is carried by
+    /// `rate_limit_policy`.
     #[test]
     fn describe_top_level_keys_are_canonical_or_x_namespaced() {
         // Canonical ServiceDescribe top-level properties (required + optional).
@@ -719,10 +719,11 @@ mod tests {
                 .expect("describe builds");
             let object = value.as_object().expect("describe is an object");
 
-            // No legacy `rate_limit`; canonical `rate_limit_policy` present.
+            // The canonical shape has no top-level `rate_limit`; the policy
+            // is carried by `rate_limit_policy`.
             assert!(
                 !object.contains_key("rate_limit"),
-                "legacy top-level `rate_limit` must not be emitted"
+                "top-level `rate_limit` must not be emitted"
             );
             assert!(
                 object.contains_key("rate_limit_policy"),

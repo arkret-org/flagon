@@ -50,7 +50,7 @@ use arkret_identity::binding_store::{
 };
 use arkret_identity::verifier::verify_jws_with_binding;
 use arkret_sdk::identity::{DidDocument, DidKeyResolver, DidResolver};
-use arkret_wire::{DidFullId, DidUrl, Hash, TypedTrustDomainId};
+use arkret_wire::{DidFullId, DidUrl, Hash, TrustDomainId};
 use chrono::{DateTime, Utc};
 
 use crate::did_resolver::did_method_allowed;
@@ -157,7 +157,7 @@ pub struct DidBindingDirectory {
     /// "this type cannot reach the network" property.
     did_key: DidKeyResolver,
     accepted_did_methods: Vec<String>,
-    trust_domain: TypedTrustDomainId,
+    trust_domain: TrustDomainId,
     policy_digest: Hash,
     metrics: Metrics,
 }
@@ -216,7 +216,7 @@ impl DidBindingDirectory {
     }
 
     /// The local trust domain every acceptance is scoped to.
-    pub fn trust_domain(&self) -> &TypedTrustDomainId {
+    pub fn trust_domain(&self) -> &TrustDomainId {
         &self.trust_domain
     }
 
@@ -583,7 +583,7 @@ pub fn resolver_policy_digest(accepted_did_methods: &[String]) -> Result<Hash, S
 /// `[a-z0-9._:-]` charset the identifier layer requires. Binding acceptances
 /// are therefore scoped to *this* directory: the same DID accepted by another
 /// deployment is a different key.
-fn trust_domain_for_service(service_id: &str) -> Result<TypedTrustDomainId, String> {
+fn trust_domain_for_service(service_id: &str) -> Result<TrustDomainId, String> {
     let mut scope = String::new();
     for ch in service_id.trim().to_ascii_lowercase().chars() {
         match ch {
@@ -601,7 +601,7 @@ fn trust_domain_for_service(service_id: &str) -> Result<TypedTrustDomainId, Stri
     } else {
         scope
     };
-    TypedTrustDomainId::new(format!("ak:trust_domain:{scope}"))
+    TrustDomainId::new(format!("ak:trust_domain:{scope}"))
         .map_err(|error| format!("trust domain for service `{service_id}` is invalid: {error}"))
 }
 

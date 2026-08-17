@@ -155,14 +155,14 @@ pub(crate) fn verify_federation_trust_domain_headers(
     }
     // Validate trust-domain identifiers via the SDK's typed wrapper so
     // method-name regex tightening + scope-length limits are enforced.
-    let source_td = arkret_sdk::TypedTrustDomainId::new(inputs.source_trust_domain.clone())
+    let source_td = arkret_sdk::TrustDomainId::new(inputs.source_trust_domain.clone())
         .map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ak:trust_domain: {err}"),
             )
         })?;
-    let destination_td = arkret_sdk::TypedTrustDomainId::new(
+    let destination_td = arkret_sdk::TrustDomainId::new(
         inputs.destination_trust_domain.clone(),
     )
     .map_err(|err| {

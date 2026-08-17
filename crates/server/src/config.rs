@@ -418,7 +418,7 @@ impl AppConfig {
         // exists so the in-process conformance harness keeps booting.
         let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")
             .unwrap_or_else(|_| "ak:trust_domain:local.test".to_owned());
-        if arkret_sdk::TypedTrustDomainId::new(trust_domain.clone()).is_err() {
+        if arkret_sdk::TrustDomainId::new(trust_domain.clone()).is_err() {
             anyhow::bail!(
                 "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `ak:trust_domain:` identifier"
             );

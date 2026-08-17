@@ -36,7 +36,7 @@ three directory-service items. See [`CHANGELOG.md`](CHANGELOG.md)
 `[Unreleased]` and [`../_todos.md`](../_todos.md) for the canonical
 wire-breaking list.
 
-- **`/directory/describe` returns `ServiceDescribe` v2** — 17 required
+- **`/directory/describe` returns `ServiceDescribe`** — 17 required
   fields including `trust_domain` and `plaintext_visibility`.
 - **Federation S2S transport signs trust-domain and body bindings** —
   `Source-Trust-Domain` / `Destination-Trust-Domain` and the single RFC 9530
@@ -46,23 +46,16 @@ wire-breaking list.
   `reason_code=historical_only`; capability re-check still runs, side
   effects do not.
 
-## Round R2/R3 operator notes
+## Federation idempotency cache key
 
-Spec rounds 2+3 (2026-05-20) extended the federation idempotency cache
-key on `ak.find.directory.command.announce`. The cache key now includes
-`Source-Service-ID` / `verification_method` / `service_binding_ref` /
-`origin_key_state_digest` — see [`CHANGELOG.md`](CHANGELOG.md)
-`[Unreleased]` and
+The idempotency cache key on `ak.find.directory.command.announce`
+includes `Source-Service-ID` / `verification_method` /
+`service_binding_ref` / `origin_key_state_digest` — see
+[`CHANGELOG.md`](CHANGELOG.md) `[Unreleased]` and
 [`../arkret-spec/CHANGELOG.md`](../arkret-spec/CHANGELOG.md) (T14)
-for the normative source.
-
-**Operator action on upgrade:** any stale idempotency cache built
-against the pre-round-2 key (announce ref only) MUST be cleared on
-upgrade, otherwise replayed announces after a peer-service-key
-revocation will be served as fresh writes instead of being marked
-`historical_only`. The migration `20260520010000_round23` adds the new
-columns to `ingest_announces` and the `realm_destroyed_at` /
-`reachability_revoked_at` columns to `directory_resources`.
+for the normative source. The migration `20260520010000_round23` carries
+those columns on `ingest_announces`, plus `realm_destroyed_at` /
+`reachability_revoked_at` on `directory_resources`.
 
 ## Conformance scope
 
