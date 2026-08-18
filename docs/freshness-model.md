@@ -96,7 +96,7 @@ records before it can mark rows `divergent=true`.
 
 ## Freshness Refresh
 
-Migration `20260526010000_add_freshness` adds two operator-facing columns:
+The schema carries two operator-facing freshness columns:
 
 - `last_refreshed_at`: most recent successful announce.
 - `expires_at`: `last_refreshed_at + effective_ttl_seconds`; the

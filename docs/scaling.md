@@ -91,8 +91,9 @@ query latency gauge (`teabay_query_latency_seconds{op}`) are the two
 other dials that let you derive the right `max_size` empirically from
 production traffic.
 
-## Future work
+## Background workers
 
-`TODO(circle-rollout-P2E.5)` lands a dedicated expiry worker on the
-`expires_at` index from migration `20260526010000_add_freshness`.
-That worker will add ~1 more connection of steady-state load.
+The expiry worker sweeps the `expires_at` index on the
+`TEABAY_EXPIRY_INTERVAL_SECONDS` tick and the freshness worker sweeps every
+10 minutes. Each holds at most one pooled connection at a time; budget ~2
+connections of steady-state load for them.

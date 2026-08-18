@@ -20,7 +20,7 @@ INSERT INTO directory_resources (
     'realm'::resource_kind,
     'ak.realm:tea',
     'did:web:principal.test',
-    -- Round 4 (spec a77b995): the §3 discovery event kind for the
+    -- The §3 discovery event kind for the
     -- Realm security boundary is `ak.realm.discovery`.
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:

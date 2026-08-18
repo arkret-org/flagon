@@ -138,7 +138,7 @@ fn admin_router() -> Router {
         // B.8.6 — operator-facing export of every takedown row, for
         // legal / ops review. Bearer-auth same as the rest of admin.
         .push(Router::with_path("takedowns").get(query::admin::takedown_audit_export))
-        // Round R2/R3 T17 — soland calls this to broadcast a
+        // soland calls this to broadcast a
         // `consent_revoke{scope=any}` and trigger eager directory
         // reachability invalidation. Bearer auth, admin-only.
         .push(Router::with_path("consent-revoke").post(query::admin::consent_revoke_invalidate))

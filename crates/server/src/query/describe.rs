@@ -1,6 +1,6 @@
 //! `ak.find.directory.read.describe` — service capability advertisement.
 //!
-//! Round 4 (spec a77b995) — the response is the canonical `ServiceDescribe`
+//! The response is the canonical `ServiceDescribe`
 //! shape (17 required top-level fields, `trust_domain` included). Validated via
 //! [`arkret_sdk::ServiceDescribe::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
@@ -46,7 +46,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
     }
 }
 
-/// Round 4 — build the `ServiceDescribe` envelope plus the registered
+/// Build the `ServiceDescribe` envelope plus the registered
 /// directory-service overlay fields. Runs
 /// [`ServiceDescribe::validate`] before returning so a misconfigured
 /// deployment (e.g. `development_mode=true` paired with non-empty
@@ -59,7 +59,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     let development_mode = cfg.development_mode;
 
-    // Round 4 — `supported_profiles` is the union of the directory
+    // `supported_profiles` is the union of the directory
     // baseline profile and (optionally) the private-contact-discovery
     // extension profile. Empty array is valid; missing is not.
     let mut supported_profiles = vec![arkret_wire::ProfileId::DIRECTORY_SERVICE_V1.to_owned()];
@@ -236,7 +236,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // `plaintext_visibility` advertises that the directory does NOT
     // surface plaintext message bodies — directory entries are
     // resource-authored projections. Receivers MUST treat a missing
-    // value as `untrusted` (round-4 spec); we declare `none` explicitly
+    // value as `untrusted`; we declare `none` explicitly
     // via the strongly typed (closed) `PlaintextVisibility`. The
     // directory-scope note rides in an `x_teabay_*` extension key since
     // the object is `additionalProperties: false` apart from `x_*`.
@@ -270,7 +270,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // `development_mode=true ⇒ verified_profiles=[]` invariant is
     // enforced by `ServiceDescribe::validate`.
     //
-    // Round 4 — `claimed_profiles` / `verified_profiles` / `interop_surfaces`
+    // `claimed_profiles` / `verified_profiles` / `interop_surfaces`
     // are typed entries in the SDK (`ClaimedProfileEntry` /
     // `VerifiedProfileEntry` / `InteropSurfaceEntry`), not bare strings.
     let claimed_profiles: Vec<ClaimedProfileEntry> = supported_profiles
@@ -496,7 +496,7 @@ mod tests {
         }
     }
 
-    /// Round 4 — the describe response MUST carry every one of the 17
+    /// The describe response MUST carry every one of the 17
     /// required `ServiceDescribe` fields, including `trust_domain`.
     #[test]
     fn describe_emits_required_fields() {
@@ -543,7 +543,7 @@ mod tests {
         );
     }
 
-    /// Round 4 — directory-specific fields are standard ServiceDescribe
+    /// Directory-specific fields are standard ServiceDescribe
     /// overlay fields. They are emitted as bare top-level keys, while
     /// teabay-private fields stay under `x_teabay_*`.
     #[test]
@@ -587,7 +587,7 @@ mod tests {
         assert!(!limitation_features.contains("resolve_target.preview_link"));
     }
 
-    /// Round 4 — `validate` fails closed when development mode is set
+    /// `validate` fails closed when development mode is set
     /// alongside a non-empty `verified_profiles`. The handler short-
     /// circuits through `internal_error`; here we exercise the
     /// validator directly to assert the contract.
@@ -784,7 +784,7 @@ mod tests {
         }
     }
 
-    /// Round R2/R3 carry-forward — when private contact discovery is
+    /// When private contact discovery is
     /// disabled, the profile MUST NOT appear in either
     /// `supported_profiles` or `claimed_profiles`.
     #[test]

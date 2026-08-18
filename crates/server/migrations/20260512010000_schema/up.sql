@@ -353,17 +353,14 @@ CREATE INDEX directory_audit_resource_idx
 CREATE INDEX directory_audit_occurred_at_idx
     ON directory_audit (occurred_at DESC);
 
--- Squashed from 20260520010000_round23.
--- Round R2/R3 (2026-05-20) schema extensions.
---
--- T07 Realm terminal state — `ak.realm.destroy` anchor marker. Resolve /
+-- Realm terminal state — `ak.realm.destroy` anchor marker. Resolve /
 --      search projections collapse to a tombstone once `realm_destroyed_at`
 --      is non-null.
--- T17 Consent revoke scope=any directory reachability invalidation — soft
+-- Consent revoke scope=any directory reachability invalidation — soft
 --      delete via `reachability_revoked_at` (audit-preserving) plus a
 --      mirror flag on `directory_resources` so the query face can shed
 --      cached projections without losing the underlying row.
--- T14 Federation idempotency cache key extension — `ingest_announces`
+-- Federation idempotency cache key extension — `ingest_announces`
 --      gains the four-field cache key tuple plus a `historical_only`
 --      marker for replays after a revoked service key.
 
@@ -395,13 +392,12 @@ CREATE INDEX ingest_announces_cache_key_idx
         origin_key_state_digest
     );
 
--- New audit event kinds — Round R2/R3.
+-- Audit event kinds for the tombstone / reachability / replay markers above.
 ALTER TYPE audit_event_kind ADD VALUE IF NOT EXISTS 'consent_revoke_invalidation';
 ALTER TYPE audit_event_kind ADD VALUE IF NOT EXISTS 'realm_destroyed';
 ALTER TYPE audit_event_kind ADD VALUE IF NOT EXISTS 'ingest_historical_only';
 
--- Squashed from 20260526010000_add_freshness.
--- P2E.5 — freshness columns.
+-- Freshness columns.
 --
 -- `directory_resources.indexed_at + effective_ttl_seconds` already
 -- gives us `next_revalidation_after`, but the operator-facing TTL
@@ -439,7 +435,6 @@ CREATE INDEX directory_resources_expires_at_idx
     ON directory_resources (expires_at)
     WHERE stale = false;
 
--- Squashed from 20260526020000_admin_tokens_and_audit_chain.
 -- A.8.4 — admin token rotation table.
 --
 -- Static `TEABAY_ADMIN_TOKEN` bearer is development-only. Production
@@ -505,18 +500,15 @@ CREATE TRIGGER directory_audit_block_update
     FOR EACH ROW
     EXECUTE FUNCTION directory_audit_block_update();
 
--- Squashed from 20260526030000_pending_takedowns.
 -- B.8.8 — multi-approval takedown workflow skeleton.
 --
 -- An operator-initiated takedown can require N approvals before it
 -- takes effect. The `pending_takedowns` row tracks the proposal and
 -- the `pending_takedown_approvals` rows track each operator's vote.
--- Once `quorum` distinct, non-revoked approvals are recorded, the
--- worker (TODO follow-up) flips the row to executed and runs the
--- usual `operator_takedown` path.
---
--- For this commit we only land the schema and an audit-only skeleton;
--- the executor + webhook fanout will be wired in a follow-up.
+-- `quorum` records how many distinct, non-revoked approvals the proposal
+-- needs. `notification_status` drives the takedown-notifier webhook fanout,
+-- which is the only writer of these rows today; no server code counts
+-- approvals or promotes a proposal to executed yet.
 CREATE TABLE IF NOT EXISTS pending_takedowns (
     pending_id TEXT PRIMARY KEY,
     resource_kind resource_kind NOT NULL,
@@ -563,7 +555,6 @@ CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Squashed from 20260526040000_did_normalization_audit.
 -- Identity core/full split — stable-identity shape audit.
 --
 -- `discovery-directory.md` §8.3 types the Organization / Actor / Applet
@@ -612,7 +603,6 @@ COMMENT ON CONSTRAINT directory_resources_principal_server_service_id_core_shape
     ON directory_resources IS
     'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 
--- Squashed from 20260531010000_http_signature_replays.
 CREATE TABLE IF NOT EXISTS http_signature_replays (
     replay_key BYTEA PRIMARY KEY,
     key_id TEXT NOT NULL,
@@ -624,7 +614,6 @@ CREATE TABLE IF NOT EXISTS http_signature_replays (
 CREATE INDEX IF NOT EXISTS http_signature_replays_expires_at_idx
     ON http_signature_replays (expires_at);
 
--- Squashed from 20260605010000_member_count_bucket_residency.
 -- Spec §3 `bucketed` member_count anti-enumeration: hysteresis / minimum
 -- residency for the publicly-emitted member-count bucket.
 --
@@ -656,8 +645,7 @@ UPDATE directory_resources
        member_count_bucket_since  = last_refreshed_at
  WHERE public_projection ? 'member_count_bucket';
 
--- Squashed from 20260625010000_verified_realm_organizations.
--- TBY-ORG-01/02/03 — verified `ak.realm.organization` relationship index.
+-- Verified `ak.realm.organization` relationship index.
 --
 -- The directory MUST NOT treat a bare `organization_principal_id` /
 -- `owning_organizations` projection hint as an official organization

@@ -119,7 +119,7 @@ impl AppState {
             .check(key.into(), max_requests, Duration::from_secs(60))
     }
 
-    /// Round R2/R3 T14 — look up the federation idempotency cache by the
+    /// Look up the federation idempotency cache by the
     /// extended four-field key. `digest` is SHA-256 over `(request_digest
     /// || source_service_id || verification_method ||
     /// service_binding_ref || origin_key_state_digest)`.

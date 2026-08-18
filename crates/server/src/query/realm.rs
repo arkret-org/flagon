@@ -414,11 +414,17 @@ pub(crate) async fn resolve_realm_for_preview_link(
 
 // Tail-column ordering across the three Realm row mirrors (`RealmStoredRow` /
 // `RealmRow` / `RealmSqlRow`) is, by convention,
-// `... via_services, indexed_at, expires_at, [score], realm_destroyed_at,
+// `... via_services, indexed_at, [score], realm_destroyed_at,
 // reachability_revoked_at`. The single intentional difference is that this
 // mirror has NO derived `score` column: the resolve path (which loads
 // `RealmStoredRow`) does not rank, so there is no score to carry. The two
-// search mirrors insert `score` between `expires_at` and `realm_destroyed_at`.
+// search mirrors insert `score` between `indexed_at` and `realm_destroyed_at`.
+//
+// `expires_at` is deliberately absent from all three mirrors: freshness is
+// enforced by the background sweep that flips `stale = true`, and every Realm
+// read path already filters on `stale = false`. The Realm result envelope
+// exposes no revalidation deadline, so projecting the column would only carry
+// an unread value out of Postgres.
 #[derive(Debug, Queryable)]
 struct RealmStoredRow {
     resource_id: String,
@@ -431,10 +437,9 @@ struct RealmStoredRow {
     divergent: bool,
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
-    expires_at: DateTime<Utc>,
-    // Round R2/R3 T07.
+    // `ak.realm.destroy` terminal state.
     realm_destroyed_at: Option<DateTime<Utc>>,
-    // Round R2/R3 T17.
+    // Consent-revoke reachability invalidation.
     reachability_revoked_at: Option<DateTime<Utc>>,
 }
 
@@ -450,8 +455,6 @@ struct RealmRow {
     divergent: bool,
     via_services: Vec<String>,
     indexed_at: DateTime<Utc>,
-    #[allow(dead_code)]
-    expires_at: DateTime<Utc>,
     score: f64,
     realm_destroyed_at: Option<DateTime<Utc>>,
     reachability_revoked_at: Option<DateTime<Utc>>,
@@ -479,8 +482,6 @@ struct RealmSqlRow {
     via_services: Vec<String>,
     #[diesel(sql_type = Timestamptz)]
     indexed_at: DateTime<Utc>,
-    #[diesel(sql_type = Timestamptz)]
-    expires_at: DateTime<Utc>,
     #[diesel(sql_type = Double)]
     score: f64,
     #[diesel(sql_type = Nullable<Timestamptz>)]
@@ -591,7 +592,6 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
             r::divergent,
             r::via_services,
             r::indexed_at,
-            r::expires_at,
             r::realm_destroyed_at,
             r::reachability_revoked_at,
         ))
@@ -602,7 +602,7 @@ async fn load_realm_row(state: &AppState, key: &str) -> anyhow::Result<Option<Re
 }
 
 fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
-    // Round R2/R3 T07 — once `ak.realm.destroy` has anchored, the row's
+    // Once `ak.realm.destroy` has anchored, the row's
     // projection collapses to a deterministic tombstone so the resolve
     // / search face surfaces `[erased]` instead of leaking the historical
     // governance state.
@@ -761,7 +761,7 @@ fn is_result_visible(
     requester: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
-    // Round R2/R3 T17 — once reachability has been revoked for the
+    // Once reachability has been revoked for the
     // affected actor we drop the row from the search face. Resolve
     // still surfaces the row (so existing in-flight conversations can
     // observe the revocation) but `search-*` lists hide it.
@@ -802,7 +802,6 @@ impl TryFrom<RealmSqlRow> for RealmRow {
             divergent: row.divergent,
             via_services: row.via_services,
             indexed_at: row.indexed_at,
-            expires_at: row.expires_at,
             score: row.score,
             realm_destroyed_at: row.realm_destroyed_at,
             reachability_revoked_at: row.reachability_revoked_at,
@@ -823,7 +822,6 @@ impl From<RealmStoredRow> for RealmRow {
             divergent: row.divergent,
             via_services: row.via_services,
             indexed_at: row.indexed_at,
-            expires_at: row.expires_at,
             score: 0.0,
             realm_destroyed_at: row.realm_destroyed_at,
             reachability_revoked_at: row.reachability_revoked_at,
@@ -852,7 +850,6 @@ WITH ranked AS (
         divergent,
         via_services,
         indexed_at,
-        expires_at,
         realm_destroyed_at,
         reachability_revoked_at,
         CASE
@@ -905,7 +902,6 @@ SELECT
     divergent,
     via_services,
     indexed_at,
-    expires_at,
     score,
     realm_destroyed_at,
     reachability_revoked_at
@@ -982,7 +978,6 @@ mod tests {
             divergent: false,
             via_services: Vec::new(),
             indexed_at: chrono::Utc::now(),
-            expires_at: chrono::Utc::now(),
             score: 1.0,
             realm_destroyed_at: None,
             reachability_revoked_at: None,

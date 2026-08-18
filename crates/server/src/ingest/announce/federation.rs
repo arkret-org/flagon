@@ -12,15 +12,14 @@ use super::ingest_body::DirectoryAnnounceIngest;
 use crate::error::ApiErrorCode;
 use crate::ingest::header_value;
 
-/// Round R2/R3 T14 + Round 4 (spec a77b995, commit f9bd7eb) — extended
-/// federation idempotency cache key inputs gathered from request
+/// Extended federation idempotency cache key inputs gathered from request
 /// headers + the verified discovery proof. All fields participate in
 /// the cache key per spec; missing values fall back to the empty
 /// string so the key remains stable for the non-federation announce
 /// path.
 ///
-/// Round 4 adds the `Source-Trust-Domain` / `Destination-Trust-Domain`
-/// pair so a sender from trust domain A cannot
+/// The `Source-Trust-Domain` / `Destination-Trust-Domain` pair is part of the
+/// key so a sender from trust domain A cannot
 /// replay the same idempotency key (with the same `origin_key_state_digest`)
 /// into trust domain B. The pair also feeds into
 /// the signing transcript via
@@ -31,12 +30,12 @@ pub struct FederationCacheKeyInputs {
     pub verification_method: String,
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,
-    /// Round 4 — `Source-Trust-Domain` header value (lowercased per
+    /// `Source-Trust-Domain` header value (lowercased per
     /// RFC 9421 §2.2 — `ak:trust_domain:<scope>` is already lowercase).
     /// Empty when the request is not a cross-trust-domain federation
     /// hop.
     pub source_trust_domain: String,
-    /// Round 4 — `Destination-Trust-Domain` header value. Used by the
+    /// `Destination-Trust-Domain` header value. Used by the
     /// inbound verifier to confirm the request was scoped to this
     /// directory; included in the cache key so a misaddressed replay
     /// from another deployment cannot reuse a cache row.
@@ -78,9 +77,9 @@ impl FederationCacheKeyInputs {
         }
     }
 
-    /// `true` when the request advertises the round-4 trust-domain
-    /// pair (federation S2S hop). Non-federation directory announces
-    /// have both fields empty.
+    /// `true` when the request advertises the trust-domain pair
+    /// (federation S2S hop). Non-federation directory announces have both
+    /// fields empty.
     pub fn is_federation_hop(&self) -> bool {
         !self.source_trust_domain.is_empty() || !self.destination_trust_domain.is_empty()
     }
@@ -155,22 +154,20 @@ pub(crate) fn verify_federation_trust_domain_headers(
     }
     // Validate trust-domain identifiers via the SDK's typed wrapper so
     // method-name regex tightening + scope-length limits are enforced.
-    let source_td = arkret_sdk::TrustDomainId::new(inputs.source_trust_domain.clone())
-        .map_err(|err| {
+    let source_td =
+        arkret_sdk::TrustDomainId::new(inputs.source_trust_domain.clone()).map_err(|err| {
             (
                 ApiErrorCode::CrossDomainReplayRejected,
                 format!("{HEADER_SOURCE_TRUST_DOMAIN} is not a valid ak:trust_domain: {err}"),
             )
         })?;
-    let destination_td = arkret_sdk::TrustDomainId::new(
-        inputs.destination_trust_domain.clone(),
-    )
-    .map_err(|err| {
-        (
-            ApiErrorCode::CrossDomainReplayRejected,
-            format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid ak:trust_domain: {err}"),
-        )
-    })?;
+    let destination_td = arkret_sdk::TrustDomainId::new(inputs.destination_trust_domain.clone())
+        .map_err(|err| {
+            (
+                ApiErrorCode::CrossDomainReplayRejected,
+                format!("{HEADER_DESTINATION_TRUST_DOMAIN} is not a valid ak:trust_domain: {err}"),
+            )
+        })?;
     if destination_td.as_str() != expected_destination_trust_domain {
         return Err((
             ApiErrorCode::CrossDomainReplayRejected,
@@ -192,7 +189,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     )))
 }
 
-/// Round R2/R3 T14 — extra federation cache fields persisted alongside
+/// Extra federation cache fields persisted alongside
 /// the `ingest_announces` row. Push-mode reads them from request headers and
 /// discovery proof.
 #[derive(Debug, Clone, Default)]

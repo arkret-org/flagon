@@ -9,9 +9,9 @@
 //! search face without deleting the audit history.
 //!
 //! This worker does not make outbound HTTP calls. It is a pure database sweep,
-//! so it remains cheap to run alongside the divergence worker. The expiry
-//! worker owns deletion; this worker only owns the
-//! `expires_at + revalidation_grace` stale flip.
+//! so it stays cheap enough to run on every tick. The expiry worker owns
+//! deletion; this worker only owns the `expires_at + revalidation_grace`
+//! stale flip.
 
 use std::time::Duration;
 

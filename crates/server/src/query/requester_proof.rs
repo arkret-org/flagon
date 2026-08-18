@@ -230,8 +230,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         Some(Audience::Single(audience)) if audience == expected_audience => {}
         _ => {
             return Err(
-                "directory requester proof audience must be this directory's service_id"
-                    .to_owned(),
+                "directory requester proof audience must be this directory's service_id".to_owned(),
             );
         }
     }

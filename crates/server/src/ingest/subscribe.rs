@@ -187,7 +187,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
     }));
 }
 
-/// Round R2/R3 T07 + T17 — best-effort tombstone fanout. Sent when a
+/// Best-effort tombstone fanout. Sent when a
 /// directory row is invalidated (either by `ak.realm.destroy` arriving
 /// on the ingest face or by a `consent_revoke{scope=any}` admin
 /// broadcast) so in-flight subscribers receive a canonical "this row is

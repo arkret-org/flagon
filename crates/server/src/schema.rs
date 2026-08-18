@@ -50,17 +50,14 @@ diesel::table! {
         divergent -> Bool,
         via_services -> Array<Text>,
         last_announce_id -> Nullable<Text>,
-        // Round R2/R3 — T07 realm terminal state, T17 consent revoke
-        // reachability invalidation. See migration 20260520010000_round23.
+        // Realm terminal state and consent-revoke reachability invalidation.
         realm_destroyed_at -> Nullable<Timestamptz>,
         reachability_revoked_at -> Nullable<Timestamptz>,
         reachability_revoked_reason -> Nullable<Text>,
-        // P2E.5 — operator-facing freshness columns. See migration
-        // 20260526010000_add_freshness.
+        // Operator-facing freshness columns.
         last_refreshed_at -> Timestamptz,
         expires_at -> Timestamptz,
-        // Spec §3 member_count bucket hysteresis / minimum residency. See
-        // migration 20260605010000_member_count_bucket_residency.
+        // Spec §3 member_count bucket hysteresis / minimum residency.
         member_count_real_bucket -> Nullable<Text>,
         member_count_bucket_locked -> Nullable<Text>,
         member_count_bucket_since -> Nullable<Timestamptz>,
@@ -85,7 +82,7 @@ diesel::table! {
         effective_ttl_seconds -> Int4,
         supersedes_announce_id -> Nullable<Text>,
         request_digest -> Bytea,
-        // Round R2/R3 T14 — federation idempotency cache key extension.
+        // Federation idempotency cache key extension.
         source_service_id -> Text,
         verification_method -> Text,
         service_binding_ref -> Text,
@@ -315,8 +312,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    // TBY-ORG-01/02/03 — verified `ak.realm.organization` relationships. See
-    // migration 20260625010000_verified_realm_organizations.
+    // Verified `ak.realm.organization` relationships.
     verified_realm_organizations (realm_id, organization_principal_id, relationship) {
         realm_id -> Text,
         organization_principal_id -> Text,

@@ -1,14 +1,12 @@
 # teabay diesel migrations
 
-This directory holds the Diesel migrations applied by the `teabay-server`
-binary. Each migration is a pair of `up.sql` / `down.sql`. Run with:
+This directory holds the Diesel migrations applied by the `server` binary.
+Each migration is a pair of `up.sql` / `down.sql`. They are embedded via
+`diesel_migrations::embed_migrations!` and run automatically at startup
+(`Db::run_migrations`), so there is no separate migrate subcommand.
 
-```sh
-cargo run -p teabay-server -- migrate          # forward
-cargo run -p teabay-server -- migrate-rollback # reverse one step
-```
-
-See `diesel.toml` at the repo root for the migrations directory binding.
+See `diesel.toml` at the repo root for the migrations directory binding used
+by the offline `diesel` CLI (`diesel print-schema`).
 
 ## Migration
 

@@ -40,15 +40,12 @@ pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
 // does NOT carry a `Recovery` variant — adding one would expand the
 // anti-enumeration surface for no protocol benefit.
 //
-// TODO(R3.1): If a future profile mandates the directory carry an
-// optional recovery-witness service-binding hint, validate every
-// announce body whose discovery_state contains a `recovery_policy_ref`
-// or `recovery_receipt_ref` against the SDK's `RecoveryPolicy` /
-// `RecoveryReceipt` types (once those land — see
-// `arkret-rust-sdk/_arkret_rust_sdk_todos.md` REC-1). Until then a
-// caller attempting to announce a recovery-keyed resource is rejected
-// by the `resource_kind` enum at deserialization time, which is the
-// intentional stub for REC-1.
+// If a future profile mandates the directory carry an optional
+// recovery-witness service-binding hint, validate every announce body whose
+// discovery_state contains a `recovery_policy_ref` or `recovery_receipt_ref`
+// against the SDK's `RecoveryPolicy` / `RecoveryReceipt` types, once those
+// land. Until then a caller attempting to announce a recovery-keyed resource
+// is rejected by the `resource_kind` enum at deserialization time.
 
 #[derive(
     Debug,

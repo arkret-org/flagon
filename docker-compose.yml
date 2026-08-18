@@ -42,15 +42,13 @@ services:
       # P2E.6 — db connection pool tunables; the defaults below mirror
       # what AppConfig falls back to when these envs are unset.
       TEABAY_DB_POOL_MAX_SIZE: "32"
-      TEABAY_DB_POOL_MIN_IDLE: "2"
       TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS: "5"
-      TEABAY_DB_POOL_IDLE_TIMEOUT_SECS: "60"
       # Admin token — operator MUST supply a real value in production
       # (compose treats unset envs as empty, which disables the admin
       # face entirely; that's the safe default).
       TEABAY_ADMIN_TOKEN: ${TEABAY_ADMIN_TOKEN:-}
       TEABAY_DEVELOPMENT_MODE: "true"
-      RUST_LOG: "info,teabay=debug"
+      RUST_LOG: "info,server=debug"
     ports:
       - "7781:7781"
     restart: unless-stopped

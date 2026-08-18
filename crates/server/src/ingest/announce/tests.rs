@@ -58,7 +58,7 @@ fn federation_source_service_id_rejects_full_did_authority() {
     assert_eq!(error.0, ApiErrorCode::CrossDomainReplayRejected);
 }
 
-/// Round 4 — destination trust domain mismatch must reject; a
+/// Destination trust domain mismatch must reject; a
 /// sender from trust domain A cannot replay signed bytes addressed
 /// to trust domain B into trust domain C.
 #[test]

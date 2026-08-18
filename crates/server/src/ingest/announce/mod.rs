@@ -186,7 +186,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             return;
         }
     };
-    // Round R2/R3 T14 — federation idempotency cache key is the
+    // The federation idempotency cache key is the
     // SHA-256 over (request_digest || Source-Service-ID ||
     // verification_method || service_binding_ref ||
     // origin_key_state_digest || Source-Trust-Domain ||
@@ -196,7 +196,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // `historical_only=true` and trigger no new side effects.
     let cache_inputs = FederationCacheKeyInputs::extract(req, &body);
 
-    // Round 4 (commit f9bd7eb) — federation S2S requests MUST carry
+    // Federation S2S requests MUST carry
     // the trust-domain pair and we verify it BEFORE looking at the
     // idempotency cache. A misaddressed replay from another trust
     // domain is rejected with `cross_domain_replay_rejected`; the
@@ -409,7 +409,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    // Round R2/R3 T07 — discovery_state can carry a `terminal_state`
+    // discovery_state can carry a `terminal_state`
     // marker after `ak.realm.destroy` anchors. Surface it as a row-level
     // tombstone so the resolve / search projections collapse to a
     // placeholder. See `derive_realm_terminal_state`.
@@ -548,7 +548,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             }),
         )
         .await;
-        // Round R2/R3 T07 — tombstone fanout to in-flight subscribers.
+        // Tombstone fanout to in-flight subscribers.
         let tombstone = crate::ingest::subscribe::ReachabilityTombstone {
             kind: crate::ingest::subscribe::TombstoneKind::RealmDestroyed,
             resource_kind: body.resource_kind,

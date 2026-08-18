@@ -29,12 +29,7 @@ Discovery projections target the **Realm** as the unit of public metadata:
 Per spec, directory discovery uses `ak.realm.discovery`; Space containers are
 not independently announced to teabay.
 
-## Round R4 (protocol review closures)
-
-Spec round 4 (`arkret-spec` range `2a4d39b..a77b995`, 8 commits) adds
-three directory-service items. See [`CHANGELOG.md`](CHANGELOG.md)
-`[Unreleased]` and [`../_todos.md`](../_todos.md) for the canonical
-wire-breaking list.
+## Protocol surface highlights
 
 - **`/directory/describe` returns `ServiceDescribe`** — 17 required
   fields including `trust_domain` and `plaintext_visibility`.
@@ -50,12 +45,10 @@ wire-breaking list.
 
 The idempotency cache key on `ak.find.directory.command.announce`
 includes `Source-Service-ID` / `verification_method` /
-`service_binding_ref` / `origin_key_state_digest` — see
-[`CHANGELOG.md`](CHANGELOG.md) `[Unreleased]` and
-[`../arkret-spec/CHANGELOG.md`](../arkret-spec/CHANGELOG.md) (T14)
-for the normative source. The migration `20260520010000_round23` carries
-those columns on `ingest_announces`, plus `realm_destroyed_at` /
-`reachability_revoked_at` on `directory_resources`.
+`service_binding_ref` / `origin_key_state_digest`. The initial schema
+migration carries those columns on `ingest_announces`, plus
+`realm_destroyed_at` / `reachability_revoked_at` on
+`directory_resources`.
 
 ## Conformance scope
 
@@ -300,7 +293,7 @@ Operator takedowns store a service-signed detached JWS receipt and require
 `TEABAY_RECEIPT_KEY_ID` or `$TEABAY_SERVICE_FULL_ID#teabay-receipt-1`.
 
 - [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
-- [ ] TLS enabled at the reverse proxy (or `TEABAY_TLS_CERT_PATH` / `TEABAY_TLS_KEY_PATH` when terminated in-process)
+- [ ] TLS enabled at the reverse proxy (teabay itself serves plaintext HTTP)
 - [ ] CSP header configured at the reverse proxy
 - [ ] CORS limited to the allowed origins for principal-server / sodmin callers
 - [ ] Secret env vars injected by the deployment platform, not committed `.env` files
@@ -310,18 +303,6 @@ Operator takedowns store a service-signed detached JWS receipt and require
 - [ ] Rate limit enabled
 - [ ] Provider credential rotation scheduled (when applicable)
 
-## Cross-project task tracking
-
-Per-project task lists are consolidated upstream — see
-[`../_todos.md`](../_todos.md) for the active cross-project task plan.
-
 ## License
 
 Apache-2.0.
-
----
-
-<!-- circle-rollout milestone pointer -->
-> **Active milestone tracking** (local-only, gitignored): see
-> `_teabay_todos.md` in the parent `arkret/` directory for the
-> circle-rollout (AKP-0007) work item list and per-stage checkpoints.

@@ -291,7 +291,7 @@ pub(crate) async fn upsert_resource_and_audit(
                 r::stale.eq(false),
                 r::via_services.eq(&verified.via_services),
                 r::last_announce_id.eq(Some(stored_announce_id.as_str())),
-                // Round R2/R3 T07 — once a realm is destroyed it
+                // Once a realm is destroyed it
                 // remains destroyed; we OR in the new marker without
                 // ever clearing a previously-set destroyed_at.
                 r::realm_destroyed_at.eq(diesel::dsl::sql::<

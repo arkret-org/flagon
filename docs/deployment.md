@@ -260,10 +260,11 @@ captured now that handle-homograph wire-level checks are mandatory.
   and `query::private_contact_discovery` from a streaming-replicated
   Postgres replica. The mirror MUST NOT accept write traffic; the
   ingest routes return `503 read_only` on a secondary node.
-- **Federation peers** — other Arkret Directory deployments. Bilateral
-  `directory_peer_links` rows configure pull-subscribe / push-announce
-  destinations; each peer's `service_id` MUST be on the local
-  `directory_peer_trust` allowlist before subscription is honored.
+- **Federation peers** — other Arkret Directory deployments reach this one
+  over the push-announce ingest face. Peer acceptance is governed by
+  `TEABAY_ACCEPT_POLICY_KIND` plus the `accept_allowlist` table; fanout to
+  peers runs through `webhook_subscriptions`. There is no pull-subscribe
+  worker and no peer-link table.
 
 ### DR / backup
 
@@ -274,20 +275,19 @@ captured now that handle-homograph wire-level checks are mandatory.
    drills. Restore SHOULD be verified at least quarterly using a
    throwaway secondary DC.
 3. **Crypto material** — admin HMAC token secrets in `admin_tokens` and the
-   takedown HMAC secret (`TEABAY_TAKEDOWN_HMAC_KEY`) MUST be stored in a
-   secrets manager (Vault / Doppler / cloud KMS). Rotate every 90 days.
+   per-subscription webhook secrets in `webhook_subscriptions` MUST be
+   treated as secrets-manager material (Vault / Doppler / cloud KMS) in any
+   backup or replication path. Rotate every 90 days.
 
 ### Failover
 
 1. Promote the standby Postgres to primary (PITR or sync replication
    catch-up). All teabay app pods restart with the promoted DSN.
-2. Update the federation peer registry (`directory_peer_links`) to
-   advertise the new primary's endpoint. Peers will fall back to the
-   secondary endpoint until they refresh.
-3. `directory.search_users` cursors are stateless — clients reconnect
-   with no extra work. Pull-subscribe cursors are stateful per peer;
-   the new primary refuses unknown cursors with `cursor_integrity_invalid`
-   and peers re-subscribe from anchor.
+2. Re-point the public base URL / DNS at the promoted node so announcing
+   Principal Servers and webhook subscribers reach the new primary.
+3. Search cursors are stateless — clients reconnect with no extra work.
+   Cursors minted by the old primary are refused with
+   `cursor_integrity_invalid` and clients restart from the first page.
 
 ### Backup integrity
 

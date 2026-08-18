@@ -37,16 +37,15 @@ pub enum AuditEventKind {
     AdminResourceUpserted,
     AdminResourceDeleted,
     ExpiryPurged,
-    // Round R2/R3.
-    /// T17 — soland broadcast a `consent_revoke{scope=any}` and the
-    /// directory invalidated the actor's reachability projection.
+    /// soland broadcast a `consent_revoke{scope=any}` and the directory
+    /// invalidated the actor's reachability projection.
     ConsentRevokeInvalidation,
-    /// T07 — a `ak.realm.destroy` anchor was observed; the row was
-    /// flipped to its tombstone projection.
+    /// A `ak.realm.destroy` anchor was observed; the row was flipped to its
+    /// tombstone projection.
     RealmDestroyed,
-    /// T14 — a federation announce request hit the cache after the
-    /// underlying service key was revoked. We served the cached body
-    /// with `historical_only=true` and skipped side effects.
+    /// A federation announce request hit the cache after the underlying
+    /// service key was revoked. We served the cached body with
+    /// `historical_only=true` and skipped side effects.
     IngestHistoricalOnly,
     /// Operator takedown appeal packet accepted from a resource governance key.
     TakedownAppealSubmitted,

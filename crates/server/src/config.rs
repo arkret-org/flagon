@@ -132,7 +132,7 @@ pub struct AppConfig {
     /// `ServiceDescribe`. Teabay never manufactures history heads or version
     /// identifiers from the DID text.
     pub service_resolution: ResolutionCommitment,
-    /// Round 4 — typed trust domain advertised in
+    /// Typed trust domain advertised in
     /// `/directory/describe` and required on every cross-trust-domain
     /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
     /// to `ak:trust_domain:local.test` so the in-process conformance
@@ -413,7 +413,7 @@ impl AppConfig {
             version_id,
         };
 
-        // Round 4 — required trust domain on ServiceDescribe. Operators
+        // Required trust domain on ServiceDescribe. Operators
         // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
         // exists so the in-process conformance harness keeps booting.
         let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")

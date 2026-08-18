@@ -11,7 +11,7 @@ use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{bucket_member_count, is_valid_member_count_bucket};
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
 
-/// Round R2/R3 T07 — detect a realm terminal state from the verified
+/// Detect a realm terminal state from the verified
 /// discovery_state. The directory accepts the destroy anchor either as
 /// `terminal_state: "destroyed"` (preferred, anchored via the `ak.realm.
 /// destroy` event kind) or as a `realm_destroyed: true` shorthand. The
