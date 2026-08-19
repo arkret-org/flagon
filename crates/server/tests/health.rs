@@ -4,8 +4,7 @@
 )]
 
 //! Sanity test ensuring the router builds without a database.
-//! Database-backed integration tests live under `tests/it/` once we have a
-//! testcontainers fixture in M0-T3.
+//! Database-backed integration tests live under `tests/it/`.
 
 use std::sync::Mutex;
 

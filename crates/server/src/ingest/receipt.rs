@@ -6,9 +6,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use ed25519_dalek::Signer as _;
 use serde_json::{Value as JsonValue, json};
-use teabay_contracts::{
-    OperatorTakedownRequestBody, TakedownAppealDecision, directory_resource_kind_token,
-};
+use teabay_contracts::{OperatorTakedownRequestBody, TakedownAppealDecision};
 
 use crate::config::{AppConfig, ReceiptSigningKey};
 use crate::ingest::DirectoryResourceKindDb;
@@ -28,7 +26,7 @@ pub(crate) fn resource_withdrawal_proof(
         "receipt_version": RECEIPT_VERSION,
         "statement": withdrawal_statement(
             "resource_withdraw",
-            resource_kind.as_pg(),
+            JsonValue::from(resource_kind.as_pg()),
             &body.resource_id,
             body.reason.as_deref().unwrap_or_default(),
             withdraw_id,
@@ -61,7 +59,8 @@ pub(crate) fn operator_takedown_proof(
 ) -> anyhow::Result<JsonValue> {
     let statement = withdrawal_statement(
         "operator_takedown",
-        directory_resource_kind_token(body.resource_kind),
+        serde_json::to_value(body.resource_kind)
+            .map_err(|error| anyhow::anyhow!("serialize resource kind: {error}"))?,
         &body.resource_id,
         &body.reason,
         withdraw_id,
@@ -193,7 +192,7 @@ pub(crate) fn takedown_appeal_endpoint(config: &AppConfig) -> String {
 #[allow(clippy::too_many_arguments)]
 fn withdrawal_statement(
     kind: &str,
-    resource_kind: &str,
+    resource_kind: JsonValue,
     resource_id: &str,
     reason: &str,
     withdraw_id: &str,

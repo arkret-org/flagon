@@ -470,7 +470,6 @@ mod tests {
             takedown_contact: None,
             accepted_resource_kinds: ResourceKindAccept::ALL.to_vec(),
             accepted_did_methods: vec!["did:web".to_owned()],
-            allowlist_dids: Vec::new(),
             default_ttl: Duration::from_secs(3600),
             max_ttl: Duration::from_secs(86400),
             revalidation_grace: Duration::from_secs(300),

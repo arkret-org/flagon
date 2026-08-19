@@ -17,39 +17,6 @@ pub const DISCOVERABILITY_TOKENS: [&str; 6] = [
     "secret",
 ];
 
-pub fn directory_resource_kind_token(value: DirectoryResourceKind) -> &'static str {
-    match value {
-        DirectoryResourceKind::Realm => "realm",
-        DirectoryResourceKind::Organization => "organization",
-        DirectoryResourceKind::Actor => "actor",
-        DirectoryResourceKind::Applet => "applet",
-        DirectoryResourceKind::Handle => "handle",
-    }
-}
-
-pub fn parse_directory_resource_kind(value: &str) -> Result<DirectoryResourceKind, String> {
-    Ok(match value {
-        "realm" => DirectoryResourceKind::Realm,
-        "organization" => DirectoryResourceKind::Organization,
-        "actor" => DirectoryResourceKind::Actor,
-        "applet" => DirectoryResourceKind::Applet,
-        "handle" => DirectoryResourceKind::Handle,
-        other => return Err(format!("invalid resource_kind `{other}`")),
-    })
-}
-
-pub fn parse_directory_discoverability(value: &str) -> Result<DirectoryDiscoverability, String> {
-    Ok(match value {
-        "public" => DirectoryDiscoverability::Public,
-        "listed" => DirectoryDiscoverability::Listed,
-        "restricted" => DirectoryDiscoverability::Restricted,
-        "unlisted" => DirectoryDiscoverability::Unlisted,
-        "invite_only" => DirectoryDiscoverability::InviteOnly,
-        "secret" => DirectoryDiscoverability::Secret,
-        other => return Err(format!("invalid discoverability `{other}`")),
-    })
-}
-
 macro_rules! json_boundary {
     ($name:ident) => {
         #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

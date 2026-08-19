@@ -162,7 +162,6 @@ pub struct AppConfig {
     pub takedown_contact: Option<String>,
     pub accepted_resource_kinds: Vec<ResourceKindAccept>,
     pub accepted_did_methods: Vec<String>,
-    pub allowlist_dids: Vec<String>,
 
     pub default_ttl: Duration,
     pub max_ttl: Duration,
@@ -490,8 +489,6 @@ impl AppConfig {
         // likewise opt-in only.
         let accepted_did_methods = csv_env("TEABAY_ACCEPTED_DID_METHODS", &["did:webvh"]);
 
-        let allowlist_dids = csv_env("TEABAY_ALLOWLIST_DIDS", &[]);
-
         let default_ttl_seconds = read_u64("TEABAY_DEFAULT_TTL_SECONDS", 86_400)?;
         let max_ttl_seconds = read_u64("TEABAY_MAX_TTL_SECONDS", 604_800)?;
         let revalidation_grace_seconds = read_u64("TEABAY_REVALIDATION_GRACE_SECONDS", 3_600)?;
@@ -635,7 +632,6 @@ impl AppConfig {
             takedown_contact,
             accepted_resource_kinds,
             accepted_did_methods,
-            allowlist_dids,
             default_ttl: Duration::from_secs(default_ttl_seconds),
             max_ttl: Duration::from_secs(max_ttl_seconds),
             revalidation_grace: Duration::from_secs(revalidation_grace_seconds),

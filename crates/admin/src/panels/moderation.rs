@@ -13,7 +13,6 @@ use crate::model::{
     BADGE_NEUTRAL, BADGE_WARN, DirectoryAdminAllowlistUpsertRequestBody, OperatorTakedownOutcome,
     OperatorTakedownRequestBody, RESOURCE_KINDS, TakedownAppealDecision,
     TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
-    parse_directory_resource_kind,
 };
 use crate::shell::{AuditTable, PanelHeader, StatusLine};
 
@@ -291,10 +290,10 @@ pub fn TakedownPanel(base_url: String, token: String) -> Element {
                 return;
             }
         };
-        let kind = match parse_directory_resource_kind(resource_kind().as_str()) {
+        let kind = match serde_json::from_value(JsonValue::String(resource_kind())) {
             Ok(kind) => kind,
-            Err(message) => {
-                error.set(message);
+            Err(parse_error) => {
+                error.set(format!("invalid resource_kind: {parse_error}"));
                 return;
             }
         };

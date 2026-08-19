@@ -1,12 +1,12 @@
 use chrono::{DateTime, Utc};
+use serde_json::Value as JsonValue;
 pub use teabay_contracts::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
     DISCOVERABILITY_TOKENS, DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
     OperatorTakedownOutcome, OperatorTakedownRequestBody, RESOURCE_KIND_TOKENS, ResourceItem,
     ResourceList, ResourceMutationEnvelope, TakedownAppealDecision, TakedownAppealDecisionOutcome,
-    TakedownAppealDecisionRequestBody, parse_directory_discoverability,
-    parse_directory_resource_kind,
+    TakedownAppealDecisionRequestBody,
 };
 
 use crate::api::{
@@ -161,10 +161,14 @@ impl ResourceEditorForm {
         }
 
         Ok(DirectoryAdminResourceUpsertRequestBody {
-            resource_kind: parse_directory_resource_kind(self.resource_kind.as_str())?,
+            resource_kind: serde_json::from_value(JsonValue::String(self.resource_kind.clone()))
+                .map_err(|error| format!("invalid resource_kind: {error}"))?,
             resource_id,
             principal_server_service_id,
-            discoverability: parse_directory_discoverability(self.discoverability.as_str())?,
+            discoverability: serde_json::from_value(JsonValue::String(
+                self.discoverability.clone(),
+            ))
+            .map_err(|error| format!("invalid discoverability: {error}"))?,
             as_of: parse_optional_datetime(&self.as_of, "as_of")?,
             source_refs: parse_string_array(&self.source_refs, "source_refs")?,
             policy_revision,

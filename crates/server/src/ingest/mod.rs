@@ -110,12 +110,6 @@ impl From<ContractResourceKind> for DirectoryResourceKindDb {
     }
 }
 
-impl DirectoryResourceKindDb {
-    pub fn from_sdk(value: ContractResourceKind) -> Self {
-        Self::from(value)
-    }
-}
-
 // ---- Ingest mode ---------------------------------------------------------
 
 #[derive(

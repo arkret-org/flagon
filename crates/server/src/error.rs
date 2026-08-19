@@ -74,9 +74,6 @@ impl ApiErrorCode {
         StatusCode::TOO_MANY_REQUESTS,
     );
     #[allow(non_upper_case_globals)]
-    pub const Timeout: Self =
-        Self::new(arkret_sdk::ErrorCode::TIMEOUT, StatusCode::GATEWAY_TIMEOUT);
-    #[allow(non_upper_case_globals)]
     pub const UnsupportedFeature: Self = Self::new(
         arkret_sdk::ErrorCode::UNSUPPORTED_FEATURE,
         StatusCode::NOT_IMPLEMENTED,

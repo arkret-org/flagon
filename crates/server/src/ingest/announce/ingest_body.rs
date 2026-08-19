@@ -43,7 +43,7 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             .map(str::to_owned)
             .ok_or_else(|| "discovery_state.policy_revision is required".to_owned())?;
         Ok(Self {
-            resource_kind: DirectoryResourceKindDb::from_sdk(value.resource_kind),
+            resource_kind: DirectoryResourceKindDb::from(value.resource_kind),
             resource_id: value.resource_id,
             principal_server_service_id: value.principal_server_service_id,
             discovery_state,

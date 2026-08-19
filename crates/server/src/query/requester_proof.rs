@@ -55,9 +55,8 @@
 
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
-    DidCoreId, DirectoryListHandlesForSubjectRequestBody, DirectoryResolveAgentSelectorRequestBody,
-    DirectoryResolveHandleRequestBody, DirectoryResolveOrganizationRequestBody,
-    DirectoryResolveTargetRequestBody,
+    DidCoreId, DirectoryListHandlesForSubjectRequestBody, DirectoryResolveHandleRequestBody,
+    DirectoryResolveOrganizationRequestBody, DirectoryResolveTargetRequestBody,
 };
 use arkret_wire::{Audience, PayloadProof};
 use chrono::{DateTime, Utc};
@@ -74,10 +73,9 @@ pub const REQUESTER_PROOF_MAX_SKEW_SECONDS: i64 = 300;
 
 /// A directory read request family that can carry §9.0.1 `proofs[]`.
 ///
-/// Implemented for all five registered families even though this directory
-/// exposes four of them: `resolve_agent_selector` is not routed yet, and an
-/// implementation that only covers the routed subset would silently drop the
-/// fifth family's domain separation the day the route is added.
+/// Implemented for the four families this directory routes. The fifth
+/// registered family, `resolve_agent_selector`, is not routed; its impl lands
+/// together with the route so the two cannot drift apart.
 pub trait DirectoryRequesterProofFamily {
     fn requester_proofs(&self) -> &[PayloadProof];
 
@@ -144,23 +142,6 @@ impl DirectoryRequesterProofFamily for DirectoryResolveHandleRequestBody {
 
     fn requester_proof_originator(&self) -> Option<&DidCoreId> {
         self.requester.as_ref()
-    }
-}
-
-impl DirectoryRequesterProofFamily for DirectoryResolveAgentSelectorRequestBody {
-    fn requester_proofs(&self) -> &[PayloadProof] {
-        &self.proofs
-    }
-
-    fn requester_proof_binding_bytes(
-        &self,
-        proof: &PayloadProof,
-    ) -> Result<Vec<u8>, arkret_wire::Error> {
-        self.proof_binding_bytes(proof)
-    }
-
-    fn requester_proof_originator(&self) -> Option<&DidCoreId> {
-        Some(&self.requester)
     }
 }
 
