@@ -741,12 +741,11 @@ mod tests {
             }
 
             // Teabay-private fields remain under `x_teabay_*`.
-            for ext in ["x_teabay_limitations"] {
-                assert!(
-                    object.contains_key(ext),
-                    "teabay-private extension `{ext}` must ride as an x_teabay_* key"
-                );
-            }
+            let ext = "x_teabay_limitations";
+            assert!(
+                object.contains_key(ext),
+                "teabay-private extension `{ext}` must ride as an x_teabay_* key"
+            );
             for standard in [
                 "resource_kinds",
                 "discovery_profiles",

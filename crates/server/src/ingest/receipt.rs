@@ -11,13 +11,14 @@ use teabay_contracts::{
 };
 
 use crate::config::{AppConfig, ReceiptSigningKey};
-use crate::ingest::withdraw::{DirectoryWithdrawInput, withdraw_payload_without_jws};
+use crate::ingest::DirectoryResourceKindDb;
 
 pub(crate) const RECEIPT_VERSION: &str = "teabay.withdrawal_receipt.v1";
 
 pub(crate) fn resource_withdrawal_proof(
     config: &AppConfig,
-    body: &DirectoryWithdrawInput,
+    resource_kind: DirectoryResourceKindDb,
+    body: &arkret_sdk::DirectoryWithdrawRequestBody,
     withdraw_id: &str,
     acked_at: DateTime<Utc>,
     effective_at: DateTime<Utc>,
@@ -27,17 +28,19 @@ pub(crate) fn resource_withdrawal_proof(
         "receipt_version": RECEIPT_VERSION,
         "statement": withdrawal_statement(
             "resource_withdraw",
-            body.resource_kind.as_pg(),
+            resource_kind.as_pg(),
             &body.resource_id,
-            &body.reason,
+            body.reason.as_deref().unwrap_or_default(),
             withdraw_id,
             acked_at,
             effective_at,
             None,
         ),
-        "signed_payload": withdraw_payload_without_jws(body)
-            .map_err(|(_, message)| anyhow::anyhow!(message))?,
-        "governance_proof": body.governance_proof.clone(),
+        "signed_payload": body
+            .unsigned_payload()
+            .map_err(|error| anyhow::anyhow!("unsigned withdraw payload: {error}"))?,
+        "governance_proof": serde_json::to_value(&body.governance_proof)
+            .map_err(|error| anyhow::anyhow!("serialize governance proof: {error}"))?,
         "verification": {
             "status": "verified",
             "verified_by": config.service_id.as_str(),

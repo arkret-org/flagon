@@ -15,14 +15,16 @@
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
 
-use std::collections::BTreeMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_identity::document_canonical_digest;
 use arkret_sdk::identity::DidWebvhResolver;
-use arkret_sdk::{DID_WEB_MAX_DOCUMENT_BYTES, DidCoreId, DidFullId, DidWebResolver, canonical};
+use arkret_sdk::{
+    DID_WEB_MAX_DOCUMENT_BYTES, DidCoreId, DidFullId, DidWebResolver, DirectoryGovernanceProof,
+    DirectoryTakedownAppealRequestBody, DirectoryWithdrawRequestBody, canonical,
+};
 use arkret_wire::{Hash, TrustDomainId};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -333,25 +335,126 @@ pub(crate) fn verify_discovery_proof(
     )
 }
 
-pub(crate) fn verify_governance_proof_payload(
-    canonical_payload_without_jws: &JsonValue,
-    proof: &BTreeMap<String, JsonValue>,
+/// §8.7.1: a Directory MUST reject a governance proof whose `created_at`
+/// deviates from receipt time by more than 300 seconds. Callers needing a
+/// longer window re-issue; a deployment MUST NOT relax the constant, so it is
+/// not configurable.
+pub(crate) const GOVERNANCE_PROOF_MAX_SKEW_SECONDS: i64 = 300;
+
+/// A directory write-surface request carrying a §8.7.1 `governance_proof`.
+///
+/// The transcript is NEVER assembled here: each body's canonical binding
+/// object is built by the SDK helper that owns the registered context and
+/// `binding_fields` (`arkret_sdk::DirectoryGovernanceProof::binding_bytes`),
+/// which also recomputes `payload_digest` over the request without its
+/// top-level `governance_proof` member and fails closed on any
+/// non-conforming proof field.
+pub(crate) trait DirectoryGovernanceRequest {
+    fn governance_proof(&self) -> &DirectoryGovernanceProof;
+    fn governance_resource_id(&self) -> &str;
+    fn governance_binding_bytes(&self) -> Result<Vec<u8>, arkret_wire::Error>;
+}
+
+impl DirectoryGovernanceRequest for DirectoryWithdrawRequestBody {
+    fn governance_proof(&self) -> &DirectoryGovernanceProof {
+        &self.governance_proof
+    }
+
+    fn governance_resource_id(&self) -> &str {
+        &self.resource_id
+    }
+
+    fn governance_binding_bytes(&self) -> Result<Vec<u8>, arkret_wire::Error> {
+        self.proof_binding_bytes()
+    }
+}
+
+impl DirectoryGovernanceRequest for DirectoryTakedownAppealRequestBody {
+    fn governance_proof(&self) -> &DirectoryGovernanceProof {
+        &self.governance_proof
+    }
+
+    fn governance_resource_id(&self) -> &str {
+        &self.resource_id
+    }
+
+    fn governance_binding_bytes(&self) -> Result<Vec<u8>, arkret_wire::Error> {
+        self.proof_binding_bytes()
+    }
+}
+
+/// Verify the §8.7.1 governance proof of a write-surface request.
+///
+/// Five semantic checks on top of the SDK binding helper:
+///
+/// 1. `context` domain separation — the SDK helper stamps the registered
+///    `ak.directory-governance-request-proof-v1` context into the signed transcript, so a signature
+///    produced under any other context fails the JWS check;
+/// 2. `audience` MUST name *this* directory's `service_id` (the value
+///    `ak.find.directory.read.describe` publishes) — the typed `DidCoreId` already rejected every
+///    other shape at deserialization;
+/// 3. `operation_id` is stamped from the operation actually being served, so a `withdraw` signature
+///    cannot be replayed as `takedown_appeal` or vice versa;
+/// 4. `payload_digest` MUST be byte-identical to `SHA-256(JCS(request_without_governance_proof))`,
+///    recomputed by the SDK helper from the typed body;
+/// 5. `created_at` MUST sit within 300 seconds of receipt time.
+///
+/// Every proof-layer failure collapses to the single
+/// `directory_governance_proof_signature_invalid` rejection (§9.2
+/// indistinguishable rejection: one wire code, one status); the precise
+/// reason string is for local logs. Signer-authority failures keep the
+/// §8.7.1-named `governance_key_invalid` code.
+pub(crate) fn verify_governance_proof(
+    request: &impl DirectoryGovernanceRequest,
     resource_kind: DirectoryResourceKindDb,
-    resource_id: &str,
     expected_controller_did: Option<&str>,
+    directory_service_id: &str,
     resolver: &SharedDidResolver,
+    now: DateTime<Utc>,
 ) -> Result<(), (ApiErrorCode, String)> {
-    let canonical = canonical_json_bytes(canonical_payload_without_jws)
-        .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))?;
-    let proof = JsonValue::Object(proof.clone().into_iter().collect());
-    verify_detached_jws_payload(
-        &canonical,
-        &proof,
+    let proof = request.governance_proof();
+
+    let skew = now
+        .signed_duration_since(proof.created_at)
+        .num_seconds()
+        .abs();
+    if skew > GOVERNANCE_PROOF_MAX_SKEW_SECONDS {
+        return Err((
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+            format!(
+                "governance proof created_at is {skew}s from receipt time, \
+                 outside the {GOVERNANCE_PROOF_MAX_SKEW_SECONDS}s window"
+            ),
+        ));
+    }
+
+    if proof.audience.as_str() != directory_service_id {
+        return Err((
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+            "governance proof audience must be this directory's service_id".to_owned(),
+        ));
+    }
+
+    let binding = request.governance_binding_bytes().map_err(|error| {
+        (
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+            format!("governance proof binding rejected: {error}"),
+        )
+    })?;
+
+    enforce_governance_method_binding(
         resource_kind,
-        resource_id,
+        request.governance_resource_id(),
         expected_controller_did,
+        proof.verification_method.as_str(),
+    )?;
+    verify_jws_ed25519(
+        &binding,
+        &proof.jws,
+        proof.verification_method.as_str(),
         resolver,
     )
+    .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))
 }
 
 fn verify_detached_jws_payload(
@@ -1308,5 +1411,227 @@ mod tests {
             )
             .is_ok()
         );
+    }
+}
+
+#[cfg(test)]
+mod governance_proof_tests {
+    use arkret_sdk::{DidUrl, DirectoryGovernanceProofPurpose, Hash};
+    use arkret_signatures::jws::sign_jws_ed25519;
+    use arkret_wire::ServiceOperationId;
+    use chrono::Duration;
+    use ed25519_dalek::SigningKey;
+
+    use super::*;
+
+    const SIGNING_SEED: [u8; 32] = [51u8; 32];
+    const DIRECTORY_SERVICE_ID: &str = "ak:did_core:web:directory.test";
+    const OTHER_DIRECTORY_SERVICE_ID: &str = "ak:did_core:web:other-directory.test";
+    const REALM_ID: &str = "ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb";
+
+    struct GovernanceSigner {
+        signing_key: SigningKey,
+        issuer_did: String,
+        verification_method: DidUrl,
+    }
+
+    fn test_signer() -> GovernanceSigner {
+        let signing_key = SigningKey::from_bytes(&SIGNING_SEED);
+        let mut bytes = vec![0xed, 0x01];
+        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
+        let multibase = format!("z{}", bs58::encode(bytes).into_string());
+        let issuer_did = format!("did:key:{multibase}");
+        let verification_method =
+            DidUrl::new(format!("{issuer_did}#{multibase}")).expect("verification method");
+        GovernanceSigner {
+            signing_key,
+            issuer_did,
+            verification_method,
+        }
+    }
+
+    fn resolver() -> SharedDidResolver {
+        SharedDidResolver::new(&["did:key".to_owned()], false).expect("resolver builds")
+    }
+
+    fn placeholder_proof(
+        signer: &GovernanceSigner,
+        created_at: DateTime<Utc>,
+        audience: &str,
+    ) -> DirectoryGovernanceProof {
+        DirectoryGovernanceProof {
+            kind: "detached_jws".to_owned(),
+            verification_method: signer.verification_method.clone(),
+            payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).expect("digest"),
+            created_at,
+            proof_purpose: DirectoryGovernanceProofPurpose::GovernanceAuthorization,
+            audience: DidCoreId::new(audience).expect("directory service id"),
+            jws: "pending".to_owned(),
+        }
+    }
+
+    /// A withdraw request whose proof is signed over the §8.7.1 transcript,
+    /// exactly as a conforming resource would produce it.
+    fn signed_withdraw(
+        signer: &GovernanceSigner,
+        created_at: DateTime<Utc>,
+        audience: &str,
+    ) -> DirectoryWithdrawRequestBody {
+        let mut body = DirectoryWithdrawRequestBody {
+            resource_id: REALM_ID.to_owned(),
+            governance_proof: placeholder_proof(signer, created_at, audience),
+            reason: Some("governance proof test".to_owned()),
+            effective_at: None,
+        };
+        let digest = body.payload_digest().expect("payload digest");
+        body.governance_proof.payload_digest = digest;
+        let transcript = body.proof_binding_bytes().expect("binding bytes");
+        body.governance_proof.jws =
+            sign_jws_ed25519(&transcript, &signer.signing_key).expect("sign");
+        body
+    }
+
+    fn verify_withdraw(
+        body: &DirectoryWithdrawRequestBody,
+        signer: &GovernanceSigner,
+        service_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), (ApiErrorCode, String)> {
+        verify_governance_proof(
+            body,
+            DirectoryResourceKindDb::Realm,
+            Some(signer.issuer_did.as_str()),
+            service_id,
+            &resolver(),
+            now,
+        )
+    }
+
+    #[tokio::test]
+    async fn valid_withdraw_governance_proof_verifies() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
+        verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect("a conforming proof must verify");
+    }
+
+    /// Negative 1 — cross-Directory replay: a proof bound to another
+    /// directory's `service_id` MUST be rejected here (§8.7.1 audience).
+    #[tokio::test]
+    async fn cross_directory_replay_is_rejected() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let body = signed_withdraw(&signer, now, OTHER_DIRECTORY_SERVICE_ID);
+        let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect_err("a proof for another directory MUST be rejected");
+        assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);
+
+        // The mirror image: a proof for this directory presented to a
+        // directory with a different service_id is equally rejected.
+        let body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
+        verify_withdraw(&body, &signer, OTHER_DIRECTORY_SERVICE_ID, now)
+            .expect_err("audience MUST name the receiving directory");
+    }
+
+    /// Negative 2 — cross-operation replay: the same proof leaf signed under
+    /// the `takedown_appeal` operation id MUST NOT verify as `withdraw`
+    /// (§8.7.1 `operation_id` binding).
+    #[tokio::test]
+    async fn cross_operation_replay_is_rejected() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let mut body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
+        let appeal_transcript = body
+            .governance_proof
+            .binding_bytes(
+                ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL,
+                &body.resource_id,
+                &body.payload_digest().expect("payload digest"),
+            )
+            .expect("appeal binding bytes");
+        body.governance_proof.jws =
+            sign_jws_ed25519(&appeal_transcript, &signer.signing_key).expect("sign");
+        let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect_err("an appeal-operation signature MUST NOT verify as withdraw");
+        assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);
+    }
+
+    /// Negative 3 — expired proof: `created_at` outside the 300-second window
+    /// MUST be rejected in both directions (§8.7.1 freshness).
+    #[tokio::test]
+    async fn stale_governance_proof_is_rejected() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let stale = now - Duration::seconds(GOVERNANCE_PROOF_MAX_SKEW_SECONDS + 1);
+        let body = signed_withdraw(&signer, stale, DIRECTORY_SERVICE_ID);
+        let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect_err("a stale proof MUST be rejected");
+        assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);
+
+        let future = now + Duration::seconds(GOVERNANCE_PROOF_MAX_SKEW_SECONDS + 1);
+        let body = signed_withdraw(&signer, future, DIRECTORY_SERVICE_ID);
+        verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect_err("a future-dated proof MUST be rejected");
+
+        let edge = now - Duration::seconds(GOVERNANCE_PROOF_MAX_SKEW_SECONDS);
+        let body = signed_withdraw(&signer, edge, DIRECTORY_SERVICE_ID);
+        verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect("a proof at the window edge must verify");
+    }
+
+    /// Check 1 — context domain separation: a signature over an otherwise
+    /// identical binding object stamped with another family's context MUST be
+    /// rejected.
+    #[tokio::test]
+    async fn signature_under_another_context_is_rejected() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let mut body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
+        let mut foreign: JsonValue =
+            serde_json::from_slice(&body.proof_binding_bytes().expect("binding bytes"))
+                .expect("binding object");
+        foreign["context"] = JsonValue::String(
+            arkret_wire::ProofContextId::DIRECTORY_RESOLVE_HANDLE_REQUEST_PROOF_V1.to_owned(),
+        );
+        let foreign_bytes = canonical::canonical_json_bytes(&foreign).expect("canonical bytes");
+        body.governance_proof.jws =
+            sign_jws_ed25519(&foreign_bytes, &signer.signing_key).expect("sign");
+        let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect_err("a signature under another context MUST be rejected");
+        assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);
+    }
+
+    /// Check 4 — `payload_digest` binds the whole unsigned request: mutating
+    /// any signed field after issuance MUST be rejected.
+    #[tokio::test]
+    async fn tampered_request_body_breaks_the_payload_digest_binding() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let mut body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
+        body.reason = Some("rewritten after signing".to_owned());
+        let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
+            .expect_err("a mutated body MUST be rejected");
+        assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);
+    }
+
+    /// A signer that is not the resource's governance controller is rejected
+    /// with the §8.7.1-named `governance_key_invalid`, distinct from the
+    /// indistinguishable proof-layer rejection.
+    #[tokio::test]
+    async fn signer_must_be_the_governance_controller() {
+        let signer = test_signer();
+        let now = Utc::now();
+        let body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
+        let (code, _) = verify_governance_proof(
+            &body,
+            DirectoryResourceKindDb::Realm,
+            Some("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"),
+            DIRECTORY_SERVICE_ID,
+            &resolver(),
+            now,
+        )
+        .expect_err("a foreign controller MUST be rejected");
+        assert_eq!(code, ApiErrorCode::GovernanceKeyInvalid);
     }
 }

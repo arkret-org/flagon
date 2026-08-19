@@ -58,13 +58,6 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
-    let unsigned_packet = match appeal_packet_without_jws(&body) {
-        Ok(packet) => packet,
-        Err((code, message)) => {
-            code.render(res, message);
-            return;
-        }
-    };
     let expected_controller = match crate::ingest::withdraw::governance_controller_for_withdraw(
         &state,
         resource_kind,
@@ -78,13 +71,13 @@ pub async fn submit_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
             return;
         }
     };
-    if let Err((code, message)) = verify::verify_governance_proof_payload(
-        &unsigned_packet,
-        &body.governance_proof,
+    if let Err((code, message)) = verify::verify_governance_proof(
+        &body,
         resource_kind,
-        &body.resource_id,
         expected_controller.as_deref(),
+        &state.config().service_id,
         state.did_resolver(),
+        Utc::now(),
     ) {
         code.render(res, message);
         return;
@@ -352,33 +345,6 @@ fn validate_appeal_body(
     Ok(())
 }
 
-fn appeal_packet_without_jws(
-    body: &DirectoryTakedownAppealRequestBody,
-) -> Result<JsonValue, (ApiErrorCode, String)> {
-    let mut payload = serde_json::to_value(body).map_err(|error| {
-        (
-            ApiErrorCode::InternalError,
-            format!("serialize appeal packet: {error}"),
-        )
-    })?;
-    let proof = payload
-        .get_mut("governance_proof")
-        .and_then(JsonValue::as_object_mut)
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                "governance_proof object missing".to_owned(),
-            )
-        })?;
-    if proof.remove("jws").is_none() {
-        return Err((
-            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-            "governance_proof.jws missing".to_owned(),
-        ));
-    }
-    Ok(payload)
-}
-
 async fn operator_takedown_in_force(
     state: &AppState,
     takedown_id: &str,
@@ -519,15 +485,15 @@ async fn persist_appeal_decision(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use arkret_sdk::{
+        DidCoreId, DidUrl, DirectoryGovernanceProof, DirectoryGovernanceProofPurpose,
+        DirectoryTakedownAppealOutcomeRequest, Hash,
+    };
 
     use super::*;
 
-    #[test]
-    fn appeal_packet_without_jws_keeps_signed_fields() {
-        use arkret_sdk::{DidCoreId, DirectoryTakedownAppealOutcomeRequest, Hash};
-
-        let body = DirectoryTakedownAppealRequestBody {
+    fn appeal_body() -> DirectoryTakedownAppealRequestBody {
+        let mut body = DirectoryTakedownAppealRequestBody {
             takedown_id: "teabay:withdraw:01904100-0000-7000-8000-000000000001".to_owned(),
             resource_id: "ak:realm:AT0jIIg6naB0Vkqbb-ip6eunf-bHr5-nh4pz2_kYNyVX".to_owned(),
             appellant_actor_id: DidCoreId::new("ak:did_core:webvh:zRealmExampleScid")
@@ -538,25 +504,52 @@ mod tests {
             .expect("digest"),
             requested_outcome: DirectoryTakedownAppealOutcomeRequest::Overturn,
             created_at: Utc::now(),
-            governance_proof: BTreeMap::from([
-                ("kind".to_owned(), json!("detached_jws")),
-                (
-                    "verification_method".to_owned(),
-                    json!("did:webvh:realm.example#key-1"),
-                ),
-                ("jws".to_owned(), json!("placeholder")),
-            ]),
+            governance_proof: DirectoryGovernanceProof {
+                kind: "detached_jws".to_owned(),
+                verification_method: DidUrl::new("did:webvh:realm.example#key-1")
+                    .expect("verification method"),
+                payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).expect("digest"),
+                created_at: Utc::now(),
+                proof_purpose: DirectoryGovernanceProofPurpose::GovernanceAuthorization,
+                audience: DidCoreId::new("ak:did_core:web:directory.test")
+                    .expect("directory service id"),
+                jws: "aaa..bbb".to_owned(),
+            },
         };
+        let digest = body.payload_digest().expect("payload digest");
+        body.governance_proof.payload_digest = digest;
+        body
+    }
 
-        let unsigned = appeal_packet_without_jws(&body).expect("unsigned packet");
+    #[test]
+    fn unsigned_payload_drops_governance_proof_and_keeps_signed_fields() {
+        let body = appeal_body();
 
-        assert!(unsigned["governance_proof"].get("jws").is_none());
+        let unsigned = body.unsigned_payload().expect("unsigned payload");
+
+        assert!(unsigned.get("governance_proof").is_none());
         assert_eq!(
             unsigned["takedown_id"].as_str(),
             Some(body.takedown_id.as_str())
         );
         assert_eq!(unsigned["requested_outcome"], "overturn");
         assert!(unsigned.get("argument").is_none(), "no plaintext argument");
-        assert!(unsigned["governance_proof"].is_object());
+    }
+
+    #[test]
+    fn appeal_binding_stamps_the_takedown_appeal_operation_id() {
+        let body = appeal_body();
+        let transcript: JsonValue =
+            serde_json::from_slice(&body.proof_binding_bytes().expect("binding bytes"))
+                .expect("binding object");
+        assert_eq!(
+            transcript["operation_id"],
+            "ak.find.directory.command.takedown_appeal"
+        );
+        assert_eq!(
+            transcript["context"],
+            "ak.directory-governance-request-proof-v1"
+        );
+        assert_eq!(transcript["resource_id"], body.resource_id);
     }
 }

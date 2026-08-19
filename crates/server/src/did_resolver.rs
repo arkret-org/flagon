@@ -3,8 +3,8 @@
 //!
 //! # DID-P0-C01 — one resolver per process, not one per request
 //!
-//! [`did_resolver_chain`] builds a brand-new `reqwest::Client` (with its own
-//! connection pool, DNS resolver and TLS state) every time it is called. It
+//! [`did_resolver_chain`] builds the network resolver (with its own
+//! connection pool, DNS resolution and TLS state) every time it is called. It
 //! therefore has exactly **one** legitimate call site: [`SharedDidResolver::new`],
 //! which `AppState::new` invokes once at startup. Every request path takes the
 //! already-built [`SharedDidResolver`] out of `AppState`.
@@ -34,7 +34,6 @@
 //! `authority_network_call_count` — cannot drift from reality.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_identity::binding_digest::normalize_did_method_prefix;
@@ -47,7 +46,6 @@ use arkret_sdk::identity::{
 use arkret_sdk::{CompositeDidResolver, DidCoreId, DidFullId, HttpDidResolver};
 use arkret_signatures::http_signature::Ed25519PublicKey;
 use chrono::{DateTime, Utc};
-use reqwest::Client;
 
 use crate::did_binding::{BindingFailure, DidBindingDirectory, binding_freshness_profile};
 use crate::observability::{
@@ -513,8 +511,8 @@ pub fn verification_method_controller_core_id(verification_method: &str) -> Opti
 /// Build the production resolver chain for the DID methods accepted by
 /// this teabay instance.
 ///
-/// **Do not call this from a request path.** It allocates a fresh
-/// `reqwest::Client`; the only supported caller is [`SharedDidResolver::new`],
+/// **Do not call this from a request path.** It allocates the network
+/// resolver; the only supported caller is [`SharedDidResolver::new`],
 /// which `AppState::new` runs once at startup. See the module docs.
 ///
 /// `allow_private_networks` is the single source of truth for SSRF egress
@@ -527,14 +525,14 @@ fn did_resolver_chain(
     allow_private_networks: bool,
 ) -> Result<CompositeDidResolver, String> {
     let policy = resolver_policy(accepted_did_methods);
-    let http_client = crate::egress::guard(allow_private_networks)
-        .apply_to_client_builder(Client::builder())
-        .timeout(Duration::from_millis(2_000))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("HTTP DID resolver client init failed: {e}"))?;
-    let http = HttpDidResolver::with_client(http_client, policy.clone())
-        .map_err(|e| format!("HTTP DID resolver init failed: {e}"))?;
+    // The resolver enforces the outbound policy itself: every fetch locks the
+    // target through the shared egress guard and pins the validated addresses
+    // into the per-target client, so DNS cannot rebind after the check.
+    let http = HttpDidResolver::with_policy_and_egress(
+        policy.clone(),
+        crate::egress::guard(allow_private_networks).policy(),
+    )
+    .map_err(|e| format!("HTTP DID resolver init failed: {e}"))?;
     let mut resolver = CompositeDidResolver::new().with_policy(policy);
     resolver.push(DidKeyResolver::new());
     resolver.push(http);

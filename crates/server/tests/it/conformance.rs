@@ -866,7 +866,6 @@ async fn assert_three_path_takedown_strand(
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
     let withdraw_body = signed_withdraw_body(
-        "realm",
         "ak:realm:takedown-withdraw",
         &verification_method,
         &signing_key,
@@ -1430,25 +1429,41 @@ fn canonical_payload_without_jws_at(
     canonical::canonical_json_bytes(&unsigned).map_err(Into::into)
 }
 
+/// §8.7.1: the signed transcript is the canonical binding object built by the
+/// SDK helper, not the request body. `payload_digest` covers the request
+/// without the top-level `governance_proof` member, `audience` names this
+/// directory's `service_id`, `proof_purpose` is `governance_authorization`,
+/// and `created_at` must sit inside the 300-second freshness window.
 fn signed_withdraw_body(
-    resource_kind: &str,
     resource_id: &str,
     verification_method: &str,
     signing_key: &SigningKey,
     reason: &str,
 ) -> anyhow::Result<JsonValue> {
-    let mut body = json!({
-        "resource_kind": resource_kind,
-        "resource_id": resource_id,
-        "governance_proof": {
-            "kind": "detached_jws",
-            "verification_method": verification_method,
-            "jws": "",
+    let mut body = arkret_sdk::DirectoryWithdrawRequestBody {
+        resource_id: resource_id.to_owned(),
+        governance_proof: arkret_sdk::DirectoryGovernanceProof {
+            kind: "detached_jws".to_owned(),
+            verification_method: arkret_sdk::DidUrl::new(verification_method.to_owned())
+                .map_err(|error| anyhow::anyhow!("verification method: {error}"))?,
+            payload_digest: arkret_sdk::Hash::new(format!("sha256:{}", "0".repeat(64)))
+                .map_err(|error| anyhow::anyhow!("digest: {error}"))?,
+            created_at: Utc::now(),
+            proof_purpose: arkret_sdk::DirectoryGovernanceProofPurpose::GovernanceAuthorization,
+            audience: arkret_sdk::DidCoreId::new("ak:did_core:web:directory.test".to_owned())
+                .map_err(|error| anyhow::anyhow!("audience: {error}"))?,
+            jws: "pending".to_owned(),
         },
-        "reason": reason,
-        "effective_at": Utc::now(),
-    });
-    let jws = sign_detached_jws_with_proof_key(&body, "governance_proof", signing_key)?;
-    body["governance_proof"]["jws"] = JsonValue::String(jws);
-    Ok(body)
+        reason: Some(reason.to_owned()),
+        effective_at: None,
+    };
+    body.governance_proof.payload_digest = body
+        .payload_digest()
+        .map_err(|error| anyhow::anyhow!("payload digest: {error}"))?;
+    let transcript = body
+        .proof_binding_bytes()
+        .map_err(|error| anyhow::anyhow!("binding bytes: {error}"))?;
+    body.governance_proof.jws =
+        sign_jws_ed25519(&transcript, signing_key).map_err(anyhow::Error::msg)?;
+    Ok(serde_json::to_value(&body)?)
 }

@@ -19,19 +19,24 @@ teabay.withdrawal_receipt.v1
 - `kind = resource_withdraw`
 - `statement`: server receipt facts, including `withdraw_id`, resource,
   reason, `effective_at`, and `acked_at`
-- `signed_payload`: the parsed request payload after removing
-  `governance_proof.jws`
+- `signed_payload`: the request payload after removing the top-level
+  `governance_proof` member (the §8.7.1 unsigned projection)
 - `governance_proof`: the original detached JWS proof, including
-  `verification_method` and `jws`
+  `verification_method`, `payload_digest`, `proof_purpose`, `audience`, and
+  `jws`
 - `verification`: service-side verification metadata
 
 Verification procedure:
 
-1. Canonicalize `signed_payload` with the same JSON canonicalization used for
-   ingest proof verification.
-2. Rebuild the detached JWS signing input from `governance_proof`.
+1. Confirm `SHA-256(JCS(signed_payload))` equals `governance_proof.payload_digest`.
+2. Rebuild the §8.7.1 canonical binding object (`context`
+   `ak.directory-governance-request-proof-v1`, the digest, operation id
+   `ak.find.directory.command.withdraw`, `resource_id`,
+   `verification_method`, `created_at`, `proof_purpose`, `audience`) and
+   canonicalize it with the same JSON canonicalization used for ingest proof
+   verification.
 3. Resolve `governance_proof.verification_method`.
-4. Verify the Ed25519 signature.
+4. Verify the Ed25519 detached JWS over those binding bytes.
 5. Confirm `statement.resource_kind`, `statement.resource_id`, and
    `statement.reason` match `signed_payload`. When the request supplied
    `effective_at`, confirm it matches `statement.effective_at`; otherwise the

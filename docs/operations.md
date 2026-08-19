@@ -172,8 +172,11 @@ For suspected unauthorized ingest:
 For receipt verification:
 
 1. Load the `withdrawals.proof` JSONB value for the target `withdraw_id`.
-2. For `kind=resource_withdraw`, verify `governance_proof.jws` over
-   `signed_payload`.
+2. For `kind=resource_withdraw`, verify `governance_proof.jws` over the
+   §8.7.1 canonical binding object (see
+   [Takedown receipts](takedown-receipts.md)); `signed_payload` is the request
+   without its top-level `governance_proof` member and its digest must equal
+   `governance_proof.payload_digest`.
 3. For `kind=operator_takedown`, verify `receipt_proof.jws` over `statement`
    using `receipt_proof.verification_method`.
 4. Confirm statement fields match the row's resource, reason, and timestamps.

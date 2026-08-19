@@ -7,14 +7,13 @@
 //!   * write a `Withdrawal` audit row
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
-use std::collections::BTreeMap;
-
-use arkret_sdk::DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome;
+use arkret_sdk::{
+    DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome, DirectoryWithdrawRequestBody,
+};
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use salvo::prelude::*;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 
 use crate::audit::{self, AuditEventKind};
@@ -24,31 +23,6 @@ use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::receipt::resource_withdrawal_proof;
 use crate::ingest::{DirectoryResourceKindDb, WithdrawalKindWire, verify};
 use crate::state::AppState;
-
-#[derive(Debug, Serialize)]
-pub struct DirectoryWithdrawInput {
-    #[serde(skip)]
-    pub resource_kind: DirectoryResourceKindDb,
-    pub resource_id: String,
-    /// Same proof envelope used in `ak.{kind}.discovery.proof` — must be
-    /// signed by the resource's governance key. Verification follows §8.5
-    /// step 2.
-    pub governance_proof: BTreeMap<String, JsonValue>,
-    pub reason: String,
-    /// If absent the directory uses `now()`.
-    #[serde(default)]
-    pub effective_at: Option<chrono::DateTime<Utc>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct DirectoryWithdrawWireBody {
-    pub resource_id: String,
-    pub governance_proof: BTreeMap<String, JsonValue>,
-    #[serde(default)]
-    pub reason: Option<String>,
-    #[serde(default)]
-    pub effective_at: Option<chrono::DateTime<Utc>>,
-}
 
 #[handler]
 pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) {
@@ -61,7 +35,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
     let mut ingest_metric = state.metrics().ingest_guard("withdraw");
 
-    let wire_body: DirectoryWithdrawWireBody = match req.parse_json().await {
+    let body: DirectoryWithdrawRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             ingest_metric.set_outcome("json_invalid");
@@ -70,16 +44,16 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    if wire_body.resource_id.is_empty() {
+    if body.resource_id.is_empty() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &wire_body.resource_id, None) {
+    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id, None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
-    let resource_kind = match resolve_withdraw_resource_kind(&state, &wire_body.resource_id).await {
+    let resource_kind = match resolve_withdraw_resource_kind(&state, &body.resource_id).await {
         Ok(resource_kind) => resource_kind,
         Err(message) => {
             ingest_metric.set_outcome("schema_rejected");
@@ -87,26 +61,9 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             return;
         }
     };
-    let body = DirectoryWithdrawInput {
-        resource_kind,
-        resource_id: wire_body.resource_id,
-        governance_proof: wire_body.governance_proof,
-        reason: wire_body.reason.unwrap_or_default(),
-        effective_at: wire_body.effective_at,
-    };
 
-    let canonical_payload = match withdraw_payload_without_jws(&body) {
-        Ok(payload) => payload,
-        Err((code, msg)) => {
-            ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
-            code.render(res, msg);
-            return;
-        }
-    };
     let expected_controller =
-        match governance_controller_for_withdraw(&state, body.resource_kind, &body.resource_id)
-            .await
-        {
+        match governance_controller_for_withdraw(&state, resource_kind, &body.resource_id).await {
             Ok(controller) => controller,
             Err((code, msg)) => {
                 ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
@@ -114,13 +71,13 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 return;
             }
         };
-    if let Err((code, msg)) = verify::verify_governance_proof_payload(
-        &canonical_payload,
-        &body.governance_proof,
-        body.resource_kind,
-        &body.resource_id,
+    if let Err((code, msg)) = verify::verify_governance_proof(
+        &body,
+        resource_kind,
         expected_controller.as_deref(),
+        &state.config().service_id,
         state.did_resolver(),
+        Utc::now(),
     ) {
         ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
         code.render(res, msg);
@@ -141,6 +98,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     let proof = match resource_withdrawal_proof(
         state.config(),
+        resource_kind,
         &body,
         &withdraw_id,
         acked_at,
@@ -154,8 +112,16 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    if let Err(e) =
-        persist_withdraw(&state, &body, &withdraw_id, &proof, acked_at, effective_at).await
+    if let Err(e) = persist_withdraw(
+        &state,
+        resource_kind,
+        &body,
+        &withdraw_id,
+        &proof,
+        acked_at,
+        effective_at,
+    )
+    .await
     {
         ingest_metric.set_outcome("persist_error");
         ApiErrorCode::InternalError.render(res, format!("persist withdraw: {e}"));
@@ -165,7 +131,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let _ = audit::record(
         state.db(),
         AuditEventKind::Withdrawal,
-        Some(body.resource_kind),
+        Some(resource_kind),
         Some(&body.resource_id),
         None,
         json!({
@@ -212,36 +178,10 @@ pub(crate) async fn governance_controller_for_withdraw(
         })
 }
 
-pub(crate) fn withdraw_payload_without_jws(
-    body: &DirectoryWithdrawInput,
-) -> Result<JsonValue, (ApiErrorCode, String)> {
-    let mut payload = serde_json::to_value(body).map_err(|e| {
-        (
-            ApiErrorCode::InternalError,
-            format!("serialize withdraw payload: {e}"),
-        )
-    })?;
-    let proof = payload
-        .get_mut("governance_proof")
-        .and_then(JsonValue::as_object_mut)
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                "governance_proof object missing".to_owned(),
-            )
-        })?;
-    if proof.remove("jws").is_none() {
-        return Err((
-            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-            "governance_proof.jws missing".to_owned(),
-        ));
-    }
-    Ok(payload)
-}
-
 async fn persist_withdraw(
     state: &AppState,
-    body: &DirectoryWithdrawInput,
+    resource_kind: DirectoryResourceKindDb,
+    body: &DirectoryWithdrawRequestBody,
     withdraw_id: &str,
     proof: &JsonValue,
     acked_at: chrono::DateTime<Utc>,
@@ -255,10 +195,10 @@ async fn persist_withdraw(
         diesel::insert_into(w::withdrawals)
             .values((
                 w::withdraw_id.eq(withdraw_id),
-                w::resource_kind.eq(body.resource_kind),
+                w::resource_kind.eq(resource_kind),
                 w::resource_id.eq(&body.resource_id),
                 w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
-                w::reason.eq(&body.reason),
+                w::reason.eq(body.reason.as_deref().unwrap_or_default()),
                 w::proof.eq(proof),
                 w::effective_at.eq(effective_at),
                 w::acked_at.eq(acked_at),
@@ -269,7 +209,7 @@ async fn persist_withdraw(
             .await?;
 
         diesel::delete(r::directory_resources)
-            .filter(r::resource_kind.eq(body.resource_kind))
+            .filter(r::resource_kind.eq(resource_kind))
             .filter(r::resource_id.eq(&body.resource_id))
             .execute(&mut *conn)
             .await?;
@@ -277,8 +217,7 @@ async fn persist_withdraw(
         Ok(())
     })
     .await?;
-    crate::psi_index::delete_resource_tokens(state.db(), body.resource_kind, &body.resource_id)
-        .await?;
+    crate::psi_index::delete_resource_tokens(state.db(), resource_kind, &body.resource_id).await?;
     Ok(())
 }
 
