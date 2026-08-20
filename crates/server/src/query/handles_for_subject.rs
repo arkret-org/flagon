@@ -635,13 +635,36 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         .and_then(JsonValue::as_str)
         .and_then(parse_handle_claim_kind);
 
+    // `created_at` is schema-required for handle claims
+    // (`handle-claim.schema.json` `required` list). A projection without a
+    // parseable canonical `created_at` cannot yield a compliant claim, so the
+    // row is dropped (same fail-closed path as the subject/issuer guards).
+    let created_at = row
+        .public_projection
+        .get("created_at")
+        .and_then(JsonValue::as_str)
+        .and_then(|raw| arkret_sdk::canonical::parse_timestamp_canonical(raw).ok())?;
+
     Some(HandleClaim {
+        schema: HandleClaim::SCHEMA.to_owned(),
         handle,
+        handle_aliases: Vec::new(),
         subject: Some(subject_did),
         issuer,
-        claim_kind,
+        issuer_service_id: None,
         binding_state: verified.then_some(arkret_sdk::HandleBindingState::Verified),
-        ..Default::default()
+        claim_kind,
+        visibility: None,
+        audience: None,
+        challenge: None,
+        claim_scope: Default::default(),
+        member_delivery_binding: None,
+        claims: Vec::new(),
+        created_at,
+        expires_at: None,
+        verified_at: None,
+        source_refs: Vec::new(),
+        proofs: Vec::new(),
     })
 }
 
@@ -851,7 +874,7 @@ mod tests {
     #[test]
     fn claim_from_projection_binds_request_subject() {
         let row = handle_row(
-            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
+            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true,"created_at":"2026-05-20T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
         let claim =
@@ -875,7 +898,26 @@ mod tests {
         // The row asserts a different subject than the request — fail-closed
         // DROP so claims[].subject == response.subject always holds.
         let row = handle_row(
-            json!({"did":"ak:did_core:web:eve.example","handle":"alice:example.com"}),
+            json!({"did":"ak:did_core:web:eve.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00.000Z"}),
+            DiscoverabilityDb::Public,
+        );
+        assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
+    }
+
+    #[test]
+    fn claim_from_projection_drops_missing_created_at() {
+        // `created_at` is required by `handle-claim.schema.json` and by the
+        // `claims[]` items of `list-handles-for-subject-response.schema.json`.
+        // A projection without a canonical `created_at` cannot produce a
+        // compliant claim, so the row is dropped (fail-closed).
+        let row = handle_row(
+            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
+            DiscoverabilityDb::Public,
+        );
+        assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
+        // A non-canonical spelling (no milliseconds) is rejected the same way.
+        let row = handle_row(
+            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
@@ -945,19 +987,32 @@ mod tests {
     #[test]
     fn primary_handle_prefers_verified() {
         let verified = HandleClaim {
+            schema: HandleClaim::SCHEMA.to_owned(),
             handle: Some(Handle::parse("zed:example.com").unwrap()),
+            handle_aliases: Vec::new(),
             subject: Some(
                 arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
             ),
+            issuer: None,
+            issuer_service_id: None,
             binding_state: Some(arkret_sdk::HandleBindingState::Verified),
-            ..Default::default()
+            claim_kind: None,
+            visibility: None,
+            audience: None,
+            challenge: None,
+            claim_scope: Default::default(),
+            member_delivery_binding: None,
+            claims: Vec::new(),
+            created_at: Utc::now(),
+            expires_at: None,
+            verified_at: None,
+            source_refs: Vec::new(),
+            proofs: Vec::new(),
         };
         let unverified = HandleClaim {
+            binding_state: None,
             handle: Some(Handle::parse("aaa:example.com").unwrap()),
-            subject: Some(
-                arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
-            ),
-            ..Default::default()
+            ..verified.clone()
         };
         let claims = vec![unverified, verified];
         // Even though `aaa` sorts first, the verified `zed` is the primary.

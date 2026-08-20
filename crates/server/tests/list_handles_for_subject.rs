@@ -60,7 +60,8 @@ fn happy_path_single_active_claim() {
         json!({
             "did": "ak:did_core:web:alice.example",
             "handle": "alice:example.com",
-            "verified": true
+            "verified": true,
+            "created_at": "2026-05-20T00:00:00.000Z"
         }),
         DiscoverabilityDb::Public,
     )];
@@ -91,11 +92,11 @@ fn happy_path_single_active_claim() {
 fn subject_mismatch_claim_is_dropped() {
     let rows = vec![
         row(
-            json!({ "did": "ak:did_core:web:eve.example", "handle": "eve:example.com" }),
+            json!({ "did": "ak:did_core:web:eve.example", "handle": "eve:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "did": "ak:did_core:web:alice.example", "handle": "alice:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "alice:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
     ];
@@ -120,7 +121,7 @@ fn subject_mismatch_claim_is_dropped() {
 #[test]
 fn subject_mismatch_only_candidate_returns_empty() {
     let rows = vec![row(
-        json!({ "did": "ak:did_core:web:eve.example", "handle": "eve:example.com" }),
+        json!({ "did": "ak:did_core:web:eve.example", "handle": "eve:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
         DiscoverabilityDb::Public,
     )];
 
@@ -141,14 +142,16 @@ fn audience_out_of_scope_is_filtered() {
             json!({
                 "did": "ak:did_core:web:alice.example",
                 "handle": "scoped:example.com",
-                "audience": "ak:did_core:web:someone-else.example"
+                "audience": "ak:did_core:web:someone-else.example",
+                "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
         ),
         row(
             json!({
                 "did": "ak:did_core:web:alice.example",
-                "handle": "open:example.com"
+                "handle": "open:example.com",
+                "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
         ),
@@ -174,7 +177,8 @@ fn audience_matching_requester_is_retained() {
         json!({
             "did": "ak:did_core:web:alice.example",
             "handle": "scoped:example.com",
-            "audience": "ak:did_core:web:tea-org.example"
+            "audience": "ak:did_core:web:tea-org.example",
+            "created_at": "2026-05-20T00:00:00.000Z"
         }),
         DiscoverabilityDb::Public,
     )];
@@ -193,7 +197,8 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
             json!({
                 "did": "ak:did_core:web:alice.example",
                 "handle": "trusted:example.com",
-                "issuer": "ak:did_core:web:issuer.tea"
+                "issuer": "ak:did_core:web:issuer.tea",
+                "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
         ),
@@ -201,7 +206,8 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
             json!({
                 "did": "ak:did_core:web:alice.example",
                 "handle": "untrusted:example.com",
-                "issuer": "ak:did_core:web:issuer.rogue"
+                "issuer": "ak:did_core:web:issuer.rogue",
+                "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
         ),
@@ -233,15 +239,15 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
 fn cursor_pagination_boundary() {
     let rows = vec![
         row(
-            json!({ "did": "ak:did_core:web:alice.example", "handle": "a:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "a:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "did": "ak:did_core:web:alice.example", "handle": "b:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "b:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "did": "ak:did_core:web:alice.example", "handle": "c:example.com" }),
+            json!({ "did": "ak:did_core:web:alice.example", "handle": "c:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
     ];
@@ -278,7 +284,7 @@ fn cursor_pagination_boundary() {
 #[test]
 fn non_visible_row_is_dropped_by_disclosure_gate() {
     let rows = vec![row(
-        json!({ "did": "ak:did_core:web:alice.example", "handle": "secret:example.com" }),
+        json!({ "did": "ak:did_core:web:alice.example", "handle": "secret:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
         DiscoverabilityDb::Secret,
     )];
 
@@ -296,6 +302,7 @@ fn restricted_claim_handle_is_never_disclosed_on_this_surface() {
         json!({
             "did": "ak:did_core:web:alice.example",
             "handle": "restricted:example.com",
+            "created_at": "2026-05-20T00:00:00.000Z",
             "allowed_discoverers": [{
                 "type": "claim",
                 "claim_kind": "organization_membership",

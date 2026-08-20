@@ -13,6 +13,42 @@ use crate::ingest::DirectoryResourceKindDb;
 
 pub(crate) const RECEIPT_VERSION: &str = "teabay.withdrawal_receipt.v1";
 
+/// Typed mirror of the statement object embedded in a resource-withdraw
+/// receipt. Field order matches the wire layout the previous `json!`
+/// literal produced; the resource path never carries an `extra` member.
+#[derive(serde::Serialize)]
+struct ResourceWithdrawalStatement<'a> {
+    receipt_version: &'static str,
+    withdraw_id: &'a str,
+    kind: &'static str,
+    resource_kind: JsonValue,
+    resource_id: &'a str,
+    reason: &'a str,
+    effective_at: DateTime<Utc>,
+    acked_at: DateTime<Utc>,
+}
+
+/// Verification block attesting that the directory service checked the
+/// withdrawal governance proof before acknowledging it.
+#[derive(serde::Serialize)]
+struct WithdrawalVerification<'a> {
+    status: &'static str,
+    verified_by: &'a str,
+    verified_at: DateTime<Utc>,
+}
+
+/// Typed mirror of the `teabay.withdrawal_receipt.v1` resource-withdraw
+/// receipt persisted in `withdrawals.proof`.
+#[derive(serde::Serialize)]
+struct ResourceWithdrawalProof<'a> {
+    kind: &'static str,
+    receipt_version: &'static str,
+    statement: ResourceWithdrawalStatement<'a>,
+    signed_payload: JsonValue,
+    governance_proof: &'a arkret_sdk::DirectoryGovernanceProof,
+    verification: WithdrawalVerification<'a>,
+}
+
 pub(crate) fn resource_withdrawal_proof(
     config: &AppConfig,
     resource_kind: DirectoryResourceKindDb,
@@ -21,30 +57,31 @@ pub(crate) fn resource_withdrawal_proof(
     acked_at: DateTime<Utc>,
     effective_at: DateTime<Utc>,
 ) -> anyhow::Result<JsonValue> {
-    Ok(json!({
-        "kind": "resource_withdraw",
-        "receipt_version": RECEIPT_VERSION,
-        "statement": withdrawal_statement(
-            "resource_withdraw",
-            JsonValue::from(resource_kind.as_pg()),
-            &body.resource_id,
-            body.reason.as_deref().unwrap_or_default(),
+    let proof = ResourceWithdrawalProof {
+        kind: "resource_withdraw",
+        receipt_version: RECEIPT_VERSION,
+        statement: ResourceWithdrawalStatement {
+            receipt_version: RECEIPT_VERSION,
             withdraw_id,
-            acked_at,
+            kind: "resource_withdraw",
+            resource_kind: JsonValue::from(resource_kind.as_pg()),
+            resource_id: &body.resource_id,
+            reason: body.reason.as_deref().unwrap_or_default(),
             effective_at,
-            None,
-        ),
-        "signed_payload": body
+            acked_at,
+        },
+        signed_payload: body
             .unsigned_payload()
             .map_err(|error| anyhow::anyhow!("unsigned withdraw payload: {error}"))?,
-        "governance_proof": serde_json::to_value(&body.governance_proof)
-            .map_err(|error| anyhow::anyhow!("serialize governance proof: {error}"))?,
-        "verification": {
-            "status": "verified",
-            "verified_by": config.service_id.as_str(),
-            "verified_at": acked_at,
+        governance_proof: &body.governance_proof,
+        verification: WithdrawalVerification {
+            status: "verified",
+            verified_by: config.service_id.as_str(),
+            verified_at: acked_at,
         },
-    }))
+    };
+    serde_json::to_value(proof)
+        .map_err(|error| anyhow::anyhow!("serialize withdrawal receipt: {error}"))
 }
 
 #[allow(clippy::too_many_arguments)]
