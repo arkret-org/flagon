@@ -1042,8 +1042,8 @@ fn trim_realm_preview_for_policy(
     if !preview_policy_field_allowed(policy, "preview_ref") {
         preview.preview_ref = None;
     }
-    if !preview_policy_field_allowed(policy, "history_visibility") {
-        preview.history_visibility = None;
+    if !preview_policy_field_allowed(policy, "history_access") {
+        preview.history_access = None;
     }
     preview.discoverability = None;
     preview.join_candidates.clear();

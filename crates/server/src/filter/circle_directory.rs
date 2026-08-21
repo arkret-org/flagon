@@ -104,7 +104,7 @@ mod tests {
             "member_count": 7,
             "member_count_bucket": "1-10",
             "join_rule": "invite",
-            "history_visibility": "joined",
+            "history_access": "since_join",
             "members": ["did:web:alice.example"],
             "created_by": "did:web:alice.example",
             "created_at": "2026-06-19T00:00:00Z",
