@@ -101,8 +101,7 @@ pub(crate) fn effective_ttl_seconds(
 }
 
 /// Derive the directory-safe view from an already object-validated discovery
-/// boundary. This deliberately does not accept a bare `JsonValue`: callers
-/// reading legacy JSONB rows must re-establish the object invariant first.
+/// boundary. This deliberately does not accept a bare `JsonValue`.
 /// Resource-specific closed members (for example Realm anti-enumeration) are
 /// decoded into their SDK types below before they influence disclosure.
 pub(crate) fn derive_public_projection(
