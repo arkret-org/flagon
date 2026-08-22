@@ -44,8 +44,8 @@ use arkret_sdk::identity::{
     DidDocument, DidKeyResolver, DidResolver, ResolvedDid, ResolverPolicy, Result as IdentityResult,
 };
 use arkret_sdk::{CompositeDidResolver, DidCoreId, DidFullId, HttpDidResolver};
-use arkret_signatures::http_signature::Ed25519PublicKey;
 use chrono::{DateTime, Utc};
+use ed25519_dalek::VerifyingKey;
 
 use crate::did_binding::{BindingFailure, DidBindingDirectory, binding_freshness_profile};
 use crate::observability::{
@@ -383,7 +383,7 @@ impl SharedDidResolver {
     /// second push from the same source service under the same key resolves
     /// **zero** times. `keyid` must be a full DID URL: a bare DID is rejected
     /// (`DidUrl` requires a fragment, spec §2.2).
-    pub fn http_signature_public_key(&self, key_id: &str) -> Option<Ed25519PublicKey> {
+    pub fn http_signature_public_key(&self, key_id: &str) -> Option<VerifyingKey> {
         let verification_method = arkret_wire::DidUrl::new(key_id.trim().to_owned()).ok()?;
         let (did, _) = verification_method.as_str().split_once('#')?;
         let did = DidFullId::new(did.to_owned()).ok()?;

@@ -148,7 +148,7 @@ impl ApiErrorCode {
     // because the subject is the wrong kind of identifier.
     #[allow(non_upper_case_globals)]
     pub const FailedPrecondition: Self = Self::new(
-        arkret_sdk::error::ErrorCode::FAILED_PRECONDITION,
+        arkret_sdk::error_codes::ErrorCode::FAILED_PRECONDITION,
         StatusCode::CONFLICT,
     );
 

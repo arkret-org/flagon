@@ -4,9 +4,9 @@ pub use teabay_contracts::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
     DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
-    OperatorTakedownOutcome, OperatorTakedownRequestBody, ResourceItem, ResourceList,
-    ResourceMutationEnvelope, TakedownAppealDecision, TakedownAppealDecisionOutcome,
-    TakedownAppealDecisionRequestBody, discoverability_tokens, resource_kind_tokens,
+    DirectoryResourceKind, Discoverability, OperatorTakedownOutcome, OperatorTakedownRequestBody,
+    ResourceItem, ResourceList, ResourceMutationEnvelope, TakedownAppealDecision,
+    TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
 };
 
 use crate::api::{
@@ -109,7 +109,7 @@ impl Default for ResourceEditorForm {
 impl ResourceEditorForm {
     pub fn reset_for_kind(kind: &str) -> Self {
         let mut next = Self::default();
-        if resource_kind_tokens().contains(&kind) {
+        if kind.parse::<DirectoryResourceKind>().is_ok() {
             next.resource_kind = kind.to_string();
         }
         next
@@ -145,10 +145,10 @@ impl ResourceEditorForm {
             return Err("principal_server_service_id is required".to_string());
         }
 
-        if !resource_kind_tokens().contains(&self.resource_kind.as_str()) {
+        if self.resource_kind.parse::<DirectoryResourceKind>().is_err() {
             return Err("resource_kind is invalid".to_string());
         }
-        if !discoverability_tokens().contains(&self.discoverability.as_str()) {
+        if self.discoverability.parse::<Discoverability>().is_err() {
             return Err("discoverability is invalid".to_string());
         }
 

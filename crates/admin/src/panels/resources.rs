@@ -9,8 +9,8 @@ use crate::api::{
 use crate::icons::{FileIcon, PlusIcon, SaveIcon, SearchIcon, TrashIcon};
 use crate::model::{
     BADGE_DANGER, BADGE_NEUTRAL, BADGE_OK, BADGE_WARN, DeleteCount,
-    DirectoryAdminResourceUpsertRequestBody, ResourceEditorForm, ResourceItem, ResourceList,
-    ResourceMutationEnvelope, discoverability_tokens, resource_kind_tokens,
+    DirectoryAdminResourceUpsertRequestBody, DirectoryResourceKind, Discoverability,
+    ResourceEditorForm, ResourceItem, ResourceList, ResourceMutationEnvelope,
 };
 use crate::shell::{PanelHeader, StatusLine};
 
@@ -241,7 +241,7 @@ pub fn ResourcesPanel(base_url: String, token: String) -> Element {
                                 value: "{kind_value}",
                                 onchange: move |event| kind.set(event.value()),
                                 option { value: "", "Any" }
-                                for item in resource_kind_tokens() {
+                                for item in DirectoryResourceKind::ALL.map(DirectoryResourceKind::as_str) {
                                     option { value: "{item}", "{item}" }
                                 }
                             }
@@ -405,7 +405,7 @@ fn ResourceEditor(mut editor: Signal<ResourceEditorForm>) -> Element {
                     select {
                         value: "{kind}",
                         onchange: move |event| editor.with_mut(|f| f.resource_kind = event.value()),
-                        for item in resource_kind_tokens() {
+                        for item in DirectoryResourceKind::ALL.map(DirectoryResourceKind::as_str) {
                             option { value: "{item}", "{item}" }
                         }
                     }
@@ -429,7 +429,7 @@ fn ResourceEditor(mut editor: Signal<ResourceEditorForm>) -> Element {
                     select {
                         value: "{discoverability}",
                         onchange: move |event| editor.with_mut(|f| f.discoverability = event.value()),
-                        for item in discoverability_tokens() {
+                        for item in Discoverability::ALL.map(Discoverability::as_str) {
                             option { value: "{item}", "{item}" }
                         }
                     }

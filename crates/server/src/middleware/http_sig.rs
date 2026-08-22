@@ -46,7 +46,6 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
-pub use arkret_signatures::http_signature::Ed25519PublicKey;
 use arkret_signatures::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
     SignedRequestParts, canonical_message, parse_signature_header, parse_signature_input,
@@ -55,6 +54,7 @@ use arkret_signatures::http_signature::{
 use chrono::{DateTime, Utc};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
+pub use ed25519_dalek::VerifyingKey;
 use salvo::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -79,7 +79,7 @@ const SIGNATURE_MAX_CLOCK_SKEW_SECONDS: i64 = 5;
 pub trait HttpSigKeyDirectory: Send + Sync + 'static {
     /// Return the Ed25519 verifying key for `key_id`, or `None` if the
     /// signer is not known / not authorised to push to this directory.
-    fn lookup(&self, key_id: &str) -> Option<Ed25519PublicKey>;
+    fn lookup(&self, key_id: &str) -> Option<VerifyingKey>;
 }
 
 /// In-memory pubkey allowlist — the v1 default. Operators populate it
@@ -87,7 +87,7 @@ pub trait HttpSigKeyDirectory: Send + Sync + 'static {
 /// the fly.
 #[derive(Debug, Default, Clone)]
 pub struct StaticKeyDirectory {
-    keys: HashMap<String, Ed25519PublicKey>,
+    keys: HashMap<String, VerifyingKey>,
 }
 
 impl StaticKeyDirectory {
@@ -95,11 +95,11 @@ impl StaticKeyDirectory {
         Self::default()
     }
 
-    pub fn from_map(keys: HashMap<String, Ed25519PublicKey>) -> Self {
+    pub fn from_map(keys: HashMap<String, VerifyingKey>) -> Self {
         Self { keys }
     }
 
-    pub fn insert(&mut self, key_id: impl Into<String>, key: Ed25519PublicKey) {
+    pub fn insert(&mut self, key_id: impl Into<String>, key: VerifyingKey) {
         self.keys.insert(key_id.into(), key);
     }
 
@@ -113,7 +113,7 @@ impl StaticKeyDirectory {
 }
 
 impl HttpSigKeyDirectory for StaticKeyDirectory {
-    fn lookup(&self, key_id: &str) -> Option<Ed25519PublicKey> {
+    fn lookup(&self, key_id: &str) -> Option<VerifyingKey> {
         self.keys.get(key_id).copied()
     }
 }
@@ -140,7 +140,7 @@ pub struct DidResolverKeyDirectory {
 
 impl DidResolverKeyDirectory {
     pub fn new(
-        static_keys: HashMap<String, Ed25519PublicKey>,
+        static_keys: HashMap<String, VerifyingKey>,
         resolver: Arc<SharedDidResolver>,
     ) -> Self {
         Self {
@@ -151,7 +151,7 @@ impl DidResolverKeyDirectory {
 }
 
 impl HttpSigKeyDirectory for DidResolverKeyDirectory {
-    fn lookup(&self, key_id: &str) -> Option<Ed25519PublicKey> {
+    fn lookup(&self, key_id: &str) -> Option<VerifyingKey> {
         if let Some(static_key) = self.static_keys.lookup(key_id) {
             return Some(static_key);
         }
@@ -714,11 +714,12 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 #[cfg(test)]
 mod tests {
     use arkret_signatures::http_signature::{
-        ContentDigest, ContentDigestAlgorithm, Ed25519SigningKey, canonical_message,
-        parse_signature_input, sign_message, signing_key_from_seed,
+        ContentDigest, ContentDigestAlgorithm, canonical_message, parse_signature_input,
+        sign_message, signing_key_from_seed,
     };
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+    use ed25519_dalek::SigningKey;
     use salvo::http::StatusCode;
     use salvo::test::{ResponseExt, SendTarget, TestClient};
     use serde_json::{Value as JsonValue, json};
@@ -728,7 +729,7 @@ mod tests {
     const TEST_KEY_ID: &str = "did:web:alice.example#push";
     const TEST_SEED: [u8; 32] = [7u8; 32];
 
-    fn signing_key() -> Ed25519SigningKey {
+    fn signing_key() -> SigningKey {
         signing_key_from_seed(&TEST_SEED)
     }
 
@@ -747,7 +748,7 @@ mod tests {
         Arc::new(dir)
     }
 
-    fn did_key_multibase(signing_key: &Ed25519SigningKey) -> String {
+    fn did_key_multibase(signing_key: &SigningKey) -> String {
         let mut bytes = vec![0xed, 0x01];
         bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
         format!("z{}", bs58::encode(bytes).into_string())
@@ -783,7 +784,7 @@ mod tests {
         path: &str,
         body: &[u8],
         key_id: &str,
-        signing_key: &Ed25519SigningKey,
+        signing_key: &SigningKey,
     ) -> SignedRequest {
         let now = unix_now_secs();
         build_signed_request_with_components_and_window(
@@ -808,7 +809,7 @@ mod tests {
         path: &str,
         body: &[u8],
         key_id: &str,
-        signing_key: &Ed25519SigningKey,
+        signing_key: &SigningKey,
         covered_components: &[&str],
         created: i64,
         expires: i64,

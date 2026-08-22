@@ -10,9 +10,9 @@ use crate::api::{
 use crate::icons::{ListIcon, RefreshIcon, SaveIcon, SendIcon, TrashIcon};
 use crate::model::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
-    BADGE_NEUTRAL, BADGE_WARN, DirectoryAdminAllowlistUpsertRequestBody, OperatorTakedownOutcome,
-    OperatorTakedownRequestBody, TakedownAppealDecision, TakedownAppealDecisionOutcome,
-    TakedownAppealDecisionRequestBody, resource_kind_tokens,
+    BADGE_NEUTRAL, BADGE_WARN, DirectoryAdminAllowlistUpsertRequestBody, DirectoryResourceKind,
+    OperatorTakedownOutcome, OperatorTakedownRequestBody, TakedownAppealDecision,
+    TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
 };
 use crate::shell::{AuditTable, PanelHeader, StatusLine};
 
@@ -350,7 +350,7 @@ pub fn TakedownPanel(base_url: String, token: String) -> Element {
                         select {
                             value: "{kind_value}",
                             onchange: move |event| resource_kind.set(event.value()),
-                            for item in resource_kind_tokens() {
+                            for item in DirectoryResourceKind::ALL.map(DirectoryResourceKind::as_str) {
                                 option { value: "{item}", "{item}" }
                             }
                         }

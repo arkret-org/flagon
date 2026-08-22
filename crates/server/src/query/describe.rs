@@ -21,7 +21,7 @@ use arkret_sdk::{
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-use crate::config::{AcceptPolicyKind, AppConfig, IngestModeAdvert, ResourceKindAccept};
+use crate::config::{AcceptPolicyKind, AppConfig, IngestModeAdvert};
 use crate::state::AppState;
 
 #[handler]
@@ -338,11 +338,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         default_ttl_seconds: Some(cfg.default_ttl.as_secs()),
         max_ttl_seconds: Some(cfg.max_ttl.as_secs()),
         revalidation_grace_seconds: Some(cfg.revalidation_grace.as_secs()),
-        accepted_resource_kinds: cfg
-            .accepted_resource_kinds
-            .iter()
-            .map(directory_resource_kind)
-            .collect(),
+        accepted_resource_kinds: cfg.accepted_resource_kinds.iter().copied().collect(),
         accepted_did_methods: cfg.accepted_did_methods.clone(),
         takedown_contact: cfg.takedown_contact.clone(),
         rate_limits: Some(directory_rate_limits),
@@ -373,23 +369,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 }
 
 fn all_directory_resource_kinds() -> Vec<DirectoryResourceKind> {
-    vec![
-        DirectoryResourceKind::Realm,
-        DirectoryResourceKind::Organization,
-        DirectoryResourceKind::Actor,
-        DirectoryResourceKind::Applet,
-        DirectoryResourceKind::Handle,
-    ]
-}
-
-fn directory_resource_kind(kind: &ResourceKindAccept) -> DirectoryResourceKind {
-    match kind {
-        ResourceKindAccept::Realm => DirectoryResourceKind::Realm,
-        ResourceKindAccept::Organization => DirectoryResourceKind::Organization,
-        ResourceKindAccept::Actor => DirectoryResourceKind::Actor,
-        ResourceKindAccept::Applet => DirectoryResourceKind::Applet,
-        ResourceKindAccept::Handle => DirectoryResourceKind::Handle,
-    }
+    DirectoryResourceKind::ALL.to_vec()
 }
 
 fn directory_ingest_mode(mode: &IngestModeAdvert) -> DirectoryIngestMode {
@@ -443,7 +423,7 @@ mod tests {
     use arkret_sdk::{DidFullId, ResolutionCommitment};
 
     use super::*;
-    use crate::config::{AcceptPolicyKind, IngestModeAdvert, ResourceKindAccept};
+    use crate::config::{AcceptPolicyKind, IngestModeAdvert};
 
     fn cfg(development_mode: bool, pcd_enabled: bool) -> AppConfig {
         AppConfig {
@@ -467,7 +447,7 @@ mod tests {
             accept_policy_kind: AcceptPolicyKind::Open,
             accept_policy_ref: None,
             takedown_contact: None,
-            accepted_resource_kinds: ResourceKindAccept::ALL.to_vec(),
+            accepted_resource_kinds: DirectoryResourceKind::ALL.to_vec(),
             accepted_did_methods: vec!["did:web".to_owned()],
             default_ttl: Duration::from_secs(3600),
             max_ttl: Duration::from_secs(86400),

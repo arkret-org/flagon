@@ -11,14 +11,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_sdk::{DidFullId, ResolutionCommitment, project_full_id_to_core_id};
+use arkret_sdk::{
+    DidFullId, DirectoryResourceKind, ResolutionCommitment, project_full_id_to_core_id,
+};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 
 use crate::did_resolver::SharedDidResolver;
-use crate::middleware::http_sig::{DidResolverKeyDirectory, Ed25519PublicKey};
+use crate::middleware::http_sig::{DidResolverKeyDirectory, VerifyingKey};
 
 const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
 const CONFIG_ARG: &str = "--config";
@@ -160,7 +162,7 @@ pub struct AppConfig {
     pub accept_policy_kind: AcceptPolicyKind,
     pub accept_policy_ref: Option<String>,
     pub takedown_contact: Option<String>,
-    pub accepted_resource_kinds: Vec<ResourceKindAccept>,
+    pub accepted_resource_kinds: Vec<DirectoryResourceKind>,
     pub accepted_did_methods: Vec<String>,
 
     pub default_ttl: Duration,
@@ -205,7 +207,7 @@ pub struct AppConfig {
     /// signature middleware. Operators populate this at boot via
     /// `TEABAY_HTTP_SIG_PUBKEYS` (comma-separated `keyid=BASE64URL32`
     /// pairs). Empty when `require_http_sig=false`.
-    pub http_sig_pubkeys: HashMap<String, Ed25519PublicKey>,
+    pub http_sig_pubkeys: HashMap<String, VerifyingKey>,
     /// Optional Ed25519 signing key for operator-takedown receipts stored in
     /// `withdrawals.proof`. Resource-initiated withdrawals carry the resource
     /// governance signature; operator takedowns need a service receipt key.
@@ -315,49 +317,6 @@ impl AcceptPolicyKind {
                 "invalid TEABAY_ACCEPT_POLICY_KIND={other}; \
                  expected open|allowlist|operator_review"
             )),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResourceKindAccept {
-    Realm,
-    Organization,
-    Actor,
-    Applet,
-    Handle,
-}
-
-impl ResourceKindAccept {
-    pub const ALL: &'static [Self] = &[
-        Self::Realm,
-        Self::Organization,
-        Self::Actor,
-        Self::Applet,
-        Self::Handle,
-    ];
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Realm => "realm",
-            Self::Organization => "organization",
-            Self::Actor => "actor",
-            Self::Applet => "applet",
-            Self::Handle => "handle",
-        }
-    }
-
-    /// Parse a single wire token (`§8.3` resource-kind enum). `space` and any
-    /// other out-of-enum token is rejected.
-    pub fn from_wire(token: &str) -> Option<Self> {
-        match token {
-            "realm" => Some(Self::Realm),
-            "organization" => Some(Self::Organization),
-            "actor" => Some(Self::Actor),
-            "applet" => Some(Self::Applet),
-            "handle" => Some(Self::Handle),
-            _ => None,
         }
     }
 }
@@ -595,7 +554,7 @@ impl AppConfig {
             Ok(raw) if !raw.trim().is_empty() => {
                 let mut kinds = Vec::new();
                 for token in raw.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-                    let kind = ResourceKindAccept::from_wire(token).ok_or_else(|| {
+                    let kind = token.parse::<DirectoryResourceKind>().map_err(|_| {
                         anyhow::anyhow!(
                             "invalid TEABAY_ACCEPTED_RESOURCE_KINDS token {token:?}; \
                              valid: realm|organization|actor|applet|handle"
@@ -610,7 +569,7 @@ impl AppConfig {
                 }
                 kinds
             }
-            _ => ResourceKindAccept::ALL.to_vec(),
+            _ => DirectoryResourceKind::ALL.to_vec(),
         };
 
         Ok(Self {
@@ -673,13 +632,11 @@ impl AppConfig {
     }
 }
 
-/// Parse `TEABAY_HTTP_SIG_PUBKEYS` into a `keyid → Ed25519PublicKey`
+/// Parse `TEABAY_HTTP_SIG_PUBKEYS` into a `keyid → VerifyingKey`
 /// map. The wire format is comma-separated `keyid=base64url(pubkey)`
 /// pairs; both `base64url` (no padding) and standard padded base64 are
 /// tolerated. Empty / unset is `Ok(HashMap::new())`.
-fn parse_http_sig_pubkeys(
-    value: Option<&str>,
-) -> anyhow::Result<HashMap<String, Ed25519PublicKey>> {
+fn parse_http_sig_pubkeys(value: Option<&str>) -> anyhow::Result<HashMap<String, VerifyingKey>> {
     let mut map = HashMap::new();
     let Some(raw) = value else {
         return Ok(map);
@@ -707,7 +664,7 @@ fn parse_http_sig_pubkeys(
                     "TEABAY_HTTP_SIG_PUBKEYS keyid `{key_id}` pubkey is not base64: {e}"
                 )
             })?;
-        let key = Ed25519PublicKey::try_from(bytes.as_slice()).map_err(|e| {
+        let key = VerifyingKey::try_from(bytes.as_slice()).map_err(|e| {
             anyhow::anyhow!(
                 "TEABAY_HTTP_SIG_PUBKEYS keyid `{key_id}` is not a valid Ed25519 public key: {e}"
             )

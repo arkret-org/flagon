@@ -7,65 +7,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-/// Every `resource_kind` the directory indexes, in spec order.
-pub const RESOURCE_KINDS: [DirectoryResourceKind; 5] = [
-    DirectoryResourceKind::Realm,
-    DirectoryResourceKind::Organization,
-    DirectoryResourceKind::Actor,
-    DirectoryResourceKind::Applet,
-    DirectoryResourceKind::Handle,
-];
-
-/// Every `discoverability` level, in spec order.
-pub const DISCOVERABILITY_LEVELS: [Discoverability; 6] = [
-    Discoverability::Public,
-    Discoverability::Listed,
-    Discoverability::Restricted,
-    Discoverability::Unlisted,
-    Discoverability::InviteOnly,
-    Discoverability::Secret,
-];
-
-/// Wire token for one `resource_kind`.
-///
-/// The match is exhaustive on purpose: a variant added to the SDK enum has to
-/// break this build instead of silently dropping out of operator validation
-/// and the admin UI. This accessor belongs on the SDK enum itself; until it
-/// lands there the directory derives it locally from the enum rather than
-/// keeping a hand-copied token list.
-pub fn resource_kind_token(value: DirectoryResourceKind) -> &'static str {
-    match value {
-        DirectoryResourceKind::Realm => "realm",
-        DirectoryResourceKind::Organization => "organization",
-        DirectoryResourceKind::Actor => "actor",
-        DirectoryResourceKind::Applet => "applet",
-        DirectoryResourceKind::Handle => "handle",
-    }
-}
-
-/// Wire token for one `discoverability` level. See [`resource_kind_token`].
-pub fn discoverability_token(value: &Discoverability) -> &'static str {
-    match value {
-        Discoverability::Public => "public",
-        Discoverability::Listed => "listed",
-        Discoverability::Restricted => "restricted",
-        Discoverability::Unlisted => "unlisted",
-        Discoverability::InviteOnly => "invite_only",
-        Discoverability::Secret => "secret",
-    }
-}
-
-/// Wire tokens for every `resource_kind`, derived from [`RESOURCE_KINDS`].
-pub fn resource_kind_tokens() -> [&'static str; 5] {
-    RESOURCE_KINDS.map(resource_kind_token)
-}
-
-/// Wire tokens for every `discoverability` level, derived from
-/// [`DISCOVERABILITY_LEVELS`].
-pub fn discoverability_tokens() -> [&'static str; 6] {
-    DISCOVERABILITY_LEVELS.map(|value| discoverability_token(&value))
-}
-
 macro_rules! json_boundary {
     ($name:ident) => {
         #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -339,21 +280,19 @@ pub struct AuditChainVerificationFailure {
 mod tests {
     use super::*;
 
-    /// The token accessors must agree with the SDK enums' own serde
-    /// representation, so a rename on the SDK side cannot drift past the
-    /// exhaustive matches above.
+    /// The SDK enum accessors are the only token source and must agree with serde.
     #[test]
     fn tokens_match_the_sdk_serde_representation() {
-        for value in RESOURCE_KINDS {
+        for value in DirectoryResourceKind::ALL {
             assert_eq!(
                 serde_json::to_value(value).unwrap(),
-                JsonValue::String(resource_kind_token(value).to_string())
+                JsonValue::String(value.as_str().to_string())
             );
         }
-        for value in DISCOVERABILITY_LEVELS {
+        for value in Discoverability::ALL {
             assert_eq!(
                 serde_json::to_value(&value).unwrap(),
-                JsonValue::String(discoverability_token(&value).to_string())
+                JsonValue::String(value.as_str().to_string())
             );
         }
     }
