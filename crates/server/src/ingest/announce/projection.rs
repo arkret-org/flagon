@@ -3,8 +3,12 @@
 
 use std::time::Duration;
 
+use arkret_models_collaboration::governance::realm_lifecycle::{
+    MemberCountMode, RealmAntiEnumerationPolicy,
+};
 use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
+use teabay_contracts::DirectoryDiscoveryState;
 
 use super::ingest_body::DirectoryAnnounceIngest;
 use crate::error::ApiErrorCode;
@@ -96,8 +100,13 @@ pub(crate) fn effective_ttl_seconds(
     requested.min(cap)
 }
 
+/// Derive the directory-safe view from an already object-validated discovery
+/// boundary. This deliberately does not accept a bare `JsonValue`: callers
+/// reading legacy JSONB rows must re-establish the object invariant first.
+/// Resource-specific closed members (for example Realm anti-enumeration) are
+/// decoded into their SDK types below before they influence disclosure.
 pub(crate) fn derive_public_projection(
-    discovery_state: &JsonValue,
+    discovery_state: &DirectoryDiscoveryState,
     discoverability: DiscoverabilityDb,
 ) -> Result<JsonValue, (ApiErrorCode, String)> {
     // Ingest-projection / validation critical path (NOT a placeholder — the
@@ -117,17 +126,39 @@ pub(crate) fn derive_public_projection(
     // scope validation. This runs in `derive_public_projection` so it
     // applies uniformly to the push-mode announce and well-known resolver
     // paths, which both funnel through this function.
-    validate_handle_claim_ingest(discovery_state)?;
+    validate_handle_claim_ingest(discovery_state.as_value())?;
 
     // The effective `member_count_mode` is read from the *original*
     // discovery_state (before stripping); spec §3 places it at
     // `anti_enumeration.member_count_mode`.
-    let declared_mode = discovery_state
-        .pointer("/anti_enumeration/member_count_mode")
-        .and_then(JsonValue::as_str)
-        .map(str::to_owned);
+    let declared_mode = if discovery_state.get("kind").and_then(JsonValue::as_str)
+        == Some("ak.realm.discovery")
+    {
+        discovery_state
+            .get("anti_enumeration")
+            .map(|value| {
+                serde_json::from_value::<RealmAntiEnumerationPolicy>(value.clone()).map_err(|err| {
+                    (
+                        ApiErrorCode::SchemaViolation,
+                        format!("invalid closed realm anti_enumeration policy: {err}"),
+                    )
+                })
+            })
+            .transpose()?
+            .and_then(|policy| policy.member_count_mode)
+            .map(|mode| match mode {
+                MemberCountMode::Exact => "exact".to_owned(),
+                MemberCountMode::Bucketed => "bucketed".to_owned(),
+                MemberCountMode::Omit => "omit".to_owned(),
+            })
+    } else {
+        discovery_state
+            .pointer("/anti_enumeration/member_count_mode")
+            .and_then(JsonValue::as_str)
+            .map(str::to_owned)
+    };
 
-    let mut clone = discovery_state.clone();
+    let mut clone = discovery_state.as_value().clone();
     if let Some(obj) = clone.as_object_mut() {
         obj.remove("proof");
         obj.remove("directory_services");

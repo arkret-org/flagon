@@ -13,9 +13,10 @@
 //!   2. claim subject mismatch — response drops the foreign claim (and a response that would still
 //!      carry a mismatch fails closed).
 //!   3. audience-out-of-scope claim is filtered.
-//!   4. issuer not in the Realm's `accepted_issuers` is filtered.
+//!   4. issuer/domain outside the Realm's `handle_issuer_policy` is filtered.
 //!   5. cursor pagination boundary.
 
+use arkret_models_identity::primary_handle::{HandleIssuerAuthorityClass, HandleIssuerPolicyEntry};
 use arkret_sdk::DirectoryListHandlesForSubjectRequestBody;
 use chrono::{TimeZone, Utc};
 use serde_json::json;
@@ -66,7 +67,7 @@ fn happy_path_single_active_claim() {
         DiscoverabilityDb::Public,
     )];
 
-    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
+    let response = assemble_response(&req(None, None), rows, None, 0, 20, None)
         .expect("happy path must not fail closed");
 
     assert_eq!(response.claims.len(), 1);
@@ -101,7 +102,7 @@ fn subject_mismatch_claim_is_dropped() {
         ),
     ];
 
-    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
+    let response = assemble_response(&req(None, None), rows, None, 0, 20, None)
         .expect("matching claim survives, foreign claim dropped");
 
     assert_eq!(response.claims.len(), 1);
@@ -125,7 +126,7 @@ fn subject_mismatch_only_candidate_returns_empty() {
         DiscoverabilityDb::Public,
     )];
 
-    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None)
+    let response = assemble_response(&req(None, None), rows, None, 0, 20, None)
         .expect("empty-but-valid response, not fail-closed");
 
     assert!(response.claims.is_empty());
@@ -160,7 +161,7 @@ fn audience_out_of_scope_is_filtered() {
     // Requester is tea-org; the scoped claim's audience is someone-else, so it
     // is filtered; the unpinned claim survives.
     let body = req(None, Some("ak:did_core:web:tea-org.example"));
-    let response = assemble_response(&body, rows, &[], 0, 20, None).expect("ok");
+    let response = assemble_response(&body, rows, None, 0, 20, None).expect("ok");
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
@@ -184,14 +185,14 @@ fn audience_matching_requester_is_retained() {
     )];
 
     let body = req(None, Some("ak:did_core:web:tea-org.example"));
-    let response = assemble_response(&body, rows, &[], 0, 20, None).expect("ok");
+    let response = assemble_response(&body, rows, None, 0, 20, None).expect("ok");
     assert_eq!(response.claims.len(), 1);
 }
 
-/// Case 4 — issuer trust: with a Realm `accepted_issuers` set, claims whose
-/// issuer is not in the set are filtered.
+/// Case 4 — issuer trust: with a Realm domain-scoped policy, claims whose
+/// issuer is absent or whose domain is outside the entry are filtered.
 #[test]
-fn issuer_not_in_accepted_issuers_is_filtered() {
+fn issuer_or_domain_outside_policy_is_filtered() {
     let rows = vec![
         row(
             json!({
@@ -211,15 +212,28 @@ fn issuer_not_in_accepted_issuers_is_filtered() {
             }),
             DiscoverabilityDb::Public,
         ),
+        row(
+            json!({
+                "did": "ak:did_core:web:alice.example",
+                "handle": "wrong:rogue.example",
+                "issuer": "ak:did_core:web:issuer.tea",
+                "created_at": "2026-05-20T00:00:00.000Z"
+            }),
+            DiscoverabilityDb::Public,
+        ),
     ];
 
-    let accepted = vec!["ak:did_core:web:issuer.tea".to_owned()];
+    let policy = vec![HandleIssuerPolicyEntry {
+        issuer: arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.tea").unwrap(),
+        authorized_handle_domains: vec!["example.com".to_owned()],
+        issuer_class: HandleIssuerAuthorityClass::DomainAuthority,
+    }];
     // RealmId is a strict typed id carrying the complete 44-character token.
     let body = req(
         Some("ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb"),
         None,
     );
-    let response = assemble_response(&body, rows, &accepted, 0, 20, None).expect("ok");
+    let response = assemble_response(&body, rows, Some(&policy), 0, 20, None).expect("ok");
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
@@ -253,7 +267,7 @@ fn cursor_pagination_boundary() {
     ];
 
     // First page (offset 0, limit 2).
-    let page1 = assemble_response(&req(None, None), rows.clone(), &[], 0, 2, None).expect("ok");
+    let page1 = assemble_response(&req(None, None), rows.clone(), None, 0, 2, None).expect("ok");
     assert_eq!(page1.claims.len(), 2);
     assert!(page1.has_more);
     assert!(page1.next_cursor.is_none());
@@ -269,7 +283,7 @@ fn cursor_pagination_boundary() {
     // The handler resolves the opaque cursor to offset 2 before invoking the
     // pure assembler.
     let body2 = req(None, None);
-    let page2 = assemble_response(&body2, rows, &[], 2, 2, None).expect("ok");
+    let page2 = assemble_response(&body2, rows, None, 2, 2, None).expect("ok");
     assert_eq!(page2.claims.len(), 1);
     assert!(!page2.has_more);
     assert!(page2.next_cursor.is_none());
@@ -288,7 +302,7 @@ fn non_visible_row_is_dropped_by_disclosure_gate() {
         DiscoverabilityDb::Secret,
     )];
 
-    let response = assemble_response(&req(None, None), rows, &[], 0, 20, None).expect("ok");
+    let response = assemble_response(&req(None, None), rows, None, 0, 20, None).expect("ok");
     assert!(response.claims.is_empty());
 }
 
@@ -314,7 +328,7 @@ fn restricted_claim_handle_is_never_disclosed_on_this_surface() {
     )];
 
     let body = req(None, Some("ak:did_core:web:alice.example"));
-    let response = assemble_response(&body, rows, &[], 0, 20, None).expect("ok");
+    let response = assemble_response(&body, rows, None, 0, 20, None).expect("ok");
 
     assert!(response.claims.is_empty());
     assert!(response.primary_handle.is_none());

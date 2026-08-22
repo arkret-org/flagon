@@ -156,7 +156,13 @@ fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
     assert!(validate_handle_claim_ingest(&realm).is_ok());
 
     // And the whole projection path accepts the principal-DID claim.
-    assert!(derive_public_projection(&ok, DiscoverabilityDb::Public).is_ok());
+    assert!(
+        derive_public_projection(
+            &DirectoryDiscoveryState::from_json(ok),
+            DiscoverabilityDb::Public,
+        )
+        .is_ok()
+    );
 }
 
 #[test]
@@ -188,7 +194,11 @@ fn public_projection_separates_directory_preview_from_private_search() {
         }]
     });
 
-    let projected = derive_public_projection(&state, DiscoverabilityDb::Public).unwrap();
+    let projected = derive_public_projection(
+        &DirectoryDiscoveryState::from_json(state),
+        DiscoverabilityDb::Public,
+    )
+    .unwrap();
     assert_eq!(projected["title"], "Tea Time");
     assert_eq!(projected["member_count_bucket"], "11-50");
     assert!(projected.get("member_count").is_none());
@@ -231,7 +241,11 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
         }]
     });
 
-    let projected = derive_public_projection(&state, DiscoverabilityDb::Public).unwrap();
+    let projected = derive_public_projection(
+        &DirectoryDiscoveryState::from_json(state),
+        DiscoverabilityDb::Public,
+    )
+    .unwrap();
     assert_eq!(projected["circles"]["visibility"], "locked");
     assert_eq!(
         projected["circles"]["opaque_commitment"]

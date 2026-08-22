@@ -52,6 +52,9 @@
 // the crate root. The `ak.schema.list_handles_for_subject_response.v1` body
 // is built from the wire-schema `models::HandleClaim`, so import it explicitly.
 use arkret_models_identity::HandleClaim;
+use arkret_models_identity::primary_handle::{
+    HandleIssuerPolicyEntry, handle_issuer_policy_entry_authorizes,
+};
 use arkret_sdk::{
     DirectoryListHandlesForSubjectRequestBody, DirectorySubjectHandleList, Handle,
     validate_handle_claim_subject,
@@ -66,6 +69,7 @@ use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
+use teabay_contracts::DirectoryDiscoveryState;
 
 use crate::error::ApiErrorCode;
 use crate::filter::enumeration::{LatencyBudget, pad_to_budget_observed};
@@ -312,16 +316,16 @@ async fn build_response(
     // One subject was resolved this request.
     metrics.record_cardinality_guard("resolved_subjects", 1);
 
-    // Issuer-trust ordering (DIR-TBY-2): when the target Realm declares an
-    // `accepted_issuers` order, rows from non-accepted issuers are filtered.
-    let accepted_issuers = match body.realm_id.as_ref() {
-        Some(realm_id) => load_accepted_issuers(state, realm_id.as_str(), body.as_of).await,
-        None => Vec::new(),
+    // Issuer trust is domain-scoped. A Realm may authorize the same issuer for
+    // one handle domain without trusting it for every domain it can sign.
+    let handle_issuer_policy = match body.realm_id.as_ref() {
+        Some(realm_id) => load_handle_issuer_policy(state, realm_id.as_str(), body.as_of).await,
+        None => None,
     };
     match assemble_response(
         body,
         rows,
-        &accepted_issuers,
+        handle_issuer_policy.as_deref(),
         cursor_offset,
         limit,
         Some(metrics),
@@ -344,7 +348,7 @@ async fn build_response(
 pub fn assemble_response(
     body: &DirectoryListHandlesForSubjectRequestBody,
     rows: Vec<SubjectHandleRow>,
-    accepted_issuers: &[String],
+    handle_issuer_policy: Option<&[HandleIssuerPolicyEntry]>,
     cursor_offset: usize,
     limit: u32,
     metrics: Option<&crate::observability::Metrics>,
@@ -368,10 +372,11 @@ pub fn assemble_response(
             drop("disclosure");
             continue;
         }
-        // Issuer-trust filter: when the Realm declares accepted issuers, drop
-        // claims whose issuer is not in the set.
-        if !accepted_issuers.is_empty()
-            && !issuer_in_accepted(&row.public_projection, accepted_issuers)
+        // Issuer-trust filter: a declared Realm policy authorizes both the
+        // issuer identity and the canonical handle domain. Malformed or empty
+        // declared policy is fail-closed (all candidates are dropped).
+        if handle_issuer_policy
+            .is_some_and(|policy| !issuer_authorized_for_projection(&row.public_projection, policy))
         {
             drop("issuer_trust");
             continue;
@@ -537,12 +542,15 @@ async fn load_subject_handle_rows_at(
     let scan_capped = rows.len() as i64 >= MAX_CANDIDATE_SCAN;
     let mut matching = Vec::new();
     for row in rows {
-        let discoverability = discoverability_from_state(&row.discovery_state)?;
-        let public_projection = crate::ingest::announce::derive_public_projection(
-            &row.discovery_state,
-            discoverability,
+        let discovery_state = DirectoryDiscoveryState::from_json_object(
+            row.discovery_state,
+            "historical handle discovery_state",
         )
-        .map_err(|(_, message)| anyhow::anyhow!(message))?;
+        .map_err(anyhow::Error::msg)?;
+        let discoverability = discoverability_from_state(&discovery_state)?;
+        let public_projection =
+            crate::ingest::announce::derive_public_projection(&discovery_state, discoverability)
+                .map_err(|(_, message)| anyhow::anyhow!(message))?;
         if projection_subject(&public_projection) == Some(subject) {
             matching.push(SubjectHandleRow {
                 public_projection,
@@ -694,25 +702,26 @@ fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
         .and_then(|c| c.handle.clone())
 }
 
-/// Load a Realm's `accepted_issuers` ordering from its cached projection.
-/// Empty (or absent Realm) means "no issuer-trust constraint".
-async fn load_accepted_issuers(
+/// Load a Realm's domain-scoped `handle_issuer_policy` from its cached
+/// projection. `None` means the policy is absent; `Some([])` means it was
+/// declared but malformed/empty and therefore denies every candidate.
+async fn load_handle_issuer_policy(
     state: &AppState,
     realm_id: &str,
     as_of: Option<DateTime<Utc>>,
-) -> Vec<String> {
+) -> Option<Vec<HandleIssuerPolicyEntry>> {
     if let Some(as_of) = as_of
         && let Ok(Some((projection, discoverability))) =
             load_historical_realm_projection(state, realm_id, as_of).await
     {
         if !discoverability.is_directory_visible() {
-            return Vec::new();
+            return None;
         }
-        return accepted_issuers_from_projection(&projection);
+        return handle_issuer_policy_from_projection(&projection);
     }
     use crate::schema::directory_resources::dsl as r;
     let Ok(mut conn) = state.db().get().await else {
-        return Vec::new();
+        return None;
     };
     let projection: Option<(JsonValue, DiscoverabilityDb)> = r::directory_resources
         .filter(r::resource_kind.eq(DirectoryResourceKindDb::Realm))
@@ -724,13 +733,13 @@ async fn load_accepted_issuers(
         .ok()
         .flatten();
     let Some((projection, discoverability)) = projection else {
-        return Vec::new();
+        return None;
     };
     if !discoverability.is_directory_visible() {
         // Hidden / withdrawn Realm — treat as no declared trust set.
-        return Vec::new();
+        return None;
     }
-    accepted_issuers_from_projection(&projection)
+    handle_issuer_policy_from_projection(&projection)
 }
 
 async fn load_historical_realm_projection(
@@ -748,9 +757,14 @@ async fn load_historical_realm_projection(
     let Some(row) = row else {
         return Ok(None);
     };
-    let discoverability = discoverability_from_state(&row.discovery_state)?;
+    let discovery_state = DirectoryDiscoveryState::from_json_object(
+        row.discovery_state,
+        "historical realm discovery_state",
+    )
+    .map_err(anyhow::Error::msg)?;
+    let discoverability = discoverability_from_state(&discovery_state)?;
     let projection =
-        crate::ingest::announce::derive_public_projection(&row.discovery_state, discoverability)
+        crate::ingest::announce::derive_public_projection(&discovery_state, discoverability)
             .map_err(|(_, message)| anyhow::anyhow!(message))?;
     Ok(Some((projection, discoverability)))
 }
@@ -779,7 +793,9 @@ ORDER BY a.as_of DESC
 LIMIT 1
 "#;
 
-fn discoverability_from_state(discovery_state: &JsonValue) -> anyhow::Result<DiscoverabilityDb> {
+fn discoverability_from_state(
+    discovery_state: &DirectoryDiscoveryState,
+) -> anyhow::Result<DiscoverabilityDb> {
     let value = discovery_state
         .get("discoverability")
         .and_then(JsonValue::as_str)
@@ -787,34 +803,39 @@ fn discoverability_from_state(discovery_state: &JsonValue) -> anyhow::Result<Dis
     DiscoverabilityDb::from_pg(value)
 }
 
-fn accepted_issuers_from_projection(projection: &JsonValue) -> Vec<String> {
-    projection
-        .get("accepted_issuers")
-        .or_else(|| projection.pointer("/policy/accepted_issuers"))
-        .and_then(JsonValue::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(JsonValue::as_str)
-                .map(str::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
+fn handle_issuer_policy_from_projection(
+    projection: &JsonValue,
+) -> Option<Vec<HandleIssuerPolicyEntry>> {
+    let value = projection
+        .get("handle_issuer_policy")
+        .or_else(|| projection.pointer("/policy_bundle/handle_issuer_policy"))?;
+    Some(serde_json::from_value(value.clone()).unwrap_or_default())
 }
 
-/// True iff the projection's issuer is in the Realm's accepted-issuer set.
-/// A projection with no declared issuer fails closed against a non-empty
-/// accepted set (the caller checks `accepted_issuers.is_empty()` first).
-fn issuer_in_accepted(projection: &JsonValue, accepted: &[String]) -> bool {
-    match projection
+/// True iff a policy entry authorizes both the projection issuer and the
+/// canonical handle domain.
+fn issuer_authorized_for_projection(
+    projection: &JsonValue,
+    policy: &[HandleIssuerPolicyEntry],
+) -> bool {
+    let issuer = projection
         .get("issuer")
         .and_then(JsonValue::as_str)
         .or_else(|| {
             projection
                 .get("issuer_service_id")
                 .and_then(JsonValue::as_str)
-        }) {
-        Some(issuer) => accepted.iter().any(|a| a == issuer),
-        None => false,
+        })
+        .and_then(|raw| arkret_sdk::DidCoreId::new(raw.to_owned()).ok());
+    let handle = projection
+        .get("handle")
+        .and_then(JsonValue::as_str)
+        .and_then(|raw| Handle::parse(raw).ok());
+    match (issuer, handle) {
+        (Some(issuer), Some(handle)) => policy
+            .iter()
+            .any(|entry| handle_issuer_policy_entry_authorizes(entry, &issuer, &handle)),
+        _ => false,
     }
 }
 
@@ -937,20 +958,24 @@ mod tests {
     }
 
     #[test]
-    fn issuer_trust_filter_matches_accepted_set() {
-        let accepted = vec!["ak:did_core:web:issuer.tea".to_owned()];
-        assert!(issuer_in_accepted(
-            &json!({"issuer":"ak:did_core:web:issuer.tea"}),
-            &accepted
+    fn issuer_policy_matches_issuer_and_handle_domain() {
+        let policy: Vec<HandleIssuerPolicyEntry> = serde_json::from_value(json!([{
+            "issuer": "ak:did_core:web:issuer.tea",
+            "authorized_handle_domains": ["example.com"],
+            "issuer_class": "domain_authority"
+        }]))
+        .unwrap();
+        assert!(issuer_authorized_for_projection(
+            &json!({"issuer":"ak:did_core:web:issuer.tea","handle":"alice:example.com"}),
+            &policy
         ));
-        assert!(!issuer_in_accepted(
-            &json!({"issuer":"ak:did_core:web:issuer.other"}),
-            &accepted
+        assert!(!issuer_authorized_for_projection(
+            &json!({"issuer":"ak:did_core:web:issuer.other","handle":"alice:example.com"}),
+            &policy
         ));
-        // No issuer declared ⇒ fails closed against a non-empty accepted set.
-        assert!(!issuer_in_accepted(
-            &json!({"handle":"alice:example.com"}),
-            &accepted
+        assert!(!issuer_authorized_for_projection(
+            &json!({"issuer":"ak:did_core:web:issuer.tea","handle":"alice:other.example"}),
+            &policy
         ));
     }
 
