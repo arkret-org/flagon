@@ -13,10 +13,7 @@ pub mod withdraw;
 
 use salvo::Request;
 use serde::{Deserialize, Serialize};
-use teabay_contracts::{
-    DirectoryDiscoverability as ContractDiscoverability,
-    DirectoryResourceKind as ContractResourceKind,
-};
+use teabay_contracts::{DirectoryResourceKind, Discoverability};
 
 /// Read a request header as a trimmed, non-empty `String`. Shared by ingest
 /// handlers so the trim+empty-filter convention lives in one place.
@@ -98,14 +95,14 @@ crate::db_enum::impl_pg_enum!(
     }
 );
 
-impl From<ContractResourceKind> for DirectoryResourceKindDb {
-    fn from(value: ContractResourceKind) -> Self {
+impl From<DirectoryResourceKind> for DirectoryResourceKindDb {
+    fn from(value: DirectoryResourceKind) -> Self {
         match value {
-            ContractResourceKind::Realm => Self::Realm,
-            ContractResourceKind::Organization => Self::Organization,
-            ContractResourceKind::Actor => Self::Actor,
-            ContractResourceKind::Applet => Self::Applet,
-            ContractResourceKind::Handle => Self::Handle,
+            DirectoryResourceKind::Realm => Self::Realm,
+            DirectoryResourceKind::Organization => Self::Organization,
+            DirectoryResourceKind::Actor => Self::Actor,
+            DirectoryResourceKind::Applet => Self::Applet,
+            DirectoryResourceKind::Handle => Self::Handle,
         }
     }
 }
@@ -212,21 +209,21 @@ crate::db_enum::impl_pg_enum!(
     }
 );
 
-impl From<ContractDiscoverability> for DiscoverabilityDb {
-    fn from(value: ContractDiscoverability) -> Self {
+impl From<Discoverability> for DiscoverabilityDb {
+    fn from(value: Discoverability) -> Self {
         Self::from(&value)
     }
 }
 
-impl From<&ContractDiscoverability> for DiscoverabilityDb {
-    fn from(value: &ContractDiscoverability) -> Self {
+impl From<&Discoverability> for DiscoverabilityDb {
+    fn from(value: &Discoverability) -> Self {
         match value {
-            ContractDiscoverability::Public => Self::Public,
-            ContractDiscoverability::Listed => Self::Listed,
-            ContractDiscoverability::Restricted => Self::Restricted,
-            ContractDiscoverability::Unlisted => Self::Unlisted,
-            ContractDiscoverability::InviteOnly => Self::InviteOnly,
-            ContractDiscoverability::Secret => Self::Secret,
+            Discoverability::Public => Self::Public,
+            Discoverability::Listed => Self::Listed,
+            Discoverability::Restricted => Self::Restricted,
+            Discoverability::Unlisted => Self::Unlisted,
+            Discoverability::InviteOnly => Self::InviteOnly,
+            Discoverability::Secret => Self::Secret,
         }
     }
 }

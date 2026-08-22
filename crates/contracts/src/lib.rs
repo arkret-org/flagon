@@ -2,20 +2,69 @@
 
 use std::ops::{Deref, DerefMut};
 
-pub use arkret_sdk::{DirectoryResourceKind, Discoverability as DirectoryDiscoverability};
+pub use arkret_sdk::{DirectoryResourceKind, Discoverability};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-pub const RESOURCE_KIND_TOKENS: [&str; 5] = ["realm", "organization", "actor", "applet", "handle"];
-pub const DISCOVERABILITY_TOKENS: [&str; 6] = [
-    "public",
-    "listed",
-    "restricted",
-    "unlisted",
-    "invite_only",
-    "secret",
+/// Every `resource_kind` the directory indexes, in spec order.
+pub const RESOURCE_KINDS: [DirectoryResourceKind; 5] = [
+    DirectoryResourceKind::Realm,
+    DirectoryResourceKind::Organization,
+    DirectoryResourceKind::Actor,
+    DirectoryResourceKind::Applet,
+    DirectoryResourceKind::Handle,
 ];
+
+/// Every `discoverability` level, in spec order.
+pub const DISCOVERABILITY_LEVELS: [Discoverability; 6] = [
+    Discoverability::Public,
+    Discoverability::Listed,
+    Discoverability::Restricted,
+    Discoverability::Unlisted,
+    Discoverability::InviteOnly,
+    Discoverability::Secret,
+];
+
+/// Wire token for one `resource_kind`.
+///
+/// The match is exhaustive on purpose: a variant added to the SDK enum has to
+/// break this build instead of silently dropping out of operator validation
+/// and the admin UI. This accessor belongs on the SDK enum itself; until it
+/// lands there the directory derives it locally from the enum rather than
+/// keeping a hand-copied token list.
+pub fn resource_kind_token(value: DirectoryResourceKind) -> &'static str {
+    match value {
+        DirectoryResourceKind::Realm => "realm",
+        DirectoryResourceKind::Organization => "organization",
+        DirectoryResourceKind::Actor => "actor",
+        DirectoryResourceKind::Applet => "applet",
+        DirectoryResourceKind::Handle => "handle",
+    }
+}
+
+/// Wire token for one `discoverability` level. See [`resource_kind_token`].
+pub fn discoverability_token(value: &Discoverability) -> &'static str {
+    match value {
+        Discoverability::Public => "public",
+        Discoverability::Listed => "listed",
+        Discoverability::Restricted => "restricted",
+        Discoverability::Unlisted => "unlisted",
+        Discoverability::InviteOnly => "invite_only",
+        Discoverability::Secret => "secret",
+    }
+}
+
+/// Wire tokens for every `resource_kind`, derived from [`RESOURCE_KINDS`].
+pub fn resource_kind_tokens() -> [&'static str; 5] {
+    RESOURCE_KINDS.map(resource_kind_token)
+}
+
+/// Wire tokens for every `discoverability` level, derived from
+/// [`DISCOVERABILITY_LEVELS`].
+pub fn discoverability_tokens() -> [&'static str; 6] {
+    DISCOVERABILITY_LEVELS.map(|value| discoverability_token(&value))
+}
 
 macro_rules! json_boundary {
     ($name:ident) => {
@@ -156,7 +205,7 @@ pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,
     pub resource_id: String,
     pub principal_server_service_id: String,
-    pub discoverability: DirectoryDiscoverability,
+    pub discoverability: Discoverability,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -284,4 +333,28 @@ pub struct AuditChainVerificationFailure {
     pub reason: String,
     pub expected: Option<String>,
     pub actual: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The token accessors must agree with the SDK enums' own serde
+    /// representation, so a rename on the SDK side cannot drift past the
+    /// exhaustive matches above.
+    #[test]
+    fn tokens_match_the_sdk_serde_representation() {
+        for value in RESOURCE_KINDS {
+            assert_eq!(
+                serde_json::to_value(value).unwrap(),
+                JsonValue::String(resource_kind_token(value).to_string())
+            );
+        }
+        for value in DISCOVERABILITY_LEVELS {
+            assert_eq!(
+                serde_json::to_value(&value).unwrap(),
+                JsonValue::String(discoverability_token(&value).to_string())
+            );
+        }
+    }
 }

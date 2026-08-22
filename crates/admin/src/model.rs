@@ -2,11 +2,11 @@ use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
 pub use teabay_contracts::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
-    DISCOVERABILITY_TOKENS, DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
+    DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
-    OperatorTakedownOutcome, OperatorTakedownRequestBody, RESOURCE_KIND_TOKENS, ResourceItem,
-    ResourceList, ResourceMutationEnvelope, TakedownAppealDecision, TakedownAppealDecisionOutcome,
-    TakedownAppealDecisionRequestBody,
+    OperatorTakedownOutcome, OperatorTakedownRequestBody, ResourceItem, ResourceList,
+    ResourceMutationEnvelope, TakedownAppealDecision, TakedownAppealDecisionOutcome,
+    TakedownAppealDecisionRequestBody, discoverability_tokens, resource_kind_tokens,
 };
 
 use crate::api::{
@@ -28,9 +28,6 @@ pub fn badge_class_for(tone: &str) -> &'static str {
         _ => BADGE_NEUTRAL,
     }
 }
-
-pub const RESOURCE_KINDS: [&str; 5] = RESOURCE_KIND_TOKENS;
-pub const DISCOVERABILITY_LEVELS: [&str; 6] = DISCOVERABILITY_TOKENS;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -112,7 +109,7 @@ impl Default for ResourceEditorForm {
 impl ResourceEditorForm {
     pub fn reset_for_kind(kind: &str) -> Self {
         let mut next = Self::default();
-        if RESOURCE_KINDS.contains(&kind) {
+        if resource_kind_tokens().contains(&kind) {
             next.resource_kind = kind.to_string();
         }
         next
@@ -148,10 +145,10 @@ impl ResourceEditorForm {
             return Err("principal_server_service_id is required".to_string());
         }
 
-        if !RESOURCE_KINDS.contains(&self.resource_kind.as_str()) {
+        if !resource_kind_tokens().contains(&self.resource_kind.as_str()) {
             return Err("resource_kind is invalid".to_string());
         }
-        if !DISCOVERABILITY_LEVELS.contains(&self.discoverability.as_str()) {
+        if !discoverability_tokens().contains(&self.discoverability.as_str()) {
             return Err("discoverability is invalid".to_string());
         }
 
