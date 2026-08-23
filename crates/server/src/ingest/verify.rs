@@ -25,7 +25,7 @@ use arkret_sdk::{
     DID_WEB_MAX_DOCUMENT_BYTES, DidCoreId, DidFullId, DidWebResolver, DirectoryGovernanceProof,
     DirectoryTakedownAppealRequestBody, DirectoryWithdrawRequestBody, canonical,
 };
-use arkret_wire::{Hash, TrustDomainId};
+use arkret_wire::{Hash, TrustDomainId, WireError};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -352,7 +352,7 @@ pub(crate) const GOVERNANCE_PROOF_MAX_SKEW_SECONDS: i64 = 300;
 pub(crate) trait DirectoryGovernanceRequest {
     fn governance_proof(&self) -> &DirectoryGovernanceProof;
     fn governance_resource_id(&self) -> &str;
-    fn governance_binding_bytes(&self) -> Result<Vec<u8>, arkret_wire::Error>;
+    fn governance_binding_bytes(&self) -> Result<Vec<u8>, WireError>;
 }
 
 impl DirectoryGovernanceRequest for DirectoryWithdrawRequestBody {
@@ -364,7 +364,7 @@ impl DirectoryGovernanceRequest for DirectoryWithdrawRequestBody {
         &self.resource_id
     }
 
-    fn governance_binding_bytes(&self) -> Result<Vec<u8>, arkret_wire::Error> {
+    fn governance_binding_bytes(&self) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes()
     }
 }
@@ -378,7 +378,7 @@ impl DirectoryGovernanceRequest for DirectoryTakedownAppealRequestBody {
         &self.resource_id
     }
 
-    fn governance_binding_bytes(&self) -> Result<Vec<u8>, arkret_wire::Error> {
+    fn governance_binding_bytes(&self) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes()
     }
 }

@@ -58,7 +58,7 @@ use arkret_sdk::{
     DidCoreId, DirectoryListHandlesForSubjectRequestBody, DirectoryResolveHandleRequestBody,
     DirectoryResolveOrganizationRequestBody, DirectoryResolveTargetRequestBody,
 };
-use arkret_wire::{Audience, PayloadProof};
+use arkret_wire::{Audience, PayloadProof, WireError};
 use chrono::{DateTime, Utc};
 
 use crate::did_binding::DidBindingDirectory;
@@ -81,10 +81,7 @@ pub trait DirectoryRequesterProofFamily {
 
     /// The family's canonical §9.0.1 binding object, as JCS bytes. Delegates to
     /// the SDK helper that owns this family's context and `binding_fields`.
-    fn requester_proof_binding_bytes(
-        &self,
-        proof: &PayloadProof,
-    ) -> Result<Vec<u8>, arkret_wire::Error>;
+    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError>;
 
     /// The family's originator wire field, whose value the binding object
     /// carries as `issuer`. `None` only for
@@ -99,10 +96,7 @@ impl DirectoryRequesterProofFamily for DirectoryResolveTargetRequestBody {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(
-        &self,
-        proof: &PayloadProof,
-    ) -> Result<Vec<u8>, arkret_wire::Error> {
+    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -116,10 +110,7 @@ impl DirectoryRequesterProofFamily for DirectoryResolveOrganizationRequestBody {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(
-        &self,
-        proof: &PayloadProof,
-    ) -> Result<Vec<u8>, arkret_wire::Error> {
+    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -133,10 +124,7 @@ impl DirectoryRequesterProofFamily for DirectoryResolveHandleRequestBody {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(
-        &self,
-        proof: &PayloadProof,
-    ) -> Result<Vec<u8>, arkret_wire::Error> {
+    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -150,10 +138,7 @@ impl DirectoryRequesterProofFamily for DirectoryListHandlesForSubjectRequestBody
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(
-        &self,
-        proof: &PayloadProof,
-    ) -> Result<Vec<u8>, arkret_wire::Error> {
+    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
