@@ -34,7 +34,7 @@
 //! ## Requester proof (§9.0.1)
 //!
 //! `proofs[]` carries the per-object-family requester proof bound to
-//! `ak.directory-resolve-target-request-proof-v1` — a distinct signature domain
+//! `ak.directory_resolve_target_request_proof.v1` — a distinct signature domain
 //! from every other directory request family, so a proof minted for
 //! `resolve_handle` (or any other family) can never be replayed here.
 //! Verification lives in [`crate::query::requester_proof`].

@@ -388,7 +388,7 @@ impl DirectoryGovernanceRequest for DirectoryTakedownAppealRequestBody {
 /// Five semantic checks on top of the SDK binding helper:
 ///
 /// 1. `context` domain separation — the SDK helper stamps the registered
-///    `ak.directory-governance-request-proof-v1` context into the signed transcript, so a signature
+///    `ak.directory_governance_request_proof.v1` context into the signed transcript, so a signature
 ///    produced under any other context fails the JWS check;
 /// 2. `audience` MUST name *this* directory's `service_id` (the value
 ///    `ak.find.directory.read.describe` publishes) — the typed `DidCoreId` already rejected every

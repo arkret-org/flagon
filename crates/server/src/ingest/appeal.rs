@@ -548,7 +548,7 @@ mod tests {
         );
         assert_eq!(
             transcript["context"],
-            "ak.directory-governance-request-proof-v1"
+            arkret_wire::ProofContextId::DIRECTORY_GOVERNANCE_REQUEST_PROOF_V1
         );
         assert_eq!(transcript["resource_id"], body.resource_id);
     }

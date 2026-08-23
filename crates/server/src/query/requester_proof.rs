@@ -9,11 +9,11 @@
 //!
 //! | family | operation | context |
 //! | --- | --- | --- |
-//! | `directory_resolve_target_request_body` | `ak.find.directory.read.resolve_target` | `ak.directory-resolve-target-request-proof-v1` |
-//! | `directory_resolve_organization_request_body` | `ak.find.directory.read.resolve_organization` | `ak.directory-resolve-organization-request-proof-v1` |
-//! | `directory_resolve_handle_request_body` | `ak.find.directory.read.resolve_handle` | `ak.directory-resolve-handle-request-proof-v1` |
-//! | `directory_resolve_agent_selector_request_body` | `ak.find.directory.read.resolve_agent_selector` | `ak.directory-resolve-agent-selector-request-proof-v1` |
-//! | `directory_list_handles_for_subject_request_body` | `ak.find.directory.read.list_handles_for_subject` | `ak.directory-list-handles-for-subject-request-proof-v1` |
+//! | `directory_resolve_target_request_body` | `ak.find.directory.read.resolve_target` | `ak.directory_resolve_target_request_proof.v1` |
+//! | `directory_resolve_organization_request_body` | `ak.find.directory.read.resolve_organization` | `ak.directory_resolve_organization_request_proof.v1` |
+//! | `directory_resolve_handle_request_body` | `ak.find.directory.read.resolve_handle` | `ak.directory_resolve_handle_request_proof.v1` |
+//! | `directory_resolve_agent_selector_request_body` | `ak.find.directory.read.resolve_agent_selector` | `ak.directory_resolve_agent_selector_request_proof.v1` |
+//! | `directory_list_handles_for_subject_request_body` | `ak.find.directory.read.list_handles_for_subject` | `ak.directory_list_handles_for_subject_request_proof.v1` |
 //!
 //! The transcript is NEVER assembled here. Every family's canonical binding
 //! object is built by the SDK helper that owns it
@@ -21,7 +21,7 @@
 //! implementation of the §9.0.1 wire form. A signature produced under one
 //! family's context therefore cannot verify under another family's recomputed
 //! transcript, which is the domain separation the removed over-broad
-//! `ak.directory-operation-proof-v1` row could not express.
+//! `ak.directory_operation_proof.v1` row could not express.
 //!
 //! # What the SDK helper already enforces
 //!
@@ -398,7 +398,7 @@ mod tests {
     /// signed bytes, and the registered `binding_fields` sets differ per family
     /// (`resolve_handle` binds `handle`, `list_handles_for_subject` binds
     /// `subject`, `resolve_organization` binds neither and omits `issuer`).
-    /// This is what the removed fragmentless `ak.directory-operation-proof-v1`
+    /// This is what the removed fragmentless `ak.directory_operation_proof.v1`
     /// row could not express.
     #[test]
     fn each_family_stamps_its_own_registered_context_and_binding_fields() {

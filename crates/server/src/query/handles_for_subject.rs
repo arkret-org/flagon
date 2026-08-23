@@ -42,7 +42,7 @@
 //! ## Requester proof (§9.0.1)
 //!
 //! `proofs[]` carries the per-object-family requester proof bound to
-//! `ak.directory-list-handles-for-subject-request-proof-v1`. Verification lives
+//! `ak.directory_list_handles_for_subject_request_proof.v1`. Verification lives
 //! in [`crate::query::requester_proof`] and runs inside the latency budget; a
 //! rejected proof collapses to the same blinded `not_found` as any other
 //! failure.

@@ -9,7 +9,7 @@
 //! the same response shape and latency tier as a genuine miss (§10).
 //!
 //! §9.0.1: `proofs[]` carries the per-object-family requester proof bound to
-//! `ak.directory-resolve-handle-request-proof-v1`. A signature minted under any
+//! `ak.directory_resolve_handle_request_proof.v1`. A signature minted under any
 //! other directory request family's context cannot verify here. Verification
 //! lives in [`crate::query::requester_proof`] and its failure collapses to the
 //! same blinded `not_found` inside the latency budget.
