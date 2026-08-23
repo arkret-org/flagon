@@ -50,7 +50,7 @@ impl VerifiedRestrictedClaims {
 }
 
 #[cfg(test)]
-pub(crate) fn org_membership_claim(
+pub(crate) fn organization_membership_claim(
     claim_id: &str,
     subject: DidCoreId,
     issuer: DidCoreId,
@@ -61,9 +61,9 @@ pub(crate) fn org_membership_claim(
         claim_id: claim_id.to_owned(),
         subject,
         issuer,
-        claim_kind: "org_membership".to_owned(),
+        claim_kind: "organization_membership".to_owned(),
         value: serde_json::from_value(serde_json::json!({
-            "organization": organization,
+            "organization_id": organization,
             "roles": roles,
         }))
         .expect("membership claim value is an object"),
@@ -290,7 +290,7 @@ fn claim_satisfies_selector(
     claim_kind: &str,
 ) -> bool {
     if claim
-        .value_matches(selector, "organization")
+        .value_matches(selector, "organization_id")
         .is_some_and(|matches| !matches)
         || claim
             .value_matches(selector, "status")
@@ -359,7 +359,7 @@ mod tests {
         let issuer = arkret_sdk::project_full_id_to_core_id(&issuer_full_id).unwrap();
         let subject = DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap();
         let org = DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
-        let claim = org_membership_claim(
+        let claim = organization_membership_claim(
             "claim-1",
             subject.clone(),
             issuer.clone(),
@@ -387,9 +387,9 @@ mod tests {
         let projection = json!({
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_kind": "org_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
-                "organization": org.as_str(),
+                "organization_id": org.as_str(),
             }]
         });
         assert!(matches_allowed_discoverers(

@@ -1217,7 +1217,7 @@ mod tests {
         let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
         let requester =
             arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
-        let claim = crate::filter::discoverers::org_membership_claim(
+        let claim = crate::filter::discoverers::organization_membership_claim(
             "claim-1",
             requester.clone(),
             issuer.clone(),
@@ -1228,9 +1228,9 @@ mod tests {
         let policy = RealmDeliveryBindingPolicy::from_projection(json!({
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_kind": "org_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
-                "organization": org.as_str(),
+                "organization_id": org.as_str(),
             }],
         }));
         assert!(policy.audience_authorized(Some(requester.as_str()), &verified_claims));
@@ -1247,7 +1247,7 @@ mod tests {
         let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
         let requester =
             arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
-        let claim = crate::filter::discoverers::org_membership_claim(
+        let claim = crate::filter::discoverers::organization_membership_claim(
             "claim-1",
             requester.clone(),
             issuer.clone(),
@@ -1260,9 +1260,9 @@ mod tests {
             "verified": true,
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_kind": "org_membership",
+                "claim_kind": "organization_membership",
                 "issuer": issuer.as_str(),
-                "organization": org.as_str(),
+                "organization_id": org.as_str(),
             }],
         }));
         row.discoverability = DiscoverabilityDb::Restricted;

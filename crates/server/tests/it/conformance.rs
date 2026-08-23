@@ -145,9 +145,9 @@ async fn install_restricted_realm_claim_selector(
     let mut conn = db.get().await?;
     let discoverers = json!([{
         "type": "claim",
-        "claim_kind": "org_membership",
+        "claim_kind": "organization_membership",
         "issuer": issuer,
-        "organization": organization
+        "organization_id": organization
     }]);
     diesel::sql_query(
         "UPDATE directory_resources \
@@ -413,9 +413,9 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         claim_id: "claim-realm-restricted".to_owned(),
         subject: subject.clone(),
         issuer: issuer.clone(),
-        claim_kind: "org_membership".to_owned(),
+        claim_kind: "organization_membership".to_owned(),
         value: serde_json::from_value(json!({
-            "organization": organization,
+            "organization_id": organization,
             "roles": ["member"],
         }))?,
         issued_at: Utc::now(),

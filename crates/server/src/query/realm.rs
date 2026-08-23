@@ -932,8 +932,8 @@ mod tests {
                 "allowed_discoverers": [
                     {
                         "type": "claim",
-                        "claim_kind": "org_membership",
-                        "organization": "ak:did_core:web:acme.example",
+                        "claim_kind": "organization_membership",
+                        "organization_id": "ak:did_core:web:acme.example",
                         "issuer": "ak:did_core:web:acme.example"
                     }
                 ]
@@ -945,7 +945,7 @@ mod tests {
             Some("ak:did_core:web:alice.example"),
             &VerifiedRestrictedClaims::default(),
         ));
-        let claim = crate::filter::discoverers::org_membership_claim(
+        let claim = crate::filter::discoverers::organization_membership_claim(
             "claim-1",
             arkret_sdk::DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap(),
             arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap(),

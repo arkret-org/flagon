@@ -319,9 +319,9 @@ fn restricted_claim_handle_is_never_disclosed_on_this_surface() {
             "created_at": "2026-05-20T00:00:00.000Z",
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_kind": "org_membership",
+                "claim_kind": "organization_membership",
                 "issuer": "ak:did_core:web:issuer.tea",
-                "organization": "ak:did_core:web:tea-org.example"
+                "organization_id": "ak:did_core:web:tea-org.example"
             }]
         }),
         DiscoverabilityDb::Restricted,
