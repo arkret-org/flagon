@@ -338,7 +338,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         default_ttl_seconds: Some(cfg.default_ttl.as_secs()),
         max_ttl_seconds: Some(cfg.max_ttl.as_secs()),
         revalidation_grace_seconds: Some(cfg.revalidation_grace.as_secs()),
-        accepted_resource_kinds: cfg.accepted_resource_kinds.iter().copied().collect(),
+        accepted_resource_kinds: cfg.accepted_resource_kinds.to_vec(),
         accepted_did_methods: cfg.accepted_did_methods.clone(),
         takedown_contact: cfg.takedown_contact.clone(),
         rate_limits: Some(directory_rate_limits),

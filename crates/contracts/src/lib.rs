@@ -291,7 +291,7 @@ mod tests {
         }
         for value in Discoverability::ALL {
             assert_eq!(
-                serde_json::to_value(&value).unwrap(),
+                serde_json::to_value(value).unwrap(),
                 JsonValue::String(value.as_str().to_string())
             );
         }

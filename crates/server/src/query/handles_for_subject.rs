@@ -732,9 +732,7 @@ async fn load_handle_issuer_policy(
         .optional()
         .ok()
         .flatten();
-    let Some((projection, discoverability)) = projection else {
-        return None;
-    };
+    let (projection, discoverability) = projection?;
     if !discoverability.is_directory_visible() {
         // Hidden / withdrawn Realm — treat as no declared trust set.
         return None;
