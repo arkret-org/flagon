@@ -7,14 +7,10 @@
 //! Organization is visible at all, so the matching logic MUST be identical
 //! across every `resolve_*` / `search_*` handler.
 
-use std::collections::BTreeSet;
-
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
-    ClaimDisclosurePolicy, ClaimDisclosureRequirement,
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, DidCoreId, DirectoryPresentedClaim,
-    DirectoryRestrictedClaimPresentation, PresentationRequestBody, PresentedClaim, canonical,
-    validate_presentation,
+    DirectoryRestrictedClaimPresentation, canonical,
 };
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -39,7 +35,7 @@ struct RestrictedClaimPresentationPayload<'a> {
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifiedRestrictedClaims {
-    claims: Vec<PresentedClaim>,
+    claims: Vec<DirectoryPresentedClaim>,
 }
 
 impl VerifiedRestrictedClaims {
@@ -48,8 +44,34 @@ impl VerifiedRestrictedClaims {
     }
 
     #[cfg(test)]
-    pub fn for_test(claims: Vec<PresentedClaim>) -> Self {
+    pub fn for_test(claims: Vec<DirectoryPresentedClaim>) -> Self {
         Self { claims }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn org_membership_claim(
+    claim_id: &str,
+    subject: DidCoreId,
+    issuer: DidCoreId,
+    organization: DidCoreId,
+    roles: Vec<String>,
+) -> DirectoryPresentedClaim {
+    DirectoryPresentedClaim {
+        claim_id: claim_id.to_owned(),
+        subject,
+        issuer,
+        claim_kind: "org_membership".to_owned(),
+        value: serde_json::from_value(serde_json::json!({
+            "organization": organization,
+            "roles": roles,
+        }))
+        .expect("membership claim value is an object"),
+        issued_at: Utc::now(),
+        refreshed_at: None,
+        expires_at: None,
+        revoked_at: None,
+        disclosed_fields: Default::default(),
     }
 }
 
@@ -131,10 +153,7 @@ pub fn verify_restricted_claim_presentations(
             expected_audience,
             bindings,
         )?;
-        claims.push(
-            PresentedClaim::try_from(presentation.claim.clone())
-                .map_err(|error| error.to_string())?,
-        );
+        claims.push(presentation.claim.clone());
     }
     Ok(VerifiedRestrictedClaims { claims })
 }
@@ -264,7 +283,7 @@ fn claim_selector_matches(
 }
 
 fn claim_satisfies_selector(
-    claim: &PresentedClaim,
+    claim: &DirectoryPresentedClaim,
     selector: &serde_json::Map<String, JsonValue>,
     subject: &DidCoreId,
     issuer: &DidCoreId,
@@ -280,34 +299,12 @@ fn claim_satisfies_selector(
         return false;
     }
 
-    let request = PresentationRequestBody {
-        request_id: "teabay.restricted_discovery".to_owned(),
-        subject: subject.clone(),
-        audience: "teabay.restricted_discovery".to_owned(),
-        nonce: "verified-by-teabay-jws".to_owned(),
-        policy: ClaimDisclosurePolicy {
-            policy_id: "teabay.restricted_discovery".to_owned(),
-            requirements: vec![ClaimDisclosureRequirement {
-                claim_kind: claim_kind.to_owned(),
-                trusted_issuers: vec![issuer.clone()],
-                reveal_fields: vec!["*".to_owned()],
-                required: true,
-            }],
-            max_age: None,
-            fail_closed: true,
-        },
-        created_at: Utc::now(),
-        verifier_service_id: None,
-        represented_org: None,
-        verifier_authority_chain: Vec::new(),
-    };
-    let validation = validate_presentation(
-        &request,
-        std::slice::from_ref(claim),
-        &BTreeSet::new(),
-        Utc::now(),
-    );
-    validation.accepted
+    let now = Utc::now();
+    claim.subject == *subject
+        && claim.issuer == *issuer
+        && claim.claim_kind == claim_kind
+        && claim.revoked_at.is_none_or(|revoked_at| revoked_at > now)
+        && claim.expires_at.is_none_or(|expires_at| expires_at > now)
 }
 
 trait ClaimSelectorValue {
@@ -318,14 +315,14 @@ trait ClaimSelectorValue {
     ) -> Option<bool>;
 }
 
-impl ClaimSelectorValue for PresentedClaim {
+impl ClaimSelectorValue for DirectoryPresentedClaim {
     fn value_matches(
         &self,
         selector: &serde_json::Map<String, JsonValue>,
         key: &str,
     ) -> Option<bool> {
         let expected = selector.get(key).and_then(JsonValue::as_str)?;
-        Some(self.value().get(key).and_then(JsonValue::as_str) == Some(expected))
+        Some(self.value.get(key).and_then(JsonValue::as_str) == Some(expected))
     }
 }
 
@@ -362,7 +359,7 @@ mod tests {
         let issuer = arkret_sdk::project_full_id_to_core_id(&issuer_full_id).unwrap();
         let subject = DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap();
         let org = DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
-        let claim = PresentedClaim::organization_membership(
+        let claim = org_membership_claim(
             "claim-1",
             subject.clone(),
             issuer.clone(),
@@ -390,7 +387,7 @@ mod tests {
         let projection = json!({
             "allowed_discoverers": [{
                 "type": "claim",
-                "claim_kind": "organization_membership",
+                "claim_kind": "org_membership",
                 "issuer": issuer.as_str(),
                 "organization": org.as_str(),
             }]
@@ -419,12 +416,11 @@ mod tests {
         verification_method: arkret_wire::DidUrl,
         audience: &str,
         nonce: &str,
-        claim: PresentedClaim,
+        claim: DirectoryPresentedClaim,
     ) -> DirectoryRestrictedClaimPresentation {
         let created_at = Utc::now();
         let expires_at = Some(created_at + Duration::minutes(5));
         let audience = DidCoreId::new(audience.to_owned()).unwrap();
-        let claim: DirectoryPresentedClaim = claim.into();
         let payload = RestrictedClaimPresentationPayload {
             kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,
             iss: &iss,

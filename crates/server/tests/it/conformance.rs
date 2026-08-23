@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, DidCoreId, DidFullId, DirectoryPresentedClaim,
-    DirectoryRestrictedClaimPresentation, PresentedClaim, canonical,
+    DirectoryRestrictedClaimPresentation, canonical,
 };
 use arkret_signatures::http_signature::{
     ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
@@ -145,7 +145,7 @@ async fn install_restricted_realm_claim_selector(
     let mut conn = db.get().await?;
     let discoverers = json!([{
         "type": "claim",
-        "claim_kind": "organization_membership",
+        "claim_kind": "org_membership",
         "issuer": issuer,
         "organization": organization
     }]);
@@ -409,13 +409,21 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let organization = DidCoreId::new("ak:did_core:web:tea-org.example".to_owned())?;
     install_restricted_realm_claim_selector(db, issuer.as_str(), organization.as_str()).await?;
     let proof_challenge = "realm-restricted-proof-challenge-1";
-    let claim = PresentedClaim::organization_membership(
-        "claim-realm-restricted",
-        subject.clone(),
-        issuer.clone(),
-        organization,
-        vec!["member".to_owned()],
-    );
+    let claim = DirectoryPresentedClaim {
+        claim_id: "claim-realm-restricted".to_owned(),
+        subject: subject.clone(),
+        issuer: issuer.clone(),
+        claim_kind: "org_membership".to_owned(),
+        value: serde_json::from_value(json!({
+            "organization": organization,
+            "roles": ["member"],
+        }))?,
+        issued_at: Utc::now(),
+        refreshed_at: None,
+        expires_at: None,
+        revoked_at: None,
+        disclosed_fields: Default::default(),
+    };
     let presentation = signed_restricted_claim_presentation(
         &signing_key,
         issuer,
@@ -1366,10 +1374,9 @@ fn signed_restricted_claim_presentation(
     verification_method: arkret_wire::DidUrl,
     audience: &str,
     nonce: &str,
-    claim: PresentedClaim,
+    claim: DirectoryPresentedClaim,
 ) -> anyhow::Result<DirectoryRestrictedClaimPresentation> {
     let audience = DidCoreId::new(audience.to_owned())?;
-    let claim: DirectoryPresentedClaim = claim.into();
     let created_at = Utc::now();
     let expires_at = Some(created_at + ChronoDuration::minutes(5));
     let payload = DirectoryRestrictedClaimPresentationSigningPayload {

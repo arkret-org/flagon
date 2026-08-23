@@ -1589,7 +1589,7 @@ mod tests {
         let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
         let requester =
             arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
-        let claim = arkret_sdk::PresentedClaim::organization_membership(
+        let claim = crate::filter::discoverers::org_membership_claim(
             "claim-1",
             requester.clone(),
             issuer.clone(),
@@ -1601,7 +1601,7 @@ mod tests {
             public_projection: json!({ "title": "Strand" }),
             required_claims: json!([{
                 "type": "claim",
-                "claim_kind": "organization_membership",
+                "claim_kind": "org_membership",
                 "issuer": issuer.as_str(),
                 "organization": org.as_str(),
             }]),
