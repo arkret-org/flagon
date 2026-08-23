@@ -178,7 +178,6 @@ version = "0.3.0"
 dependencies = [
  "argon2",
  "arkret-canonical",
- "arkret-keystore",
  "arkret-models-collaboration",
  "arkret-models-identity",
  "arkret-signatures",
@@ -459,7 +458,6 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
- "tracing",
 ]
 
 [[package]]
@@ -469,7 +467,6 @@ dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
  "arkret-models-collaboration",
- "arkret-models-crypto",
  "arkret-schema",
  "arkret-wire",
  "chrono",
@@ -483,6 +480,7 @@ dependencies = [
 name = "arkret-push-policy"
 version = "0.3.0"
 dependencies = [
+ "arkret-identifiers",
  "arkret-models-integration",
  "serde",
  "serde_json",
