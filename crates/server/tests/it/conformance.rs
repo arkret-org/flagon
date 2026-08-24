@@ -915,13 +915,8 @@ async fn assert_three_path_takedown_strand(
         res.status_code.unwrap_or(StatusCode::OK),
         StatusCode::NOT_FOUND
     );
-    let resource_receipt = withdrawal_proof(
-        db,
-        "realm",
-        withdrawn_realm_id,
-        "resource_withdraw",
-    )
-    .await?;
+    let resource_receipt =
+        withdrawal_proof(db, "realm", withdrawn_realm_id, "resource_withdraw").await?;
     assert_eq!(
         resource_receipt.proof["receipt_version"],
         "teabay.withdrawal_receipt.v1"
@@ -1379,9 +1374,8 @@ fn signed_realm_discovery_event(
         Hlc::new("01970e589d21-0001-a13f9c2e")?,
         json!({"value": discovery_state}),
     )?;
-    event.refresh_content_bound_identity_with_digest_suite(
-        arkret_canonical::DigestSuite::Sha256,
-    )?;
+    event
+        .refresh_content_bound_identity_with_digest_suite(arkret_canonical::DigestSuite::Sha256)?;
     let builder = EventProofBuilder::new();
     let event_digest = Hash::new(arkret_canonical::canonical::sha256_digest(
         &builder.envelope_bytes(&event)?,

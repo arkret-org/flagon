@@ -41,9 +41,14 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             "ak.realm.discovery" => (DirectoryResourceKindDb::Realm, event.realm_id.to_string()),
             "ak.organization.discovery" => (
                 DirectoryResourceKindDb::Organization,
-                event.payload.get("organization_principal_id")
+                event
+                    .payload
+                    .get("organization_principal_id")
                     .and_then(JsonValue::as_str)
-                    .ok_or_else(|| "organization discovery_event requires payload.organization_principal_id".to_owned())?
+                    .ok_or_else(|| {
+                        "organization discovery_event requires payload.organization_principal_id"
+                            .to_owned()
+                    })?
                     .to_owned(),
             ),
             "ak.actor.discovery" => (DirectoryResourceKindDb::Actor, event_resource_id(&event)?),
@@ -78,7 +83,9 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
 }
 
 fn event_resource_id(event: &arkret_wire::Event) -> Result<String, String> {
-    event.payload.get("resource_id")
+    event
+        .payload
+        .get("resource_id")
         .and_then(JsonValue::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "discovery_event requires payload.resource_id".to_owned())
