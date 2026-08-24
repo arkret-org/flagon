@@ -340,6 +340,22 @@ pub(crate) fn verify_discovery_event_proofs(
             "discovery Event id does not match its canonical envelope".to_owned(),
         ));
     }
+    event
+        .validate_proof_bindings_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+        .map_err(|error| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                format!("discovery Event proof binding is invalid: {error}"),
+            )
+        })?;
+    let canonical_bytes = arkret_signatures::EventProofBuilder::new()
+        .envelope_bytes(event)
+        .map_err(|error| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                format!("discovery Event proof transcript is invalid: {error}"),
+            )
+        })?;
     let mut producer_count = 0usize;
     for proof in event
         .proofs
@@ -353,18 +369,27 @@ pub(crate) fn verify_discovery_event_proofs(
             expected_controller_did,
             proof.verification_method.as_str(),
         )?;
-        arkret_sdk::verify_event_proof_with_did_resolver(
-            event,
-            proof,
-            resolver,
-            arkret_canonical::DigestSuite::Sha256,
-        )
-        .map_err(|error| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                format!("discovery Event proof rejected: {error}"),
+        let issuer = proof
+            .verification_method
+            .as_str()
+            .split_once('#')
+            .map_or(proof.verification_method.as_str(), |(did, _)| did);
+        resolver
+            .verify_detached_jws_with_authority(
+                &canonical_bytes,
+                &proof.jws,
+                proof.verification_method.as_str(),
+                issuer,
+                DidBindingPurpose::DirectoryIngest,
+                SIGNATURE_KIND_INGEST_PROOF,
+                Utc::now(),
             )
-        })?;
+            .map_err(|error| {
+                (
+                    ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                    format!("discovery Event proof rejected: {error}"),
+                )
+            })?;
     }
     if producer_count == 0 {
         return Err((
@@ -495,112 +520,6 @@ pub(crate) fn verify_governance_proof(
         resolver,
     )
     .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))
-}
-
-fn verify_detached_jws_payload(
-    canonical_bytes: &[u8],
-    proof: &JsonValue,
-    resource_kind: DirectoryResourceKindDb,
-    resource_id: &str,
-    expected_controller_did: Option<&str>,
-    resolver: &SharedDidResolver,
-) -> Result<(), (ApiErrorCode, String)> {
-    let DetachedProof {
-        verification_method,
-        jws,
-    } = detached_proof(proof)?;
-    enforce_governance_method_binding(
-        resource_kind,
-        resource_id,
-        expected_controller_did,
-        &verification_method,
-    )?;
-    verify_jws_ed25519(canonical_bytes, &jws, &verification_method, resolver)
-        .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))
-}
-
-struct DetachedProof {
-    verification_method: String,
-    jws: String,
-}
-
-fn detached_proof(proof: &JsonValue) -> Result<DetachedProof, (ApiErrorCode, String)> {
-    let kind = proof
-        .get("kind")
-        .and_then(JsonValue::as_str)
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                "proof.kind missing".into(),
-            )
-        })?;
-    if kind != "detached_jws" {
-        return Err((
-            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-            format!("unsupported proof.kind {kind}; expected detached_jws"),
-        ));
-    }
-    let verification_method = proof
-        .get("verification_method")
-        .and_then(JsonValue::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                "proof.verification_method missing".into(),
-            )
-        })?
-        .to_owned();
-    let jws = proof
-        .get("jws")
-        .and_then(JsonValue::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                "proof.jws missing".into(),
-            )
-        })?
-        .to_owned();
-    Ok(DetachedProof {
-        verification_method,
-        jws,
-    })
-}
-
-fn canonical_payload_without_jws(
-    payload: &JsonValue,
-    proof_key: &str,
-) -> Result<Vec<u8>, (ApiErrorCode, String)> {
-    let mut unsigned = payload.clone();
-    let proof = unsigned
-        .get_mut(proof_key)
-        .and_then(JsonValue::as_object_mut)
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                format!("{proof_key} proof object missing"),
-            )
-        })?;
-    if proof.remove("jws").is_none() {
-        return Err((
-            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-            "proof.jws missing".into(),
-        ));
-    }
-    canonical_json_bytes(&unsigned)
-        .map_err(|msg| (ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, msg))
-}
-
-/// Arkret canonical JSON bytes via the SDK's `arkret_sdk::canonical`
-/// implementation (UTF-16 key ordering, integer-only number profile).
-///
-/// This replaces a previously hand-written serializer that sorted object
-/// keys by byte order (`sort_unstable()`) — divergent from the SDK and
-/// every other Arkret service. Errors are flattened to `String` so the
-/// existing `(ApiErrorCode::DirectoryGovernanceProofSignatureInvalid, _)` call sites are unchanged.
-fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
-    canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }
 
 /// Verify an ingest governance proof.
@@ -1520,7 +1439,7 @@ mod governance_proof_tests {
         let mut body = DirectoryWithdrawRequestBody {
             resource_id: REALM_ID.to_owned(),
             governance_proof: placeholder_proof(signer, created_at, audience),
-            reason: Some("governance proof test".to_owned()),
+            reason: Some(arkret_wire::AuditReasonText::new("governance proof test").unwrap()),
             effective_at: None,
         };
         let digest = body.payload_digest().expect("payload digest");
@@ -1649,7 +1568,7 @@ mod governance_proof_tests {
         let signer = test_signer();
         let now = Utc::now();
         let mut body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
-        body.reason = Some("rewritten after signing".to_owned());
+        body.reason = Some(arkret_wire::AuditReasonText::new("rewritten after signing").unwrap());
         let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
             .expect_err("a mutated body MUST be rejected");
         assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);

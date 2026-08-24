@@ -55,6 +55,7 @@ url = {workspace = true}
 voprf = {workspace = true}
 
 [dev-dependencies]
+arkret-wire = {workspace = true,features = ["test-support"]}
 salvo = {workspace = true,features = ["test"]}
 teabay-testing = {workspace = true}
 testcontainers-modules = {workspace = true}

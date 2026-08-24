@@ -1382,7 +1382,8 @@ fn signed_realm_discovery_event(
     ))?;
     let mut proof = ProducerEventProof {
         kind: "detached_jws".to_owned(),
-        verification_method: arkret_sdk::DidUrl::new(verification_method.to_owned())?,
+        verification_method: arkret_sdk::DidUrl::new(verification_method.to_owned())
+            .map_err(anyhow::Error::msg)?,
         event_digest,
         signer_resolution_evidence_ref: None,
         signer_resolution_evidence_digest: None,
@@ -1453,32 +1454,6 @@ fn did_key_multibase(signing_key: &SigningKey) -> String {
     format!("z{}", bs58::encode(bytes).into_string())
 }
 
-fn sign_detached_jws(payload: &JsonValue, signing_key: &SigningKey) -> anyhow::Result<String> {
-    sign_detached_jws_with_proof_key(payload, "proof", signing_key)
-}
-
-fn sign_detached_jws_with_proof_key(
-    payload: &JsonValue,
-    proof_key: &str,
-    signing_key: &SigningKey,
-) -> anyhow::Result<String> {
-    let canonical = canonical_payload_without_jws_at(payload, proof_key)?;
-    sign_jws_ed25519(&canonical, signing_key).map_err(anyhow::Error::msg)
-}
-
-fn canonical_payload_without_jws_at(
-    payload: &JsonValue,
-    proof_key: &str,
-) -> anyhow::Result<Vec<u8>> {
-    let mut unsigned = payload.clone();
-    let proof = unsigned
-        .get_mut(proof_key)
-        .and_then(JsonValue::as_object_mut)
-        .ok_or_else(|| anyhow::anyhow!("proof object missing"))?;
-    proof.remove("jws");
-    canonical::canonical_json_bytes(&unsigned).map_err(Into::into)
-}
-
 /// §8.7.1: the signed transcript is the canonical binding object built by the
 /// SDK helper, not the request body. `payload_digest` covers the request
 /// without the top-level `governance_proof` member, `audience` names this
@@ -1504,7 +1479,9 @@ fn signed_withdraw_body(
                 .map_err(|error| anyhow::anyhow!("audience: {error}"))?,
             jws: "pending".to_owned(),
         },
-        reason: Some(reason.to_owned()),
+        reason: Some(
+            arkret_wire::AuditReasonText::new(reason.to_owned()).map_err(anyhow::Error::msg)?,
+        ),
         effective_at: None,
     };
     body.governance_proof.payload_digest = body
