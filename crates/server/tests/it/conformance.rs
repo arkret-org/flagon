@@ -12,8 +12,10 @@ use std::time::Duration;
 
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, DidCoreId, DidFullId, DirectoryPresentedClaim,
-    DirectoryRestrictedClaimPresentation, canonical,
+    DirectoryRestrictedClaimPresentation, Hash, Hlc, ProducerEventProof, RealmId, ScopeRef,
+    canonical,
 };
+use arkret_signatures::EventProofBuilder;
 use arkret_signatures::http_signature::{
     ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
     parse_signature_input, sign_message,
@@ -708,22 +710,28 @@ fn sign_psi_request(
 }
 
 async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> anyhow::Result<()> {
-    let mock = MockPrincipalServer::spawn("evt-announce-realm")?;
+    let source_ref = "ak:event:ASWGTju1AH5ri82iFC0b-lZTclyFRuOI8TagaYiq5ZD2";
+    let realm_id = "ak:realm:ATH75ame6bMfYpXtcoLOVb7FKmgpWVniZZqVBz1dUdQa";
+    let mock = MockPrincipalServer::spawn(source_ref)?;
     let signing_key = SigningKey::from_bytes(&[7; 32]);
     let public_key = did_key_multibase(&signing_key);
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
-    let discovery_state = signed_realm_discovery_state(&verification_method, &signing_key)?;
+    let principal_server_service_id = mock.principal_server_service_id()?;
+    let discovery_event = signed_realm_discovery_event(
+        realm_id,
+        realm_discovery_state("Pushed Tea"),
+        &verification_method,
+        &signing_key,
+        &principal_server_service_id,
+    )?;
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
-            "resource_kind": "realm",
-            "resource_id": "ak:realm:pushed",
-            "principal_server_service_id": mock.principal_server_service_id(),
-            "discovery_state": discovery_state,
-            "source_refs": ["evt-announce-realm"],
+            "discovery_event": discovery_event,
+            "source_refs": [source_ref],
             "as_of": Utc::now(),
-            "policy_revision": "rev-pushed-1",
+            "principal_server_service_id": principal_server_service_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -741,14 +749,14 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ak:realm:pushed" }))
+        .json(&json!({ "realm_id": realm_id }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["realm_id"], "ak:realm:pushed");
+    assert_eq!(body["realm_id"], realm_id);
     assert_eq!(body["member_count_bucket"], "11-50");
-    assert_eq!(body["source_refs"][0], "evt-announce-realm");
+    assert_eq!(body["source_refs"][0], source_ref);
     assert!(
         body["join_candidates"]
             .as_array()
@@ -818,26 +826,30 @@ async fn assert_three_path_takedown_strand(
     let public_key = did_key_multibase(&signing_key);
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
+    let destroyed_realm_id = "ak:realm:AQpwDm7ZXVTjUWCnaqcmxxZ49Y8CpzFJ-vLzmvCjBXfw";
+    let withdrawn_realm_id = "ak:realm:Ac1aCK8aQdnkYImvdH3DFjq4jDCP198pXYWCGzGuVyj5";
 
     // Path 1: resource state-change (`ak.realm.destroy`) collapses the
     // indexed Realm into a tombstone projection.
-    let mut destroyed_state =
-        signed_realm_discovery_state_named(&verification_method, &signing_key, "Destroyable Tea")?;
+    let mut destroyed_state = realm_discovery_state("Destroyable Tea");
     destroyed_state["terminal_state"] = JsonValue::String("destroyed".to_owned());
     destroyed_state["as_of_destroyed"] = json!(Utc::now());
-    destroyed_state["proof"]["jws"] = JsonValue::String(String::new());
-    destroyed_state["proof"]["jws"] =
-        JsonValue::String(sign_detached_jws(&destroyed_state, &signing_key)?);
-    let destroy_mock = MockPrincipalServer::spawn("evt-destroy-realm")?;
+    let destroy_source_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
+    let destroy_mock = MockPrincipalServer::spawn(destroy_source_ref)?;
+    let destroy_principal_server_service_id = destroy_mock.principal_server_service_id()?;
+    let discovery_event = signed_realm_discovery_event(
+        destroyed_realm_id,
+        destroyed_state,
+        &verification_method,
+        &signing_key,
+        &destroy_principal_server_service_id,
+    )?;
     let res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
-            "resource_kind": "realm",
-            "resource_id": "ak:realm:takedown-state",
-            "principal_server_service_id": destroy_mock.principal_server_service_id(),
-            "discovery_state": destroyed_state,
-            "source_refs": ["evt-destroy-realm"],
+            "discovery_event": discovery_event,
+            "source_refs": [destroy_source_ref],
             "as_of": Utc::now(),
-            "policy_revision": "rev-pushed-1",
+            "principal_server_service_id": destroy_principal_server_service_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -845,7 +857,7 @@ async fn assert_three_path_takedown_strand(
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ak:realm:takedown-state" }))
+        .json(&json!({ "realm_id": destroyed_realm_id }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
@@ -855,18 +867,22 @@ async fn assert_three_path_takedown_strand(
 
     // Path 2: resource-initiated withdraw stores a verifiable governance
     // proof receipt and blinds subsequent resolves.
-    let withdraw_mock = MockPrincipalServer::spawn("evt-withdraw-realm")?;
-    let withdraw_state =
-        signed_realm_discovery_state_named(&verification_method, &signing_key, "Withdrawable Tea")?;
+    let withdraw_source_ref = "ak:event:AR8bu-n-kOOB3nRUvYuIEglCX5B-JpFaNTex9gxs_cWY";
+    let withdraw_mock = MockPrincipalServer::spawn(withdraw_source_ref)?;
+    let withdraw_principal_server_service_id = withdraw_mock.principal_server_service_id()?;
+    let discovery_event = signed_realm_discovery_event(
+        withdrawn_realm_id,
+        realm_discovery_state("Withdrawable Tea"),
+        &verification_method,
+        &signing_key,
+        &withdraw_principal_server_service_id,
+    )?;
     let res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
-            "resource_kind": "realm",
-            "resource_id": "ak:realm:takedown-withdraw",
-            "principal_server_service_id": withdraw_mock.principal_server_service_id(),
-            "discovery_state": withdraw_state,
-            "source_refs": ["evt-withdraw-realm"],
+            "discovery_event": discovery_event,
+            "source_refs": [withdraw_source_ref],
             "as_of": Utc::now(),
-            "policy_revision": "rev-pushed-1",
+            "principal_server_service_id": withdraw_principal_server_service_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -874,7 +890,7 @@ async fn assert_three_path_takedown_strand(
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
     let withdraw_body = signed_withdraw_body(
-        "ak:realm:takedown-withdraw",
+        withdrawn_realm_id,
         &verification_method,
         &signing_key,
         "conformance resource withdraw",
@@ -892,7 +908,7 @@ async fn assert_three_path_takedown_strand(
     );
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ak:realm:takedown-withdraw" }))
+        .json(&json!({ "realm_id": withdrawn_realm_id }))
         .send(service)
         .await;
     assert_eq!(
@@ -902,7 +918,7 @@ async fn assert_three_path_takedown_strand(
     let resource_receipt = withdrawal_proof(
         db,
         "realm",
-        "ak:realm:takedown-withdraw",
+        withdrawn_realm_id,
         "resource_withdraw",
     )
     .await?;
@@ -922,7 +938,7 @@ async fn assert_three_path_takedown_strand(
     );
     assert_eq!(
         resource_receipt.proof["signed_payload"]["resource_id"],
-        "ak:realm:takedown-withdraw"
+        withdrawn_realm_id
     );
 
     // Path 3: operator takedown signs a service receipt over the full
@@ -1261,8 +1277,9 @@ impl MockPrincipalServer {
         })
     }
 
-    fn principal_server_service_id(&self) -> String {
-        principal_did_for_addr(self.addr)
+    fn principal_server_service_id(&self) -> anyhow::Result<String> {
+        let full_id = DidFullId::new(principal_did_for_addr(self.addr))?;
+        Ok(arkret_sdk::project_full_id_to_core_id(&full_id)?.to_string())
     }
 }
 
@@ -1324,35 +1341,67 @@ fn handle_mock_principal_connection(
     let _ = stream.write_all(response.as_bytes());
 }
 
-fn signed_realm_discovery_state(
-    verification_method: &str,
-    signing_key: &SigningKey,
-) -> anyhow::Result<JsonValue> {
-    signed_realm_discovery_state_named(verification_method, signing_key, "Pushed Tea")
-}
-
-fn signed_realm_discovery_state_named(
-    verification_method: &str,
-    signing_key: &SigningKey,
-    name: &str,
-) -> anyhow::Result<JsonValue> {
-    let mut state = json!({
+fn realm_discovery_state(name: &str) -> JsonValue {
+    json!({
         "kind": "ak.realm.discovery",
         "discoverability": "public",
         "directory_services": ["ak:did_core:web:directory.test"],
         "name": name,
         "summary": "Accepted through push announce against a mock Principal Server",
         "member_count": 42,
-        "policy_revision": "rev-pushed-1",
-        "proof": {
-            "kind": "detached_jws",
-            "verification_method": verification_method,
-            "jws": "",
+    })
+}
+
+fn signed_realm_discovery_event(
+    realm_id: &str,
+    discovery_state: JsonValue,
+    verification_method: &str,
+    signing_key: &SigningKey,
+    principal_server_service_id: &str,
+) -> anyhow::Result<JsonValue> {
+    let realm_id = RealmId::new(realm_id.to_owned())?;
+    let full_signer_id = DidFullId::new(
+        verification_method
+            .split_once('#')
+            .map_or(verification_method, |(did, _)| did)
+            .to_owned(),
+    )?;
+    let actor_id = arkret_sdk::project_full_id_to_core_id(&full_signer_id)?;
+    let principal_server_id = DidCoreId::new(principal_server_service_id.to_owned())?;
+    let mut event = arkret_wire::test_support::raw_event(
+        "ak.realm.discovery",
+        ScopeRef::Realm {
+            realm_id: realm_id.clone(),
         },
-    });
-    let jws = sign_detached_jws(&state, signing_key)?;
-    state["proof"]["jws"] = JsonValue::String(jws);
-    Ok(state)
+        actor_id,
+        principal_server_id,
+        1,
+        Hlc::new("01970e589d21-0001-a13f9c2e")?,
+        json!({"value": discovery_state}),
+    )?;
+    event.refresh_content_bound_identity_with_digest_suite(
+        arkret_canonical::DigestSuite::Sha256,
+    )?;
+    let builder = EventProofBuilder::new();
+    let event_digest = Hash::new(arkret_canonical::canonical::sha256_digest(
+        &builder.envelope_bytes(&event)?,
+    ))?;
+    let mut proof = ProducerEventProof {
+        kind: "detached_jws".to_owned(),
+        verification_method: arkret_sdk::DidUrl::new(verification_method.to_owned())?,
+        event_digest,
+        signer_resolution_evidence_ref: None,
+        signer_resolution_evidence_digest: None,
+        created_at: event.created_at,
+        domain: None,
+        audience: None,
+        proof_purpose: None,
+        jws: String::new(),
+    };
+    let binding = proof.canonical_binding_bytes(&event.actor_id)?;
+    proof.jws = sign_jws_ed25519(&binding, signing_key).map_err(anyhow::Error::msg)?;
+    event.proofs.push(proof.into());
+    Ok(serde_json::to_value(event)?)
 }
 
 #[derive(serde::Serialize)]

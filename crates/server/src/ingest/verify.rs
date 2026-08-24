@@ -5,8 +5,8 @@
 //!    sub-router by [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`)
 //!    so the handler always sees an already-authenticated transport. TB-1 (this comment block)
 //!    closed the prior gap where the middleware was advertised but not actually mounted.
-//! 2. Discovery proof — verify `discovery_state.proof.detached_jws` against the resource governance
-//!    key resolved via DID document.
+//! 2. Discovery proof — verify the original discovery Event producer proof against the resource
+//!    governance key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_services` is a core-id list containing
 //!    *this* directory's stable service id.
 //! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Principal Server
@@ -140,8 +140,8 @@ impl<'a> VerifyContext<'a> {
 
         // --- Step 2: discovery proof verification. -------------------------
         let expected_governance_controller = self.expected_governance_controller(req).await?;
-        verify_discovery_proof(
-            &req.discovery_state,
+        verify_discovery_event_proofs(
+            &req.discovery_event,
             req.resource_kind,
             &req.resource_id,
             expected_governance_controller.as_deref(),
@@ -210,7 +210,15 @@ impl<'a> VerifyContext<'a> {
         let discoverability = read_discoverability(&req.discovery_state)?;
         let via_services =
             derive_via_services(&req.discovery_state, &req.principal_server_service_id);
-        let policy_revision = req.policy_revision.clone();
+        // The request does not echo a free-form revision.  The verified source
+        // frontier is the revision carrier; Realm producers include the
+        // effective policy-bundle Event in this frontier.
+        let policy_revision = canonical::canonical_sha256(&req.source_refs).map_err(|error| {
+            (
+                ApiErrorCode::SchemaViolation,
+                format!("source_refs revision is not canonical: {error}"),
+            )
+        })?;
 
         Ok(VerifyOutcome {
             discoverability,
@@ -311,28 +319,56 @@ impl<'a> VerifyContext<'a> {
     }
 }
 
-pub(crate) fn verify_discovery_proof(
-    discovery_state: &JsonValue,
+pub(crate) fn verify_discovery_event_proofs(
+    event: &arkret_wire::Event,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
     expected_controller_did: Option<&str>,
     resolver: &SharedDidResolver,
 ) -> Result<(), (ApiErrorCode, String)> {
-    let proof = discovery_state.get("proof").ok_or_else(|| {
-        (
+    let derived_event_id = event
+        .derive_event_id_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+        .map_err(|error| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                format!("discovery Event id cannot be recomputed: {error}"),
+            )
+        })?;
+    if derived_event_id != event.event_id {
+        return Err((
             ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-            "discovery_state.proof is missing".into(),
+            "discovery Event id does not match its canonical envelope".to_owned(),
+        ));
+    }
+    let mut producer_count = 0usize;
+    for proof in event.proofs.iter().filter_map(arkret_wire::EventProof::as_producer) {
+        producer_count += 1;
+        enforce_governance_method_binding(
+            resource_kind,
+            resource_id,
+            expected_controller_did,
+            proof.verification_method.as_str(),
+        )?;
+        arkret_sdk::verify_event_proof_with_did_resolver(
+            event,
+            proof,
+            resolver,
+            arkret_canonical::DigestSuite::Sha256,
         )
-    })?;
-    let canonical = canonical_payload_without_jws(discovery_state, "proof")?;
-    verify_detached_jws_payload(
-        &canonical,
-        proof,
-        resource_kind,
-        resource_id,
-        expected_controller_did,
-        resolver,
-    )
+        .map_err(|error| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                format!("discovery Event proof rejected: {error}"),
+            )
+        })?;
+    }
+    if producer_count == 0 {
+        return Err((
+            ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+            "discovery Event has no producer proof".to_owned(),
+        ));
+    }
+    Ok(())
 }
 
 /// §8.7.1: a Directory MUST reject a governance proof whose `created_at`

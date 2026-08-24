@@ -2,16 +2,19 @@
 
 use arkret_sdk::{DidCoreId, DirectoryAnnounceRequestBody};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use teabay_contracts::DirectoryDiscoveryState;
 
 use crate::ingest::DirectoryResourceKindDb;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DirectoryAnnounceIngest {
+    /// Original accepted Event; this is the sole signed discovery carrier.
+    pub discovery_event: arkret_wire::Event,
+    #[serde(skip_serializing)]
     pub resource_kind: DirectoryResourceKindDb,
+    #[serde(skip_serializing)]
     pub resource_id: String,
     /// Stable service core id of the Principal Server that owns the resource's
     /// truth source (`discovery-directory.md` §8.3). This is **not** a
@@ -19,10 +22,10 @@ pub struct DirectoryAnnounceIngest {
     /// verified `ServiceResolutionRecord`, and the spec forbids handing this
     /// value to a DID resolver.
     pub principal_server_service_id: DidCoreId,
+    #[serde(skip_serializing)]
     pub discovery_state: DirectoryDiscoveryState,
     pub source_refs: Vec<String>,
     pub as_of: DateTime<Utc>,
-    pub policy_revision: String,
     #[serde(default)]
     pub ttl_seconds: Option<i64>,
     #[serde(default)]
@@ -33,23 +36,37 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
     type Error = String;
 
     fn try_from(value: DirectoryAnnounceRequestBody) -> Result<Self, Self::Error> {
+        let event = value.discovery_event;
+        let (resource_kind, resource_id) = match event.kind.as_str() {
+            "ak.realm.discovery" => (DirectoryResourceKindDb::Realm, event.realm_id.to_string()),
+            "ak.organization.discovery" => (
+                DirectoryResourceKindDb::Organization,
+                event.payload.get("organization_principal_id")
+                    .and_then(JsonValue::as_str)
+                    .ok_or_else(|| "organization discovery_event requires payload.organization_principal_id".to_owned())?
+                    .to_owned(),
+            ),
+            "ak.actor.discovery" => (DirectoryResourceKindDb::Actor, event_resource_id(&event)?),
+            "ak.applet.discovery" => (DirectoryResourceKindDb::Applet, event_resource_id(&event)?),
+            "ak.handle.discovery" => (DirectoryResourceKindDb::Handle, event_resource_id(&event)?),
+            _ => return Err("unsupported discovery_event kind".to_owned()),
+        };
         let discovery_state = DirectoryDiscoveryState::from_json_object(
-            JsonValue::Object(value.discovery_state.into_iter().collect()),
-            "discovery_state",
+            event
+                .payload
+                .get("value")
+                .cloned()
+                .ok_or_else(|| "discovery_event.payload.value is required".to_owned())?,
+            "discovery_event.payload.value",
         )?;
-        let policy_revision = discovery_state
-            .get("policy_revision")
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| "discovery_state.policy_revision is required".to_owned())?;
         Ok(Self {
-            resource_kind: DirectoryResourceKindDb::from(value.resource_kind),
-            resource_id: value.resource_id,
+            discovery_event: event,
+            resource_kind,
+            resource_id,
             principal_server_service_id: value.principal_server_service_id,
             discovery_state,
             source_refs: value.source_refs,
             as_of: value.as_of,
-            policy_revision,
             ttl_seconds: value
                 .ttl_seconds
                 .map(i64::try_from)
@@ -58,4 +75,11 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             supersedes_announce_id: value.supersedes_announce_id,
         })
     }
+}
+
+fn event_resource_id(event: &arkret_wire::Event) -> Result<String, String> {
+    event.payload.get("resource_id")
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| "discovery_event requires payload.resource_id".to_owned())
 }

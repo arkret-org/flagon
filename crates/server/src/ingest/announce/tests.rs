@@ -1,14 +1,10 @@
-use arkret_sdk::DidCoreId;
-use chrono::{DateTime, Utc};
-use serde_json::{Value as JsonValue, json};
+use serde_json::json;
 use teabay_contracts::DirectoryDiscoveryState;
 
 use super::federation::{FederationCacheKeyInputs, verify_federation_trust_domain_headers};
-use super::ingest_body::DirectoryAnnounceIngest;
-use super::persist::digest_request;
 use super::projection::{derive_public_projection, validate_handle_claim_ingest};
 use crate::error::ApiErrorCode;
-use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
+use crate::ingest::DiscoverabilityDb;
 
 fn inputs_with_pair(
     source_trust_domain: &str,
@@ -266,72 +262,4 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
     ] {
         assert!(!serialized.contains(forbidden), "{forbidden} leaked");
     }
-}
-
-#[test]
-fn announce_digest_uses_canonical_json_body() {
-    let as_of = DateTime::parse_from_rfc3339("2026-05-20T00:00:00Z")
-        .unwrap()
-        .with_timezone(&Utc);
-    let mut first_state = serde_json::Map::new();
-    first_state.insert("kind".to_owned(), json!("ak.realm.discovery"));
-    first_state.insert("discoverability".to_owned(), json!("public"));
-    first_state.insert(
-        "directory_services".to_owned(),
-        json!(["ak:did_core:web:directory.test"]),
-    );
-
-    let mut second_state = serde_json::Map::new();
-    second_state.insert(
-        "directory_services".to_owned(),
-        json!(["ak:did_core:web:directory.test"]),
-    );
-    second_state.insert("discoverability".to_owned(), json!("public"));
-    second_state.insert("kind".to_owned(), json!("ak.realm.discovery"));
-
-    let first = DirectoryAnnounceIngest {
-        resource_kind: DirectoryResourceKindDb::Realm,
-        resource_id: "ak:realm:tea".to_owned(),
-        principal_server_service_id: DidCoreId::new("ak:did_core:web:principal.test")
-            .expect("fixture principal server core id"),
-        discovery_state: DirectoryDiscoveryState::from_json(JsonValue::Object(first_state)),
-        source_refs: vec!["evt-1".to_owned()],
-        as_of,
-        policy_revision: "rev-1".to_owned(),
-        ttl_seconds: Some(3600),
-        supersedes_announce_id: None,
-    };
-    let second = DirectoryAnnounceIngest {
-        discovery_state: DirectoryDiscoveryState::from_json(JsonValue::Object(second_state)),
-        ..first.clone()
-    };
-
-    assert_eq!(
-        digest_request(&first).unwrap(),
-        digest_request(&second).unwrap()
-    );
-}
-
-#[test]
-fn digest_request_rejects_non_canonical_float_values() {
-    let as_of: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
-    let request = DirectoryAnnounceIngest {
-        resource_kind: DirectoryResourceKindDb::Realm,
-        resource_id: "ak:realm:tea".to_owned(),
-        principal_server_service_id: DidCoreId::new("ak:did_core:web:principal.test")
-            .expect("fixture principal server core id"),
-        discovery_state: DirectoryDiscoveryState::from_json(json!({
-            "kind": "ak.realm.discovery",
-            "discoverability": "public",
-            "directory_services": ["ak:did_core:web:directory.test"],
-            "non_canonical": 1.5
-        })),
-        source_refs: vec!["evt-1".to_owned()],
-        as_of,
-        policy_revision: "rev-1".to_owned(),
-        ttl_seconds: Some(3600),
-        supersedes_announce_id: None,
-    };
-
-    assert!(digest_request(&request).is_err());
 }
