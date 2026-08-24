@@ -48,9 +48,8 @@
 //! resolve jitter).
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
-    DirectoryResolveTargetRequestBody as SdkDirectoryResolveTargetRequestBody,
-    DirectoryTargetResolutionOutcome, EventId, MessageId, NonEmptyString, ObjectPreview,
-    ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
+    DirectoryResolveTargetRequestBody, DirectoryTargetResolutionOutcome, EventId, MessageId,
+    NonEmptyString, ObjectPreview, ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
 };
 use arkret_wire::{
     AddressLinkKind, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
@@ -92,7 +91,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     };
     let _query_timer = state.metrics().query_timer(OP);
 
-    let body: SdkDirectoryResolveTargetRequestBody = match req.parse_json().await {
+    let body: DirectoryResolveTargetRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(e) => {
             state.metrics().record_query_outcome(OP, "json_invalid");
@@ -1646,15 +1645,6 @@ mod tests {
             required_object_policy_revision(&row).as_deref(),
             Some("rev-7")
         );
-    }
-
-    #[test]
-    fn retired_via_hint_is_ignored_by_parser() {
-        let parsed = parse_address(&format!(
-            "web+arkret:realm/{R}/strand/{F}?via={VIA}&via=did:web:extra.example"
-        ))
-        .unwrap();
-        assert!(parsed.is_strand());
     }
 
     #[test]

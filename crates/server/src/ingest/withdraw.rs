@@ -7,9 +7,7 @@
 //!   * write a `Withdrawal` audit row
 //!   * subsequent resolves return blinded `not_found` (§8.7 last paragraph).
 
-use arkret_sdk::{
-    DirectoryWithdrawOutcome as SdkDirectoryWithdrawOutcome, DirectoryWithdrawRequestBody,
-};
+use arkret_sdk::{DirectoryWithdrawOutcome, DirectoryWithdrawRequestBody};
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
@@ -144,7 +142,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     .await;
 
     ingest_metric.set_outcome("verify_ok");
-    res.render(Json(SdkDirectoryWithdrawOutcome {
+    res.render(Json(DirectoryWithdrawOutcome {
         withdrawal_ref: withdraw_id,
         acked_at,
     }));

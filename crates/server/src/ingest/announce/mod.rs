@@ -11,7 +11,7 @@ mod projection;
 #[cfg(test)]
 mod tests;
 
-use arkret_sdk::DirectoryAnnounceOutcome as SdkDirectoryAnnounceOutcome;
+use arkret_sdk::DirectoryAnnounceOutcome;
 use chrono::{DateTime, Utc};
 use federation::verify_federation_trust_domain_headers;
 pub(crate) use federation::{FederationCacheKeyInputs, FederationCachePersist};
@@ -45,8 +45,8 @@ fn announce_outcome(
     effective_ttl_seconds: i64,
     next_revalidation_after: DateTime<Utc>,
     warnings: Vec<String>,
-) -> SdkDirectoryAnnounceOutcome {
-    SdkDirectoryAnnounceOutcome {
+) -> DirectoryAnnounceOutcome {
+    DirectoryAnnounceOutcome {
         announce_id,
         indexed_at,
         effective_ttl_seconds: effective_ttl_seconds.max(0) as u64,

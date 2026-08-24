@@ -15,8 +15,7 @@
 //! same blinded `not_found` inside the latency budget.
 
 use arkret_sdk::{
-    DidCoreId, DirectoryHandleResolutionOutcome,
-    DirectoryResolveHandleRequestBody as SdkDirectoryResolveHandleRequestBody, Handle as SdkHandle,
+    DidCoreId, DirectoryHandleResolutionOutcome, DirectoryResolveHandleRequestBody, Handle,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -38,7 +37,7 @@ use crate::query::rate_limit::{apply_resolve_response_jitter, enforce_resolve_ra
 use crate::state::AppState;
 
 #[derive(Debug, Clone)]
-pub struct ResolveHandleRequestView {
+struct ResolveHandleRequestView {
     pub handle: String,
     pub expected_principal_id: Option<String>,
     pub proof_challenge: Option<String>,
@@ -61,8 +60,8 @@ pub struct ResolveHandleRequestView {
     pub realm_id: Option<String>,
 }
 
-impl From<SdkDirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
-    fn from(body: SdkDirectoryResolveHandleRequestBody) -> Self {
+impl From<DirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
+    fn from(body: DirectoryResolveHandleRequestBody) -> Self {
         Self {
             handle: body.handle,
             expected_principal_id: body
@@ -163,7 +162,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         ApiErrorCode::ParamMissing.render(res, "domain query parameter or Host header is required");
         return;
     }
-    let handle = match SdkHandle::prepare(&format!("{localpart}:{domain}")) {
+    let handle = match Handle::prepare(&format!("{localpart}:{domain}")) {
         Ok(handle) => handle.canonical().to_owned(),
         Err(error) => {
             ApiErrorCode::ParamInvalid.render(res, format!("invalid handle domain: {error}"));
@@ -232,7 +231,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         }
     };
     let _query_timer = state.metrics().query_timer("resolve-handle");
-    let sdk_body: SdkDirectoryResolveHandleRequestBody = match req.parse_json().await {
+    let sdk_body: DirectoryResolveHandleRequestBody = match req.parse_json().await {
         Ok(body) => body,
         Err(error) => {
             ApiErrorCode::JsonInvalid.render(res, format!("malformed body: {error}"));
@@ -254,7 +253,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         ApiErrorCode::ParamMissing.render(res, "handle is required");
         return;
     }
-    if let Err(error) = SdkHandle::parse(&body.handle) {
+    if let Err(error) = Handle::parse(&body.handle) {
         ApiErrorCode::ParamInvalid.render(res, format!("handle is not canonical: {error}"));
         return;
     }
@@ -287,8 +286,9 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     ip_hasher.update(requester_ip.as_bytes());
     let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
     let privacy_key = format!(
-        "handle={};intent={};realm={};req={};aud={};claims={};proofs={};iph={}",
+        "handle={};expected={};intent={};realm={};req={};aud={};claims={};proofs={};iph={}",
         body.handle,
+        body.expected_principal_id.as_deref().unwrap_or_default(),
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id.as_deref().unwrap_or_default(),
         body.requester.as_deref().unwrap_or_default(),
@@ -568,6 +568,16 @@ fn evaluate_handle_disclosure(
     verified_claims: &VerifiedRestrictedClaims,
     policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
+    if body
+        .expected_principal_id
+        .as_deref()
+        .is_some_and(|expected| {
+            row.public_projection.get("did").and_then(JsonValue::as_str) != Some(expected)
+        })
+    {
+        return ResolveOutcome::NotFound;
+    }
+
     let audience = body
         .audience
         .clone()
@@ -980,6 +990,20 @@ mod tests {
             &VerifiedRestrictedClaims::default(),
             Some(&policy),
         );
+        assert!(matches!(outcome, ResolveOutcome::NotFound));
+    }
+
+    #[test]
+    fn expected_principal_id_must_match_resolved_principal() {
+        let row = dummy_row(json!({
+            "did": "did:web:alice.example",
+            "verified": true,
+        }));
+        let mut body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        body.expected_principal_id = Some("did:web:bob.example".to_owned());
+
+        let outcome =
+            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None);
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
