@@ -21,13 +21,9 @@ pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Result<Vec<u8>, S
     let mut h = Sha256::new();
     let value = serde_json::to_value(req)
         .expect("DirectoryAnnounceIngest is serde-serializable by construction");
-    let canonical = canonical_json_bytes(&value)?;
+    let canonical = canonical::canonical_json_bytes(&value).map_err(|err| err.to_string())?;
     h.update(&canonical);
     Ok(h.finalize().to_vec())
-}
-
-fn canonical_json_bytes(value: &JsonValue) -> Result<Vec<u8>, String> {
-    canonical::canonical_json_bytes(value).map_err(|err| err.to_string())
 }
 
 #[derive(Queryable)]

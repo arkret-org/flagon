@@ -22,6 +22,7 @@ use teabay_contracts::{AuditChainVerificationFailure, AuditChainVerificationOutc
 use crate::db::Db;
 use crate::ingest::DirectoryResourceKindDb;
 use crate::schema::directory_audit;
+use crate::util::lower_hex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel::AsExpression, diesel::FromSqlRow)]
 #[diesel(sql_type = crate::schema::sql_types::AuditEventKind)]
@@ -395,14 +396,4 @@ fn chain_failure(
             actual: actual.map(lower_hex),
         }),
     }
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
 }

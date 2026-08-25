@@ -4,12 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arkret_sdk::{DirectoryPushRegisterOutcome, DirectoryPushRegisterRequestBody};
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -25,7 +22,6 @@ use crate::ingest::rate_limit::enforce_ingest_rate_limit;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb, IngestModeWire};
 use crate::state::AppState;
 
-type HmacSha256 = Hmac<Sha256>;
 const WEBHOOK_DELIVERY_TIMEOUT: Duration = Duration::from_secs(10);
 const WEBHOOK_FANOUT_CONCURRENCY: usize = 32;
 
@@ -360,8 +356,7 @@ fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
     // — that fallback masked client misconfiguration and made the same string
     // produce different HMAC keys depending on whether it happened to be valid
     // base64url.
-    let bytes = URL_SAFE_NO_PAD
-        .decode(raw)
+    let bytes = arkret_sdk::canonical::base64url_decode(raw)
         .map_err(|_| "secret must be base64url (unpadded) encoded".to_owned())?;
     if bytes.len() < 16 {
         return Err("secret must decode to at least 16 bytes".to_owned());
@@ -508,7 +503,5 @@ async fn deliver_webhook(
 }
 
 fn sign_body(secret: &[u8], body: &[u8]) -> anyhow::Result<String> {
-    let mut mac = HmacSha256::new_from_slice(secret)?;
-    mac.update(body);
-    Ok(URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()))
+    crate::util::webhook_hmac_signature(secret, body)
 }

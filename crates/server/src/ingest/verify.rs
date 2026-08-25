@@ -1273,6 +1273,11 @@ async fn previously_withdrawn(
 
 #[cfg(test)]
 mod tests {
+    use arkret_sdk::{DidUrl, DirectoryGovernanceProofPurpose, Hash};
+    use arkret_signatures::jws::sign_jws_ed25519;
+    use arkret_wire::ServiceOperationId;
+    use chrono::Duration;
+    use ed25519_dalek::SigningKey;
     use serde_json::json;
 
     use super::*;
@@ -1371,17 +1376,6 @@ mod tests {
             .is_ok()
         );
     }
-}
-
-#[cfg(test)]
-mod governance_proof_tests {
-    use arkret_sdk::{DidUrl, DirectoryGovernanceProofPurpose, Hash};
-    use arkret_signatures::jws::sign_jws_ed25519;
-    use arkret_wire::ServiceOperationId;
-    use chrono::Duration;
-    use ed25519_dalek::SigningKey;
-
-    use super::*;
 
     const SIGNING_SEED: [u8; 32] = [51u8; 32];
     const DIRECTORY_SERVICE_ID: &str = "ak:did_core:web:directory.test";

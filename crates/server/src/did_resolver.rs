@@ -179,20 +179,8 @@ impl SharedDidResolver {
         self.bindings.accepted_did_methods()
     }
 
-    /// The startup egress decision. Exposed for assertions/tests only; request
-    /// paths must not recompute it.
-    pub fn allow_private_networks(&self) -> bool {
-        self.allow_private_networks
-    }
-
     pub fn method_allowed(&self, expected: &str) -> bool {
         self.bindings.method_allowed(expected)
-    }
-
-    /// Whether the chain can serve this DID at all (method allowlist + adapter
-    /// support). Read-only; hands out no resolver.
-    pub fn supports(&self, did: &DidFullId) -> bool {
-        self.chain.supports(did)
     }
 
     /// Verify a detached Ed25519 JWS on an **authority** path (spec §4).
@@ -669,7 +657,7 @@ mod tests {
         }
     }
 
-    /// The startup egress snapshot is captured inside the handle, so no
+    /// The startup allowlist snapshot is captured inside the handle, so no
     /// request path can pass a different one.
     ///
     /// `#[tokio::test]`, not `#[test]`: the SDK's `HttpDidResolver` captures a
@@ -677,9 +665,8 @@ mod tests {
     /// startup-time coupling we want — `AppState::new` runs inside the server
     /// runtime, so the resolver is bound to it once and for all.
     #[tokio::test]
-    async fn shared_resolver_freezes_the_startup_egress_decision() {
+    async fn shared_resolver_freezes_the_startup_allowlist() {
         let strict = SharedDidResolver::new(&["did:web".to_owned()], false).expect("builds");
-        assert!(!strict.allow_private_networks());
         assert_eq!(strict.accepted_did_methods(), &["did:web".to_owned()]);
         assert!(strict.method_allowed("did:web"));
         assert!(!strict.method_allowed("did:key"));

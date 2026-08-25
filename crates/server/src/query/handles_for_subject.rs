@@ -60,15 +60,12 @@ use arkret_sdk::{
     validate_handle_claim_subject,
 };
 use arkret_server::CursorBindingContext;
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{BigInt, Jsonb, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde_json::Value as JsonValue;
-use sha2::{Digest, Sha256};
 use teabay_contracts::DirectoryDiscoveryState;
 
 use crate::error::ApiErrorCode;
@@ -196,9 +193,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     // leaking the result back to the caller. The requester IP is hashed in
     // so the same subject probed from two hosts cannot be cross-correlated.
     let requester_ip = req.remote_addr().to_string();
-    let mut ip_hasher = Sha256::new();
-    ip_hasher.update(requester_ip.as_bytes());
-    let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
+    let requester_ip_hash = super::requester_ip_hash(&requester_ip);
     let privacy_key = format!(
         "subject={};intent={};realm={};req={};cursor={};limit={limit};iph={requester_ip_hash}",
         body.subject.as_str(),

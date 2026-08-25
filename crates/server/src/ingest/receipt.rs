@@ -264,7 +264,11 @@ fn sign_receipt_statement(
         "kid": signing_key.key_id(),
         "typ": RECEIPT_VERSION,
     }))?);
-    let canonical = canonical_json_bytes(statement)?;
+    // Arkret canonical JSON bytes via the SDK's `arkret_sdk::canonical`
+    // implementation (UTF-16 key ordering, integer-only number profile), so
+    // the receipt JWS signing input hashes byte-identical canonical bytes to
+    // the rest of the federation.
+    let canonical = canonical::canonical_json_bytes(statement)?;
     let signing_input = format!("{protected}.{}", URL_SAFE_NO_PAD.encode(canonical));
     let signature = signing_key
         .signing_key()
@@ -277,17 +281,6 @@ fn sign_receipt_statement(
         "public_key_base64url": signing_key.public_key_base64url(),
         "jws": format!("{protected}..{}", URL_SAFE_NO_PAD.encode(signature)),
     }))
-}
-
-/// Arkret canonical JSON bytes via the SDK's `arkret_sdk::canonical`
-/// implementation (UTF-16 key ordering, integer-only number profile).
-///
-/// Replaces a hand-written serializer that sorted object keys by byte
-/// order — divergent from the SDK and every other Arkret service. The
-/// receipt JWS signing input therefore now hashes byte-identical canonical
-/// bytes to the rest of the federation.
-fn canonical_json_bytes(value: &JsonValue) -> anyhow::Result<Vec<u8>> {
-    Ok(canonical::canonical_json_bytes(value)?)
 }
 
 #[cfg(test)]
@@ -312,7 +305,7 @@ mod tests {
         let (protected, signature) = jws
             .split_once("..")
             .expect("detached JWS compact serialization");
-        let canonical = canonical_json_bytes(&statement).expect("canonical statement");
+        let canonical = canonical::canonical_json_bytes(&statement).expect("canonical statement");
         let signing_input = format!("{protected}.{}", URL_SAFE_NO_PAD.encode(canonical));
         let signing_input_bytes = signing_input.into_bytes();
         let signature_bytes: [u8; 64] = URL_SAFE_NO_PAD

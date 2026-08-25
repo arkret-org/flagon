@@ -25,6 +25,7 @@ pub mod query;
 pub mod routing;
 pub mod schema;
 pub mod state;
+mod util;
 pub mod workers;
 
 pub use config::AppConfig;

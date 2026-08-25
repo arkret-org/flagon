@@ -17,14 +17,11 @@
 use arkret_sdk::{
     DidCoreId, DirectoryHandleResolutionOutcome, DirectoryResolveHandleRequestBody, Handle,
 };
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
-use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 use crate::filter::discoverers::{
@@ -190,9 +187,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_jitter,
     );
     let requester_ip = req.remote_addr().to_string();
-    let mut ip_hasher = Sha256::new();
-    ip_hasher.update(requester_ip.as_bytes());
-    let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
+    let requester_ip_hash = super::requester_ip_hash(&requester_ip);
     let privacy_key = format!("handle_probe={handle};iph={requester_ip_hash}");
 
     let outcome = pad_to_budget_observed(
@@ -282,9 +277,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     // latency tiers (an attacker can no longer share probes across
     // hosts to disambiguate a slow miss from a slow hit).
     let requester_ip = req.remote_addr().to_string();
-    let mut ip_hasher = Sha256::new();
-    ip_hasher.update(requester_ip.as_bytes());
-    let requester_ip_hash = URL_SAFE_NO_PAD.encode(ip_hasher.finalize());
+    let requester_ip_hash = super::requester_ip_hash(&requester_ip);
     let privacy_key = format!(
         "handle={};expected={};intent={};realm={};req={};aud={};claims={};proofs={};iph={}",
         body.handle,

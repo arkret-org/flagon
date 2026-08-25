@@ -25,11 +25,9 @@ use std::time::Duration;
 use chrono::Utc;
 use diesel::sql_types::{Int4, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
-use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use reqwest::redirect::Policy;
 use serde_json::json;
-use sha2::Sha256;
 use tokio::time::interval;
 use tracing::{info, warn};
 
@@ -37,8 +35,6 @@ use crate::observability::{
     TAKEDOWN_NOTIFICATION_STAGE_ATTEMPT_FAILED, TAKEDOWN_NOTIFICATION_STAGE_DLQ,
 };
 use crate::state::AppState;
-
-type HmacSha256 = Hmac<Sha256>;
 
 /// Minimum number of attempts before a row is DLQed. Matches the
 /// 1m / 5m / 15m backoff schedule.
@@ -253,11 +249,10 @@ impl TakedownNotifier {
         });
         let body_bytes = serde_json::to_vec(&body).map_err(DispatchError::retryable)?;
         let signature = if let Some(secret) = webhook.secret.as_deref() {
-            let mut mac = HmacSha256::new_from_slice(secret)
-                .map_err(|e| DispatchError::retryable(format!("invalid HMAC secret: {e}")))?;
-            mac.update(&body_bytes);
-            let tag = mac.finalize().into_bytes();
-            Some(hex_encode(&tag))
+            Some(
+                crate::util::webhook_hmac_signature(secret, &body_bytes)
+                    .map_err(DispatchError::retryable)?,
+            )
         } else {
             None
         };
@@ -276,11 +271,11 @@ impl TakedownNotifier {
         let mut req = http
             .post(target.url().clone())
             .header("content-type", "application/json")
-            .header("x-teabay-event", "pending-takedown")
-            .header("x-teabay-webhook-id", &webhook.webhook_id)
+            .header("x-arkret-webhook-event", "pending_takedown")
+            .header("x-arkret-webhook-id", &webhook.webhook_id)
             .body(body_bytes);
         if let Some(sig) = signature {
-            req = req.header("x-teabay-signature", format!("sha256={sig}"));
+            req = req.header("x-arkret-webhook-signature", sig);
         }
         let resp = req.send().await.map_err(DispatchError::retryable)?;
         let status = resp.status();
@@ -342,12 +337,4 @@ impl TakedownNotifier {
         .await?;
         Ok(())
     }
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
 }

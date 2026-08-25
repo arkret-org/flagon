@@ -10,10 +10,5 @@
 pub mod admin_auth;
 pub mod http_sig;
 
-pub use admin_auth::{
-    AdminAuthHoop, AdminAuthMethod, AdminCredential, require_admin_csrf, verify_admin_credential,
-};
-pub use http_sig::{
-    AuthenticatedHttpSignature, DidResolverKeyDirectory, HttpSigKeyDirectory, HttpSigMiddleware,
-    StaticKeyDirectory, VerifyingKey,
-};
+pub use admin_auth::{AdminAuthHoop, require_admin_csrf, verify_admin_credential};
+pub use http_sig::AuthenticatedHttpSignature;

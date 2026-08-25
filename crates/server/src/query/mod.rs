@@ -1,8 +1,20 @@
 //! Authorized search / resolve handlers — spec §9.
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use salvo::prelude::Response;
+use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
+
+/// SHA-256 of the requester IP, base64url-encoded. Mixed into the latency
+/// privacy keys so identical probes from different IPs land on independent
+/// latency tiers and cannot be cross-correlated.
+pub(crate) fn requester_ip_hash(requester_ip: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(requester_ip.as_bytes());
+    URL_SAFE_NO_PAD.encode(hasher.finalize())
+}
 
 pub(crate) fn render_cursor_error(
     response: &mut Response,
