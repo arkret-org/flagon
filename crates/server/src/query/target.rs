@@ -469,32 +469,6 @@ fn preview_policy_has_required_shape(value: &JsonValue) -> bool {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn verify_preview_token_with_methods(
-    parsed: &ParsedAddress,
-    token: Option<&str>,
-    canonical_realm_id: &str,
-    preview_policy: &JsonValue,
-    current_policy_digest: &str,
-    requester: Option<&str>,
-    now: DateTime<Utc>,
-    bindings: &DidBindingDirectory,
-) -> TokenCheck {
-    match verify_preview_token_details_with_methods(
-        parsed,
-        token,
-        canonical_realm_id,
-        preview_policy,
-        current_policy_digest,
-        requester,
-        now,
-        bindings,
-    ) {
-        Ok(_) => TokenCheck::Pass,
-        Err(reject) => reject,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 pub fn verify_preview_token_details_with_methods(
     parsed: &ParsedAddress,
     token: Option<&str>,
@@ -717,25 +691,6 @@ fn expected_preview_target_digest(
 /// `canonical_realm_id` is the `ak:realm:<44-char-token>` the realm resolution produced
 /// (NOT the raw alias) — this is what closes the alias-vs-token realm_id
 /// mismatch hole.
-pub fn verify_address_token_with_methods(
-    parsed: &ParsedAddress,
-    token: Option<&str>,
-    canonical_realm_id: &str,
-    effective_address_link_kind: AddressLinkKind,
-    bindings: &DidBindingDirectory,
-) -> TokenCheck {
-    match verify_address_token_details_with_methods(
-        parsed,
-        token,
-        canonical_realm_id,
-        effective_address_link_kind,
-        bindings,
-    ) {
-        Ok(_) => TokenCheck::Pass,
-        Err(reject) => reject,
-    }
-}
-
 pub fn verify_address_token_details_with_methods(
     parsed: &ParsedAddress,
     token: Option<&str>,
@@ -1353,13 +1308,16 @@ mod tests {
             crate::observability::Metrics::default(),
         )
         .expect("binding directory builds");
-        verify_address_token_with_methods(
+        match verify_address_token_details_with_methods(
             parsed,
             token,
             canonical_realm_id,
             effective_address_link_kind,
             &bindings,
-        )
+        ) {
+            Ok(_) => TokenCheck::Pass,
+            Err(reject) => reject,
+        }
     }
 
     #[tokio::test]

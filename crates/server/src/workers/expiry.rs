@@ -46,12 +46,6 @@ impl ExpiryWorker {
         }
     }
 
-    /// Override the grace window — primarily for tests.
-    pub fn with_grace(mut self, grace: Duration) -> Self {
-        self.grace = grace;
-        self
-    }
-
     pub fn spawn(self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             info!(

@@ -4,7 +4,7 @@
 //! These exercise the directory's object-address resolution semantics against
 //! the pure, Postgres-free cores: the SDK address parser
 //! (`arkret_wire::parse_address`) and the token-binding check
-//! (`server::query::target::verify_address_token_with_methods`). The full HTTP-path smoke
+//! (`server::query::target::verify_address_token_details_with_methods`). The full HTTP-path smoke
 //! that asserts a realm address resolves byte-for-byte to what
 //! `resolve_realm` returns lives in the Docker-gated
 //! `tests/it/conformance.rs` harness (seeded rows + live router).
@@ -28,7 +28,8 @@ use ed25519_dalek::SigningKey;
 use serde_json::{Value as JsonValue, json};
 use server::did_binding::DidBindingDirectory;
 use server::query::target::{
-    TokenCheck, verify_address_token_with_methods, verify_preview_token_with_methods,
+    TokenCheck, verify_address_token_details_with_methods,
+    verify_preview_token_details_with_methods,
 };
 
 /// Stand-in for the process-wide `AppState` binding directory — the handle the
@@ -54,13 +55,16 @@ fn verify_address_token(
     canonical_realm_id: &str,
     effective_address_link_kind: AddressLinkKind,
 ) -> TokenCheck {
-    verify_address_token_with_methods(
+    match verify_address_token_details_with_methods(
         parsed,
         token,
         canonical_realm_id,
         effective_address_link_kind,
         &test_bindings(),
-    )
+    ) {
+        Ok(_) => TokenCheck::Pass,
+        Err(reject) => reject,
+    }
 }
 const VIA: &str = "did:web:relay.example";
 const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
@@ -164,7 +168,7 @@ fn verify_preview_token(
     requester: Option<&str>,
     now: chrono::DateTime<Utc>,
 ) -> TokenCheck {
-    verify_preview_token_with_methods(
+    match verify_preview_token_details_with_methods(
         parsed,
         token,
         canonical_realm_id,
@@ -173,7 +177,10 @@ fn verify_preview_token(
         requester,
         now,
         &test_bindings(),
-    )
+    ) {
+        Ok(_) => TokenCheck::Pass,
+        Err(reject) => reject,
+    }
 }
 
 /// Case (a) — a realm address parses and classifies as a Realm target, so the

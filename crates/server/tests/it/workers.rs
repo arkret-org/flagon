@@ -76,7 +76,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
     {
         let mut conn = state.db().get().await?;
         // Insert a row whose expires_at is 48h in the past, far past
-        // the 1-second grace we configure below.
+        // the default 24-hour grace window.
         diesel::sql_query(
             "INSERT INTO directory_resources (\
                  resource_kind, resource_id, principal_server_service_id, discovery_state, \
@@ -93,8 +93,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
         .await?;
     }
 
-    let worker = server::workers::expiry::ExpiryWorker::new(state.clone(), Duration::from_secs(60))
-        .with_grace(Duration::from_secs(1));
+    let worker = server::workers::expiry::ExpiryWorker::new(state.clone(), Duration::from_secs(60));
     let purged = worker.run_once().await?;
     assert!(
         purged >= 1,
