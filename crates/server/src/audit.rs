@@ -176,7 +176,9 @@ pub async fn record_with_identity(
             .optional()?
             .flatten();
 
-        let occurred_at = Utc::now();
+        let now = Utc::now();
+        let occurred_at = DateTime::<Utc>::from_timestamp_micros(now.timestamp_micros())
+            .ok_or_else(|| anyhow::anyhow!("current audit timestamp is out of range"))?;
         let row_digest = compute_row_digest(
             occurred_at,
             kind,

@@ -296,16 +296,21 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
 
     // Idempotency on (resource_id, as_of) per §8.6.
-    if let Some(existing) = find_announce_by_natural_key(
+    let existing = match find_announce_by_natural_key(
         state.db(),
         body.resource_kind,
         &body.resource_id,
         body.as_of,
     )
     .await
-    .ok()
-    .flatten()
     {
+        Ok(existing) => existing,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("announce replay check: {error}"));
+            return;
+        }
+    };
+    if let Some(existing) = existing {
         let effective_ttl_seconds = existing.effective_ttl_seconds as i64;
         let next_revalidation_after =
             existing.indexed_at + chrono::Duration::seconds(effective_ttl_seconds);
@@ -332,12 +337,15 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
 
     // Reject as_of older than the current row and policy_revision values that
     // already appeared before the current row (§8.10 rollback).
-    if let Some(latest) =
-        latest_policy_revision_for(state.db(), body.resource_kind, &body.resource_id)
-            .await
-            .ok()
-            .flatten()
-    {
+    let latest =
+        match latest_policy_revision_for(state.db(), body.resource_kind, &body.resource_id).await {
+            Ok(latest) => latest,
+            Err(error) => {
+                ApiErrorCode::InternalError.render(res, format!("policy rollback lookup: {error}"));
+                return;
+            }
+        };
+    if let Some(latest) = latest {
         if body.as_of < latest.as_of {
             ingest_metric.set_outcome("rollback_rejected");
             ApiErrorCode::PolicyRevisionRollback.render(

@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use diesel::prelude::*;
-use diesel_async::RunQueryDsl;
+use diesel_async::{AsyncConnection, RunQueryDsl};
 use tokio::time::interval;
 use tracing::{info, warn};
 
@@ -70,23 +70,29 @@ impl FreshnessWorker {
         // SELECT-then-UPDATE would race a concurrent `announce` that refreshes
         // a row in between (pushing `expires_at` out and clearing `stale`),
         // leaving us to delete the tokens of a row that was *not* flipped.
-        let stale_resources: Vec<(crate::ingest::DirectoryResourceKindDb, String)> =
-            diesel::update(r::directory_resources)
-                .filter(r::stale.eq(false))
-                .filter(r::expires_at.lt(stale_cutoff))
-                .set(r::stale.eq(true))
-                .returning((r::resource_kind, r::resource_id))
-                .get_results(&mut *conn)
-                .await?;
-        let flipped = stale_resources.len();
-        for (resource_kind, resource_id) in stale_resources {
-            crate::psi_index::delete_resource_tokens_on_conn(
-                &mut conn,
-                resource_kind,
-                &resource_id,
+        let stale_resources = conn
+            .transaction::<Vec<(crate::ingest::DirectoryResourceKindDb, String)>, anyhow::Error, _>(
+                async move |conn| {
+                    let rows = diesel::update(r::directory_resources)
+                        .filter(r::stale.eq(false))
+                        .filter(r::expires_at.lt(stale_cutoff))
+                        .set(r::stale.eq(true))
+                        .returning((r::resource_kind, r::resource_id))
+                        .get_results::<(crate::ingest::DirectoryResourceKindDb, String)>(&mut *conn)
+                        .await?;
+                    for (resource_kind, resource_id) in &rows {
+                        crate::psi_index::delete_resource_tokens_on_conn(
+                            &mut *conn,
+                            *resource_kind,
+                            resource_id,
+                        )
+                        .await?;
+                    }
+                    Ok(rows)
+                },
             )
             .await?;
-        }
+        let flipped = stale_resources.len();
         if flipped > 0 {
             info!(
                 flipped,
