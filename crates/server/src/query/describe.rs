@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use arkret_sdk::{
     AuthMetadata, BindingKind, ClaimedProfileEntry, DidCoreId, DirectoryAcceptPolicyKind,
     DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry,
-    PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, SupportedBinding,
-    TrustDomainId, VerifiedProfileEntry,
+    OperationBinding, PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe,
+    SupportedBinding, TrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
@@ -29,19 +29,14 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
     let state = match depot.get_typed::<AppState>() {
         Ok(s) => s.clone(),
         Err(_) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Json(json!({ "ok": false, "error": "AppState missing" })));
+            crate::error::ApiErrorCode::InternalError.render(res, "AppState missing");
             return;
         }
     };
     match build_describe_response_value(state.config()) {
         Ok(value) => res.render(Json(value)),
         Err(message) => {
-            res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
-            res.render(Json(json!({
-                "ok": false,
-                "error": { "code": "internal_error", "message": message },
-            })));
+            crate::error::ApiErrorCode::InternalError.render(res, message);
         }
     }
 }
@@ -80,6 +75,14 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
                 .to_owned(),
         );
     }
+    let operation_bindings = supported_operations
+        .iter()
+        .map(|operation| {
+            let operation_id = arkret_wire::ServiceOperationId::from_wire(operation)
+                .ok_or_else(|| format!("unknown operation id: {operation}"))?;
+            OperationBinding::current_http_json(operation_id).map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
 
     // Transport / encoding bindings this service speaks. Strongly typed
     // (`SupportedBinding`); the transport-specific keys ride in `extra`.
@@ -299,7 +302,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         profile_bindings: BTreeMap::new(),
-        supported_operations,
+        operation_bindings,
         supported_bindings,
         supported_features,
         calendar_tzdb_versions: Vec::new(),
@@ -312,7 +315,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         verified_profiles,
         experimental_features,
         interop_surfaces,
-        extensions: BTreeMap::new(),
+        extensions: Default::default(),
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
         receive_policy_constraints: None,
@@ -583,7 +586,7 @@ mod tests {
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             profile_bindings: BTreeMap::new(),
-            supported_operations: Vec::new(),
+            operation_bindings: Vec::new(),
             supported_bindings: Vec::new(),
             supported_features: Vec::new(),
             calendar_tzdb_versions: Vec::new(),

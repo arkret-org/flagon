@@ -8,6 +8,28 @@
 use salvo::http::StatusCode;
 use salvo::prelude::*;
 
+pub(crate) fn render_problem(
+    res: &mut Response,
+    status: StatusCode,
+    envelope: arkret_sdk::ErrorEnvelope,
+) {
+    let problem = arkret_sdk::Problem::from_error_envelope(&envelope, status.as_u16());
+    let mut output = salvo::http::Problem::new(status)
+        .kind(problem.problem_type)
+        .title(problem.title)
+        .detail(problem.detail)
+        .with_extensions(
+            problem
+                .extensions
+                .into_iter()
+                .collect::<serde_json::Map<_, _>>(),
+        );
+    if let Some(instance) = problem.instance {
+        output = output.instance(instance);
+    }
+    res.render(output);
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ApiErrorCode {
     code: &'static str,
@@ -164,10 +186,11 @@ impl ApiErrorCode {
 
     /// Render the canonical Arkret error envelope and set its HTTP status.
     pub fn render(self, res: &mut Response, message: impl Into<String>) {
-        res.status_code(self.http_status());
-        res.render(Json(
+        render_problem(
+            res,
+            self.http_status(),
             arkret_sdk::ErrorEnvelope::new(self.wire_code(), message)
                 .with_request_id(arkret_sdk::new_prefixed_uuid7("ak:request:")),
-        ));
+        );
     }
 }

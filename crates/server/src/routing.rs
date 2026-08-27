@@ -11,7 +11,7 @@ use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiRe
 use salvo::prelude::*;
 use serde_json::json;
 
-use crate::error::ApiErrorCode;
+use crate::error::{ApiErrorCode, render_problem};
 use crate::middleware::http_sig::{HttpSigKeyDirectory, HttpSigMiddleware};
 use crate::state::AppState;
 use crate::{ingest, query};
@@ -98,7 +98,9 @@ fn build_required_http_sig_middleware(
 }
 
 pub fn service(state: AppState) -> Service {
-    Service::new(router(state))
+    Service::new(router(state)).catcher(salvo::catcher::Catcher::new(
+        salvo::catcher::ProblemGoal::new(),
+    ))
 }
 
 pub fn metrics_router(state: AppState) -> Router {
@@ -463,14 +465,15 @@ async fn cors_preflight(res: &mut Response) {
 
 #[handler]
 async fn api_not_found(res: &mut Response) {
-    res.status_code(StatusCode::NOT_FOUND);
-    res.render(Json(
+    render_problem(
+        res,
+        StatusCode::NOT_FOUND,
         arkret_sdk::ErrorEnvelope::new(
             arkret_sdk::ErrorCode::UNRECOGNIZED_ENDPOINT,
             "no such directory route",
         )
         .with_request_id(arkret_sdk::new_prefixed_uuid7("ak:request:")),
-    ));
+    );
 }
 
 fn cors_handler_for_origin(origin: String) -> CorsHandler {
