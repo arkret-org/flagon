@@ -544,7 +544,7 @@ mod tests {
                 .expect("binding object");
         assert_eq!(
             transcript["operation_id"],
-            "ak.find.directory.command.takedown_appeal"
+            "ak.find.directory.command.takedown_appeal.v1"
         );
         assert_eq!(
             transcript["context"],

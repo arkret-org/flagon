@@ -43,7 +43,7 @@ not independently announced to teabay.
 
 ## Federation idempotency cache key
 
-The idempotency cache key on `ak.find.directory.command.announce`
+The idempotency cache key on `ak.find.directory.command.announce.v1`
 includes `Source-Service-ID` / `verification_method` /
 `service_binding_ref` / `origin_key_state_digest`. The initial schema
 migration carries those columns on `ingest_announces`, plus
@@ -65,18 +65,15 @@ defined by the Arkret v1 spec — concretely:
   equalization)
 - **§12** Conformance test matrix (query face + ingest face)
 
-Section 6 (Private Contact Discovery) is implemented with RFC 9497 VOPRF
-blind / match strands. Parent Space semantics are represented through scope
-filters and membership hints where the Directory profile needs them.
-
 `ak.directory.describe.limitations` is populated at runtime for conformance
 honesty. Current limitations are: pull-mode ingest remains unsupported until
 the v1 Directory-specific state-only pull operation and DTO are normative;
+Private Contact Discovery is not advertised until its current-v1 exact-batch,
+single batched DLEQ, fixed-bucket and delay contract is implemented;
 operator takedown webhook fanout is
 HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
-from `ak.find.directory.push.command.register` is HMAC-signed best-effort delivery without a
-durable retry queue. PSI responses use a fixed 256-entry padded shape and never
-expose index cardinality.
+from `ak.find.directory.push.command.register.v1` is HMAC-signed best-effort delivery without a
+durable retry queue.
 
 ## Tech stack
 
@@ -181,9 +178,9 @@ scripts/local-artifacts.sh
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
-behavior, `ak.find.directory.push.command.register`, signed push announce against a mock
-Principal Server, freshness flags, PSI blind / match,
-and takedown audit through the admin operator surface.
+behavior, `ak.find.directory.push.command.register.v1`, signed push announce against a mock
+Principal Server, freshness flags, and takedown audit through the admin operator
+surface.
 
 ## Architecture
 

@@ -26,7 +26,6 @@ line unless a release owner declares a supported release branch.
 - Accept policy and allowlist enforcement.
 - Admin bearer authentication for `/_teabay/admin/*`.
 - Anti-enumeration filtering and timing equalization.
-- Private Contact Discovery rate limits and epoch key retention.
 - Pull-mode revalidation and stale-row deletion.
 - Audit log integrity for ingest, takedown, and admin resource edits.
 - **Circle isolation (AKP-0007).** See "Hard Invariants" below.

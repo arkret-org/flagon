@@ -101,6 +101,16 @@ impl ApiErrorCode {
         StatusCode::NOT_IMPLEMENTED,
     );
     #[allow(non_upper_case_globals)]
+    pub const OperationSelectorRequired: Self = Self::new(
+        arkret_sdk::ErrorCode::OPERATION_SELECTOR_REQUIRED,
+        StatusCode::BAD_REQUEST,
+    );
+    #[allow(non_upper_case_globals)]
+    pub const UnsupportedOperationVersion: Self = Self::new(
+        arkret_sdk::ErrorCode::UNSUPPORTED_OPERATION_VERSION,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    );
+    #[allow(non_upper_case_globals)]
     pub const InternalError: Self = Self::new(
         arkret_sdk::ErrorCode::INTERNAL_ERROR,
         StatusCode::INTERNAL_SERVER_ERROR,
@@ -161,7 +171,7 @@ impl ApiErrorCode {
         StatusCode::CONFLICT,
     );
     // -------- R3.2 spec-sync 2026-05-28 (arkret-spec @ b56cab1) --------
-    // `ak.find.directory.read.list_handles_for_subject` input validation. A
+    // `ak.find.directory.read.list_handles_for_subject.v1` input validation. A
     // `subject` that is not a holder/principal DID (a `ak:actor:` Realm
     // actor_id, a `ak:account:` server-local account id, a service DID,
     // or a non-DID resource id) is rejected with `failed_precondition`

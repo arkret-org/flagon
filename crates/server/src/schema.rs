@@ -125,55 +125,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    psi_epoch_keys (epoch) {
-        epoch -> Text,
-        ciphersuite -> Text,
-        server_key -> Bytea,
-        public_key -> Bytea,
-        expires_at -> Timestamptz,
-        tokens_indexed_at -> Nullable<Timestamptz>,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::ResourceKind;
-
-    psi_contact_tokens (epoch, resource_kind, resource_id, token) {
-        epoch -> Text,
-        resource_kind -> ResourceKind,
-        resource_id -> Text,
-        token -> Bytea,
-        token_prefix -> Bytea,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    psi_batches (batch_id) {
-        batch_id -> Text,
-        credential_key_id -> Text,
-        key_epoch -> Int8,
-        blind_request_digest -> Bytea,
-        element_count -> Int4,
-        match_request_digest -> Nullable<Bytea>,
-        match_outcome -> Nullable<Jsonb>,
-        expires_at -> Timestamptz,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    psi_quota_windows (credential_key_id, quota_bucket) {
-        credential_key_id -> Text,
-        quota_bucket -> Int8,
-        query_count -> Int4,
-        expires_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     directory_object_access (realm_id, object_kind, strand_id, message_id) {
         realm_id -> Text,
         object_kind -> Text,
@@ -334,10 +285,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     ingest_announces,
     withdrawals,
     webhook_subscriptions,
-    psi_epoch_keys,
-    psi_contact_tokens,
-    psi_batches,
-    psi_quota_windows,
     directory_object_access,
     directory_invite_revocations,
     accept_allowlist,

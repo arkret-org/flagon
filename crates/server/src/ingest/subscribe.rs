@@ -1,4 +1,4 @@
-//! `ak.find.directory.push.command.register` webhook registration and fanout.
+//! `ak.find.directory.push.command.register.v1` webhook registration and fanout.
 
 use std::sync::Arc;
 use std::time::Duration;

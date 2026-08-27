@@ -309,14 +309,5 @@ pub(crate) async fn upsert_resource_and_audit(
             Ok(public_projection)
         })
         .await?;
-    crate::psi_index::sync_resource_tokens(
-        db,
-        body.resource_kind,
-        &body.resource_id,
-        verified.discoverability,
-        false,
-        &emitted_projection,
-    )
-    .await?;
     Ok(emitted_projection)
 }

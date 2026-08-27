@@ -103,7 +103,7 @@ The schema carries two operator-facing freshness columns:
   expiry sweep treats rows past this as stale.
 
 An announcer refreshes freshness by submitting a new
-`ak.find.directory.command.announce` request for the current discovery state.
+`ak.find.directory.command.announce.v1` request for the current discovery state.
 The directory updates `last_refreshed_at` / `expires_at` from that
 accepted announce. The announce path owns TTL validation and caps
 `ttl_seconds` at `TEABAY_MAX_TTL_SECONDS`.
@@ -111,7 +111,7 @@ accepted announce. The announce path owns TTL validation and caps
 Recommended cadence: re-announce at half the row's
 `effective_ttl_seconds` (for example, every 30 minutes for a 1-hour
 TTL). The refresh is rate-limited on the same per-resource and per-IP
-buckets as any other `ak.find.directory.command.announce`.
+buckets as any other `ak.find.directory.command.announce.v1`.
 
 Authorization:
 - transport: RFC 9421 HTTP Message Signature middleware

@@ -1,4 +1,4 @@
-//! `ak.find.directory.read.describe` — service capability advertisement.
+//! `ak.find.directory.read.describe.v1` — service capability advertisement.
 //!
 //! The response is the canonical `ServiceDescribe`
 //! shape (17 required top-level fields, `trust_domain` included). Validated via
@@ -13,16 +13,29 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, BindingKind, ClaimedProfileEntry, DidCoreId, DirectoryAcceptPolicyKind,
-    DirectoryIngestMode, DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry,
-    OperationBinding, PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe,
-    SupportedBinding, TrustDomainId, VerifiedProfileEntry,
+    AuthMetadata, ClaimedProfileEntry, DidCoreId, DirectoryAcceptPolicyKind, DirectoryIngestMode,
+    DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry, PlaintextVisibility,
+    RateLimitPolicy, ServerLimits, ServiceDescribe, TransportBinding, TrustDomainId,
+    VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
 use crate::config::{AcceptPolicyKind, AppConfig, IngestModeAdvert};
 use crate::state::AppState;
+
+pub(crate) const SUPPORTED_OPERATION_BUNDLES: &[&str] = &[
+    "ak.operation_bundle.directory_service.describe.v1",
+    "ak.operation_bundle.directory_service.http_core.v1",
+    "ak.operation_bundle.directory_service.takedown_appeal.v1",
+];
+
+pub(crate) fn supports_http_operation(operation: arkret_wire::ServiceOperationId) -> bool {
+    SUPPORTED_OPERATION_BUNDLES.iter().any(|bundle_id| {
+        arkret_wire::operation_bundle_descriptor(bundle_id)
+            .is_some_and(|bundle| bundle.contains(operation, arkret_wire::BindingKind::HttpJson))
+    })
+}
 
 #[handler]
 pub async fn describe(depot: &mut Depot, res: &mut Response) {
@@ -54,65 +67,21 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     let development_mode = cfg.development_mode;
 
-    // `supported_profiles` is the union of the directory
-    // baseline profile and (optionally) the private-contact-discovery
-    // extension profile. Empty array is valid; missing is not.
-    let mut supported_profiles = vec![arkret_wire::ProfileId::DIRECTORY_SERVICE_V1.to_owned()];
-    if cfg.private_contact_discovery_enabled {
-        supported_profiles.push("ak.private_contact_discovery.v1".to_owned());
-    }
-    let directory_discovery_profiles = supported_profiles.clone();
-
-    // Operations the directory publishes. Single source of truth:
-    // `crate::kinds::SUPPORTED_OPERATIONS` (no parallel string literals here).
-    let mut supported_operations: Vec<String> = crate::kinds::SUPPORTED_OPERATIONS
+    // The full directory-service profile currently requires
+    // resolve_agent_selector, whose canonical evidence ingest carrier is not
+    // yet defined. Do not self-claim it. PCD is an optional capability
+    // expressed by its operation bundle plus closed configuration, not a
+    // conformance profile claim.
+    let supported_profiles = Vec::new();
+    let supported_operation_bundles = SUPPORTED_OPERATION_BUNDLES
         .iter()
-        .map(|op| (*op).to_owned())
+        .map(|bundle| (*bundle).to_owned())
         .collect();
-    if cfg.private_contact_discovery_enabled {
-        supported_operations.push(
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_PRIVATE_CONTACT_DISCOVERY
-                .to_owned(),
-        );
-    }
-    let operation_bindings = supported_operations
-        .iter()
-        .map(|operation| {
-            let operation_id = arkret_wire::ServiceOperationId::from_wire(operation)
-                .ok_or_else(|| format!("unknown operation id: {operation}"))?;
-            OperationBinding::current_http_json(operation_id).map_err(|error| error.to_string())
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-
-    // Transport / encoding bindings this service speaks. Strongly typed
-    // (`SupportedBinding`); the transport-specific keys ride in `extra`.
-    let supported_bindings = vec![
-        SupportedBinding::new(BindingKind::HttpJson)
-            .with_base_url(cfg.public_base_url.clone())
-            .with_extra(
-                "media_type",
-                JsonValue::String("application/json".to_owned()),
-            )
-            .with_extra(
-                "transport",
-                JsonValue::String("rfc9421_http_message_signature".to_owned()),
-            ),
-    ];
-
-    let supported_features: Vec<String> = vec![
-        "directory.search",
-        "directory.resolve",
-        "directory.ingest_push",
-        "directory.subscribe",
-        "directory.announce",
-        "directory.takedown",
-        "directory.takedown_appeal",
-        "federation.idempotency_historical_only",
-        "federation.s2s_trust_domain_headers",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
+    let transport_bindings = vec![TransportBinding::HttpJson {
+        base_url: cfg.public_base_url.clone(),
+        extension_profile_required: (),
+    }];
+    let supported_features = Vec::new();
 
     // `auth_metadata` advertises the transport-layer auth that ingest
     // mounts (RFC 9421 HTTP Message Signature) and the admin HMAC
@@ -145,35 +114,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
                 json!(cfg.rate_limit_per_resource_per_min),
             ),
             (
-                "max_psi_queries_per_window".to_owned(),
-                json!(cfg.max_psi_queries_per_window),
-            ),
-            (
-                "psi_quota_window_seconds".to_owned(),
-                json!(cfg.psi_quota_window_seconds),
-            ),
-            ("psi_epoch_seconds".to_owned(), json!(cfg.psi_epoch_seconds)),
-            (
-                "psi_key_retention_seconds".to_owned(),
-                json!(cfg.psi_key_retention_seconds),
-            ),
-            (
-                "psi_ciphersuite".to_owned(),
-                json!(crate::query::psi::VOPRF_CIPHERSUITE),
-            ),
-            (
-                "psi_key_epoch".to_owned(),
-                json!(crate::query::psi::current_epoch(cfg)),
-            ),
-            (
-                "psi_batch_item_count".to_owned(),
-                json!(crate::query::psi::PSI_BATCH_SIZE),
-            ),
-            (
-                "psi_digest_prefix_length".to_owned(),
-                json!(crate::psi_index::PSI_DIGEST_PREFIX_LENGTH),
-            ),
-            (
                 "query_latency_floor_ms".to_owned(),
                 json!(cfg.query_latency_floor.as_millis() as u64),
             ),
@@ -196,35 +136,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         (
             "per_resource_per_min".to_owned(),
             json!(cfg.rate_limit_per_resource_per_min),
-        ),
-        (
-            "max_psi_queries_per_window".to_owned(),
-            json!(cfg.max_psi_queries_per_window),
-        ),
-        (
-            "psi_quota_window_seconds".to_owned(),
-            json!(cfg.psi_quota_window_seconds),
-        ),
-        ("psi_epoch_seconds".to_owned(), json!(cfg.psi_epoch_seconds)),
-        (
-            "psi_key_retention_seconds".to_owned(),
-            json!(cfg.psi_key_retention_seconds),
-        ),
-        (
-            "psi_ciphersuite".to_owned(),
-            json!(crate::query::psi::VOPRF_CIPHERSUITE),
-        ),
-        (
-            "psi_key_epoch".to_owned(),
-            json!(crate::query::psi::current_epoch(cfg)),
-        ),
-        (
-            "psi_batch_item_count".to_owned(),
-            json!(crate::query::psi::PSI_BATCH_SIZE),
-        ),
-        (
-            "psi_digest_prefix_length".to_owned(),
-            json!(crate::psi_index::PSI_DIGEST_PREFIX_LENGTH),
         ),
         (
             "query_latency_floor_ms".to_owned(),
@@ -253,23 +164,9 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         )
         .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
 
-    let implemented_features: Vec<String> = vec![
-        "directory.search",
-        "directory.resolve",
-        "directory.ingest_push",
-        "directory.subscribe",
-        "directory.announce",
-        "directory.takedown",
-        "directory.takedown_appeal",
-        "federation.idempotency_historical_only",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
-
-    // `claimed_profiles` mirrors `supported_profiles` here — every
-    // profile the directory advertises is self-claimed. `verified_profiles`
-    // is empty until a cotest verifier is wired in; the
+    // `claimed_profiles` mirrors `supported_profiles` here: every profile
+    // advertised here is self-claimed. `verified_profiles` is
+    // empty until a cotest verifier is wired in; the
     // `development_mode=true ⇒ verified_profiles=[]` invariant is
     // enforced by `ServiceDescribe::validate`.
     //
@@ -281,14 +178,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(ClaimedProfileEntry::self_claimed)
         .collect();
     let verified_profiles: Vec<VerifiedProfileEntry> = Vec::new();
-
-    let experimental_features: Vec<String> = vec![
-        "directory.webhook_fanout",
-        "directory.operator_takedown_notification",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect();
 
     // `interop_surfaces` — the directory bridges no foreign protocol and
     // serves no delegated resolver surface.
@@ -302,19 +191,18 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
         supported_profiles,
         profile_bindings: BTreeMap::new(),
-        operation_bindings,
-        supported_bindings,
+        supported_operation_bundles,
+        transport_bindings,
         supported_features,
         calendar_tzdb_versions: Vec::new(),
         auth_metadata,
         limits,
         plaintext_visibility,
         privacy_derivation: None,
-        implemented_features,
         claimed_profiles,
         verified_profiles,
-        experimental_features,
         interop_surfaces,
+        invite_addressing: None,
         extensions: Default::default(),
         egress_network_policy: Some(EgressNetworkPolicy::deny_private_defaults()),
         development_mode,
@@ -327,8 +215,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             cfg.rate_limit_per_resource_per_min,
         )),
         rate_limit_policy_id: None,
+        private_contact_discovery: None,
         resource_kinds: all_directory_resource_kinds(),
-        discovery_profiles: directory_discovery_profiles,
         restricted_query_proof: Some(true),
         ingest_modes: cfg.ingest_modes.iter().map(directory_ingest_mode).collect(),
         accept_policy_kind: Some(directory_accept_policy_kind(cfg.accept_policy_kind)),
@@ -413,7 +301,7 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
     limitations.push(json!({
         "feature": "webhook_fanout_delivery",
         "status": "best_effort",
-        "detail": "ak.find.directory.push.command.register webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
+        "detail": "ak.find.directory.push.command.register.v1 webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
     }));
     limitations
 }
@@ -428,7 +316,7 @@ mod tests {
     use super::*;
     use crate::config::{AcceptPolicyKind, IngestModeAdvert};
 
-    fn cfg(development_mode: bool, pcd_enabled: bool) -> AppConfig {
+    fn cfg(development_mode: bool) -> AppConfig {
         AppConfig {
             bind: "127.0.0.1:0".parse().unwrap(),
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
@@ -460,11 +348,6 @@ mod tests {
             rate_limit_per_resource_per_min: 60,
             query_max_queries_per_ip_per_min: 0,
             query_max_resolves_per_resource_per_min: 0,
-            max_psi_queries_per_window: 100,
-            psi_quota_window_seconds: 86_400,
-            private_contact_discovery_enabled: pcd_enabled,
-            psi_epoch_seconds: 3600,
-            psi_key_retention_seconds: 7200,
             query_latency_floor: Duration::from_millis(0),
             query_latency_jitter: Duration::from_millis(0),
             require_http_sig: false,
@@ -477,11 +360,11 @@ mod tests {
         }
     }
 
-    /// The describe response MUST carry every one of the 17
-    /// required `ServiceDescribe` fields, including `trust_domain`.
+    /// The describe response MUST carry every required
+    /// `ServiceDescribe` field, including `trust_domain`.
     #[test]
     fn describe_emits_required_fields() {
-        let value = build_describe_response_value(&cfg(true, true)).expect("describe builds");
+        let value = build_describe_response_value(&cfg(true)).expect("describe builds");
 
         for required in [
             "service_id",
@@ -490,16 +373,14 @@ mod tests {
             "service_kind",
             "protocol_version",
             "supported_profiles",
-            "supported_operations",
-            "supported_bindings",
+            "supported_operation_bundles",
+            "transport_bindings",
             "supported_features",
             "auth_metadata",
             "limits",
             "plaintext_visibility",
-            "implemented_features",
             "claimed_profiles",
             "verified_profiles",
-            "experimental_features",
             "interop_surfaces",
             "development_mode",
         ] {
@@ -529,34 +410,24 @@ mod tests {
     /// teabay-private fields stay under `x_teabay_*`.
     #[test]
     fn describe_carries_directory_overlay_fields() {
-        let value = build_describe_response_value(&cfg(false, true)).expect("describe builds");
+        let value = build_describe_response_value(&cfg(false)).expect("describe builds");
         assert!(value.get("accepted_resource_kinds").is_some());
-        assert!(value.get("discovery_profiles").is_some());
         assert!(value.get("ingest_modes").is_some());
         assert!(value.get("rate_limits").is_some());
         assert!(value.get("accept_policy_kind").is_some());
         assert_eq!(value["accept_policy_kind"], "open");
         assert_eq!(
-            value["supported_bindings"][0]["base_url"],
+            value["transport_bindings"][0]["base_url"],
             "http://directory.test"
         );
         assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
         assert_eq!(value["ingest_modes"], json!(["push"]));
-        assert_eq!(
-            value["rate_limits"]["psi_ciphersuite"],
-            crate::query::psi::VOPRF_CIPHERSUITE
-        );
-        assert_eq!(
-            value["rate_limits"]["psi_batch_item_count"],
-            crate::query::psi::PSI_BATCH_SIZE
-        );
-        assert_eq!(value["rate_limits"]["psi_digest_prefix_length"], 16);
         assert!(
-            value["supported_operations"]
+            value["supported_operation_bundles"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|op| op == "ak.find.directory.read.describe")
+                .any(|bundle| bundle == "ak.operation_bundle.directory_service.http_core.v1")
         );
         let limitation_features: std::collections::BTreeSet<_> = value["x_teabay_limitations"]
             .as_array()
@@ -586,8 +457,14 @@ mod tests {
             protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             profile_bindings: BTreeMap::new(),
-            operation_bindings: Vec::new(),
-            supported_bindings: Vec::new(),
+            supported_operation_bundles: vec![
+                "ak.operation_bundle.directory_service.describe.v1".to_owned(),
+                "ak.operation_bundle.directory_service.http_core.v1".to_owned(),
+            ],
+            transport_bindings: vec![TransportBinding::HttpJson {
+                base_url: "http://directory.test".to_owned(),
+                extension_profile_required: (),
+            }],
             supported_features: Vec::new(),
             calendar_tzdb_versions: Vec::new(),
             auth_metadata: AuthMetadata::minimal("service_transport"),
@@ -596,7 +473,6 @@ mod tests {
             plaintext_visibility: PlaintextVisibility::none(),
             privacy_derivation: None,
             receive_policy_constraints: None,
-            implemented_features: Vec::new(),
             claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
                 profile_id: "ak.profile.directory_service.v1".to_owned(),
@@ -612,13 +488,13 @@ mod tests {
                 expires_at: None,
                 extra: Default::default(),
             }],
-            experimental_features: Vec::new(),
             interop_surfaces: Vec::new(),
+            invite_addressing: None,
             development_mode: true,
             rate_limit_policy: Some(RateLimitPolicy::unspecified()),
             rate_limit_policy_id: None,
+            private_contact_discovery: None,
             resource_kinds: all_directory_resource_kinds(),
-            discovery_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             restricted_query_proof: Some(true),
             ingest_modes: vec![DirectoryIngestMode::Push],
             accept_policy_kind: Some(DirectoryAcceptPolicyKind::Open),
@@ -634,7 +510,7 @@ mod tests {
             frontier: Vec::new(),
             snapshot_frontier: Vec::new(),
             last_materialized_at: None,
-            extensions: BTreeMap::new(),
+            extensions: Default::default(),
         };
         assert!(describe_body.validate().is_err());
         assert!(serde_json::to_value(&describe_body).unwrap()["rate_limits"].is_object());
@@ -657,23 +533,21 @@ mod tests {
             "service_kind",
             "protocol_version",
             "supported_profiles",
-            "supported_operations",
-            "supported_bindings",
+            "supported_operation_bundles",
+            "transport_bindings",
             "supported_features",
             "auth_metadata",
             "limits",
             "plaintext_visibility",
-            "implemented_features",
             "claimed_profiles",
             "verified_profiles",
-            "experimental_features",
             "interop_surfaces",
+            "invite_addressing",
             "development_mode",
             "rate_limit_policy",
             "rate_limit_policy_id",
             "egress_network_policy",
             "resource_kinds",
-            "discovery_profiles",
             "restricted_query_proof",
             "ingest_modes",
             "accept_policy_kind",
@@ -694,8 +568,8 @@ mod tests {
         let x_ext = regex_lite_matcher();
 
         for development_mode in [false, true] {
-            let value = build_describe_response_value(&cfg(development_mode, true))
-                .expect("describe builds");
+            let value =
+                build_describe_response_value(&cfg(development_mode)).expect("describe builds");
             let object = value.as_object().expect("describe is an object");
 
             // The canonical shape has no top-level `rate_limit`; the policy
@@ -727,7 +601,6 @@ mod tests {
             );
             for standard in [
                 "resource_kinds",
-                "discovery_profiles",
                 "ingest_modes",
                 "accept_policy_kind",
                 "accepted_resource_kinds",
@@ -762,25 +635,33 @@ mod tests {
         }
     }
 
-    /// When private contact discovery is
-    /// disabled, the profile MUST NOT appear in either
-    /// `supported_profiles` or `claimed_profiles`.
+    /// Teabay withdrew its non-conforming legacy PCD surface. Describe must
+    /// not advertise the profile, bundle, or closed configuration.
     #[test]
-    fn describe_omits_pcd_profile_when_disabled() {
-        let value = build_describe_response_value(&cfg(false, false)).expect("describe builds");
+    fn describe_does_not_advertise_withdrawn_pcd() {
+        let value = build_describe_response_value(&cfg(false)).expect("describe builds");
         let supported = value["supported_profiles"].as_array().unwrap();
         assert!(
             !supported
                 .iter()
                 .any(|p| p == "ak.private_contact_discovery.v1"),
-            "PCD must not appear in supported_profiles when disabled"
+            "PCD must not appear in supported_profiles"
         );
         let claimed = value["claimed_profiles"].as_array().unwrap();
         assert!(
             !claimed
                 .iter()
                 .any(|p| p["profile_id"] == "ak.private_contact_discovery.v1"),
-            "PCD must not be claimed when disabled"
+            "PCD must not be claimed"
         );
+        assert!(
+            !value["supported_operation_bundles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|bundle| bundle
+                    == "ak.operation_bundle.directory_service.private_contact_discovery.v1")
+        );
+        assert!(value.get("private_contact_discovery").is_none());
     }
 }

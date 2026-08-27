@@ -456,8 +456,8 @@ impl DirectoryGovernanceRequest for DirectoryTakedownAppealRequestBody {
 ///    `ak.directory_governance_request_proof.v1` context into the signed transcript, so a signature
 ///    produced under any other context fails the JWS check;
 /// 2. `audience` MUST name *this* directory's `service_id` (the value
-///    `ak.find.directory.read.describe` publishes) — the typed `DidCoreId` already rejected every
-///    other shape at deserialization;
+///    `ak.find.directory.read.describe.v1` publishes) — the typed `DidCoreId` already rejected
+///    every other shape at deserialization;
 /// 3. `operation_id` is stamped from the operation actually being served, so a `withdraw` signature
 ///    cannot be replayed as `takedown_appeal` or vice versa;
 /// 4. `payload_digest` MUST be byte-identical to `SHA-256(JCS(request_without_governance_proof))`,
@@ -1498,7 +1498,7 @@ mod tests {
         let appeal_transcript = body
             .governance_proof
             .binding_bytes(
-                ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL,
+                ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL_V1,
                 &body.resource_id,
                 &body.payload_digest().expect("payload digest"),
             )

@@ -1,4 +1,4 @@
-//! `ak.find.directory.command.withdraw` handler — resource-initiated path 2 from §8.7.
+//! `ak.find.directory.command.withdraw.v1` handler — resource-initiated path 2 from §8.7.
 //!
 //! On accept:
 //!   * insert a `withdrawals` row with `kind=resource_withdraw`
@@ -215,7 +215,6 @@ async fn persist_withdraw(
         Ok(())
     })
     .await?;
-    crate::psi_index::delete_resource_tokens(state.db(), resource_kind, &body.resource_id).await?;
     Ok(())
 }
 

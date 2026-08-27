@@ -1,6 +1,6 @@
 //! Realm search and resolve. Spec §9.
 //!
-//! `ak.find.directory.read.search_realms` and `ak.find.directory.read.resolve_realm`. Both
+//! `ak.find.directory.read.search_realms.v1` and `ak.find.directory.read.resolve_realm.v1`. Both
 //! return §9.1 normative envelopes (`as_of`, `source_refs`,
 //! `policy_revision`, `via_services`). Hidden / unauthorized resources
 //! must be indistinguishable from `not_found` (§3 / §10).
@@ -74,7 +74,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         &body.claim_presentations,
     );
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS,
+        "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
         "query": &needle,
         "organization_principal_id": scope.organization_principal_id.as_ref(),
         "source_realm_id": scope.source_realm_id.as_ref(),
@@ -134,7 +134,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let result = pad_to_budget_observed(
         budget,
-        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS,
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
         &privacy_key,
         |target| {
             state
@@ -276,7 +276,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
     );
     let outcome = pad_to_budget_observed(
         budget,
-        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM,
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
         &key,
         |target| {
             state
@@ -344,7 +344,7 @@ fn verified_restricted_claims_for_realm_query(
 // ---- shared resolution helper (AKP-0011 reuse) --------------------------
 
 /// The canonical realm-resolution outcome, extracted so the object-level
-/// `ak.find.directory.read.resolve_target` handler (AKP-0011,
+/// `ak.find.directory.read.resolve_target.v1` handler (AKP-0011,
 /// [`crate::query::target`]) can DELEGATE to the exact same realm-resolution
 /// semantics — same key load, same visibility / blinding rules, same
 /// `via_services` and §9.1 common fields — instead of reinventing them.

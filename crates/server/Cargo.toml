@@ -52,7 +52,6 @@ tokio = {workspace = true}
 tracing = {workspace = true}
 tracing-subscriber = {workspace = true}
 url = {workspace = true}
-voprf = {workspace = true}
 
 [dev-dependencies]
 arkret-wire = {workspace = true,features = ["test-support"]}

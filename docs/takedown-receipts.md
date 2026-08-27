@@ -14,7 +14,7 @@ teabay.withdrawal_receipt.v1
 
 ## Resource Withdraw
 
-`ak.find.directory.command.withdraw` persists:
+`ak.find.directory.command.withdraw.v1` persists:
 
 - `kind = resource_withdraw`
 - `statement`: server receipt facts, including `withdraw_id`, resource,
@@ -31,7 +31,7 @@ Verification procedure:
 1. Confirm `SHA-256(JCS(signed_payload))` equals `governance_proof.payload_digest`.
 2. Rebuild the §8.7.1 canonical binding object (`context`
    `ak.directory_governance_request_proof.v1`, the digest, operation id
-   `ak.find.directory.command.withdraw`, `resource_id`,
+   `ak.find.directory.command.withdraw.v1`, `resource_id`,
    `verification_method`, `created_at`, `proof_purpose`, `audience`) and
    canonicalize it with the same JSON canonicalization used for ingest proof
    verification.

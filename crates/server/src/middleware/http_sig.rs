@@ -224,13 +224,6 @@ impl HttpSigMiddleware {
         }
     }
 
-    pub fn required_with_postgres_replay_store(
-        directory: Arc<dyn HttpSigKeyDirectory>,
-        db: Db,
-    ) -> Self {
-        Self::new_with_postgres_replay_store(directory, db)
-    }
-
     async fn remember_signature(
         &self,
         replay_key: ReplayKey,
@@ -940,7 +933,10 @@ mod tests {
         assert_eq!(second_status, StatusCode::UNAUTHORIZED);
         let second_body_text = second.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&second_body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -978,7 +974,10 @@ mod tests {
         assert_eq!(second_status, StatusCode::UNAUTHORIZED);
         let second_body_text = second.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&second_body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -995,8 +994,10 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["ok"], json!(false));
-        assert_eq!(body["error"]["code"], json!("unauthenticated"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/unauthenticated")
+        );
     }
 
     #[tokio::test]
@@ -1030,7 +1031,10 @@ mod tests {
         let body_text = res.take_string().await.unwrap_or_default();
         assert_eq!(status, StatusCode::UNAUTHORIZED, "body: {body_text}");
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1059,7 +1063,10 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1085,7 +1092,10 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1111,7 +1121,10 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1137,7 +1150,10 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1171,7 +1187,10 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1192,7 +1211,10 @@ mod tests {
         assert_eq!(res.status_code, Some(StatusCode::UNAUTHORIZED));
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
-        assert_eq!(body["error"]["code"], json!("signature_invalid"));
+        assert_eq!(
+            body["type"],
+            json!("https://arkret.org/problems/signature_invalid")
+        );
     }
 
     #[tokio::test]
@@ -1220,8 +1242,8 @@ mod tests {
         let body_text = res.take_string().await.unwrap_or_default();
         let body: JsonValue = serde_json::from_str(&body_text).unwrap();
         assert_eq!(
-            body["error"]["code"],
-            json!("directory_governance_proof_signature_invalid")
+            body["type"],
+            json!("https://arkret.org/problems/directory_governance_proof_signature_invalid")
         );
     }
 

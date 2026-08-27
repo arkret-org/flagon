@@ -1,7 +1,7 @@
-//! Handle resolution. Spec §9 (`ak.find.directory.read.resolve_handle`).
+//! Handle resolution. Spec §9 (`ak.find.directory.read.resolve_handle.v1`).
 //!
 //! Spec sync 0a5ab85 / governance/join-policy §5.1.3:
-//! `ak.find.directory.read.resolve_handle` MUST gate `intent=member_add | invite`
+//! `ak.find.directory.read.resolve_handle.v1` MUST gate `intent=member_add | invite`
 //! requests on the target **Realm**'s `delivery_binding_policy`
 //! (`allowed_recipient_services`, `allowed_binding_sources`) and on the
 //! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
@@ -293,7 +293,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
     let outcome = pad_to_budget_observed(
         budget,
-        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
         &privacy_key,
         |target| {
             state

@@ -9,11 +9,11 @@
 //!
 //! | family | operation | context |
 //! | --- | --- | --- |
-//! | `directory_resolve_target_request_body` | `ak.find.directory.read.resolve_target` | `ak.directory_resolve_target_request_proof.v1` |
-//! | `directory_resolve_organization_request_body` | `ak.find.directory.read.resolve_organization` | `ak.directory_resolve_organization_request_proof.v1` |
-//! | `directory_resolve_handle_request_body` | `ak.find.directory.read.resolve_handle` | `ak.directory_resolve_handle_request_proof.v1` |
-//! | `directory_resolve_agent_selector_request_body` | `ak.find.directory.read.resolve_agent_selector` | `ak.directory_resolve_agent_selector_request_proof.v1` |
-//! | `directory_list_handles_for_subject_request_body` | `ak.find.directory.read.list_handles_for_subject` | `ak.directory_list_handles_for_subject_request_proof.v1` |
+//! | `directory_resolve_target_request_body` | `ak.find.directory.read.resolve_target.v1` | `ak.directory_resolve_target_request_proof.v1` |
+//! | `directory_resolve_organization_request_body` | `ak.find.directory.read.resolve_organization.v1` | `ak.directory_resolve_organization_request_proof.v1` |
+//! | `directory_resolve_handle_request_body` | `ak.find.directory.read.resolve_handle.v1` | `ak.directory_resolve_handle_request_proof.v1` |
+//! | `directory_resolve_agent_selector_request_body` | `ak.find.directory.read.resolve_agent_selector.v1` | `ak.directory_resolve_agent_selector_request_proof.v1` |
+//! | `directory_list_handles_for_subject_request_body` | `ak.find.directory.read.list_handles_for_subject.v1` | `ak.directory_list_handles_for_subject_request_proof.v1` |
 //!
 //! The transcript is NEVER assembled here. Every family's canonical binding
 //! object is built by the SDK helper that owns it
@@ -154,7 +154,7 @@ impl DirectoryRequesterProofFamily for DirectoryListHandlesForSubjectRequestBody
 /// the per-resource disclosure policy, not here.
 ///
 /// `expected_audience` is this directory's `did_core_id` service identity, the
-/// same value `ak.find.directory.read.describe` publishes as `service_id`.
+/// same value `ak.find.directory.read.describe.v1` publishes as `service_id`.
 pub fn verify_requester_proofs<T: DirectoryRequesterProofFamily + ?Sized>(
     request: &T,
     expected_audience: &str,
@@ -186,7 +186,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
     }
 
     // §9.0.1: `audience` MUST be the target Directory `service_id` published by
-    // `ak.find.directory.read.describe`, single valued and in `did_core_id`
+    // `ak.find.directory.read.describe.v1`, single valued and in `did_core_id`
     // form. The SDK helper rejects a missing, multi-valued, or full-DID
     // audience; only this directory knows whether the value names *it*.
     // `config().service_id` is the projected core id this directory publishes,

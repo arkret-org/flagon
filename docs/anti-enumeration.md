@@ -65,7 +65,7 @@ parts of search and resolve handlers:
 
 Set either value to `0` only when an upstream gateway enforces an equivalent or
 stricter budget. These guards sit alongside the per-resource budget
-`TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN` and the PSI-specific quota below.
+`TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN`.
 
 ## Public Projection
 
@@ -76,39 +76,6 @@ specific filtering before returning envelopes.
 The current projection layer also normalizes member count data, which prevents a
 resource from bypassing count buckets by sending exact counts in discovery
 state.
-
-## Private Contact Discovery
-
-The Private Contact Discovery endpoint uses the configured PSI quota and epoch
-settings:
-
-- `TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED`
-- `TEABAY_MAX_PSI_QUERIES_PER_WINDOW`
-- `TEABAY_PSI_QUOTA_WINDOW_SECONDS`
-- `TEABAY_PSI_EPOCH_SECONDS`
-- `TEABAY_PSI_KEY_RETENTION_SECONDS`
-
-Operators should keep PSI query budgets conservative because the endpoint is
-specifically meant to answer membership-style questions without exposing the
-whole directory.
-
-### Quota is decoupled from the OPRF key epoch (spec §6.4)
-
-The anti-enumeration quota is keyed on `psi-quota:{requester}:{floor(now /
-psi_quota_window_seconds)}` — a **fixed wall-clock window** (default 24h) that is
-deliberately independent of the OPRF key epoch. This enforces the three §6.4
-MUSTs:
-
-- A new OPRF key epoch MUST NOT reset the quota — the quota bucket only rolls
-  when the wall-clock window advances.
-- The client-supplied `epoch` field MUST NOT participate in the quota key;
-  otherwise an attacker could rotate `epoch` per batch to land each batch in a
-  fresh bucket and bypass `max_psi_queries_per_window`. `epoch` is used solely
-  to select the OPRF key.
-- The default window is 24h with `max_psi_queries_per_window = 1`.
-
-The match phase returns a fixed-cardinality bitmap and padding count so response
-shape does not reveal how many contacts were indexed or matched.
 
 ## Operational Tradeoffs
 

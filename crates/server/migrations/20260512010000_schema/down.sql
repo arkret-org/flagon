@@ -81,19 +81,6 @@ DROP INDEX IF EXISTS directory_object_access_requesters_gin_idx;
 DROP INDEX IF EXISTS directory_object_access_lookup_idx;
 DROP TABLE IF EXISTS directory_object_access;
 
-DROP INDEX IF EXISTS psi_quota_windows_expires_at_idx;
-DROP TABLE IF EXISTS psi_quota_windows;
-
-DROP INDEX IF EXISTS psi_batches_expires_at_idx;
-DROP TABLE IF EXISTS psi_batches;
-
-DROP INDEX IF EXISTS psi_contact_tokens_resource_idx;
-DROP INDEX IF EXISTS psi_contact_tokens_lookup_idx;
-DROP TABLE IF EXISTS psi_contact_tokens;
-
-DROP INDEX IF EXISTS psi_epoch_keys_expires_at_idx;
-DROP TABLE IF EXISTS psi_epoch_keys;
-
 DROP INDEX IF EXISTS webhook_subscriptions_subscriber_idx;
 DROP TABLE IF EXISTS webhook_subscriptions;
 

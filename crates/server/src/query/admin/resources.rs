@@ -418,16 +418,6 @@ async fn upsert_managed_resource(
         .execute(&mut *conn)
         .await?;
 
-    crate::psi_index::sync_resource_tokens(
-        state.db(),
-        resource_kind,
-        body.resource_id.trim(),
-        discoverability,
-        body.stale,
-        &public_projection,
-    )
-    .await?;
-
     load_resource(state, resource_kind, body.resource_id.trim()).await
 }
 
@@ -514,9 +504,6 @@ async fn delete_managed_resource(
             }))
         })
         .await?;
-    if outcome.is_some() {
-        crate::psi_index::delete_resource_tokens(state.db(), resource_kind, resource_id).await?;
-    }
     Ok(outcome)
 }
 

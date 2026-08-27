@@ -1,4 +1,4 @@
-//! `ak.find.directory.command.announce` handler — push-mode ingest.
+//! `ak.find.directory.command.announce.v1` handler — push-mode ingest.
 //!
 //! Spec: discovery-directory.md §8.3 (request shape), §8.5 (verify chain),
 //! §8.6 (TTL), §8.10 (anti-abuse / replay).

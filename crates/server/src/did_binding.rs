@@ -75,9 +75,9 @@ const MAX_BINDINGS: usize = 4096;
 /// for the latter) can no longer drift apart.
 ///
 /// The id is `ongoing_governance`, the profile the three registered directory
-/// ingest call sites name: `ak.find.directory.command.announce`,
-/// `ak.find.directory.command.withdraw` and
-/// `ak.find.directory.command.takedown_appeal` each carry a `did_authority`
+/// ingest call sites name: `ak.find.directory.command.announce.v1`,
+/// `ak.find.directory.command.withdraw.v1` and
+/// `ak.find.directory.command.takedown_appeal.v1` each carry a `did_authority`
 /// row with `evidence_class = ongoing_governance`, and
 /// `did-freshness-profile-registry.json` lists all three in `call_sites[]`.
 /// What this path verifies is the governance signer of a service or

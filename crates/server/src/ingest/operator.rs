@@ -175,7 +175,6 @@ async fn persist_operator_takedown(
         Ok(())
     })
     .await?;
-    crate::psi_index::delete_resource_tokens(state.db(), resource_kind, &body.resource_id).await?;
     Ok(())
 }
 

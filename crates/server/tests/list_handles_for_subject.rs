@@ -1,4 +1,4 @@
-//! Conformance suite for `ak.find.directory.read.list_handles_for_subject` (DIR-TBY-5,
+//! Conformance suite for `ak.find.directory.read.list_handles_for_subject.v1` (DIR-TBY-5,
 //! R3.2 / arkret-spec @ b56cab1).
 //!
 //! These exercise the directory's reverse-handle-lookup response assembly

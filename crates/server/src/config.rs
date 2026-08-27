@@ -1,6 +1,6 @@
 //! Environment-driven configuration.
 //!
-//! Mirrors the spec `ak.find.directory.read.describe` ingest fields (§8.9) so the
+//! Mirrors the spec `ak.find.directory.read.describe.v1` ingest fields (§8.9) so the
 //! runtime can both honor and advertise them coherently.
 
 use std::collections::HashMap;
@@ -182,17 +182,6 @@ pub struct AppConfig {
     /// search traffic. 0 means disabled. Env:
     /// `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`.
     pub query_max_resolves_per_resource_per_min: u32,
-    /// Spec §6.4 anti-enumeration quota: max PSI batches a single
-    /// authenticated device credential may submit per window. Default 1. This window
-    /// is **decoupled** from the OPRF key epoch — a new key epoch MUST NOT
-    /// reset the quota. Env: `TEABAY_MAX_PSI_QUERIES_PER_WINDOW`.
-    pub max_psi_queries_per_window: u32,
-    /// Spec §6.4 quota window length (default 24h). Independent of
-    /// `psi_epoch_seconds`. Env: `TEABAY_PSI_QUOTA_WINDOW_SECONDS`.
-    pub psi_quota_window_seconds: u64,
-    pub private_contact_discovery_enabled: bool,
-    pub psi_epoch_seconds: u64,
-    pub psi_key_retention_seconds: u64,
     pub query_latency_floor: Duration,
     pub query_latency_jitter: Duration,
 
@@ -477,16 +466,6 @@ impl AppConfig {
             read_u64("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 600)? as u32;
         let query_max_resolves_per_resource_per_min =
             read_u64("TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", 120)? as u32;
-        // Spec §6.4: default 1 PSI batch per quota window, decoupled from
-        // the OPRF key epoch.
-        let max_psi_queries_per_window = read_u64("TEABAY_MAX_PSI_QUERIES_PER_WINDOW", 1)? as u32;
-        // Spec §6.4: default quota window is 24h, independent of the OPRF
-        // epoch length (`psi_epoch_seconds`).
-        let psi_quota_window_seconds = read_u64("TEABAY_PSI_QUOTA_WINDOW_SECONDS", 86_400)?;
-        let private_contact_discovery_enabled =
-            read_bool("TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED", true)?;
-        let psi_epoch_seconds = read_u64("TEABAY_PSI_EPOCH_SECONDS", 604_800)?;
-        let psi_key_retention_seconds = read_u64("TEABAY_PSI_KEY_RETENTION_SECONDS", 7_776_000)?;
         let query_latency_floor_ms = read_u64("TEABAY_QUERY_LATENCY_FLOOR_MS", 25)?;
         let query_latency_jitter_ms = read_u64("TEABAY_QUERY_LATENCY_JITTER_MS", 10)?;
 
@@ -501,16 +480,6 @@ impl AppConfig {
                 .ok()
                 .unwrap_or_else(|| format!("{service_full_id}#teabay-receipt-1")),
         )?;
-        if psi_epoch_seconds == 0 {
-            anyhow::bail!("TEABAY_PSI_EPOCH_SECONDS must be > 0");
-        }
-        if psi_quota_window_seconds == 0 {
-            anyhow::bail!("TEABAY_PSI_QUOTA_WINDOW_SECONDS must be > 0");
-        }
-        if psi_key_retention_seconds > 7_776_000 {
-            anyhow::bail!("TEABAY_PSI_KEY_RETENTION_SECONDS must be <= 90 days");
-        }
-
         // P2E.6 — db pool tunables.
         let defaults = DbPoolConfig::default();
         let pool_max = read_u64("TEABAY_DB_POOL_MAX_SIZE", defaults.max_size as u64)? as u32;
@@ -599,11 +568,6 @@ impl AppConfig {
             rate_limit_per_resource_per_min,
             query_max_queries_per_ip_per_min,
             query_max_resolves_per_resource_per_min,
-            max_psi_queries_per_window,
-            psi_quota_window_seconds,
-            private_contact_discovery_enabled,
-            psi_epoch_seconds,
-            psi_key_retention_seconds,
             query_latency_floor: Duration::from_millis(query_latency_floor_ms),
             query_latency_jitter: Duration::from_millis(query_latency_jitter_ms),
             require_http_sig,

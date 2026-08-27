@@ -110,7 +110,7 @@ pub fn matches_allowed_discoverers(
 /// Verify every presented restricted claim.
 ///
 /// `expected_audience` MUST be this directory's `did_core_id` — the same value
-/// `ak.find.directory.read.describe` publishes as `service_id`.
+/// `ak.find.directory.read.describe.v1` publishes as `service_id`.
 /// `directory-operations.schema.json#/$defs/directory_restricted_claim_presentation`
 /// types `audience` as `did_core_id`, so a full `did:` form can never compare
 /// equal and every presentation would be rejected.

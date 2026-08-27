@@ -21,15 +21,12 @@ pub struct TeabayOpenApiDoc(pub serde_json::Value);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
-    // DID-P0-C01 — one key directory, built once, shared by both ingest
-    // middlewares. Previously each `build_*_http_sig_middleware` call made its
-    // own `DidResolverKeyDirectory`, and each of those lazily built its own
-    // resolver chain: two connection pools and two document caches per
-    // process. Both now point at the single `AppState` resolver.
+    // DID-P0-C01 — one key directory, built once for the ingest middleware.
+    // It points at the single `AppState` resolver and therefore shares its
+    // connection pool and document cache.
     let key_directory = http_sig_key_directory(&state);
-    let http_sig_middleware = build_http_sig_middleware(&state, Arc::clone(&key_directory));
-    let required_http_sig_middleware = build_required_http_sig_middleware(&state, key_directory);
-    let directory = directory_router(http_sig_middleware, required_http_sig_middleware);
+    let http_sig_middleware = build_http_sig_middleware(&state, key_directory);
+    let directory = directory_router(http_sig_middleware);
     let admin = admin_router();
     let doc = openapi(&directory);
 
@@ -40,6 +37,11 @@ pub fn router(state: AppState) -> Router {
     root.push(Router::with_path("health").get(health))
         .push(Router::with_path("healthz").get(health))
         .push(Router::with_path("readyz").get(readyz))
+        .push(
+            Router::with_path("_arkret/describe")
+                .hoop(operation_selector_middleware)
+                .get(query::describe::describe),
+        )
         .push(directory)
         .push(admin)
         .push(
@@ -88,13 +90,6 @@ fn build_http_sig_middleware(
     } else {
         HttpSigMiddleware::passthrough(directory)
     }
-}
-
-fn build_required_http_sig_middleware(
-    state: &AppState,
-    directory: Arc<dyn HttpSigKeyDirectory>,
-) -> HttpSigMiddleware {
-    HttpSigMiddleware::required_with_postgres_replay_store(directory, state.db().clone())
 }
 
 pub fn service(state: AppState) -> Service {
@@ -146,10 +141,7 @@ fn admin_router() -> Router {
         .push(Router::with_path("consent-revoke").post(query::admin::consent_revoke_invalidate))
 }
 
-fn directory_router(
-    http_sig_middleware: HttpSigMiddleware,
-    required_http_sig_middleware: HttpSigMiddleware,
-) -> Router {
+fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     // Query face — no transport signature required (search/resolve are
     // read-only against the indexed view, and CORS / auth gating is
     // handled per-handler where applicable).
@@ -186,11 +178,6 @@ fn directory_router(
         .push(
             Router::with_path("list-handles-for-subject")
                 .post(query::handles_for_subject::list_handles_for_subject),
-        )
-        .push(
-            Router::with_path("private-contact-discovery")
-                .hoop(required_http_sig_middleware)
-                .post(query::psi::private_contact_discovery),
         );
 
     // Ingest face — §8. Transport hardened by RFC 9421 HTTP Message
@@ -208,8 +195,61 @@ fn directory_router(
         .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
 
     Router::with_path("_arkret/find/directory")
+        .hoop(operation_selector_middleware)
         .push(query_routes)
         .push(ingest_routes)
+}
+
+#[handler]
+async fn operation_selector_middleware(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+    ctrl: &mut FlowCtrl,
+) {
+    if req.method() == Method::OPTIONS {
+        ctrl.call_next(req, depot, res).await;
+        return;
+    }
+
+    let mut selectors = req.headers().get_all("arkret-operation").iter();
+    let Some(selector) = selectors.next() else {
+        ApiErrorCode::OperationSelectorRequired.render(
+            res,
+            "canonical Arkret HTTP requests require Arkret-Operation",
+        );
+        ctrl.skip_rest();
+        return;
+    };
+    if selectors.next().is_some() {
+        ApiErrorCode::UnsupportedOperationVersion
+            .render(res, "Arkret-Operation must contain exactly one value");
+        ctrl.skip_rest();
+        return;
+    }
+    let Some(selected) = selector
+        .to_str()
+        .ok()
+        .and_then(arkret_sdk::ServiceOperationId::from_wire)
+    else {
+        ApiErrorCode::UnsupportedOperationVersion.render(
+            res,
+            "Arkret-Operation is not a registered exact operation id",
+        );
+        ctrl.skip_rest();
+        return;
+    };
+    if !query::describe::supports_http_operation(selected)
+        || !selected.matches_http_request(req.method().as_str(), req.uri().path())
+    {
+        ApiErrorCode::UnsupportedOperationVersion.render(
+            res,
+            "Arkret-Operation is not advertised or does not match the selected HTTP route",
+        );
+        ctrl.skip_rest();
+        return;
+    }
+    ctrl.call_next(req, depot, res).await;
 }
 
 #[handler]
@@ -488,7 +528,7 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
             Method::HEAD,
             Method::OPTIONS,
         ])
-        .allow_headers(vec!["authorization", "content-type"])
+        .allow_headers(vec!["authorization", "content-type", "arkret-operation"])
         .max_age(3600)
         .into_handler()
 }
@@ -496,13 +536,7 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
 /// Build the OpenAPI document for teabay's Directory Service surface.
 pub fn openapi(router: &Router) -> serde_json::Value {
     let mut doc = OpenApi::new("teabay", env!("CARGO_PKG_VERSION"))
-        .add_extension(
-            "x-arkret-profile",
-            json!({
-                "profile": arkret_wire::ProfileId::DIRECTORY_SERVICE_V1,
-                "spec": "arkret-spec/spec/v1/zh/discovery/discovery-directory.md",
-            }),
-        )
+        .add_extension("x-arkret-service-kind", json!("directory_service"))
         .add_extension("x-arkret-artifact-first", json!(true))
         .merge_router(router);
     register_teabay_operations(&mut doc);
@@ -711,9 +745,17 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return every operator-takedown audit row within an optional `since` / `until` window.",
         ),
         (
+            "/_arkret/describe",
+            PathItemType::Get,
+            arkret_wire::ServiceOperationId::SERVER_READ_DESCRIBE_V1,
+            "directory",
+            "Describe Directory Service Role",
+            "Expose the role-local Directory Service capability document.",
+        ),
+        (
             "/_arkret/find/directory/describe",
             PathItemType::Get,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_DESCRIBE,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_DESCRIBE_V1,
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
@@ -721,7 +763,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/takedown/appeal",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL_V1,
             "directory",
             "Submit Takedown Appeal",
             "Submit a resource-signed operator takedown appeal packet.",
@@ -729,7 +771,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-realms",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
             "query",
             "Search Realms",
             "Return listed/public Realm directory results using the §9.1 result envelope.",
@@ -737,7 +779,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-realm",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
             "query",
             "Resolve Realm",
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
@@ -750,7 +792,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // resolved object. Realm resolution delegates to resolve_realm.
             "/_arkret/find/directory/resolve-target",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_TARGET,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_TARGET_V1,
             "query",
             "Resolve Target",
             "Resolve a client-agnostic shareable object address (Realm / Strand / Message) to a \
@@ -761,7 +803,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-organizations",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS_V1,
             "query",
             "Search Organizations",
             "Return public/listed Organization directory results.",
@@ -769,7 +811,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-organization",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
             "query",
             "Resolve Organization",
             "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
@@ -777,7 +819,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-actors",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ACTORS,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ACTORS_V1,
             "query",
             "Search Actors",
             "Return public Actor discovery records.",
@@ -785,7 +827,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-users",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_USERS,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_USERS_V1,
             "query",
             "Search Users",
             "Realm-gated user search using indexed membership hints.",
@@ -793,7 +835,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-handle",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
             "query",
             "Resolve Handle",
             "Resolve handle discovery resources with the Directory result envelope.",
@@ -813,7 +855,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
             "/_arkret/find/directory/list-handles-for-subject",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT_V1,
             "query",
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
@@ -821,17 +863,9 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              subjects (ak:actor:/ak:account:/service DID) with failed_precondition.",
         ),
         (
-            "/_arkret/find/directory/private-contact-discovery",
-            PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_PRIVATE_CONTACT_DISCOVERY,
-            "query",
-            "Private Contact Discovery",
-            "RFC 9497 VOPRF two-phase private contact discovery.",
-        ),
-        (
             "/_arkret/find/directory/announce",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed ak.{kind}.discovery state.",
@@ -839,7 +873,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/withdraw",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_WITHDRAW,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_WITHDRAW_V1,
             "ingest",
             "Withdraw Discovery State",
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
@@ -847,7 +881,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/push/register",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER,
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER_V1,
             "ingest",
             "Subscribe To Directory Updates",
             "Register an HMAC-signed webhook subscription for accepted ingest updates.",
@@ -882,7 +916,76 @@ fn operation(operation_id: &str, tag: &str, summary: &str, description: &str) ->
 
 #[cfg(test)]
 mod tests {
+    use salvo::test::TestClient;
+
     use super::*;
+
+    #[handler]
+    async fn selector_test_ok(res: &mut Response) {
+        res.status_code(StatusCode::NO_CONTENT);
+    }
+
+    fn selector_test_service() -> Service {
+        Service::new(
+            Router::with_path("_arkret/find/directory")
+                .hoop(operation_selector_middleware)
+                .push(Router::with_path("describe").get(selector_test_ok))
+                .push(Router::with_path("resolve-agent-selector").post(selector_test_ok)),
+        )
+    }
+
+    #[tokio::test]
+    async fn operation_selector_is_required_and_exact_before_handlers() {
+        let service = selector_test_service();
+        let missing = TestClient::get("http://local/_arkret/find/directory/describe")
+            .send(&service)
+            .await;
+        assert_eq!(missing.status_code, Some(StatusCode::BAD_REQUEST));
+
+        let unknown = TestClient::get("http://local/_arkret/find/directory/describe")
+            .add_header(
+                "Arkret-Operation",
+                "ak.find.directory.read.describe.v9",
+                true,
+            )
+            .send(&service)
+            .await;
+        assert_eq!(unknown.status_code, Some(StatusCode::UNPROCESSABLE_ENTITY));
+
+        let mismatch = TestClient::get("http://local/_arkret/find/directory/describe")
+            .add_header(
+                "Arkret-Operation",
+                arkret_sdk::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+                true,
+            )
+            .send(&service)
+            .await;
+        assert_eq!(mismatch.status_code, Some(StatusCode::UNPROCESSABLE_ENTITY));
+
+        let unadvertised =
+            TestClient::post("http://local/_arkret/find/directory/resolve-agent-selector")
+                .add_header(
+                    "Arkret-Operation",
+                    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_AGENT_SELECTOR_V1,
+                    true,
+                )
+                .send(&service)
+                .await;
+        assert_eq!(
+            unadvertised.status_code,
+            Some(StatusCode::UNPROCESSABLE_ENTITY)
+        );
+
+        let accepted = TestClient::get("http://local/_arkret/find/directory/describe")
+            .add_header(
+                "Arkret-Operation",
+                arkret_sdk::ServiceOperationId::FIND_DIRECTORY_READ_DESCRIBE_V1,
+                true,
+            )
+            .send(&service)
+            .await;
+        assert_eq!(accepted.status_code, Some(StatusCode::NO_CONTENT));
+    }
 
     #[test]
     fn openapi_keeps_unsigned_handle_probe_off_well_known_surface() {
@@ -894,7 +997,7 @@ mod tests {
         assert!(!yaml.contains("/.well-known/arkret/handle:"));
         assert!(!yaml.contains("org.arkret.teabay.well_known_handle"));
         assert!(yaml.contains("x-arkret-artifact-first: true"));
-        assert!(yaml.contains("ak.find.directory.read.search_realms"));
+        assert!(yaml.contains("ak.find.directory.read.search_realms.v1"));
         assert!(yaml.contains("DirectoryRealmSearchOutcome"));
 
         let canonical: serde_json::Value = serde_norway::from_str(

@@ -33,7 +33,7 @@ the readiness probe.
 ## Failover / Restart
 
 Durable state lives entirely in **PostgreSQL** (`directory_resources`,
-`ingest_announces`, `withdrawals`, PSI batch/quota tables, `directory_audit`).
+`ingest_announces`, `withdrawals`, `directory_audit`).
 The teabay process itself is stateless — restarting it loses nothing. The
 admin SPA is a separate static image and can be restarted independently.
 

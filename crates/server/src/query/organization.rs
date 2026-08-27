@@ -63,7 +63,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         &claims.claim_presentations,
     );
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
-        "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS,
+        "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS_V1,
         "query": &needle,
     })) {
         Ok(digest) => digest,
@@ -108,7 +108,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     );
     let result = pad_to_budget_observed(
         budget,
-        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS,
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS_V1,
         &privacy_key,
         |target| {
             state
@@ -240,14 +240,14 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    // `ak.find.directory.read.resolve_organization` has no requester,
+    // `ak.find.directory.read.resolve_organization.v1` has no requester,
     // proof_challenge or claim_presentations input (spec §9 operation table):
     // its only authorization channel is the §9.0.1 `proofs[]`. A `restricted`
     // organization row therefore has no way to be unlocked here and collapses
     // to the same blinded `not_found` as a genuine miss.
     let row = pad_to_budget_observed(
         budget,
-        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION,
+        arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
         &key,
         |target| {
             state

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use diesel::prelude::*;
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel_async::RunQueryDsl;
 use serde_json::json;
 use tokio::time::interval;
 use tracing::{info, warn};
@@ -69,25 +69,10 @@ impl ExpiryWorker {
         use crate::schema::directory_resources::dsl as r;
         let mut conn = self.state.db().get().await?;
         let cutoff = Utc::now() - chrono::Duration::from_std(self.grace)?;
-        let purged = conn
-            .transaction::<Vec<(DirectoryResourceKindDb, String)>, anyhow::Error, _>(
-                async move |conn| {
-                    let rows = diesel::delete(r::directory_resources)
-                        .filter(r::expires_at.lt(cutoff))
-                        .returning((r::resource_kind, r::resource_id))
-                        .get_results::<(DirectoryResourceKindDb, String)>(&mut *conn)
-                        .await?;
-                    for (resource_kind, resource_id) in &rows {
-                        crate::psi_index::delete_resource_tokens_on_conn(
-                            &mut *conn,
-                            *resource_kind,
-                            resource_id,
-                        )
-                        .await?;
-                    }
-                    Ok(rows)
-                },
-            )
+        let purged = diesel::delete(r::directory_resources)
+            .filter(r::expires_at.lt(cutoff))
+            .returning((r::resource_kind, r::resource_id))
+            .get_results::<(DirectoryResourceKindDb, String)>(&mut *conn)
             .await?;
         let deleted = purged.len();
         if deleted > 0 {

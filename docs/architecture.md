@@ -26,7 +26,6 @@ Salvo router
     |      search-actors
     |      search-users
     |      resolve-handle
-    |      private-contact-discovery
     |
     +-- ingest face
     |      announce
@@ -74,9 +73,6 @@ PostgreSQL is the system of record for the directory index.
 - `ingest_announces` records accepted announce attempts and request digests.
 - `withdrawals` records resource and operator withdrawal activity.
 - `webhook_subscriptions` tracks push notification fanout registrations.
-- `psi_epoch_keys` stores Private Contact Discovery epoch keys.
-- `psi_batches` and `psi_quota_windows` bind two-round PSI state and durable
-  per-device quota windows.
 - `accept_allowlist` stores operator-managed accept-policy entries.
 - `directory_audit` is the append-only operator-readable audit feed.
 

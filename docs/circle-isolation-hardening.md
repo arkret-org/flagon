@@ -47,9 +47,6 @@ teabay rejects the following request shapes at the verify layer with an
    boundaries unless the subscriber is the resource's own Principal Server.
 4. Any `actor.resolve` whose `audience` claim is from a circle the
    resource is `unlisted` in.
-5. Any `psi` query whose epoch crosses a circle root rotation; the server
-   forces a fresh blinded epoch.
-
 The reject is fail-closed: no row data is returned, no existence signal
 leaks, and the standard anti-enumeration latency budget still applies.
 
