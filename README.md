@@ -1,7 +1,5 @@
 # teabay
 
-> **Spec target**: [arkret-spec @ c2848a4](../arkret-spec) (R3.4 sync 2026-05-31)
-
 Reference Arkret v1 **Directory Service** implementation.
 
 teabay is the *discovery entry layer* of the Arkret protocol stack: it accepts
