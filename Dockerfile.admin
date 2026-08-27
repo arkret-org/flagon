@@ -11,7 +11,7 @@
 # can deploy / scale the front-end independently of the server
 # (canary releases, CDN fronting, etc.).
 
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
+FROM --platform=$BUILDPLATFORM rust:bookworm AS builder
 
 WORKDIR /workspace
 

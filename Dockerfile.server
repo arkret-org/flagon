@@ -10,7 +10,7 @@
 # P2E.4 — split out from the previous monolithic `Dockerfile` so the
 # admin SPA has its own image (`Dockerfile.admin`).
 
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS builder
+FROM --platform=$BUILDPLATFORM rust:bookworm AS builder
 
 WORKDIR /workspace
 
