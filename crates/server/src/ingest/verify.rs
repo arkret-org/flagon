@@ -471,7 +471,7 @@ pub(crate) fn verify_governance_proof(
     request: &impl DirectoryGovernanceRequest,
     resource_kind: DirectoryResourceKindDb,
     expected_controller_did: Option<&str>,
-    directory_service_id: &str,
+    directory_id: &str,
     resolver: &SharedDidResolver,
     now: DateTime<Utc>,
 ) -> Result<(), (ApiErrorCode, String)> {
@@ -491,7 +491,7 @@ pub(crate) fn verify_governance_proof(
         ));
     }
 
-    if proof.audience.as_str() != directory_service_id {
+    if proof.audience_id.as_str() != directory_id {
         return Err((
             ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
             "governance proof audience must be this directory's service_id".to_owned(),

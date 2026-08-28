@@ -203,7 +203,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 apply_verified_organizations(&state, &realm_id, preview).await;
             }
             res.render(Json(DirectoryRealmSearchOutcome {
-                realms: results,
+                realm_previews: results,
                 next_cursor,
                 has_more,
             }));

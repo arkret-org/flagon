@@ -90,19 +90,19 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
             if has_more {
                 rows.truncate(limit as usize);
             }
-            let actors = match rows
+            let actor_previews = match rows
                 .into_iter()
                 .map(|row| actor_preview_from_envelope(envelope_from_row(row)))
                 .collect::<Result<Vec<_>, _>>()
             {
-                Ok(actors) => actors,
+                Ok(actor_previews) => actor_previews,
                 Err(message) => {
                     ApiErrorCode::InternalError.render(res, message);
                     return;
                 }
             };
             res.render(Json(DirectoryActorSearchOutcome {
-                actors,
+                actor_previews,
                 next_cursor: None,
                 has_more,
             }));
