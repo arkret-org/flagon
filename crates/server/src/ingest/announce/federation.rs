@@ -192,7 +192,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
 /// discovery proof.
 #[derive(Debug, Clone, Default)]
 pub struct FederationCachePersist {
-    pub source_service_id: String,
+    pub source_id: String,
     pub verification_method: String,
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,

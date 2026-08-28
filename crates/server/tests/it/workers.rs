@@ -127,7 +127,7 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
         let mut conn = state.db().get().await?;
         diesel::sql_query(
             "INSERT INTO directory_resources (\
-                 resource_kind, resource_id, principal_server_service_id, discovery_state, \
+                 resource_kind, resource_id, principal_server_id, discovery_state, \
                  public_projection, discoverability, as_of, source_refs, policy_revision, indexed_at, \
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \

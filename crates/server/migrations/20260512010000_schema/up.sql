@@ -136,7 +136,7 @@ CREATE TABLE ingest_announces (
     announce_id       TEXT              PRIMARY KEY,
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    principal_server_service_id TEXT           NOT NULL,
+    principal_server_id TEXT           NOT NULL,
     ingest_mode       ingest_mode       NOT NULL,
     discovery_state   JSONB             NOT NULL,
     source_refs       TEXT[]            NOT NULL,
@@ -537,7 +537,7 @@ ALTER TABLE ingest_announces
 
 ALTER TABLE ingest_announces
     ADD CONSTRAINT ingest_announces_principal_server_service_id_core_shape_chk
-        CHECK (principal_server_service_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
+        CHECK (principal_server_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 COMMENT ON CONSTRAINT directory_resources_resource_id_core_shape_chk
     ON directory_resources IS

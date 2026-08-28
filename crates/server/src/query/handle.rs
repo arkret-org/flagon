@@ -1039,7 +1039,7 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.tea",
+                "recipient_id": "ak:did_core:web:principal.tea",
                 "binding_source": "join_policy",
             },
         }));
@@ -1089,7 +1089,7 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.anywhere",
+                "recipient_id": "ak:did_core:web:principal.anywhere",
                 "binding_source": "join_policy",
             },
         }));
@@ -1131,7 +1131,7 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.tea",
+                "recipient_id": "ak:did_core:web:principal.tea",
                 "binding_source": "join_policy",
             },
         }));
@@ -1139,7 +1139,7 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.other",
+                "recipient_id": "ak:did_core:web:principal.other",
                 "binding_source": "join_policy",
             },
         }));
@@ -1309,7 +1309,7 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.tea",
+                "recipient_id": "ak:did_core:web:principal.tea",
                 "binding_source": "explicit",
             }
         }));

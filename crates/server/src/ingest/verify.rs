@@ -667,7 +667,7 @@ async fn verify_first_source_ref_resolves(
                 ApiErrorCode::SourceRefsUnverifiable,
                 format!(
                     "cannot verify source_refs for principal server `{}`: {reason}",
-                    req.principal_server_service_id
+                    req.principal_server_id
                 ),
             )
         })?;

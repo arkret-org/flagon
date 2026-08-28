@@ -72,7 +72,7 @@ diesel::table! {
         announce_id -> Text,
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        principal_server_service_id -> Text,
+        principal_server_id -> Text,
         ingest_mode -> IngestMode,
         discovery_state -> Jsonb,
         source_refs -> Array<Text>,

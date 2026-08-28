@@ -399,7 +399,7 @@ async fn upsert_managed_resource(
         .on_conflict((r::resource_kind, r::resource_id))
         .do_update()
         .set((
-            r::principal_server_service_id.eq(body.principal_server_service_id.trim()),
+            r::principal_server_id.eq(body.principal_server_id.trim()),
             r::discovery_state.eq(&discovery_state),
             r::public_projection.eq(&public_projection),
             r::discoverability.eq(discoverability),
@@ -468,7 +468,7 @@ async fn delete_managed_resource(
                 .filter(r::resource_kind.eq(resource_kind))
                 .filter(r::resource_id.eq(resource_id))
                 .select((
-                    r::principal_server_service_id,
+                    r::principal_server_id,
                     r::policy_revision,
                     r::via_services,
                     r::last_announce_id,

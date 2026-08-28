@@ -124,7 +124,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             AuditEventKind::IngestRejected,
             Some(body.resource_kind),
             Some(&body.resource_id),
-            Some(body.principal_server_service_id.as_str()),
+            Some(body.principal_server_id.as_str()),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "circle_isolation_violation",
@@ -148,7 +148,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             AuditEventKind::IngestRejected,
             Some(body.resource_kind),
             Some(&body.resource_id),
-            Some(body.principal_server_service_id.as_str()),
+            Some(body.principal_server_id.as_str()),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "noncanonical_handle",
@@ -286,7 +286,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 AuditEventKind::IngestRejected,
                 Some(body.resource_kind),
                 Some(&body.resource_id),
-                Some(body.principal_server_service_id.as_str()),
+                Some(body.principal_server_id.as_str()),
                 json!({ "code": code.wire_code(), "message": msg }),
             )
             .await;
@@ -408,7 +408,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 AuditEventKind::IngestRejected,
                 Some(body.resource_kind),
                 Some(&body.resource_id),
-                Some(body.principal_server_service_id.as_str()),
+                Some(body.principal_server_id.as_str()),
                 json!({ "code": code.wire_code(), "message": msg, "reason": "projection_rejected" }),
             )
             .await;
@@ -472,7 +472,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 AuditEventKind::IngestRejected,
                 Some(body.resource_kind),
                 Some(&body.resource_id),
-                Some(body.principal_server_service_id.as_str()),
+                Some(body.principal_server_id.as_str()),
                 json!({
                     "reason": "realm_organization_statement_rejected",
                     "rejected": statement_outcome
@@ -532,7 +532,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         AuditEventKind::IngestAccepted,
         Some(body.resource_kind),
         Some(&body.resource_id),
-        Some(body.principal_server_service_id.as_str()),
+        Some(body.principal_server_id.as_str()),
         json!({
             "announce_id": announce_id,
             "ingest_mode": "push",
@@ -549,7 +549,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             AuditEventKind::RealmDestroyed,
             Some(body.resource_kind),
             Some(&body.resource_id),
-            Some(body.principal_server_service_id.as_str()),
+            Some(body.principal_server_id.as_str()),
             json!({
                 "announce_id": announce_id,
                 "as_of": body.as_of,

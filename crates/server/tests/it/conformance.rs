@@ -673,20 +673,20 @@ async fn assert_three_path_takedown_strand(
     destroyed_state["as_of_destroyed"] = json!(Utc::now());
     let destroy_source_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
     let destroy_mock = MockPrincipalServer::spawn(destroy_source_ref)?;
-    let destroy_principal_server_service_id = destroy_mock.principal_server_id()?;
+    let destroy_principal_server_id = destroy_mock.principal_server_id()?;
     let discovery_event = signed_realm_discovery_event(
         destroyed_realm_id,
         destroyed_state,
         &verification_method,
         &signing_key,
-        &destroy_principal_server_service_id,
+        &destroy_principal_server_id,
     )?;
     let res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
             "discovery_event": discovery_event,
             "source_refs": [destroy_source_ref],
             "as_of": Utc::now(),
-            "principal_server_id": destroy_principal_server_service_id,
+            "principal_server_id": destroy_principal_server_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -706,20 +706,20 @@ async fn assert_three_path_takedown_strand(
     // proof receipt and blinds subsequent resolves.
     let withdraw_source_ref = "ak:event:AR8bu-n-kOOB3nRUvYuIEglCX5B-JpFaNTex9gxs_cWY";
     let withdraw_mock = MockPrincipalServer::spawn(withdraw_source_ref)?;
-    let withdraw_principal_server_service_id = withdraw_mock.principal_server_id()?;
+    let withdraw_principal_server_id = withdraw_mock.principal_server_id()?;
     let discovery_event = signed_realm_discovery_event(
         withdrawn_realm_id,
         realm_discovery_state("Withdrawable Tea"),
         &verification_method,
         &signing_key,
-        &withdraw_principal_server_service_id,
+        &withdraw_principal_server_id,
     )?;
     let res = TestClient::post("http://local/_arkret/find/directory/announce")
         .json(&json!({
             "discovery_event": discovery_event,
             "source_refs": [withdraw_source_ref],
             "as_of": Utc::now(),
-            "principal_server_id": withdraw_principal_server_service_id,
+            "principal_server_id": withdraw_principal_server_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -922,7 +922,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .json(&json!({
             "resource_kind": "organization",
             "resource_id": managed_resource_id,
-            "principal_server_service_id": "ak:did_core:web:directory.test",
+            "principal_server_id": "ak:did_core:web:directory.test",
             "public_projection": {
                 "organization_principal_id": managed_resource_id,
                 "name": "Admin Managed Directory Row",
@@ -1172,7 +1172,7 @@ fn signed_realm_discovery_event(
     discovery_state: JsonValue,
     verification_method: &str,
     signing_key: &SigningKey,
-    principal_server_service_id: &str,
+    principal_server_id: &str,
 ) -> anyhow::Result<JsonValue> {
     let realm_id = RealmId::new(realm_id.to_owned())?;
     let signer_did = Did::new(

@@ -274,7 +274,7 @@ pub(crate) async fn upsert_resource_and_audit(
             .on_conflict((r::resource_kind, r::resource_id))
             .do_update()
             .set((
-                r::principal_server_service_id.eq(body.principal_server_service_id.as_str()),
+                r::principal_server_id.eq(body.principal_server_id.as_str()),
                 r::discovery_state.eq(body.discovery_state.as_value()),
                 r::public_projection.eq(&public_projection),
                 r::discoverability.eq(verified.discoverability),

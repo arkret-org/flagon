@@ -196,7 +196,7 @@ pub struct ResourceList {
 pub struct ResourceItem {
     pub resource_kind: String,
     pub resource_id: String,
-    pub principal_server_service_id: String,
+    pub principal_server_id: String,
     pub discovery_state: DirectoryDiscoveryState,
     pub public_projection: DirectoryPublicProjection,
     pub discoverability: String,
