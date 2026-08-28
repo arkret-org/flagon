@@ -66,10 +66,10 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         organization_principal_id: body.organization_principal_id,
         source_realm_id: body.source_realm_id,
     };
-    let requester = body.requester;
+    let requester_id = body.requester_id;
     let verified_claims = verified_restricted_claims_for_realm_query(
         &state,
-        requester.as_ref().map(DidCoreId::as_str),
+        requester_id.as_ref().map(DidCoreId::as_str),
         body.proof_challenge.as_deref(),
         &body.claim_presentations,
     );
@@ -86,12 +86,12 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
     };
     let cursor_context = CursorBindingContext::new(
-        requester
+        requester_id
             .as_ref()
             .map(DidCoreId::as_str)
             .unwrap_or("anonymous"),
         None,
-        state.config().service_id.clone(),
+        state.service_core_id().clone(),
         filter_digest,
     );
     let cursor = match body.cursor.as_deref() {
@@ -147,7 +147,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 &needle,
                 &scope,
                 cursor.as_ref(),
-                requester.as_ref().map(DidCoreId::as_str),
+                requester_id.as_ref().map(DidCoreId::as_str),
                 &verified_claims,
                 limit + 1,
             )
@@ -238,14 +238,14 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         }
     };
 
-    let requester = body
-        .requester
+    let requester_id = body
+        .requester_id
         .as_ref()
         .map(DidCoreId::as_str)
         .map(str::to_owned);
     let verified_claims = verified_restricted_claims_for_realm_query(
         &state,
-        requester.as_deref(),
+        requester_id.as_deref(),
         body.proof_challenge.as_deref(),
         &body.claim_presentations,
     );
@@ -289,7 +289,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 Ok(None) => return Ok(None),
                 Err(error) => return Err(format!("realm resolve: {error}")),
             };
-            if !is_result_visible(&row, requester.as_deref(), &verified_claims) {
+            if !is_result_visible(&row, requester_id.as_deref(), &verified_claims) {
                 return Ok(None);
             }
             let join_candidates = join_candidates_for_row(&row);
@@ -327,13 +327,13 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
 
 fn verified_restricted_claims_for_realm_query(
     state: &AppState,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     proof_challenge: Option<&str>,
     presentations: &[arkret_sdk::DirectoryRestrictedClaimPresentation],
 ) -> VerifiedRestrictedClaims {
     verify_restricted_claim_presentations(
         presentations,
-        requester,
+        requester_id,
         proof_challenge,
         state.config().service_id.as_str(),
         state.did_bindings(),
@@ -372,13 +372,13 @@ pub(crate) struct ResolvedRealm {
 pub(crate) async fn resolve_realm_visible(
     state: &AppState,
     key: &str,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> anyhow::Result<Option<ResolvedRealm>> {
     let Some(row) = load_realm_row(state, key).await? else {
         return Ok(None);
     };
-    if !is_result_visible(&row, requester, verified_claims) {
+    if !is_result_visible(&row, requester_id, verified_claims) {
         return Ok(None);
     }
     let realm_id = row.resource_id.clone();
@@ -535,7 +535,7 @@ async fn run_visible_realm_search(
     needle: &str,
     scope: &SearchScope,
     cursor: Option<&RealmCursor>,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
     visible_limit: i64,
 ) -> anyhow::Result<Vec<RealmRow>> {
@@ -555,7 +555,7 @@ async fn run_visible_realm_search(
         let mut next_scan_cursor = None;
         for row in rows {
             next_scan_cursor = Some(cursor_from_row(&row));
-            if is_result_visible(&row, requester, verified_claims) {
+            if is_result_visible(&row, requester_id, verified_claims) {
                 visible_rows.push(row);
                 if visible_rows.len() >= target_len {
                     return Ok(visible_rows);
@@ -727,10 +727,8 @@ async fn apply_verified_organizations(
         if !is_owning || !row.covers_scope("official_badge") {
             continue;
         }
-        if let Ok(did) = DidCoreId::new(row.organization_principal_id.clone())
-            && !owning.contains(&did)
-        {
-            owning.push(did);
+        if !owning.contains(&row.organization_principal_id) {
+            owning.push(row.organization_principal_id);
         }
     }
 
@@ -758,7 +756,7 @@ fn join_candidates_for_row(_row: &RealmRow) -> Vec<RealmJoinCandidate> {
 
 fn is_result_visible(
     row: &RealmRow,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
     // Once reachability has been revoked for the
@@ -770,9 +768,11 @@ fn is_result_visible(
     }
     match row.discoverability {
         DiscoverabilityDb::Public | DiscoverabilityDb::Listed => true,
-        DiscoverabilityDb::Restricted => {
-            has_restricted_query_authorization(&row.public_projection, requester, verified_claims)
-        }
+        DiscoverabilityDb::Restricted => has_restricted_query_authorization(
+            &row.public_projection,
+            requester_id,
+            verified_claims,
+        ),
         DiscoverabilityDb::Unlisted | DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret => {
             false
         }
@@ -781,10 +781,14 @@ fn is_result_visible(
 
 fn has_restricted_query_authorization(
     projection: &JsonValue,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
-    crate::filter::discoverers::matches_allowed_discoverers(projection, requester, verified_claims)
+    crate::filter::discoverers::matches_allowed_discoverers(
+        projection,
+        requester_id,
+        verified_claims,
+    )
 }
 
 impl TryFrom<RealmSqlRow> for RealmRow {
@@ -934,7 +938,7 @@ mod tests {
                         "type": "claim",
                         "claim_kind": "organization_membership",
                         "organization_id": "ak:did_core:web:acme.example",
-                        "issuer": "ak:did_core:web:acme.example"
+                        "issuer_id": "ak:did_core:web:acme.example"
                     }
                 ]
             }

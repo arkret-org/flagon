@@ -417,9 +417,9 @@ impl DidBindingDirectory {
     ///
     /// 1. empty accepted-method allowlist → fail closed (the SDK policy layer treats "empty" as
     ///    "any method", so this guard has to sit above it);
-    /// 2. `verification_method` must parse as a `DidUrl` and its DID part must equal `issuer`;
-    /// 3. the issuer's DID method must be on the allowlist;
-    /// 4. an accepted binding for `(issuer, purpose, verification_method)` → verify against its
+    /// 2. `verification_method` must parse as a `DidUrl` and its DID part must equal `issuer_id`;
+    /// 3. the issuer_id's DID method must be on the allowlist;
+    /// 4. an accepted binding for `(issuer_id, purpose, verification_method)` → verify against its
     ///    pinned document;
     /// 5. otherwise, `did:key` issuers are decoded locally and accepted (still zero network);
     /// 6. otherwise fail closed with [`BindingFailure::NoBinding`]. **No live resolution**, which
@@ -427,7 +427,7 @@ impl DidBindingDirectory {
     ///
     /// Records exactly one `teabay_signature_verify_total{kind,outcome}`.
     // Each parameter is an independent part of the verification question
-    // (bytes, signature, key, issuer, purpose); a bundle type would make a
+    // (bytes, signature, key, issuer_id, purpose); a bundle type would make a
     // mismatched pair constructible.
     #[allow(clippy::too_many_arguments)]
     pub fn verify_detached_jws(
@@ -435,7 +435,7 @@ impl DidBindingDirectory {
         canonical_bytes: &[u8],
         jws: &str,
         verification_method: &str,
-        issuer: &str,
+        issuer_id: &str,
         purpose: DidBindingPurpose,
         kind: &'static str,
         now: DateTime<Utc>,
@@ -444,7 +444,7 @@ impl DidBindingDirectory {
             canonical_bytes,
             jws,
             verification_method,
-            issuer,
+            issuer_id,
             purpose,
             now,
         );
@@ -463,20 +463,20 @@ impl DidBindingDirectory {
         canonical_bytes: &[u8],
         jws: &str,
         verification_method: &str,
-        issuer: &str,
+        issuer_id: &str,
         purpose: DidBindingPurpose,
         now: DateTime<Utc>,
     ) -> Result<(), BindingFailure> {
-        let (issuer, verification_method) =
-            self.parse_signer(verification_method, issuer, purpose)?;
-        let accepted = match self.accepted(&issuer, purpose, Some(&verification_method), now) {
+        let (issuer_id, verification_method) =
+            self.parse_signer(verification_method, issuer_id, purpose)?;
+        let accepted = match self.accepted(&issuer_id, purpose, Some(&verification_method), now) {
             Some(accepted) => accepted,
-            None if issuer.method() == "key" => self
-                .accept_did_key(&issuer, purpose, Some(&verification_method), now)
+            None if issuer_id.method() == "key" => self
+                .accept_did_key(&issuer_id, purpose, Some(&verification_method), now)
                 .map_err(BindingFailure::NoBinding)?,
             None => {
                 return Err(BindingFailure::NoBinding(format!(
-                    "no accepted `{purpose}` binding for `{issuer}`"
+                    "no accepted `{purpose}` binding for `{issuer_id}`"
                 )));
             }
         };
@@ -492,7 +492,7 @@ impl DidBindingDirectory {
     pub(crate) fn parse_signer(
         &self,
         verification_method: &str,
-        issuer: &str,
+        issuer_id: &str,
         purpose: DidBindingPurpose,
     ) -> Result<(Did, DidUrl), BindingFailure> {
         // No empty-allowlist guard is needed here any more, and one would be
@@ -507,25 +507,25 @@ impl DidBindingDirectory {
             DidUrl::new(verification_method.trim().to_owned()).map_err(|error| {
                 BindingFailure::PolicyRejected(format!("verification_method: {error}"))
             })?;
-        let issuer = Did::new(issuer.trim().to_owned())
-            .map_err(|error| BindingFailure::PolicyRejected(format!("issuer: {error}")))?;
+        let issuer_id = Did::new(issuer_id.trim().to_owned())
+            .map_err(|error| BindingFailure::PolicyRejected(format!("issuer_id: {error}")))?;
         let method_did = verification_method
             .as_str()
             .split_once('#')
             .map(|(did, _)| did)
             .unwrap_or(verification_method.as_str());
-        if method_did != issuer.as_str() {
+        if method_did != issuer_id.as_str() {
             return Err(BindingFailure::PolicyRejected(format!(
-                "verification_method `{verification_method}` is not controlled by `{issuer}`"
+                "verification_method `{verification_method}` is not controlled by `{issuer_id}`"
             )));
         }
-        if !self.method_allowed(&format!("did:{}", issuer.method())) {
+        if !self.method_allowed(&format!("did:{}", issuer_id.method())) {
             return Err(BindingFailure::PolicyRejected(format!(
                 "DID method did:{} is outside TEABAY_ACCEPTED_DID_METHODS (purpose {purpose})",
-                issuer.method()
+                issuer_id.method()
             )));
         }
-        Ok((issuer, verification_method))
+        Ok((issuer_id, verification_method))
     }
 }
 
@@ -816,13 +816,13 @@ mod tests {
             .verify_detached_jws(
                 b"payload",
                 "jws",
-                "did:web:issuer.example#key-1",
-                "did:web:issuer.example",
+                "did:web:issuer_id.example#key-1",
+                "did:web:issuer_id.example",
                 DidBindingPurpose::DirectoryIssuer,
                 crate::observability::SIGNATURE_KIND_RESTRICTED_CLAIM,
                 Utc::now(),
             )
-            .expect_err("unknown issuer must fail closed");
+            .expect_err("unknown issuer_id must fail closed");
         assert!(matches!(failure, BindingFailure::NoBinding(_)), "{failure}");
         assert_eq!(
             directory
@@ -850,8 +850,8 @@ mod tests {
             .expect("ingest acceptance");
 
         // A `DirectoryIngest` acceptance is keyed under its own purpose, so an
-        // issuer lookup misses it. For a `did:key` issuer the local decode then
-        // establishes the issuer binding separately (still zero network); for
+        // issuer_id lookup misses it. For a `did:key` issuer_id the local decode then
+        // establishes the issuer_id binding separately (still zero network); for
         // anything else this would fail closed.
         assert!(
             directory
@@ -873,7 +873,7 @@ mod tests {
                 crate::observability::SIGNATURE_KIND_INVITE_TOKEN,
                 now,
             )
-            .expect("issuer purpose gets its own acceptance");
+            .expect("issuer_id purpose gets its own acceptance");
         assert_eq!(directory.len(), 2);
     }
 

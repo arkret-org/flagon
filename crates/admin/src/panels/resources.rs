@@ -331,7 +331,7 @@ fn ResourceRow(
         tr { class: if is_selected { "row-selected" } else { "" },
             td { span { class: BADGE_NEUTRAL, "{item.resource_kind}" } }
             td { class: "mono", "{item.resource_id}" }
-            td { class: "mono", "{item.principal_server_service_id}" }
+            td { class: "mono", "{item.principal_server_id}" }
             td {
                 div { class: "metric-row",
                     span { class: BADGE_NEUTRAL, "{item.discoverability}" }
@@ -370,7 +370,7 @@ fn ResourceEditor(mut editor: Signal<ResourceEditorForm>) -> Element {
     let resource_id = form.resource_id.clone();
     let id_empty = resource_id.trim().is_empty();
     let kind = form.resource_kind.clone();
-    let principal = form.principal_server_service_id.clone();
+    let principal = form.principal_server_id.clone();
     let discoverability = form.discoverability.clone();
     let as_of = form.as_of.clone();
     let ttl = form.effective_ttl_seconds.clone();
@@ -421,7 +421,7 @@ fn ResourceEditor(mut editor: Signal<ResourceEditorForm>) -> Element {
                     label { "Principal server service core id" }
                     input {
                         value: "{principal}",
-                        oninput: move |event| editor.with_mut(|f| f.principal_server_service_id = event.value()),
+                        oninput: move |event| editor.with_mut(|f| f.principal_server_id = event.value()),
                     }
                 }
                 div { class: "field span-4",

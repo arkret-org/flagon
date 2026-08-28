@@ -124,14 +124,14 @@ async fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
 
 async fn install_restricted_realm_claim_selector(
     db: &server::Db,
-    issuer: &str,
+    issuer_id: &str,
     organization: &str,
 ) -> anyhow::Result<()> {
     let mut conn = db.get().await?;
     let discoverers = json!([{
         "type": "claim",
         "claim_kind": "organization_membership",
-        "issuer": issuer,
+        "issuer_id": issuer_id,
         "organization_id": organization
     }]);
     diesel::sql_query(
@@ -390,15 +390,15 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let verification_method =
         arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_did.as_str()))
             .map_err(anyhow::Error::msg)?;
-    let issuer = arkret_sdk::project_did_to_core_id(&issuer_did)?;
-    let subject = DidCoreId::new("ak:did_core:web:alice.example".to_owned())?;
+    let issuer_id = arkret_sdk::project_did_to_core_id(&issuer_did)?;
+    let subject_id = DidCoreId::new("ak:did_core:web:alice.example".to_owned())?;
     let organization = DidCoreId::new("ak:did_core:web:tea-org.example".to_owned())?;
-    install_restricted_realm_claim_selector(db, issuer.as_str(), organization.as_str()).await?;
+    install_restricted_realm_claim_selector(db, issuer_id.as_str(), organization.as_str()).await?;
     let proof_challenge = "realm-restricted-proof-challenge-1";
     let claim = DirectoryPresentedClaim {
         claim_id: "claim-realm-restricted".to_owned(),
-        subject: subject.clone(),
-        issuer: issuer.clone(),
+        subject_id: subject_id.clone(),
+        issuer_id: issuer_id.clone(),
         claim_kind: "organization_membership".to_owned(),
         value: serde_json::from_value(json!({
             "organization_id": organization,
@@ -412,7 +412,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     };
     let presentation = signed_restricted_claim_presentation(
         &signing_key,
-        issuer,
+        issuer_id,
         verification_method,
         "ak:did_core:web:directory.test",
         proof_challenge,
@@ -425,7 +425,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         "ak:realm:restricted",
         StatusCode::NOT_FOUND,
         json!({
-            "requester": subject.as_str(),
+            "requester_id": subject_id.as_str(),
             "proof_challenge": "wrong-challenge",
             "claim_presentations": [presentation_json.clone()]
         }),
@@ -436,7 +436,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         "ak:realm:restricted",
         StatusCode::OK,
         json!({
-            "requester": subject.as_str(),
+            "requester_id": subject_id.as_str(),
             "proof_challenge": proof_challenge,
             "claim_presentations": [presentation_json.clone()]
         }),
@@ -446,7 +446,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
         .json(&json!({
             "query": "Restricted",
-            "requester": subject.as_str(),
+            "requester_id": subject_id.as_str(),
             "proof_challenge": proof_challenge,
             "claim_presentations": [presentation_json],
             "limit": 10
@@ -499,7 +499,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-users")
         .json(&json!({
             "query": "alice",
-            "requester": "ak:did_core:web:alice.example",
+            "requester_id": "ak:did_core:web:alice.example",
             "realm_id": "ak:realm:tea",
             "limit": 10
         }))
@@ -554,13 +554,13 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
     let public_key = did_key_multibase(&signing_key);
     let signer_did = format!("did:key:{public_key}");
     let verification_method = format!("{signer_did}#{public_key}");
-    let principal_server_service_id = mock.principal_server_service_id()?;
+    let principal_server_id = mock.principal_server_id()?;
     let discovery_event = signed_realm_discovery_event(
         realm_id,
         realm_discovery_state("Pushed Tea"),
         &verification_method,
         &signing_key,
-        &principal_server_service_id,
+        &principal_server_id,
     )?;
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
@@ -568,7 +568,7 @@ async fn assert_push_announce_uses_mock_principal_server(service: &Service) -> a
             "discovery_event": discovery_event,
             "source_refs": [source_ref],
             "as_of": Utc::now(),
-            "principal_server_service_id": principal_server_service_id,
+            "principal_server_id": principal_server_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -673,7 +673,7 @@ async fn assert_three_path_takedown_strand(
     destroyed_state["as_of_destroyed"] = json!(Utc::now());
     let destroy_source_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
     let destroy_mock = MockPrincipalServer::spawn(destroy_source_ref)?;
-    let destroy_principal_server_service_id = destroy_mock.principal_server_service_id()?;
+    let destroy_principal_server_service_id = destroy_mock.principal_server_id()?;
     let discovery_event = signed_realm_discovery_event(
         destroyed_realm_id,
         destroyed_state,
@@ -686,7 +686,7 @@ async fn assert_three_path_takedown_strand(
             "discovery_event": discovery_event,
             "source_refs": [destroy_source_ref],
             "as_of": Utc::now(),
-            "principal_server_service_id": destroy_principal_server_service_id,
+            "principal_server_id": destroy_principal_server_service_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -706,7 +706,7 @@ async fn assert_three_path_takedown_strand(
     // proof receipt and blinds subsequent resolves.
     let withdraw_source_ref = "ak:event:AR8bu-n-kOOB3nRUvYuIEglCX5B-JpFaNTex9gxs_cWY";
     let withdraw_mock = MockPrincipalServer::spawn(withdraw_source_ref)?;
-    let withdraw_principal_server_service_id = withdraw_mock.principal_server_service_id()?;
+    let withdraw_principal_server_service_id = withdraw_mock.principal_server_id()?;
     let discovery_event = signed_realm_discovery_event(
         withdrawn_realm_id,
         realm_discovery_state("Withdrawable Tea"),
@@ -719,7 +719,7 @@ async fn assert_three_path_takedown_strand(
             "discovery_event": discovery_event,
             "source_refs": [withdraw_source_ref],
             "as_of": Utc::now(),
-            "principal_server_service_id": withdraw_principal_server_service_id,
+            "principal_server_id": withdraw_principal_server_service_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -781,7 +781,7 @@ async fn assert_three_path_takedown_strand(
         .json(&json!({
             "resource_kind": "organization",
             "resource_id": operator_resource_id,
-            "principal_server_service_id": "ak:did_core:web:directory.test",
+            "principal_server_id": "ak:did_core:web:directory.test",
             "public_projection": {
                 "organization_principal_id": operator_resource_id,
                 "name": "Operator Takedown Target"
@@ -1066,7 +1066,7 @@ impl MockPrincipalServer {
         let shutdown = Arc::new(AtomicBool::new(false));
         let thread_shutdown = Arc::clone(&shutdown);
         let event_id = event_id.to_owned();
-        let principal_server_service_id = principal_did_for_addr(addr);
+        let principal_server_id = principal_did_for_addr(addr);
 
         let handle = thread::spawn(move || {
             while !thread_shutdown.as_ref().load(Ordering::SeqCst) {
@@ -1074,7 +1074,7 @@ impl MockPrincipalServer {
                     Ok((stream, _)) => handle_mock_principal_connection(
                         stream,
                         addr,
-                        &principal_server_service_id,
+                        &principal_server_id,
                         &event_id,
                     ),
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -1092,7 +1092,7 @@ impl MockPrincipalServer {
         })
     }
 
-    fn principal_server_service_id(&self) -> anyhow::Result<String> {
+    fn principal_server_id(&self) -> anyhow::Result<String> {
         let did = Did::new(principal_did_for_addr(self.addr))?;
         Ok(arkret_sdk::project_did_to_core_id(&did)?.to_string())
     }
@@ -1115,7 +1115,7 @@ fn principal_did_for_addr(addr: SocketAddr) -> String {
 fn handle_mock_principal_connection(
     mut stream: TcpStream,
     addr: SocketAddr,
-    principal_server_service_id: &str,
+    principal_server_id: &str,
     event_id: &str,
 ) {
     let mut buffer = [0_u8; 2048];
@@ -1130,9 +1130,9 @@ fn handle_mock_principal_connection(
         .unwrap_or("/");
     let did_doc = json!({
         "@context": ["https://www.w3.org/ns/did/v1"],
-        "id": principal_server_service_id,
+        "id": principal_server_id,
         "service": [{
-            "id": format!("{principal_server_service_id}#principal"),
+            "id": format!("{principal_server_id}#principal"),
             "type": "ArkretPrincipalServer",
             "serviceEndpoint": format!("http://127.0.0.1:{}/_arkret", addr.port()),
         }]
@@ -1182,7 +1182,7 @@ fn signed_realm_discovery_event(
             .to_owned(),
     )?;
     let actor_id = arkret_sdk::project_did_to_core_id(&signer_did)?;
-    let principal_server_id = DidCoreId::new(principal_server_service_id.to_owned())?;
+    let principal_server_id = DidCoreId::new(principal_server_id.to_owned())?;
     let mut event = arkret_wire::test_support::raw_event(
         "ak.realm.discovery",
         ScopeRef::Realm {

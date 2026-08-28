@@ -5,10 +5,10 @@
 //! requests on the target **Realm**'s `delivery_binding_policy`
 //! (`allowed_recipient_services`, `allowed_binding_sources`) and on the
 //! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
-//! the underlying subject / service DID — they collapse to `not_found` with
+//! the underlying subject_id / service DID — they collapse to `not_found` with
 //! the same response shape and latency tier as a genuine miss (§10).
 //!
-//! §9.0.1: `proofs[]` carries the per-object-family requester proof bound to
+//! §9.0.1: `proofs[]` carries the per-object-family requester_id proof bound to
 //! `ak.directory_resolve_handle_request_proof.v1`. A signature minted under any
 //! other directory request family's context cannot verify here. Verification
 //! lives in [`crate::query::requester_proof`] and its failure collapses to the
@@ -44,10 +44,10 @@ struct ResolveHandleRequestView {
     /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
     /// filter when `intent ∈ {member_add, invite}`.
     pub intent: Option<String>,
-    /// DID or service DID of the requester. Used to scope audience-bearing
+    /// DID or service DID of the requester_id. Used to scope audience-bearing
     /// claims so that the verifier can enforce `audience == self` and to
     /// authorize disclosure of Realm-restricted bindings.
-    pub requester: Option<String>,
+    pub requester_id: Option<String>,
     /// Explicit audience the verifier expects on the claim (typically a
     /// target Realm DID or inviter service DID).
     pub audience: Option<String>,
@@ -67,7 +67,7 @@ impl From<DirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
             proof_challenge: body.proof_challenge,
             claim_presentations: body.claim_presentations,
             intent: body.intent.map(|intent| intent.to_string()),
-            requester: body.requester.map(|did| did.as_str().to_owned()),
+            requester_id: body.requester_id.map(|did| did.as_str().to_owned()),
             audience: body.audience,
             realm_id: body.realm_id.map(|realm_id| realm_id.as_str().to_owned()),
         }
@@ -106,8 +106,8 @@ fn extract_localpart_public(handle: &str) -> &str {
 /// We resolve against the directory's indexed Handle rows and return
 /// the same `ResultEnvelope` shape that the POST `resolve-handle` face
 /// emits. This deliberately lives outside `/.well-known/arkret/handle`:
-/// the spec reserves that well-known path for signed issuer claims, while
-/// teabay is a resolver/index and cannot answer as the handle issuer.
+/// the spec reserves that well-known path for signed issuer_id claims, while
+/// teabay is a resolver/index and cannot answer as the handle issuer_id.
 ///
 /// Wire-level homograph normalization runs on the localpart before any DB
 /// lookup so malformed localparts fail before any directory read rather
@@ -177,7 +177,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
         proof_challenge: None,
         claim_presentations: Vec::new(),
         intent: None,
-        requester: None,
+        requester_id: None,
         audience: None,
         realm_id: None,
     };
@@ -233,7 +233,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
             return;
         }
     };
-    // §9.0.1 requester proof. The proof binds the whole unsigned request body,
+    // §9.0.1 requester_id proof. The proof binds the whole unsigned request body,
     // so it is verified against the SDK wire type before the internal view
     // drops anything.
     let proof_count = sdk_body.proofs.len();
@@ -272,8 +272,8 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     // Privacy key bundles every input that affects the not_found / found /
     // unauthorized branch so the deterministic latency tier is stable
     // per-request but does not leak the branch back to the caller. C.10.9
-    // — hash the requester IP into the privacy key so the same handle
-    // + intent + requester from two different IPs lands on independent
+    // — hash the requester_id IP into the privacy key so the same handle
+    // + intent + requester_id from two different IPs lands on independent
     // latency tiers (an attacker can no longer share probes across
     // hosts to disambiguate a slow miss from a slow hit).
     let requester_ip = req.remote_addr().to_string();
@@ -284,7 +284,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
         body.expected_principal_id.as_deref().unwrap_or_default(),
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id.as_deref().unwrap_or_default(),
-        body.requester.as_deref().unwrap_or_default(),
+        body.requester_id.as_deref().unwrap_or_default(),
         body.audience.as_deref().unwrap_or_default(),
         body.claim_presentations.len(),
         proof_count,
@@ -305,7 +305,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
             // timing-equivalent to a genuine miss (§9.2) and never reveals a
             // proof-layer reason.
             if let Err(reason) = &requester_proof {
-                tracing::debug!(%reason, "resolve_handle requester proof rejected");
+                tracing::debug!(%reason, "resolve_handle requester_id proof rejected");
                 return ResolveOutcome::NotFound;
             }
             let row = match load_handle_row(&state, &body.handle).await {
@@ -339,7 +339,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 Err(message) => ApiErrorCode::InternalError.render(res, message),
             }
         }
-        // `not_found` covers genuine miss, unauthorized requester, and "all
+        // `not_found` covers genuine miss, unauthorized requester_id, and "all
         // candidates filtered out" — these MUST be indistinguishable on the
         // wire so the directory does not leak the existence of the handle
         // or the recipient service identity.
@@ -358,7 +358,7 @@ fn verified_restricted_claims_for_handle_query(
 ) -> VerifiedRestrictedClaims {
     verify_restricted_claim_presentations(
         &body.claim_presentations,
-        body.requester.as_deref(),
+        body.requester_id.as_deref(),
         body.proof_challenge.as_deref(),
         state.config().service_id.as_str(),
         state.did_bindings(),
@@ -509,12 +509,12 @@ impl RealmDeliveryBindingPolicy {
         }
     }
 
-    /// True iff the requester is in the audience-binding allow-list, either
+    /// True iff the requester_id is in the audience-binding allow-list, either
     /// via `trusted_audiences` (preferred) or `allowed_discoverers`
     /// fallback shared with `resolve_realm`.
     fn audience_authorized(
         &self,
-        requester: Option<&str>,
+        requester_id: Option<&str>,
         verified_claims: &VerifiedRestrictedClaims,
     ) -> bool {
         if self.trusted_audiences.is_empty()
@@ -524,8 +524,8 @@ impl RealmDeliveryBindingPolicy {
             // discoverability gate the row itself carries.
             return true;
         }
-        if let Some(requester) = requester
-            && self.trusted_audiences.iter().any(|aud| aud == requester)
+        if let Some(requester_id) = requester_id
+            && self.trusted_audiences.iter().any(|aud| aud == requester_id)
         {
             return true;
         }
@@ -533,7 +533,7 @@ impl RealmDeliveryBindingPolicy {
         // declare explicit trusted audiences.
         crate::filter::discoverers::matches_allowed_discoverers(
             &self.raw_projection,
-            requester,
+            requester_id,
             verified_claims,
         )
     }
@@ -574,20 +574,20 @@ fn evaluate_handle_disclosure(
     let audience = body
         .audience
         .clone()
-        .or_else(|| body.requester.clone())
+        .or_else(|| body.requester_id.clone())
         .or_else(|| body.realm_id.clone());
 
     // Member-add path: audience-bind on the Realm, filter candidate bindings.
     if let Some(policy) = policy {
-        if !policy.audience_authorized(body.requester.as_deref(), verified_claims) {
-            // Unauthorized requester: collapse to not_found so the
+        if !policy.audience_authorized(body.requester_id.as_deref(), verified_claims) {
+            // Unauthorized requester_id: collapse to not_found so the
             // directory does not disclose subject_id / member_delivery_binding.
             return ResolveOutcome::NotFound;
         }
         let filtered = filter_projection_against_policy(row.public_projection.clone(), policy);
         let Some(projection) = filtered else {
             // The member_delivery_binding was pruned — same not_found
-            // shape so the requester cannot enumerate the Realm's policy.
+            // shape so the requester_id cannot enumerate the Realm's policy.
             return ResolveOutcome::NotFound;
         };
         let envelope = envelope_from_projection(
@@ -609,7 +609,7 @@ fn evaluate_handle_disclosure(
     if matches!(row.discoverability, DiscoverabilityDb::Restricted)
         && !matches_allowed_discoverers(
             &row.public_projection,
-            body.requester.as_deref(),
+            body.requester_id.as_deref(),
             verified_claims,
         )
     {
@@ -654,7 +654,7 @@ fn filter_projection_against_policy(
 
     // Track whether the projection ever declared a binding-candidate field
     // BEFORE any pruning. If it did and we drop them all, the resolver MUST
-    // emit `not_found` rather than a stripped envelope so the requester
+    // emit `not_found` rather than a stripped envelope so the requester_id
     // cannot tell whether the handle exists.
     let had_member_binding = projection.get("member_delivery_binding").is_some();
     let had_any_candidate_field = had_member_binding;
@@ -687,7 +687,7 @@ fn binding_passes(
     unrestricted_recipient: bool,
     unrestricted_source: bool,
 ) -> bool {
-    let recipient_ok = match obj.get("recipient_service_id").and_then(JsonValue::as_str) {
+    let recipient_ok = match obj.get("recipient_id").and_then(JsonValue::as_str) {
         // Recipient routing policy binds the stable service core identity.
         // A DID or URL in this business field is dropped as if absent.
         Some(service_id) => {
@@ -728,7 +728,7 @@ fn envelope_from_projection(
     audience: Option<String>,
 ) -> ResultEnvelope {
     let principal_id = public_projection
-        .get("subject")
+        .get("subject_id")
         .and_then(JsonValue::as_str)
         .unwrap_or("")
         .to_string();
@@ -858,14 +858,14 @@ mod tests {
         }
     }
 
-    fn member_add_request(realm_id: &str, requester: &str) -> ResolveHandleRequestView {
+    fn member_add_request(realm_id: &str, requester_id: &str) -> ResolveHandleRequestView {
         ResolveHandleRequestView {
             handle: "alice:example.com".to_string(),
             expected_principal_id: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("member_add".to_string()),
-            requester: Some(requester.to_string()),
+            requester_id: Some(requester_id.to_string()),
             audience: None,
             realm_id: Some(realm_id.to_string()),
         }
@@ -955,10 +955,10 @@ mod tests {
     #[test]
     fn resolve_handle_filters_recipient_service() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.other",
+                "recipient_id": "ak:did_core:web:principal.other",
                 "binding_source": "join_policy",
             },
         }));
@@ -980,7 +980,7 @@ mod tests {
     #[test]
     fn expected_principal_id_must_match_resolved_principal() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
         }));
         let mut body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
@@ -996,10 +996,10 @@ mod tests {
     #[test]
     fn resolve_handle_keeps_allowed_member_delivery_binding() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.tea",
+                "recipient_id": "ak:did_core:web:principal.tea",
                 "binding_source": "join_policy"
             }
         }));
@@ -1025,20 +1025,18 @@ mod tests {
             .and_then(JsonValue::as_object)
             .expect("member_delivery_binding surface");
         assert_eq!(
-            binding
-                .get("recipient_service_id")
-                .and_then(JsonValue::as_str),
+            binding.get("recipient_id").and_then(JsonValue::as_str),
             Some("ak:did_core:web:principal.tea")
         );
     }
 
-    /// `resolve_handle_unauthorized_requester_returns_not_found`: requester
+    /// `resolve_handle_unauthorized_requester_returns_not_found`: requester_id
     /// not in `trusted_audiences` MUST see the same not_found shape as a
     /// genuine miss so the directory does not enumerate audience members.
     #[test]
     fn resolve_handle_unauthorized_requester_returns_not_found() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",
@@ -1064,10 +1062,10 @@ mod tests {
     #[test]
     fn empty_allowed_recipient_services_fails_closed() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
-                "recipient_service_id": "ak:did_core:web:principal.anywhere",
+                "recipient_id": "ak:did_core:web:principal.anywhere",
                 "binding_source": "join_policy",
             },
         }));
@@ -1088,7 +1086,7 @@ mod tests {
     #[test]
     fn wildcard_allowed_recipient_services_is_unrestricted() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.anywhere",
@@ -1113,7 +1111,7 @@ mod tests {
                 .payload
                 .get("member_delivery_binding")
                 .and_then(JsonValue::as_object)
-                .and_then(|binding| binding.get("recipient_service_id"))
+                .and_then(|binding| binding.get("recipient_id"))
                 .and_then(JsonValue::as_str),
             Some("ak:did_core:web:principal.anywhere")
         );
@@ -1130,7 +1128,7 @@ mod tests {
             &["ak:did_core:web:tea-org.example"],
         );
         let allowed_row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",
@@ -1138,7 +1136,7 @@ mod tests {
             },
         }));
         let filtered_row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.other",
@@ -1220,15 +1218,15 @@ mod tests {
 
     #[test]
     fn audience_authorization_falls_back_to_allowed_discoverers() {
-        let issuer =
-            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned()).unwrap();
+        let issuer_id =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer_id.example".to_owned()).unwrap();
         let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
-        let requester =
+        let requester_id =
             arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
         let claim = crate::filter::discoverers::organization_membership_claim(
             "claim-1",
-            requester.clone(),
-            issuer.clone(),
+            requester_id.clone(),
+            issuer_id.clone(),
             org.clone(),
             vec!["member".to_owned()],
         );
@@ -1237,11 +1235,11 @@ mod tests {
             "allowed_discoverers": [{
                 "type": "claim",
                 "claim_kind": "organization_membership",
-                "issuer": issuer.as_str(),
+                "issuer_id": issuer_id.as_str(),
                 "organization_id": org.as_str(),
             }],
         }));
-        assert!(policy.audience_authorized(Some(requester.as_str()), &verified_claims));
+        assert!(policy.audience_authorized(Some(requester_id.as_str()), &verified_claims));
         assert!(!policy.audience_authorized(
             Some("ak:did_core:web:bob.example"),
             &VerifiedRestrictedClaims::default()
@@ -1250,26 +1248,26 @@ mod tests {
 
     #[test]
     fn restricted_handle_accepts_verified_claim_presentation() {
-        let issuer =
-            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned()).unwrap();
+        let issuer_id =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer_id.example".to_owned()).unwrap();
         let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
-        let requester =
+        let requester_id =
             arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
         let claim = crate::filter::discoverers::organization_membership_claim(
             "claim-1",
-            requester.clone(),
-            issuer.clone(),
+            requester_id.clone(),
+            issuer_id.clone(),
             org.clone(),
             vec!["member".to_owned()],
         );
         let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
         let mut row = dummy_row(json!({
-            "subject": requester.as_str(),
+            "subject_id": requester_id.as_str(),
             "verified": true,
             "allowed_discoverers": [{
                 "type": "claim",
                 "claim_kind": "organization_membership",
-                "issuer": issuer.as_str(),
+                "issuer_id": issuer_id.as_str(),
                 "organization_id": org.as_str(),
             }],
         }));
@@ -1280,7 +1278,7 @@ mod tests {
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("lookup".to_owned()),
-            requester: Some(requester.as_str().to_owned()),
+            requester_id: Some(requester_id.as_str().to_owned()),
             audience: None,
             realm_id: None,
         };
@@ -1308,7 +1306,7 @@ mod tests {
     #[test]
     fn binding_source_filter_prunes_disallowed_source() {
         let row = dummy_row(json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",

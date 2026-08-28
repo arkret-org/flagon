@@ -56,7 +56,7 @@ pub fn router(state: AppState) -> Router {
         )
         .push(
             // Product-private resolver probe. `/.well-known/arkret/handle`
-            // is reserved by the spec for signed issuer claims, so teabay's
+            // is reserved by the spec for signed issuer_id claims, so teabay's
             // unsigned directory index probe must stay under `/_teabay`.
             Router::with_path("_teabay/handle/probe").get(query::handle::private_handle_probe),
         )
@@ -172,11 +172,11 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         // Inverse of `resolve-handle`: known holder/principal DID + context
         // → currently-visible handle claims + primary handle. Read-only
         // against the indexed view; visibility is decided per-claim by the
-        // disclosure-policy + issuer-trust + audience filters in the query
+        // disclosure-policy + issuer_id-trust + audience filters in the query
         // handler (no transport signature required, same as the other query
         // routes). The mention renderer's live-resolve path consumes this.
         .push(
-            Router::with_path("list-handles-for-subject")
+            Router::with_path("list-handles-for-subject_id")
                 .post(query::handles_for_subject::list_handles_for_subject),
         );
 
@@ -848,12 +848,12 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Private Handle Probe",
             "Product-private resolver/index probe by `?localpart=<localpart>` and optional \
              `?domain=<domain>`. This endpoint returns the Directory result envelope and is \
-             not the spec-pinned signed issuer channel `/.well-known/arkret/handle`.",
+             not the spec-pinned signed issuer_id channel `/.well-known/arkret/handle`.",
         ),
         (
             // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle
             // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
-            "/_arkret/find/directory/list-handles-for-subject",
+            "/_arkret/find/directory/list-handles-for-subject_id",
             PathItemType::Post,
             "ak.find.directory.read.list_handles_for_subject",
             "query",

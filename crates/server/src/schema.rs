@@ -36,7 +36,7 @@ diesel::table! {
     directory_resources (resource_kind, resource_id) {
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        principal_server_service_id -> Text,
+        principal_server_id -> Text,
         discovery_state -> Jsonb,
         public_projection -> Jsonb,
         discoverability -> Discoverability,
@@ -83,7 +83,7 @@ diesel::table! {
         supersedes_announce_id -> Nullable<Text>,
         request_digest -> Bytea,
         // Federation idempotency cache key extension.
-        source_service_id -> Text,
+        source_id -> Text,
         verification_method -> Text,
         service_binding_ref -> Text,
         origin_key_state_digest -> Bytea,

@@ -79,7 +79,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
         // the default 24-hour grace window.
         diesel::sql_query(
             "INSERT INTO directory_resources (\
-                 resource_kind, resource_id, principal_server_service_id, discovery_state, \
+                 resource_kind, resource_id, principal_server_id, discovery_state, \
                  public_projection, discoverability, as_of, source_refs, policy_revision, indexed_at, \
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \

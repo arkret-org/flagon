@@ -50,7 +50,7 @@ pub struct VerifyOutcome {
     /// Effective `discoverability` parsed from discovery_state.
     pub discoverability: super::DiscoverabilityDb,
     /// Stable service core ids explicitly supplied by the verified state, or
-    /// `principal_server_service_id` itself as a fallback.
+    /// `principal_server_id` itself as a fallback.
     pub via_services: Vec<String>,
     /// Effective `policy_revision` from the verified discovery state.
     pub policy_revision: String,
@@ -94,13 +94,13 @@ impl<'a> VerifyContext<'a> {
         // the announce envelope carries a *stable identity core*, not a
         // resolvable DID: `discovery-directory.md` §8.3 types the
         // Organization / Actor / Applet `resource_id` and
-        // `principal_server_service_id` as `did_core_id`. We push this check
+        // `principal_server_id` as `did_core_id`. We push this check
         // through the SDK `DidCoreId::new` parser so the teabay directory and
         // the rest of the Arkret stack share one normative parser.
         // Non-conforming inputs short-circuit with a structured rejection
         // BEFORE any signature / accept-policy work, which keeps audit logs
         // clean and rules out a DID smuggled into a stable-identity slot
-        // at the ingest boundary. `principal_server_service_id` needs no check
+        // at the ingest boundary. `principal_server_id` needs no check
         // here: it is already a parsed `DidCoreId` on the ingest body.
         if matches!(
             req.resource_kind,
@@ -208,8 +208,7 @@ impl<'a> VerifyContext<'a> {
 
         // --- Derive outcome from verified state. ---------------------------
         let discoverability = read_discoverability(&req.discovery_state)?;
-        let via_services =
-            derive_via_services(&req.discovery_state, &req.principal_server_service_id);
+        let via_services = derive_via_services(&req.discovery_state, &req.principal_server_id);
         // The request does not echo a free-form revision.  The verified source
         // frontier is the revision carrier; Realm producers include the
         // effective policy-bundle Event in this frontier.
@@ -304,14 +303,13 @@ impl<'a> VerifyContext<'a> {
                     format!("governance controller lookup: {error}"),
                 )
             })?;
-        let expected =
-            indexed.unwrap_or_else(|| req.principal_server_service_id.as_str().to_owned());
-        if expected != req.principal_server_service_id.as_str() {
+        let expected = indexed.unwrap_or_else(|| req.principal_server_id.as_str().to_owned());
+        if expected != req.principal_server_id.as_str() {
             return Err((
                 ApiErrorCode::GovernanceKeyInvalid,
                 format!(
-                    "principal_server_service_id `{}` does not match indexed governance controller `{expected}`",
-                    req.principal_server_service_id
+                    "principal_server_id `{}` does not match indexed governance controller `{expected}`",
+                    req.principal_server_id
                 ),
             ));
         }
@@ -369,7 +367,7 @@ pub(crate) fn verify_discovery_event_proofs(
             expected_controller_did,
             proof.verification_method.as_str(),
         )?;
-        let issuer = proof
+        let issuer_id = proof
             .verification_method
             .as_str()
             .split_once('#')
@@ -379,7 +377,7 @@ pub(crate) fn verify_discovery_event_proofs(
                 &canonical_bytes,
                 &proof.jws,
                 proof.verification_method.as_str(),
-                issuer,
+                issuer_id,
                 DidBindingPurpose::DirectoryIngest,
                 SIGNATURE_KIND_INGEST_PROOF,
                 Utc::now(),
@@ -549,7 +547,7 @@ fn verify_jws_ed25519(
     verification_method: &str,
     resolver: &SharedDidResolver,
 ) -> Result<(), String> {
-    let issuer = verification_method
+    let issuer_id = verification_method
         .split_once('#')
         .map(|(did, _)| did)
         .unwrap_or(verification_method);
@@ -558,7 +556,7 @@ fn verify_jws_ed25519(
             canonical_bytes,
             jws,
             verification_method,
-            issuer,
+            issuer_id,
             DidBindingPurpose::DirectoryIngest,
             SIGNATURE_KIND_INGEST_PROOF,
             Utc::now(),
@@ -617,11 +615,11 @@ pub(crate) async fn indexed_principal_server(
     let row = dsl::directory_resources
         .filter(dsl::resource_kind.eq(resource_kind))
         .filter(dsl::resource_id.eq(resource_id))
-        .select(dsl::principal_server_service_id)
-        .first::<String>(&mut *conn)
+        .select(dsl::principal_server_id)
+        .first::<DidCoreId>(&mut *conn)
         .await
         .optional()?;
-    Ok(row)
+    Ok(row.map(DidCoreId::into_string))
 }
 
 async fn resource_already_indexed(
@@ -656,15 +654,15 @@ async fn verify_first_source_ref_resolves(
             )
         })?
         .clone();
-    // `discovery-directory.md` §8.3: `principal_server_service_id` is a stable
+    // `discovery-directory.md` §8.3: `principal_server_id` is a stable
     // `did_core_id`. The Directory MUST map it to the peer's current `did`
     // / URL through a **verified `ServiceResolutionRecord`** before pulling,
     // and MUST NOT hand the core id to a DID resolver. teabay has no peer
     // service-resolution carrier yet, so this is the single choke point where
     // that evidence has to arrive; until it does, first ingest fails closed
     // rather than guessing a resolvable DID out of a stable identity core.
-    let principal_server_did = peer_principal_server_did(&req.principal_server_service_id)
-        .map_err(|reason| {
+    let principal_server_did =
+        peer_principal_server_did(&req.principal_server_id).map_err(|reason| {
             (
                 ApiErrorCode::SourceRefsUnverifiable,
                 format!(
@@ -696,7 +694,7 @@ async fn verify_first_source_ref_resolves(
     .map_err(|e| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
-            format!("principal_server_service_id did not resolve to events endpoint: {e}"),
+            format!("principal_server_id did not resolve to events endpoint: {e}"),
         )
     })?;
     tracing::debug!(
@@ -833,7 +831,7 @@ pub(crate) struct AcceptedServiceEndpoint {
 /// The only service kind teabay follows for source-ref anchors.
 pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
 
-/// Resolve `principal_server_service_id` to its `ArkretPrincipalServer` service
+/// Resolve `principal_server_id` to its `ArkretPrincipalServer` service
 /// endpoint, fetching the DID Document **at most once per accepted binding**.
 ///
 /// # DID-P0-C02 — the double network access, and where each check went
@@ -1188,7 +1186,7 @@ fn read_discoverability(
 
 fn derive_via_services(
     discovery_state: &JsonValue,
-    principal_server_service_id: &DidCoreId,
+    principal_server_id: &DidCoreId,
 ) -> Vec<String> {
     if let Some(arr) = discovery_state
         .get("via_services")
@@ -1215,7 +1213,7 @@ fn derive_via_services(
     // The announce already carries the Principal Server as a stable service
     // core id, so the fallback is the value itself — no projection, and
     // certainly no reconstruction of a resolvable DID.
-    vec![principal_server_service_id.as_str().to_owned()]
+    vec![principal_server_id.as_str().to_owned()]
 }
 
 /// Map a peer Principal Server's stable service core id to the resolvable
@@ -1231,8 +1229,8 @@ fn derive_via_services(
 /// cross-directory divergence detection unimplementable — so this fails
 /// closed. Wiring a verified carrier here is the single change that
 /// re-enables first-ingest source-ref verification.
-fn peer_principal_server_did(principal_server_service_id: &DidCoreId) -> Result<Did, String> {
-    let _ = principal_server_service_id;
+fn peer_principal_server_did(principal_server_id: &DidCoreId) -> Result<Did, String> {
+    let _ = principal_server_id;
     Err(
         "peer Principal Server core ids have no configured verified service-resolution          carrier, so the current DID cannot be established;          `discovery-directory.md` §8.3 forbids resolving the core id directly"
             .to_owned(),

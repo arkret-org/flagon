@@ -479,7 +479,7 @@ mod tests {
                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"
                         .to_owned(),
                 artifact_ref: "file:///tmp/verified-profiles.json".to_owned(),
-                verifier_service_id: DidCoreId::new("ak:did_core:web:cotest.example").unwrap(),
+                verifier_id: DidCoreId::new("ak:did_core:web:cotest.example").unwrap(),
                 signature: "eddsa-jcs-b64url:test-signature".to_owned(),
                 timestamp: chrono::Utc::now(),
                 expires_at: None,

@@ -15,10 +15,10 @@
 //! `discovery_state.organization_statements[]`. Each payload is verified
 //! independently and, on success, projected into the
 //! `verified_realm_organizations` index keyed by `(realm_id, organization_principal_id,
-//! relationship)` (the spec reducer cell subject).
+//! relationship)` (the spec reducer cell subject_id).
 //!
 //! The delegation resolver is injected so the directory shares the exact
-//! issuer-role / delegation invariants with soland and cotest. teabay does not
+//! issuer_id-role / delegation invariants with soland and cotest. teabay does not
 //! host an organization DID delegation store, so it wires the fail-closed
 //! [`arkret_policy::NoDelegationResolver`]: a `governance_service` /
 //! `account_authority` statement that requires a delegation_ref cannot be
@@ -30,7 +30,7 @@ use arkret_models_collaboration::{
     RealmOrganizationStatus,
 };
 use arkret_policy::{NoDelegationResolver, verify_realm_organization_statement};
-use arkret_wire::RealmId;
+use arkret_wire::{DidCoreId, RealmId};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -74,7 +74,7 @@ fn control_scope_as_str(scope: RealmOrganizationControlScope) -> &'static str {
 #[derive(Debug, Clone)]
 pub(crate) struct VerifiedStatement {
     pub realm_id: String,
-    pub organization_principal_id: String,
+    pub organization_principal_id: DidCoreId,
     pub relationship: &'static str,
     pub control_scopes: Vec<String>,
     pub statement_id: String,
@@ -103,7 +103,7 @@ pub(crate) struct StatementIngestOutcome {
 
 /// Parse + verify the `ak.realm.organization` statements embedded in a Realm
 /// `discovery_state`. Statements that are missing proof, expired, not-yet
-/// valid, replay an inconsistent revocation flag, or whose issuer-role
+/// valid, replay an inconsistent revocation flag, or whose issuer_id-role
 /// requires an unresolvable delegation are rejected fail-closed and never
 /// enter the verified index (TBY-ORG-01 acceptance).
 ///
@@ -155,7 +155,7 @@ pub(crate) fn verify_announced_statements(
 
         outcome.verified.push(VerifiedStatement {
             realm_id: payload.realm_id.as_str().to_owned(),
-            organization_principal_id: payload.organization_id.as_str().to_owned(),
+            organization_principal_id: payload.organization_id.clone(),
             relationship: relationship_as_str(payload.relationship),
             control_scopes: payload
                 .control_scopes
@@ -199,7 +199,7 @@ pub(crate) async fn persist_verified_statements(
     let mut conn = db.get().await?;
 
     for statement in statements {
-        // Read the stored statement_issued_at for the cell subject to enforce
+        // Read the stored statement_issued_at for the cell subject_id to enforce
         // monotonic replay protection regardless of insert/revoke direction.
         let prior_issued_at: Option<DateTime<Utc>> = v::verified_realm_organizations
             .filter(v::realm_id.eq(&statement.realm_id))
@@ -268,7 +268,7 @@ pub(crate) async fn persist_verified_statements(
 /// A verified relationship row as surfaced to the query layer (TBY-ORG-02).
 #[derive(Debug, Clone, Queryable)]
 pub(crate) struct VerifiedRelationshipRow {
-    pub organization_principal_id: String,
+    pub organization_principal_id: DidCoreId,
     pub relationship: String,
     pub control_scopes: Vec<String>,
     pub not_before: Option<DateTime<Utc>>,
@@ -389,7 +389,7 @@ mod tests {
             "control_scopes": scopes,
             "issued_at": "2026-06-25T00:00:00.000Z",
             "authorization": {
-                "issuer": ORG,
+                "issuer_id": ORG,
                 "issuer_role": "organization_principal_id",
                 "verification_method": format!("{ORG_DID}#k1"),
                 "signed_at": "2026-06-25T00:00:00.000Z",
@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn effective_active_respects_validity_window() {
         let row = VerifiedRelationshipRow {
-            organization_principal_id: ORG.to_owned(),
+            organization_principal_id: DidCoreId::new(ORG).unwrap(),
             relationship: "owner".to_owned(),
             control_scopes: vec!["official_badge".to_owned()],
             not_before: None,

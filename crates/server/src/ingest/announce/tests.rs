@@ -11,7 +11,7 @@ fn inputs_with_pair(
     destination_trust_domain: &str,
 ) -> FederationCacheKeyInputs {
     FederationCacheKeyInputs {
-        source_service_id: "ak:did_core:web:peer.example".to_owned(),
+        source_id: "ak:did_core:web:peer.example".to_owned(),
         verification_method: "did:web:peer.example#key-1".to_owned(),
         service_binding_ref: "binding-1".to_owned(),
         origin_key_state_digest: vec![1, 2, 3],
@@ -48,7 +48,7 @@ fn federation_source_service_id_rejects_did_authority() {
         "ak:trust_domain:other.example",
         "ak:trust_domain:teabay.test",
     );
-    inputs.source_service_id = "did:web:peer.example".to_owned();
+    inputs.source_id = "did:web:peer.example".to_owned();
     let error = verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test")
         .expect_err("DID must not occupy Source-Service-ID");
     assert_eq!(error.0, ApiErrorCode::CrossDomainReplayRejected);
@@ -106,21 +106,21 @@ fn handle_claim_ingest_rejects_service_handle_claim_type() {
     let state = json!({
         "kind": "ak.handle.discovery",
         "claim_kind": "service_handle",
-        "subject": "ak:did_core:web:alice.example",
+        "subject_id": "ak:did_core:web:alice.example",
     });
     let err = validate_handle_claim_ingest(&state).unwrap_err();
     assert_eq!(err.0, ApiErrorCode::SchemaViolation);
     assert!(err.1.contains("claim_type_unsupported"));
 
     // Also reject retired discriminator fields outright.
-    let state = json!({ "class": "service_handle", "subject": "ak:did_core:web:alice.example" });
+    let state = json!({ "class": "service_handle", "subject_id": "ak:did_core:web:alice.example" });
     assert!(validate_handle_claim_ingest(&state).is_err());
     let state =
-        json!({ "claim_type": "handle_binding", "subject": "ak:did_core:web:alice.example" });
+        json!({ "claim_type": "handle_binding", "subject_id": "ak:did_core:web:alice.example" });
     assert!(validate_handle_claim_ingest(&state).is_err());
 }
 
-/// HC-TBY-2 — a handle claim whose `subject` is a Realm actor id /
+/// HC-TBY-2 — a handle claim whose `subject_id` is a Realm actor id /
 /// account id / non-DID resource id is rejected with
 /// `handle_claim_subject_not_principal_did`.
 #[test]
@@ -131,21 +131,22 @@ fn handle_claim_ingest_rejects_non_principal_subject() {
         "ak:resource:thing",
         "not-a-did",
     ] {
-        let state = json!({ "subject": bad, "handle": "alice:example.com" });
+        let state = json!({ "subject_id": bad, "handle": "alice:example.com" });
         let err = validate_handle_claim_ingest(&state).unwrap_err();
-        assert_eq!(err.0, ApiErrorCode::SchemaViolation, "subject {bad}");
+        assert_eq!(err.0, ApiErrorCode::SchemaViolation, "subject_id {bad}");
         assert!(
             err.1.contains("handle_claim_subject_not_principal_did"),
-            "subject {bad}"
+            "subject_id {bad}"
         );
     }
 }
 
-/// HC-TBY-2 — a holder/principal DID subject is accepted, and a body
+/// HC-TBY-2 — a holder/principal DID subject_id is accepted, and a body
 /// with no handle-claim fields passes through untouched.
 #[test]
 fn handle_claim_ingest_accepts_principal_did_and_non_handle_bodies() {
-    let ok = json!({ "subject": "ak:did_core:web:alice.example", "handle": "alice:example.com" });
+    let ok =
+        json!({ "subject_id": "ak:did_core:web:alice.example", "handle": "alice:example.com" });
     assert!(validate_handle_claim_ingest(&ok).is_ok());
 
     // A realm announce with no handle-claim fields is untouched.

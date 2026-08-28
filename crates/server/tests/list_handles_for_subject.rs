@@ -2,18 +2,18 @@
 //! R3.2 / arkret-spec @ b56cab1).
 //!
 //! These exercise the directory's reverse-handle-lookup response assembly
-//! (disclosure / issuer-trust / audience / subject-mismatch filters, cursor
-//! pagination, and the `claims[].subject == response.subject` invariant)
+//! (disclosure / issuer_id-trust / audience / subject_id-mismatch filters, cursor
+//! pagination, and the `claims[].subject_id == response.subject_id` invariant)
 //! against the pure `assemble_response` core, so they run in CI without a
 //! Postgres container. The full HTTP-path smoke (with seeded rows) lives in
 //! the Docker-gated `tests/it/conformance.rs` harness.
 //!
 //! Cases (per the R3.2 task list):
-//!   1. happy path — subject with 1 active claim returns 1 item.
-//!   2. claim subject mismatch — response drops the foreign claim (and a response that would still
-//!      carry a mismatch fails closed).
+//!   1. happy path — subject_id with 1 active claim returns 1 item.
+//!   2. claim subject_id mismatch — response drops the foreign claim (and a response that would
+//!      still carry a mismatch fails closed).
 //!   3. audience-out-of-scope claim is filtered.
-//!   4. issuer/domain outside the Realm's `handle_issuer_policy` is filtered.
+//!   4. issuer_id/domain outside the Realm's `handle_issuer_policy` is filtered.
 //!   5. cursor pagination boundary.
 
 use arkret_models_identity::primary_handle::{HandleIssuerAuthorityClass, HandleIssuerPolicyEntry};
@@ -23,19 +23,19 @@ use serde_json::json;
 use server::ingest::DiscoverabilityDb;
 use server::query::handles_for_subject::{SubjectHandleRow, assemble_response};
 
-fn subject() -> arkret_sdk::DidCoreId {
+fn subject_id() -> arkret_sdk::DidCoreId {
     arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap()
 }
 
 fn req(
     realm_id: Option<&str>,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
 ) -> DirectoryListHandlesForSubjectRequestBody {
     DirectoryListHandlesForSubjectRequestBody {
-        subject: subject(),
+        subject_id: subject_id(),
         realm_id: realm_id.map(|r| arkret_sdk::RealmId::new(r.to_owned()).unwrap()),
         intent: None,
-        requester: requester.map(|r| arkret_sdk::DidCoreId::new(r.to_owned()).unwrap()),
+        requester_id: requester_id.map(|r| arkret_sdk::DidCoreId::new(r.to_owned()).unwrap()),
         proof_challenge: None,
         proofs: Vec::new(),
         as_of: None,
@@ -53,13 +53,13 @@ fn row(projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleR
 }
 
 /// Case 1 — happy path: a single active, directory-visible claim for the
-/// subject returns exactly one claim whose subject equals the response
-/// subject, and the primary handle is populated from the verified claim.
+/// subject_id returns exactly one claim whose subject_id equals the response
+/// subject_id, and the primary handle is populated from the verified claim.
 #[test]
 fn happy_path_single_active_claim() {
     let rows = vec![row(
         json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "handle": "alice:example.com",
             "verified": true,
             "created_at": "2026-05-20T00:00:00.000Z"
@@ -71,9 +71,12 @@ fn happy_path_single_active_claim() {
         .expect("happy path must not fail closed");
 
     assert_eq!(response.claims.len(), 1);
-    assert_eq!(response.subject.as_str(), "ak:did_core:web:alice.example");
     assert_eq!(
-        response.claims[0].subject.as_ref().unwrap().as_str(),
+        response.subject_id.as_str(),
+        "ak:did_core:web:alice.example"
+    );
+    assert_eq!(
+        response.claims[0].subject_id.as_ref().unwrap().as_str(),
         "ak:did_core:web:alice.example"
     );
     assert_eq!(
@@ -86,18 +89,18 @@ fn happy_path_single_active_claim() {
     assert!(response.validate().is_ok());
 }
 
-/// Case 2 — claim subject mismatch: a row that asserts a DIFFERENT subject
+/// Case 2 — claim subject_id mismatch: a row that asserts a DIFFERENT subject_id
 /// than the request is dropped, so the response carries only the matching
-/// claim (or none). Every surviving claim's subject equals response.subject.
+/// claim (or none). Every surviving claim's subject_id equals response.subject_id.
 #[test]
 fn subject_mismatch_claim_is_dropped() {
     let rows = vec![
         row(
-            json!({ "subject": "ak:did_core:web:eve.example", "handle": "eve:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+            json!({ "subject_id": "ak:did_core:web:eve.example", "handle": "eve:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "subject": "ak:did_core:web:alice.example", "handle": "alice:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+            json!({ "subject_id": "ak:did_core:web:alice.example", "handle": "alice:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
     ];
@@ -108,21 +111,21 @@ fn subject_mismatch_claim_is_dropped() {
     assert_eq!(response.claims.len(), 1);
     for claim in &response.claims {
         assert_eq!(
-            claim.subject.as_ref().unwrap().as_str(),
+            claim.subject_id.as_ref().unwrap().as_str(),
             "ak:did_core:web:alice.example",
-            "every surviving claim's subject must equal response.subject"
+            "every surviving claim's subject_id must equal response.subject_id"
         );
     }
     assert!(response.validate().is_ok());
 }
 
-/// Case 2b — fail-closed: if a foreign-subject row is the ONLY candidate, the
+/// Case 2b — fail-closed: if a foreign-subject_id row is the ONLY candidate, the
 /// response collapses to an empty claim set rather than ever surfacing a
-/// claim whose subject differs from the response subject.
+/// claim whose subject_id differs from the response subject_id.
 #[test]
 fn subject_mismatch_only_candidate_returns_empty() {
     let rows = vec![row(
-        json!({ "subject": "ak:did_core:web:eve.example", "handle": "eve:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+        json!({ "subject_id": "ak:did_core:web:eve.example", "handle": "eve:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
         DiscoverabilityDb::Public,
     )];
 
@@ -135,13 +138,13 @@ fn subject_mismatch_only_candidate_returns_empty() {
 }
 
 /// Case 3 — audience filter: a claim that pins an `audience` mutually
-/// exclusive with the requester context is filtered out.
+/// exclusive with the requester_id context is filtered out.
 #[test]
 fn audience_out_of_scope_is_filtered() {
     let rows = vec![
         row(
             json!({
-                "subject": "ak:did_core:web:alice.example",
+                "subject_id": "ak:did_core:web:alice.example",
                 "handle": "scoped:example.com",
                 "audience": "ak:did_core:web:someone-else.example",
                 "created_at": "2026-05-20T00:00:00.000Z"
@@ -150,7 +153,7 @@ fn audience_out_of_scope_is_filtered() {
         ),
         row(
             json!({
-                "subject": "ak:did_core:web:alice.example",
+                "subject_id": "ak:did_core:web:alice.example",
                 "handle": "open:example.com",
                 "created_at": "2026-05-20T00:00:00.000Z"
             }),
@@ -170,13 +173,13 @@ fn audience_out_of_scope_is_filtered() {
     );
 }
 
-/// Case 3b — audience match: when the pinned audience equals the requester,
+/// Case 3b — audience match: when the pinned audience equals the requester_id,
 /// the claim is retained.
 #[test]
 fn audience_matching_requester_is_retained() {
     let rows = vec![row(
         json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "handle": "scoped:example.com",
             "audience": "ak:did_core:web:tea-org.example",
             "created_at": "2026-05-20T00:00:00.000Z"
@@ -189,34 +192,34 @@ fn audience_matching_requester_is_retained() {
     assert_eq!(response.claims.len(), 1);
 }
 
-/// Case 4 — issuer trust: with a Realm domain-scoped policy, claims whose
-/// issuer is absent or whose domain is outside the entry are filtered.
+/// Case 4 — issuer_id trust: with a Realm domain-scoped policy, claims whose
+/// issuer_id is absent or whose domain is outside the entry are filtered.
 #[test]
 fn issuer_or_domain_outside_policy_is_filtered() {
     let rows = vec![
         row(
             json!({
-                "subject": "ak:did_core:web:alice.example",
+                "subject_id": "ak:did_core:web:alice.example",
                 "handle": "trusted:example.com",
-                "issuer": "ak:did_core:web:issuer.tea",
+                "issuer_id": "ak:did_core:web:issuer_id.tea",
                 "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
         ),
         row(
             json!({
-                "subject": "ak:did_core:web:alice.example",
+                "subject_id": "ak:did_core:web:alice.example",
                 "handle": "untrusted:example.com",
-                "issuer": "ak:did_core:web:issuer.rogue",
+                "issuer_id": "ak:did_core:web:issuer_id.rogue",
                 "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
         ),
         row(
             json!({
-                "subject": "ak:did_core:web:alice.example",
+                "subject_id": "ak:did_core:web:alice.example",
                 "handle": "wrong:rogue.example",
-                "issuer": "ak:did_core:web:issuer.tea",
+                "issuer_id": "ak:did_core:web:issuer_id.tea",
                 "created_at": "2026-05-20T00:00:00.000Z"
             }),
             DiscoverabilityDb::Public,
@@ -224,7 +227,7 @@ fn issuer_or_domain_outside_policy_is_filtered() {
     ];
 
     let policy = vec![HandleIssuerPolicyEntry {
-        issuer: arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.tea").unwrap(),
+        issuer_id: arkret_sdk::DidCoreId::new("ak:did_core:web:issuer_id.tea").unwrap(),
         authorized_handle_domains: vec!["example.com".to_owned()],
         issuer_class: HandleIssuerAuthorityClass::DomainAuthority,
     }];
@@ -238,10 +241,10 @@ fn issuer_or_domain_outside_policy_is_filtered() {
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
         response.claims[0]
-            .issuer
+            .issuer_id
             .as_ref()
             .map(arkret_sdk::DidCoreId::as_str),
-        Some("ak:did_core:web:issuer.tea")
+        Some("ak:did_core:web:issuer_id.tea")
     );
 }
 
@@ -253,15 +256,15 @@ fn issuer_or_domain_outside_policy_is_filtered() {
 fn cursor_pagination_boundary() {
     let rows = vec![
         row(
-            json!({ "subject": "ak:did_core:web:alice.example", "handle": "a:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+            json!({ "subject_id": "ak:did_core:web:alice.example", "handle": "a:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "subject": "ak:did_core:web:alice.example", "handle": "b:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+            json!({ "subject_id": "ak:did_core:web:alice.example", "handle": "b:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
         row(
-            json!({ "subject": "ak:did_core:web:alice.example", "handle": "c:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+            json!({ "subject_id": "ak:did_core:web:alice.example", "handle": "c:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
             DiscoverabilityDb::Public,
         ),
     ];
@@ -294,11 +297,11 @@ fn cursor_pagination_boundary() {
 }
 
 /// A non-directory-visible (e.g. secret) row is dropped by the disclosure
-/// gate even though its subject matches.
+/// gate even though its subject_id matches.
 #[test]
 fn non_visible_row_is_dropped_by_disclosure_gate() {
     let rows = vec![row(
-        json!({ "subject": "ak:did_core:web:alice.example", "handle": "secret:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
+        json!({ "subject_id": "ak:did_core:web:alice.example", "handle": "secret:example.com", "created_at": "2026-05-20T00:00:00.000Z" }),
         DiscoverabilityDb::Secret,
     )];
 
@@ -314,13 +317,13 @@ fn non_visible_row_is_dropped_by_disclosure_gate() {
 fn restricted_claim_handle_is_never_disclosed_on_this_surface() {
     let rows = vec![row(
         json!({
-            "subject": "ak:did_core:web:alice.example",
+            "subject_id": "ak:did_core:web:alice.example",
             "handle": "restricted:example.com",
             "created_at": "2026-05-20T00:00:00.000Z",
             "allowed_discoverers": [{
                 "type": "claim",
                 "claim_kind": "organization_membership",
-                "issuer": "ak:did_core:web:issuer.tea",
+                "issuer_id": "ak:did_core:web:issuer_id.tea",
                 "organization_id": "ak:did_core:web:tea-org.example"
             }]
         }),

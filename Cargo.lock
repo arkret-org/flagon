@@ -311,6 +311,7 @@ version = "0.3.0"
 dependencies = [
  "arkret-canonical",
  "base64 0.22.1",
+ "diesel",
  "getrandom 0.2.17",
  "getrandom 0.4.2",
  "serde",
@@ -5479,6 +5480,7 @@ dependencies = [
  "arkret",
  "arkret-canonical",
  "arkret-egress-reqwest",
+ "arkret-identifiers",
  "arkret-identity",
  "arkret-models-collaboration",
  "arkret-models-identity",

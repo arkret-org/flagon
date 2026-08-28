@@ -172,12 +172,12 @@ impl ApiErrorCode {
     );
     // -------- R3.2 spec-sync 2026-05-28 (arkret-spec @ b56cab1) --------
     // `ak.find.directory.read.list_handles_for_subject.v1` input validation. A
-    // `subject` that is not a holder/principal DID (a `ak:actor:` Realm
+    // `subject_id` that is not a holder/principal DID (a `ak:actor:` Realm
     // actor_id, a `ak:account:` server-local account id, a service DID,
     // or a non-DID resource id) is rejected with `failed_precondition`
     // carrying the `invalid_subject_kind` reason in the message — the
     // request is structurally well-formed JSON but cannot be satisfied
-    // because the subject is the wrong kind of identifier.
+    // because the subject_id is the wrong kind of identifier.
     #[allow(non_upper_case_globals)]
     pub const FailedPrecondition: Self = Self::new(
         arkret_sdk::error_codes::ErrorCode::FAILED_PRECONDITION,

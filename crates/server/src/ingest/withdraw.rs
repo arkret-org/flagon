@@ -85,7 +85,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let withdraw_id = new_id(IdClass::Withdraw);
     let acked_at = Utc::now();
     // Spec §8.10 anti-revocation-evasion: a withdrawal MUST NOT take effect
-    // in the past. The requester-supplied `effective_at` is clamped up to
+    // in the past. The requester_id-supplied `effective_at` is clamped up to
     // `acked_at` (now), so a backdated value can never narrow the
     // `TakedownInForce` window and let a later `as_of` announce slip back
     // in. Requesters may only push effectiveness *forward*.

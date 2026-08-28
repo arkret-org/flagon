@@ -50,7 +50,7 @@ struct ResourceDeleteQuery {
 struct ResourceAdminRow {
     resource_kind: DirectoryResourceKindDb,
     resource_id: String,
-    principal_server_service_id: String,
+    principal_server_id: DidCoreId,
     discovery_state: JsonValue,
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
@@ -68,7 +68,7 @@ struct ResourceAdminRow {
 
 #[derive(Debug)]
 struct ResourceDeleteAudit {
-    principal_server_service_id: String,
+    principal_server_id: String,
     policy_revision: String,
     via_services: Vec<String>,
     last_announce_id: Option<String>,
@@ -118,29 +118,28 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
-    if body.principal_server_service_id.trim().is_empty() {
-        ApiErrorCode::ParamMissing.render(res, "principal_server_service_id is required");
+    if body.principal_server_id.trim().is_empty() {
+        ApiErrorCode::ParamMissing.render(res, "principal_server_id is required");
         return;
     }
     // The operator supplies the Principal Server's *stable service core id*,
     // matching the announce wire (`discovery-directory.md` §8.3) and the
-    // `directory_resources.principal_server_service_id` column. A DID is
+    // `directory_resources.principal_server_id` column. A DID is
     // rejected here rather than silently projected: the two are different
     // value categories and the column is keyed on the stable one.
-    let principal_server_service_id =
-        match DidCoreId::new(body.principal_server_service_id.trim().to_owned()) {
-            Ok(service_id) => service_id,
-            Err(error) => {
-                ApiErrorCode::SchemaViolation.render(
-                    res,
-                    format!(
-                        "principal_server_service_id must be a stable service core id \
+    let principal_server_id = match DidCoreId::new(body.principal_server_id.trim().to_owned()) {
+        Ok(service_id) => service_id,
+        Err(error) => {
+            ApiErrorCode::SchemaViolation.render(
+                res,
+                format!(
+                    "principal_server_id must be a stable service core id \
                          (ak:did_core:<method>:<core>), not a DID or URL: {error}"
-                    ),
-                );
-                return;
-            }
-        };
+                ),
+            );
+            return;
+        }
+    };
     let policy_revision = body.policy_revision.trim();
     if policy_revision.is_empty() {
         ApiErrorCode::ParamMissing.render(res, "policy_revision is required");
@@ -164,7 +163,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     let via_services = {
         let services = normalize_string_list(&body.via_services);
         if services.is_empty() {
-            vec![principal_server_service_id.into_string()]
+            vec![principal_server_id.into_string()]
         } else if services
             .iter()
             .any(|service_id| DidCoreId::new(service_id.clone()).is_err())
@@ -220,7 +219,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
                 Some(&body.resource_id),
                 Some(&state.config().service_id),
                 json!({
-                    "principal_server_service_id": body.principal_server_service_id.as_str(),
+                    "principal_server_id": body.principal_server_id.as_str(),
                     "discoverability": discoverability.as_pg(),
                     "policy_revision": policy_revision,
                     "effective_ttl_seconds": effective_ttl,
@@ -279,7 +278,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
                 Some(resource_id),
                 Some(&state.config().service_id),
                 json!({
-                    "principal_server_service_id": detail.principal_server_service_id,
+                    "principal_server_id": detail.principal_server_id,
                     "policy_revision": detail.policy_revision,
                     "via_services": detail.via_services,
                     "last_announce_id": detail.last_announce_id,
@@ -338,7 +337,7 @@ async fn load_resources(
                 .select((
                     r::resource_kind,
                     r::resource_id,
-                    r::principal_server_service_id,
+                    r::principal_server_id,
                     r::discovery_state,
                     r::public_projection,
                     r::discoverability,
@@ -382,7 +381,7 @@ async fn upsert_managed_resource(
         .values((
             r::resource_kind.eq(resource_kind),
             r::resource_id.eq(body.resource_id.trim()),
-            r::principal_server_service_id.eq(body.principal_server_service_id.trim()),
+            r::principal_server_id.eq(body.principal_server_id.trim()),
             r::discovery_state.eq(&discovery_state),
             r::public_projection.eq(&public_projection),
             r::discoverability.eq(discoverability),
@@ -435,7 +434,7 @@ async fn load_resource(
         .select((
             r::resource_kind,
             r::resource_id,
-            r::principal_server_service_id,
+            r::principal_server_id,
             r::discovery_state,
             r::public_projection,
             r::discoverability,
@@ -474,16 +473,12 @@ async fn delete_managed_resource(
                     r::via_services,
                     r::last_announce_id,
                 ))
-                .first::<(String, String, Vec<String>, Option<String>)>(&mut *conn)
+                .first::<(DidCoreId, String, Vec<String>, Option<String>)>(&mut *conn)
                 .await
                 .optional()?;
 
-            let Some((
-                principal_server_service_id,
-                policy_revision,
-                via_services,
-                last_announce_id,
-            )) = existing
+            let Some((principal_server_id, policy_revision, via_services, last_announce_id)) =
+                existing
             else {
                 return Ok(None);
             };
@@ -497,7 +492,7 @@ async fn delete_managed_resource(
             .await?;
 
             Ok(Some(ResourceDeleteAudit {
-                principal_server_service_id,
+                principal_server_id: principal_server_id.into_string(),
                 policy_revision,
                 via_services,
                 last_announce_id,
@@ -581,7 +576,7 @@ impl From<ResourceAdminRow> for ResourceItem {
         Self {
             resource_kind: row.resource_kind.as_pg().to_owned(),
             resource_id: row.resource_id,
-            principal_server_service_id: row.principal_server_service_id,
+            principal_server_id: row.principal_server_id.into_string(),
             discovery_state: DirectoryDiscoveryState::from_json(row.discovery_state),
             public_projection: DirectoryPublicProjection::from_json(row.public_projection),
             discoverability: row.discoverability.as_pg().to_owned(),

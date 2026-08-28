@@ -136,43 +136,39 @@ async fn invalidate_reachability(
     let mut conn = state.db().get().await?;
     // The actor's reachability projection can live on:
     //   * actor rows keyed by the actor's DID
-    //   * handle rows where principal_server_service_id == actor DID
+    //   * handle rows where principal_server_id == actor DID
     //   * applet rows that name the actor as principal
     // We match by either `resource_id = actor_id` or
-    // `principal_server_service_id = actor_id`. T17 explicitly says "mark with
+    // `principal_server_id = actor_id`. T17 explicitly says "mark with
     // revoked_at for audit" — so this is an UPDATE, not a DELETE.
     let mut query = diesel::update(r::directory_resources)
         .filter(
             r::resource_id
                 .eq(&body.actor_id)
-                .or(r::principal_server_service_id.eq(&body.actor_id)),
+                .or(r::principal_server_id.eq(&body.actor_id)),
         )
         .filter(r::reachability_revoked_at.is_null())
         .into_boxed();
     if !body.resource_ids.is_empty() {
         query = query.filter(r::resource_id.eq_any(&body.resource_ids));
     }
-    let affected_rows: Vec<(DirectoryResourceKindDb, String, String)> = query
+    let affected_rows: Vec<(DirectoryResourceKindDb, String, arkret_sdk::DidCoreId)> = query
         .set((
             r::reachability_revoked_at.eq(Some(revoked_at)),
             r::reachability_revoked_reason.eq(Some(reason)),
         ))
-        .returning((
-            r::resource_kind,
-            r::resource_id,
-            r::principal_server_service_id,
-        ))
+        .returning((r::resource_kind, r::resource_id, r::principal_server_id))
         .get_results(&mut *conn)
         .await?;
     let invalidated_rows = affected_rows.len() as i64;
     let tombstones = affected_rows
         .into_iter()
         .map(
-            |(resource_kind, resource_id, principal_server_service_id)| ReachabilityTombstone {
+            |(resource_kind, resource_id, principal_server_id)| ReachabilityTombstone {
                 kind: TombstoneKind::ReachabilityRevoked,
                 resource_kind,
                 resource_id,
-                principal_server_service_id,
+                principal_server_id,
                 reason: reason.to_owned(),
                 revoked_at,
             },

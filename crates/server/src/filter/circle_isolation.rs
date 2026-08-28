@@ -291,7 +291,7 @@ mod tests {
         let envelope = json!({
             "resource_kind": "realm",
             "resource_id": "ak:circle:AbrgMKK4KXMpRsGsFrsEQEsjo207metUd4zt8yjzB-UH",
-            "principal_server_service_id": "ak:did_core:web:principal.test",
+            "principal_server_id": "ak:did_core:web:principal.test",
             "discovery_state": {
                 "kind": "ak.realm.discovery",
                 "circles": [{

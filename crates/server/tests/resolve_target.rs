@@ -79,11 +79,11 @@ fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
     descriptor.address_link_kind = AddressLinkKind::Invite;
     let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
     let multibase = did_key_multibase(&signing_key);
-    let issuer = format!("did:key:{multibase}");
-    let verification_method = format!("{issuer}#{multibase}");
+    let issuer_id = format!("did:key:{multibase}");
+    let verification_method = format!("{issuer_id}#{multibase}");
     let mut payload = json!({
         "kind": "invite_token",
-        "iss": issuer,
+        "iss": issuer_id,
         "verification_method": verification_method,
         "exp": Utc::now().timestamp() + 3600,
         "aud": "ak:did_core:web:alice.example",
@@ -132,11 +132,11 @@ fn mint_preview_token(
     descriptor.address_link_kind = AddressLinkKind::Preview;
     let signing_key = SigningKey::from_bytes(&PREVIEW_SIGNING_SEED);
     let multibase = did_key_multibase(&signing_key);
-    let issuer = format!("did:key:{multibase}");
-    let verification_method = format!("{issuer}#{multibase}");
+    let issuer_id = format!("did:key:{multibase}");
+    let verification_method = format!("{issuer_id}#{multibase}");
     let mut payload = json!({
         "kind": "preview_token",
-        "iss": issuer,
+        "iss": issuer_id,
         "verification_method": verification_method,
         "exp": exp,
         "aud": aud,
@@ -165,7 +165,7 @@ fn verify_preview_token(
     canonical_realm_id: &str,
     policy: &JsonValue,
     policy_digest: &str,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     now: chrono::DateTime<Utc>,
 ) -> TokenCheck {
     match verify_preview_token_details_with_methods(
@@ -174,7 +174,7 @@ fn verify_preview_token(
         canonical_realm_id,
         policy,
         policy_digest,
-        requester,
+        requester_id,
         now,
         &test_bindings(),
     ) {

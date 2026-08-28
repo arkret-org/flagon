@@ -26,7 +26,7 @@ use crate::ingest::header_value;
 /// [`arkret_sdk::federation_trust_domain_transcript_fragment`].
 #[derive(Debug, Clone)]
 pub struct FederationCacheKeyInputs {
-    pub source_service_id: String,
+    pub source_id: String,
     pub verification_method: String,
     pub service_binding_ref: String,
     pub origin_key_state_digest: Vec<u8>,
@@ -44,7 +44,7 @@ pub struct FederationCacheKeyInputs {
 
 impl FederationCacheKeyInputs {
     pub fn extract(req: &Request, body: &DirectoryAnnounceIngest) -> Self {
-        let source_service_id = header_value(req, "source-service-id")
+        let source_id = header_value(req, "source-service-id")
             .or_else(|| header_value(req, "x-source-service-id"))
             .unwrap_or_default();
         let verification_method = body
@@ -68,7 +68,7 @@ impl FederationCacheKeyInputs {
             header_value(req, &HEADER_DESTINATION_TRUST_DOMAIN.to_ascii_lowercase())
                 .unwrap_or_default();
         Self {
-            source_service_id,
+            source_id,
             verification_method,
             service_binding_ref,
             origin_key_state_digest,
@@ -88,7 +88,7 @@ impl FederationCacheKeyInputs {
         let mut h = Sha256::new();
         h.update(request_digest);
         h.update(b"\x1fSSD\x1e");
-        h.update(self.source_service_id.as_bytes());
+        h.update(self.source_id.as_bytes());
         h.update(b"\x1fVM\x1e");
         h.update(self.verification_method.as_bytes());
         h.update(b"\x1fSBR\x1e");
@@ -125,9 +125,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
     inputs: &FederationCacheKeyInputs,
     expected_destination_trust_domain: &str,
 ) -> Result<Option<String>, (ApiErrorCode, String)> {
-    if !inputs.source_service_id.is_empty()
-        && DidCoreId::new(inputs.source_service_id.clone()).is_err()
-    {
+    if !inputs.source_id.is_empty() && DidCoreId::new(inputs.source_id.clone()).is_err() {
         return Err((
             ApiErrorCode::CrossDomainReplayRejected,
             "Source-Service-ID must be a stable service core id, not a DID or URL".to_owned(),
@@ -146,7 +144,7 @@ pub(crate) fn verify_federation_trust_domain_headers(
             ),
         ));
     }
-    if inputs.source_service_id.is_empty() {
+    if inputs.source_id.is_empty() {
         return Err((
             ApiErrorCode::CrossDomainReplayRejected,
             "federation S2S request must carry Source-Service-ID".to_owned(),

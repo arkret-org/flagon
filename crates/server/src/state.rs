@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use arkret_rate_limit::{FixedWindowConfig, MemoryFixedWindowRateLimiter};
+use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 
 use crate::config::AppConfig;
@@ -20,6 +21,7 @@ pub struct AppState {
 
 struct Inner {
     config: AppConfig,
+    service_core_id: DidCoreId,
     db: Db,
     /// DID-P0-C01 — the one DID resolver for this process. Built here at
     /// startup from the `AppConfig` snapshot; request paths borrow it and
@@ -48,6 +50,8 @@ impl AppState {
     /// resolver that cannot be built is a configuration error, and
     /// configuration errors belong at boot.
     pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
+        let service_core_id = DidCoreId::new(config.service_id.clone())
+            .expect("AppConfig service_id is projected from a validated service DID");
         // Built before the resolver so the DID counters land on the same
         // `Metrics` instance `/metrics` renders.
         let metrics = Metrics::default();
@@ -64,6 +68,7 @@ impl AppState {
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
+                service_core_id,
                 db,
                 did_resolver: Arc::new(did_resolver),
                 did_bindings,
@@ -77,6 +82,10 @@ impl AppState {
 
     pub fn config(&self) -> &AppConfig {
         &self.inner.config
+    }
+
+    pub fn service_core_id(&self) -> &DidCoreId {
+        &self.inner.service_core_id
     }
 
     /// The shared DID **authority** handle. Only the ingest face and the RFC
@@ -121,7 +130,7 @@ impl AppState {
 
     /// Look up the federation idempotency cache by the
     /// extended four-field key. `digest` is SHA-256 over `(request_digest
-    /// || source_service_id || verification_method ||
+    /// || source_id || verification_method ||
     /// service_binding_ref || origin_key_state_digest)`.
     pub fn cached_federation_replay(&self, key: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
         self.inner.announce_replay_cache.get(key)

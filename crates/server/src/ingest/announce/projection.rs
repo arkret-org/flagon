@@ -232,13 +232,13 @@ fn member_count_disclosure_omitted(
 ///
 /// 1. `claim_type` / `class` == `service_handle` is rejected (the draft-era value was removed in
 ///    R3.2). Audit reason `claim_type_unsupported`.
-/// 2. A handle-claim `subject` that is a `ak:actor:` Realm actor id, a `ak:account:` server-local
-///    account id, a service DID, or any non-DID resource id is rejected. Audit reason
+/// 2. A handle-claim `subject_id` that is a `ak:actor:` Realm actor id, a `ak:account:`
+///    server-local account id, a service DID, or any non-DID resource id is rejected. Audit reason
 ///    `handle_claim_subject_not_principal_did`. The structural DID check is delegated to the SDK's
 ///    `validate_handle_claim_subject` so the directory and the rest of the stack share one rule.
 ///
 /// Only discovery_state bodies that actually look like a handle claim (carry
-/// a `subject` and/or `claim_type` / `class`) are inspected; non-handle
+/// a `subject_id` and/or `claim_type` / `class`) are inspected; non-handle
 /// announces pass through untouched.
 pub(crate) fn validate_handle_claim_ingest(
     discovery_state: &JsonValue,
@@ -266,17 +266,17 @@ pub(crate) fn validate_handle_claim_ingest(
         ));
     }
 
-    // (2) handle-claim subject MUST be a holder/principal identity core.
+    // (2) handle-claim subject_id MUST be a holder/principal identity core.
     // `ak:actor:` / `ak:account:` resource ids and bare `did:` DIDs fall
-    // into the same rejection family: only `ak:did_core:` is a subject.
-    if let Some(subject) = obj.get("subject").and_then(JsonValue::as_str) {
-        let is_principal_core = arkret_sdk::DidCoreId::new(subject.to_owned())
+    // into the same rejection family: only `ak:did_core:` is a subject_id.
+    if let Some(subject_id) = obj.get("subject_id").and_then(JsonValue::as_str) {
+        let is_principal_core = arkret_sdk::DidCoreId::new(subject_id.to_owned())
             .is_ok_and(|core_id| arkret_sdk::validate_handle_claim_subject(&core_id).is_ok());
         if !is_principal_core {
             return Err((
                 ApiErrorCode::SchemaViolation,
                 format!(
-                    "handle_claim_subject_not_principal_did: subject {subject} is not a \
+                    "handle_claim_subject_not_principal_did: subject_id {subject_id} is not a \
                      holder/principal identity core"
                 ),
             ));

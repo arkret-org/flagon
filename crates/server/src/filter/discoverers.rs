@@ -1,7 +1,7 @@
 //! Single source of truth for `allowed_discoverers` restricted-visibility
 //! matching (spec discovery-directory §3).
 //!
-//! `restricted` resources are only surfaced to a requester whose identity or
+//! `restricted` resources are only surfaced to a requester_id whose identity or
 //! signed claim presentations satisfy the resource's `allowed_discoverers`
 //! list. This decision gates whether a restricted Realm / Handle /
 //! Organization is visible at all, so the matching logic MUST be identical
@@ -52,15 +52,15 @@ impl VerifiedRestrictedClaims {
 #[cfg(test)]
 pub(crate) fn organization_membership_claim(
     claim_id: &str,
-    subject: DidCoreId,
-    issuer: DidCoreId,
+    subject_id: DidCoreId,
+    issuer_id: DidCoreId,
     organization: DidCoreId,
     roles: Vec<String>,
 ) -> DirectoryPresentedClaim {
     DirectoryPresentedClaim {
         claim_id: claim_id.to_owned(),
-        subject,
-        issuer,
+        subject_id,
+        issuer_id,
         claim_kind: "organization_membership".to_owned(),
         value: serde_json::from_value(serde_json::json!({
             "organization_id": organization,
@@ -90,19 +90,19 @@ pub fn has_allowed_discoverers(projection: &JsonValue) -> bool {
     allowed_discoverers(projection).is_some_and(|arr| !arr.is_empty())
 }
 
-/// Decide whether `requester` / `proofs` satisfy the projection's
+/// Decide whether `requester_id` / `proofs` satisfy the projection's
 /// `allowed_discoverers` list. Returns `false` when the list is absent or
 /// empty (fail-closed: a restricted resource with no discoverers is invisible).
 pub fn matches_allowed_discoverers(
     projection: &JsonValue,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
     let Some(discoverers) = allowed_discoverers(projection) else {
         return false;
     };
     discoverers.iter().any(|entry| match entry {
-        JsonValue::Object(obj) => claim_selector_matches(obj, requester, verified_claims),
+        JsonValue::Object(obj) => claim_selector_matches(obj, requester_id, verified_claims),
         _ => false,
     })
 }
@@ -119,15 +119,15 @@ pub fn matches_allowed_discoverers(
 ///
 /// `bindings` is a [`DidBindingDirectory`], which owns no DID resolver. A
 /// presentation therefore verifies against an **already accepted**
-/// [`DidBindingPurpose::DirectoryIssuer`] binding (established when that issuer
+/// [`DidBindingPurpose::DirectoryIssuer`] binding (established when that issuer_id
 /// announced itself to this directory), or — for `did:key`, which is
-/// self-describing key material — against a locally decoded document. An issuer
+/// self-describing key material — against a locally decoded document. An issuer_id
 /// this directory has never accepted produces `Err`, which every caller already
 /// turns into the blinded `not_found` / "no verified claims" outcome, so the
 /// anti-enumeration behaviour is unchanged.
 pub fn verify_restricted_claim_presentations(
     presentations: &[DirectoryRestrictedClaimPresentation],
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     proof_challenge: Option<&str>,
     expected_audience: &str,
     bindings: &DidBindingDirectory,
@@ -135,10 +135,10 @@ pub fn verify_restricted_claim_presentations(
     if presentations.is_empty() {
         return Ok(VerifiedRestrictedClaims::default());
     }
-    let requester = requester
+    let requester_id = requester_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "restricted claim presentation requires requester".to_owned())?;
+        .ok_or_else(|| "restricted claim presentation requires requester_id".to_owned())?;
     let challenge = proof_challenge
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -148,7 +148,7 @@ pub fn verify_restricted_claim_presentations(
     for presentation in presentations {
         verify_presentation_envelope(
             presentation,
-            requester,
+            requester_id,
             challenge,
             expected_audience,
             bindings,
@@ -160,7 +160,7 @@ pub fn verify_restricted_claim_presentations(
 
 fn verify_presentation_envelope(
     presentation: &DirectoryRestrictedClaimPresentation,
-    requester: &str,
+    requester_id: &str,
     challenge: &str,
     expected_audience: &str,
     bindings: &DidBindingDirectory,
@@ -174,11 +174,11 @@ fn verify_presentation_envelope(
     if presentation.nonce != challenge {
         return Err("restricted claim presentation nonce mismatch".to_owned());
     }
-    if presentation.claim.subject.as_str() != requester {
-        return Err("restricted claim subject mismatch".to_owned());
+    if presentation.claim.subject_id.as_str() != requester_id {
+        return Err("restricted claim subject_id mismatch".to_owned());
     }
-    if presentation.claim.issuer != presentation.iss {
-        return Err("restricted claim issuer mismatch".to_owned());
+    if presentation.claim.issuer_id != presentation.iss {
+        return Err("restricted claim issuer_id mismatch".to_owned());
     }
     // `verification_method` names a key on a resolvable DID; `iss` is the
     // stable identity core. Project the controller before comparing — the two
@@ -191,7 +191,7 @@ fn verify_presentation_envelope(
     if verification_method_controller_core_id(presentation.verification_method.as_str()).as_ref()
         != Some(&presentation.iss)
     {
-        return Err("restricted claim verification method issuer mismatch".to_owned());
+        return Err("restricted claim verification method issuer_id mismatch".to_owned());
     }
     let signer_did = signer_did.to_owned();
     let now = Utc::now();
@@ -228,7 +228,7 @@ fn verify_presentation_jws(
     canonical_bytes: &[u8],
     jws: &str,
     verification_method: &str,
-    issuer: &str,
+    issuer_id: &str,
     bindings: &DidBindingDirectory,
 ) -> Result<(), String> {
     // Kept at the call site (as well as inside the shared helper) because an
@@ -245,7 +245,7 @@ fn verify_presentation_jws(
             canonical_bytes,
             jws,
             verification_method,
-            issuer,
+            issuer_id,
             DidBindingPurpose::DirectoryIssuer,
             SIGNATURE_KIND_RESTRICTED_CLAIM,
             Utc::now(),
@@ -255,7 +255,7 @@ fn verify_presentation_jws(
 
 fn claim_selector_matches(
     selector: &serde_json::Map<String, JsonValue>,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
     if selector.get("type").and_then(JsonValue::as_str) != Some("claim") {
@@ -264,29 +264,29 @@ fn claim_selector_matches(
     let Some(claim_kind) = selector.get("claim_kind").and_then(JsonValue::as_str) else {
         return false;
     };
-    let Some(issuer) = selector.get("issuer").and_then(JsonValue::as_str) else {
+    let Some(issuer_id) = selector.get("issuer_id").and_then(JsonValue::as_str) else {
         return false;
     };
-    let Some(requester) = requester else {
+    let Some(requester_id) = requester_id else {
         return false;
     };
-    let Ok(subject) = DidCoreId::new(requester.to_owned()) else {
+    let Ok(subject_id) = DidCoreId::new(requester_id.to_owned()) else {
         return false;
     };
-    let Ok(issuer_id) = DidCoreId::new(issuer.to_owned()) else {
+    let Ok(issuer_id) = DidCoreId::new(issuer_id.to_owned()) else {
         return false;
     };
     verified_claims
         .claims
         .iter()
-        .any(|claim| claim_satisfies_selector(claim, selector, &subject, &issuer_id, claim_kind))
+        .any(|claim| claim_satisfies_selector(claim, selector, &subject_id, &issuer_id, claim_kind))
 }
 
 fn claim_satisfies_selector(
     claim: &DirectoryPresentedClaim,
     selector: &serde_json::Map<String, JsonValue>,
-    subject: &DidCoreId,
-    issuer: &DidCoreId,
+    subject_id: &DidCoreId,
+    issuer_id: &DidCoreId,
     claim_kind: &str,
 ) -> bool {
     if claim
@@ -300,8 +300,8 @@ fn claim_satisfies_selector(
     }
 
     let now = Utc::now();
-    claim.subject == *subject
-        && claim.issuer == *issuer
+    claim.subject_id == *subject_id
+        && claim.issuer_id == *issuer_id
         && claim.claim_kind == claim_kind
         && claim.revoked_at.is_none_or(|revoked_at| revoked_at > now)
         && claim.expires_at.is_none_or(|expires_at| expires_at > now)
@@ -356,19 +356,19 @@ mod tests {
         let issuer_did = arkret_sdk::Did::new(format!("did:key:{multibase}")).unwrap();
         let verification_method =
             arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_did.as_str())).unwrap();
-        let issuer = arkret_sdk::project_did_to_core_id(&issuer_did).unwrap();
-        let subject = DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap();
+        let issuer_id = arkret_sdk::project_did_to_core_id(&issuer_did).unwrap();
+        let subject_id = DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap();
         let org = DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
         let claim = organization_membership_claim(
             "claim-1",
-            subject.clone(),
-            issuer.clone(),
+            subject_id.clone(),
+            issuer_id.clone(),
             org.clone(),
             vec!["member".to_owned()],
         );
         let presentation = signed_presentation(
             &signing_key,
-            issuer.clone(),
+            issuer_id.clone(),
             verification_method,
             "ak:did_core:web:directory.example",
             "challenge-1",
@@ -378,7 +378,7 @@ mod tests {
         let bindings = test_bindings();
         let verified = verify_restricted_claim_presentations(
             std::slice::from_ref(&presentation),
-            Some(subject.as_str()),
+            Some(subject_id.as_str()),
             Some("challenge-1"),
             "ak:did_core:web:directory.example",
             &bindings,
@@ -388,20 +388,20 @@ mod tests {
             "allowed_discoverers": [{
                 "type": "claim",
                 "claim_kind": "organization_membership",
-                "issuer": issuer.as_str(),
+                "issuer_id": issuer_id.as_str(),
                 "organization_id": org.as_str(),
             }]
         });
         assert!(matches_allowed_discoverers(
             &projection,
-            Some(subject.as_str()),
+            Some(subject_id.as_str()),
             &verified,
         ));
 
         assert!(
             verify_restricted_claim_presentations(
                 &[presentation],
-                Some(subject.as_str()),
+                Some(subject_id.as_str()),
                 Some("wrong-challenge"),
                 "ak:did_core:web:directory.example",
                 &bindings,

@@ -33,7 +33,7 @@
 //!
 //! ## Requester proof (§9.0.1)
 //!
-//! `proofs[]` carries the per-object-family requester proof bound to
+//! `proofs[]` carries the per-object-family requester_id proof bound to
 //! `ak.directory_resolve_target_request_proof.v1` — a distinct signature domain
 //! from every other directory request family, so a proof minted for
 //! `resolve_handle` (or any other family) can never be replayed here.
@@ -43,7 +43,7 @@
 //! missing/empty audience, digest mismatch, alias-vs-token `realm_id` mismatch,
 //! or an alias that cannot be resolved to a canonical id — we collapse to the
 //! SAME blinded `not_found` as an invite/restricted/secret resource for an
-//! unauthorized requester. The unauthorized and the nonexistent cases are byte-
+//! unauthorized requester_id. The unauthorized and the nonexistent cases are byte-
 //! AND timing-indistinguishable (shared latency floor + jitter + stochastic
 //! resolve jitter).
 use arkret_identity::binding::DidBindingPurpose;
@@ -113,10 +113,10 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
         return;
     }
 
-    let requester = body.requester.as_ref().map(|d| d.as_str().to_owned());
+    let requester_id = body.requester_id.as_ref().map(|d| d.as_str().to_owned());
     let verified_claims = verified_restricted_claims_for_target_query(
         &state,
-        requester.as_deref(),
+        requester_id.as_deref(),
         body.proof_challenge.as_deref(),
         &body.claim_presentations,
     );
@@ -134,7 +134,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let privacy_key = format!(
         "addr={};req={};tok={};claims={};proofs={}",
         body.address,
-        requester.as_deref().unwrap_or_default(),
+        requester_id.as_deref().unwrap_or_default(),
         token.as_deref().map(|_| "1").unwrap_or("0"),
         body.claim_presentations.len(),
         body.proofs.len(),
@@ -146,7 +146,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
         &privacy_key,
         |target| state.metrics().record_anti_enum_pad(OP, target),
         async {
-            // §9.0.1 requester proof, inside the latency budget so a
+            // §9.0.1 requester_id proof, inside the latency budget so a
             // proof-layer rejection is timing-equivalent to a genuine miss
             // (§9.2) and before any address resolution.
             if let Err(reason) = verify_requester_proofs(
@@ -155,13 +155,13 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 state.did_bindings(),
                 Utc::now(),
             ) {
-                tracing::debug!(%reason, "resolve_target requester proof rejected");
+                tracing::debug!(%reason, "resolve_target requester_id proof rejected");
                 return ResolveOutcome::ProofReject;
             }
             resolve(
                 &state,
                 &body.address,
-                requester.as_deref(),
+                requester_id.as_deref(),
                 &verified_claims,
                 token.as_deref(),
             )
@@ -185,7 +185,7 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
             state.metrics().record_query_outcome(OP, "token_reject");
             ApiErrorCode::NotFound.render(res, "not found");
         }
-        // §9.0.1 requester proof failed — same blinded not_found, split only
+        // §9.0.1 requester_id proof failed — same blinded not_found, split only
         // for the operator metric.
         ResolveOutcome::ProofReject => {
             state.metrics().record_query_outcome(OP, "proof_reject");
@@ -205,13 +205,13 @@ pub async fn resolve_target(req: &mut Request, depot: &mut Depot, res: &mut Resp
 
 fn verified_restricted_claims_for_target_query(
     state: &AppState,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     proof_challenge: Option<&str>,
     presentations: &[arkret_sdk::DirectoryRestrictedClaimPresentation],
 ) -> VerifiedRestrictedClaims {
     verify_restricted_claim_presentations(
         presentations,
-        requester,
+        requester_id,
         proof_challenge,
         state.config().service_id.as_str(),
         state.did_bindings(),
@@ -222,7 +222,7 @@ fn verified_restricted_claims_for_target_query(
 /// The internal resolve outcome. `TokenReject`, `ProofReject` and `NotFound`
 /// ALL render the same blinded `not_found` wire response — the split exists
 /// ONLY so the `/metrics` surface can distinguish a scope-confusion / token
-/// failure or a §9.0.1 requester-proof failure from a genuine miss for
+/// failure or a §9.0.1 requester_id-proof failure from a genuine miss for
 /// operator dashboards. The wire bytes are identical.
 enum ResolveOutcome {
     Ok(Box<DirectoryTargetResolutionOutcome>),
@@ -235,7 +235,7 @@ enum ResolveOutcome {
 async fn resolve(
     state: &AppState,
     address: &str,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
     token: Option<&str>,
 ) -> ResolveOutcome {
@@ -262,7 +262,7 @@ async fn resolve(
     let realm_resolution = if effective_address_link_kind == AddressLinkKind::Preview {
         crate::query::realm::resolve_realm_for_preview_link(state, &realm_key).await
     } else {
-        resolve_realm_visible(state, &realm_key, requester, verified_claims).await
+        resolve_realm_visible(state, &realm_key, requester_id, verified_claims).await
     };
     let resolved = match realm_resolution {
         Ok(Some(r)) => r,
@@ -290,7 +290,7 @@ async fn resolve(
             &canonical_realm_id,
             &preview_policy.value,
             &preview_policy.digest,
-            requester,
+            requester_id,
             Utc::now(),
             state.did_bindings(),
         ) {
@@ -368,7 +368,7 @@ async fn resolve(
         target_kind,
         &canonical_realm_id,
         &parsed,
-        requester,
+        requester_id,
         verified_claims,
         invite_authorized,
     )
@@ -475,7 +475,7 @@ pub fn verify_preview_token_details_with_methods(
     canonical_realm_id: &str,
     preview_policy: &JsonValue,
     current_policy_digest: &str,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     now: DateTime<Utc>,
     bindings: &DidBindingDirectory,
 ) -> Result<VerifiedPreviewToken, TokenCheck> {
@@ -498,14 +498,14 @@ pub fn verify_preview_token_details_with_methods(
     let verification_method = token_verification_method(&value)
         .map(str::to_owned)
         .ok_or(TokenCheck::Reject)?;
-    let issuer = value
+    let issuer_id = value
         .get("iss")
         .and_then(JsonValue::as_str)
         .map(str::trim)
-        .filter(|issuer| !issuer.is_empty())
+        .filter(|issuer_id| !issuer_id.is_empty())
         .map(str::to_owned)
         .ok_or(TokenCheck::Reject)?;
-    if verification_method_issuer(&verification_method) != Some(issuer.as_str()) {
+    if verification_method_issuer(&verification_method) != Some(issuer_id.as_str()) {
         return Err(TokenCheck::Reject);
     }
     let jws = detach_jws(&mut value).ok_or(TokenCheck::Reject)?;
@@ -515,7 +515,7 @@ pub fn verify_preview_token_details_with_methods(
         &canonical_bytes,
         &jws,
         &verification_method,
-        &issuer,
+        &issuer_id,
         bindings,
         SIGNATURE_KIND_PREVIEW_TOKEN,
     )
@@ -534,7 +534,7 @@ pub fn verify_preview_token_details_with_methods(
     if expires_at <= now {
         return Err(TokenCheck::Reject);
     }
-    if !preview_audience_matches(value.get("aud"), requester) {
+    if !preview_audience_matches(value.get("aud"), requester_id) {
         return Err(TokenCheck::Reject);
     }
 
@@ -623,12 +623,12 @@ fn parse_preview_token_expiry(value: Option<&JsonValue>) -> Option<DateTime<Utc>
     }
 }
 
-fn preview_audience_matches(value: Option<&JsonValue>, requester: Option<&str>) -> bool {
+fn preview_audience_matches(value: Option<&JsonValue>, requester_id: Option<&str>) -> bool {
     let matches_audience = |aud: &str| match aud.trim() {
         "" => false,
         "anonymous" | "link_token_holder" => true,
-        "authenticated" => requester.is_some(),
-        expected => requester.is_some_and(|requester| requester == expected),
+        "authenticated" => requester_id.is_some(),
+        expected => requester_id.is_some_and(|requester_id| requester_id == expected),
     };
     match value {
         Some(JsonValue::String(aud)) => matches_audience(aud),
@@ -789,14 +789,14 @@ fn parse_token_descriptor(
     }
 
     let verification_method = token_verification_method(&value).map(str::to_owned)?;
-    let issuer = value
+    let issuer_id = value
         .get("iss")
         .and_then(JsonValue::as_str)
         .map(str::trim)
-        .filter(|issuer| !issuer.is_empty())
+        .filter(|issuer_id| !issuer_id.is_empty())
         .map(str::to_owned);
-    let issuer = issuer?;
-    if verification_method_issuer(&verification_method)? != issuer {
+    let issuer_id = issuer_id?;
+    if verification_method_issuer(&verification_method)? != issuer_id {
         return None;
     }
 
@@ -819,7 +819,7 @@ fn parse_token_descriptor(
         &canonical_bytes,
         &jws,
         &verification_method,
-        &issuer,
+        &issuer_id,
         bindings,
         SIGNATURE_KIND_INVITE_TOKEN,
     )?;
@@ -839,7 +839,7 @@ fn parse_token_descriptor(
 /// # DID-P0-C03 — the query face never resolves
 ///
 /// `bindings` is a [`DidBindingDirectory`]: no resolver field, no resolver
-/// accessor. A token issuer this directory has already accepted (purpose
+/// accessor. A token issuer_id this directory has already accepted (purpose
 /// [`DidBindingPurpose::DirectoryIssuer`]) verifies from the pinned document;
 /// `did:key` issuers decode locally; anything else returns `None`, which the
 /// callers collapse into the SAME blinded `not_found` an unknown or
@@ -848,7 +848,7 @@ fn verify_invite_token_jws(
     canonical_bytes: &[u8],
     jws: &str,
     verification_method: &str,
-    issuer: &str,
+    issuer_id: &str,
     bindings: &DidBindingDirectory,
     kind: &'static str,
 ) -> Option<()> {
@@ -862,7 +862,7 @@ fn verify_invite_token_jws(
             canonical_bytes,
             jws,
             verification_method,
-            issuer,
+            issuer_id,
             DidBindingPurpose::DirectoryIssuer,
             kind,
             Utc::now(),
@@ -1089,7 +1089,7 @@ async fn build_object_response(
     target_kind: TargetKind,
     canonical_realm_id: &str,
     parsed: &ParsedAddress,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
     invite_authorized: bool,
 ) -> anyhow::Result<Option<DirectoryTargetResolutionOutcome>> {
@@ -1118,7 +1118,7 @@ async fn build_object_response(
     else {
         return Ok(None);
     };
-    if !object_access_allowed(&row, requester, verified_claims, invite_authorized) {
+    if !object_access_allowed(&row, requester_id, verified_claims, invite_authorized) {
         return Ok(None);
     }
     let Some(policy_revision) = required_object_policy_revision(&row) else {
@@ -1199,7 +1199,7 @@ async fn load_object_access_row(
 
 fn object_access_allowed(
     row: &ObjectAccessRow,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
     invite_authorized: bool,
 ) -> bool {
@@ -1210,7 +1210,7 @@ fn object_access_allowed(
         return false;
     }
     let required = json!({ "allowed_discoverers": row.required_claims.clone() });
-    matches_allowed_discoverers(&required, requester, verified_claims)
+    matches_allowed_discoverers(&required, requester_id, verified_claims)
 }
 
 fn required_object_policy_revision(row: &ObjectAccessRow) -> Option<String> {
@@ -1271,11 +1271,11 @@ mod tests {
         descriptor.address_link_kind = AddressLinkKind::Invite;
         let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
-        let issuer = format!("did:key:{multibase}");
-        let verification_method = format!("{issuer}#{multibase}");
+        let issuer_id = format!("did:key:{multibase}");
+        let verification_method = format!("{issuer_id}#{multibase}");
         let mut payload = json!({
             "kind": "invite_token",
-            "iss": issuer,
+            "iss": issuer_id,
             "verification_method": verification_method,
             "exp": Utc::now().timestamp() + 3600,
             "aud": "ak:did_core:web:alice.example",
@@ -1380,11 +1380,11 @@ mod tests {
         descriptor.address_link_kind = AddressLinkKind::Invite;
         let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
-        let issuer = format!("did:key:{multibase}");
-        let verification_method = format!("{issuer}#{multibase}");
+        let issuer_id = format!("did:key:{multibase}");
+        let verification_method = format!("{issuer_id}#{multibase}");
         let mut payload = json!({
             "kind": "invite_token",
-            "iss": issuer,
+            "iss": issuer_id,
             "verification_method": verification_method,
             "exp": Utc::now().timestamp() - 1,
             "aud": "ak:did_core:web:alice.example",
@@ -1541,15 +1541,15 @@ mod tests {
 
     #[test]
     fn object_access_accepts_matching_verified_claim_presentation() {
-        let issuer =
-            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned()).unwrap();
+        let issuer_id =
+            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer_id.example".to_owned()).unwrap();
         let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
-        let requester =
+        let requester_id =
             arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
         let claim = crate::filter::discoverers::organization_membership_claim(
             "claim-1",
-            requester.clone(),
-            issuer.clone(),
+            requester_id.clone(),
+            issuer_id.clone(),
             org.clone(),
             vec!["member".to_owned()],
         );
@@ -1559,7 +1559,7 @@ mod tests {
             required_claims: json!([{
                 "type": "claim",
                 "claim_kind": "organization_membership",
-                "issuer": issuer.as_str(),
+                "issuer_id": issuer_id.as_str(),
                 "organization_id": org.as_str(),
             }]),
             as_of: sample_time(),
@@ -1571,7 +1571,7 @@ mod tests {
 
         assert!(object_access_allowed(
             &row,
-            Some(requester.as_str()),
+            Some(requester_id.as_str()),
             &verified_claims,
             false,
         ));

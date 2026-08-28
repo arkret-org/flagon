@@ -149,7 +149,7 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
     let mut error = use_signal(String::new);
-    let mut subject = use_signal(String::new);
+    let mut subject_id = use_signal(String::new);
     let mut subject_realm = use_signal(String::new);
     let mut subject_requester = use_signal(String::new);
     let mut subject_intent = use_signal(String::new);
@@ -164,7 +164,7 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
     let loading_now = loading();
     let status_text = status();
     let error_text = error();
-    let subject_value = subject();
+    let subject_value = subject_id();
     let subject_realm_value = subject_realm();
     let subject_requester_value = subject_requester();
     let subject_intent_value = subject_intent();
@@ -178,9 +178,9 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
 
     let handles_base_url = Rc::clone(&base_url);
     let run_subject_lookup = move |_| {
-        let subject_text = subject().trim().to_string();
+        let subject_text = subject_id().trim().to_string();
         if subject_text.is_empty() {
-            error.set("subject is required".to_string());
+            error.set("subject_id is required".to_string());
             return;
         }
         let limit_text = subject_limit();
@@ -192,9 +192,9 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
             }
         };
         let mut body = serde_json::Map::new();
-        body.insert("subject".to_string(), JsonValue::String(subject_text));
+        body.insert("subject_id".to_string(), JsonValue::String(subject_text));
         insert_optional_string(&mut body, "realm_id", &subject_realm());
-        insert_optional_string(&mut body, "requester", &subject_requester());
+        insert_optional_string(&mut body, "requester_id", &subject_requester());
         insert_optional_string(&mut body, "intent", &subject_intent());
         insert_optional_string(&mut body, "cursor", &subject_cursor());
         if let Some(limit) = limit {
@@ -204,12 +204,12 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
         let base_url = handles_base_url.clone();
         loading.set(true);
         error.set(String::new());
-        status.set("Querying subject handles".to_string());
+        status.set("Querying subject_id handles".to_string());
         spawn(async move {
             let body = JsonValue::Object(body);
             match post_directory::<JsonValue, JsonValue>(
                 base_url,
-                "list-handles-for-subject",
+                "list-handles-for-subject_id",
                 &body,
             )
             .await
@@ -236,7 +236,7 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
         }
         let mut body = serde_json::Map::new();
         body.insert("address".to_string(), JsonValue::String(address));
-        insert_optional_string(&mut body, "requester", &target_requester());
+        insert_optional_string(&mut body, "requester_id", &target_requester());
         insert_optional_string(&mut body, "token", &target_token());
 
         let base_url = target_base_url.clone();
@@ -277,7 +277,7 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
                         label { "Subject DID" }
                         input {
                             value: "{subject_value}",
-                            oninput: move |event| subject.set(event.value()),
+                            oninput: move |event| subject_id.set(event.value()),
                         }
                     }
                     div { class: "field span-4",

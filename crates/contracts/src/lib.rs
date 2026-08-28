@@ -145,7 +145,7 @@ pub struct TakedownAppealDecisionOutcome {
 pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,
     pub resource_id: String,
-    pub principal_server_service_id: String,
+    pub principal_server_id: String,
     pub discoverability: Discoverability,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,

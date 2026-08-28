@@ -169,8 +169,8 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
                 .into_iter()
                 .map(|scored| {
                     // `results[].did` is conditional. The SDK request body has
-                    // no requester-bound proof input, so this face never has
-                    // enough evidence to disclose the subject DID.
+                    // no requester_id-bound proof input, so this face never has
+                    // enough evidence to disclose the subject_id DID.
                     let did_authorized = scored.did_authorized;
                     user_search_outcome_from_envelope(envelope_from_row(scored.row)).map(
                         |mut outcome| {
@@ -252,9 +252,9 @@ async fn run_actor_search(
         .collect())
 }
 
-/// A matched actor row plus whether the requester is authorized to learn the
-/// subject `did` for this result. §9 conditional-did: only local-contact
-/// (`resource_id == requester`) authorizes did disclosure on this face;
+/// A matched actor row plus whether the requester_id is authorized to learn the
+/// subject_id `did` for this result. §9 conditional-did: only local-contact
+/// (`resource_id == requester_id`) authorizes did disclosure on this face;
 /// common-Realm membership alone does NOT.
 struct ScoredUserRow {
     row: ActorRow,

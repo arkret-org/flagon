@@ -1,4 +1,4 @@
-//! Directory requester-proof verification — `discovery-directory.md` §9.0.1.
+//! Directory requester_id-proof verification — `discovery-directory.md` §9.0.1.
 //!
 //! # One context per object family
 //!
@@ -50,7 +50,7 @@
 //! # DID-P0-C03 — this path never resolves
 //!
 //! Like `filter::discoverers`, verification runs against an already accepted
-//! binding or the zero-network `did:key` decode. An unknown requester DID
+//! binding or the zero-network `did:key` decode. An unknown requester_id DID
 //! produces `Err`, which is the same blinded outcome as any other failure.
 
 use arkret_identity::binding::DidBindingPurpose;
@@ -84,9 +84,9 @@ pub trait DirectoryRequesterProofFamily {
     fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError>;
 
     /// The family's originator wire field, whose value the binding object
-    /// carries as `issuer`. `None` only for
+    /// carries as `issuer_id`. `None` only for
     /// `directory_resolve_organization_request_body`, which has no originator
-    /// field: its binding object omits `issuer` and the signer identity is
+    /// field: its binding object omits `issuer_id` and the signer identity is
     /// borne solely by `verification_method`.
     fn requester_proof_originator(&self) -> Option<&DidCoreId>;
 }
@@ -101,7 +101,7 @@ impl DirectoryRequesterProofFamily for DirectoryResolveTargetRequestBody {
     }
 
     fn requester_proof_originator(&self) -> Option<&DidCoreId> {
-        self.requester.as_ref()
+        self.requester_id.as_ref()
     }
 }
 
@@ -129,7 +129,7 @@ impl DirectoryRequesterProofFamily for DirectoryResolveHandleRequestBody {
     }
 
     fn requester_proof_originator(&self) -> Option<&DidCoreId> {
-        self.requester.as_ref()
+        self.requester_id.as_ref()
     }
 }
 
@@ -143,11 +143,11 @@ impl DirectoryRequesterProofFamily for DirectoryListHandlesForSubjectRequestBody
     }
 
     fn requester_proof_originator(&self) -> Option<&DidCoreId> {
-        self.requester.as_ref()
+        self.requester_id.as_ref()
     }
 }
 
-/// Verify every §9.0.1 requester proof the request carries.
+/// Verify every §9.0.1 requester_id proof the request carries.
 ///
 /// A request with no `proofs[]` is accepted unchanged — the proof is an
 /// authorization *input*, and whether the resolution needs one is decided by
@@ -180,7 +180,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         .abs();
     if skew > REQUESTER_PROOF_MAX_SKEW_SECONDS {
         return Err(format!(
-            "directory requester proof created_at is {skew}s from receipt time, \
+            "directory requester_id proof created_at is {skew}s from receipt time, \
              outside the {REQUESTER_PROOF_MAX_SKEW_SECONDS}s window"
         ));
     }
@@ -196,7 +196,8 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         Some(Audience::Single(audience)) if audience == expected_audience => {}
         _ => {
             return Err(
-                "directory requester proof audience must be this directory's service_id".to_owned(),
+                "directory requester_id proof audience must be this directory's service_id"
+                    .to_owned(),
             );
         }
     }
@@ -207,21 +208,23 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
     // context split exists to close.
     let binding_bytes = request
         .requester_proof_binding_bytes(proof)
-        .map_err(|error| format!("directory requester proof binding rejected: {error}"))?;
+        .map_err(|error| format!("directory requester_id proof binding rejected: {error}"))?;
 
     let verification_method = proof.verification_method.as_str();
     let Some(signer_did) = verification_method_issuer(verification_method) else {
-        return Err("directory requester proof verification_method has no controller".to_owned());
+        return Err(
+            "directory requester_id proof verification_method has no controller".to_owned(),
+        );
     };
-    // `issuer` in the transcript is the request's originator field, so the
-    // signing key MUST be controlled by that same subject. A DID URL's bare
+    // `issuer_id` in the transcript is the request's originator field, so the
+    // signing key MUST be controlled by that same subject_id. A DID URL's bare
     // controller is a `Did` and the originator is a `DidCoreId`; project
     // before comparing.
     if let Some(originator) = request.requester_proof_originator()
         && verification_method_controller_core_id(verification_method).as_ref() != Some(originator)
     {
         return Err(
-            "directory requester proof verification_method is not controlled by the request \
+            "directory requester_id proof verification_method is not controlled by the request \
              originator"
                 .to_owned(),
         );
@@ -239,7 +242,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         )
         .map_err(|failure| {
             format!(
-                "directory requester proof JWS invalid: {}",
+                "directory requester_id proof JWS invalid: {}",
                 failure.message()
             )
         })
@@ -299,13 +302,13 @@ mod tests {
     /// binding object, so overwriting it afterwards leaves the transcript
     /// unchanged, and the SDK helper rejects an empty `jws` outright.
     fn unsigned_proof(
-        requester: &Requester,
+        requester_id: &Requester,
         payload_digest: Hash,
         created_at: DateTime<Utc>,
     ) -> PayloadProof {
         PayloadProof {
             kind: arkret_wire::proof_kind::DETACHED_JWS.to_owned(),
-            verification_method: requester.verification_method.clone(),
+            verification_method: requester_id.verification_method.clone(),
             payload_digest,
             created_at,
             domain: None,
@@ -315,29 +318,29 @@ mod tests {
         }
     }
 
-    fn resolve_handle_body(requester: &Requester) -> DirectoryResolveHandleRequestBody {
+    fn resolve_handle_body(requester_id: &Requester) -> DirectoryResolveHandleRequestBody {
         DirectoryResolveHandleRequestBody {
             handle: "alice:example.com".to_owned(),
             expected_principal_id: None,
             proof_challenge: Some("challenge-1".to_owned()),
             claim_presentations: Vec::new(),
             intent: None,
-            requester: Some(requester.core_id.clone()),
+            requester_id: Some(requester_id.core_id.clone()),
             audience: None,
             realm_id: None,
             proofs: Vec::new(),
         }
     }
 
-    fn list_handles_body(requester: &Requester) -> DirectoryListHandlesForSubjectRequestBody {
+    fn list_handles_body(requester_id: &Requester) -> DirectoryListHandlesForSubjectRequestBody {
         DirectoryListHandlesForSubjectRequestBody {
-            subject: DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
+            subject_id: DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
             realm_id: Some(
                 RealmId::new("ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb".to_owned())
                     .unwrap(),
             ),
             intent: None,
-            requester: Some(requester.core_id.clone()),
+            requester_id: Some(requester_id.core_id.clone()),
             proof_challenge: Some("challenge-1".to_owned()),
             proofs: Vec::new(),
             as_of: None,
@@ -349,42 +352,42 @@ mod tests {
     /// Sign the family's own transcript and return the request with the
     /// finished proof attached.
     fn signed_resolve_handle(
-        requester: &Requester,
+        requester_id: &Requester,
         created_at: DateTime<Utc>,
     ) -> DirectoryResolveHandleRequestBody {
-        let mut body = resolve_handle_body(requester);
-        let mut proof = unsigned_proof(requester, body.payload_digest().unwrap(), created_at);
+        let mut body = resolve_handle_body(requester_id);
+        let mut proof = unsigned_proof(requester_id, body.payload_digest().unwrap(), created_at);
         let transcript = body.proof_binding_bytes(&proof).unwrap();
-        proof.jws = sign_jws_ed25519(&transcript, &requester.signing_key).unwrap();
+        proof.jws = sign_jws_ed25519(&transcript, &requester_id.signing_key).unwrap();
         body.proofs = vec![proof];
         body
     }
 
     fn signed_list_handles(
-        requester: &Requester,
+        requester_id: &Requester,
         created_at: DateTime<Utc>,
     ) -> DirectoryListHandlesForSubjectRequestBody {
-        let mut body = list_handles_body(requester);
-        let mut proof = unsigned_proof(requester, body.payload_digest().unwrap(), created_at);
+        let mut body = list_handles_body(requester_id);
+        let mut proof = unsigned_proof(requester_id, body.payload_digest().unwrap(), created_at);
         let transcript = body.proof_binding_bytes(&proof).unwrap();
-        proof.jws = sign_jws_ed25519(&transcript, &requester.signing_key).unwrap();
+        proof.jws = sign_jws_ed25519(&transcript, &requester_id.signing_key).unwrap();
         body.proofs = vec![proof];
         body
     }
 
     #[test]
     fn family_proof_verifies_against_its_own_context() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
         verify_requester_proofs(
-            &signed_resolve_handle(&requester, now),
+            &signed_resolve_handle(&requester_id, now),
             DIRECTORY_AUDIENCE,
             &bindings(),
             now,
         )
         .expect("a proof signed for this family must verify");
         verify_requester_proofs(
-            &signed_list_handles(&requester, now),
+            &signed_list_handles(&requester_id, now),
             DIRECTORY_AUDIENCE,
             &bindings(),
             now,
@@ -397,19 +400,19 @@ mod tests {
     /// Each family stamps its OWN registered context and operation id into the
     /// signed bytes, and the registered `binding_fields` sets differ per family
     /// (`resolve_handle` binds `handle`, `list_handles_for_subject` binds
-    /// `subject`, `resolve_organization` binds neither and omits `issuer`).
+    /// `subject_id`, `resolve_organization` binds neither and omits `issuer_id`).
     /// This is what the removed fragmentless `ak.directory_operation_proof.v1`
     /// row could not express.
     #[test]
     fn each_family_stamps_its_own_registered_context_and_binding_fields() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
 
-        let handle_body = resolve_handle_body(&requester);
+        let handle_body = resolve_handle_body(&requester_id);
         let handle_transcript: JsonValue = serde_json::from_slice(
             &handle_body
                 .proof_binding_bytes(&unsigned_proof(
-                    &requester,
+                    &requester_id,
                     handle_body.payload_digest().unwrap(),
                     now,
                 ))
@@ -417,11 +420,11 @@ mod tests {
         )
         .unwrap();
 
-        let list_body = list_handles_body(&requester);
+        let list_body = list_handles_body(&requester_id);
         let list_transcript: JsonValue = serde_json::from_slice(
             &list_body
                 .proof_binding_bytes(&unsigned_proof(
-                    &requester,
+                    &requester_id,
                     list_body.payload_digest().unwrap(),
                     now,
                 ))
@@ -439,7 +442,7 @@ mod tests {
         let org_transcript: JsonValue = serde_json::from_slice(
             &org_body
                 .proof_binding_bytes(&unsigned_proof(
-                    &requester,
+                    &requester_id,
                     org_body.payload_digest().unwrap(),
                     now,
                 ))
@@ -481,7 +484,7 @@ mod tests {
         };
         let mut expected_handle = vec![
             "payload_digest",
-            "issuer",
+            "issuer_id",
             "operation_id",
             "handle",
             "verification_method",
@@ -494,9 +497,9 @@ mod tests {
 
         let mut expected_list = vec![
             "payload_digest",
-            "issuer",
+            "issuer_id",
             "operation_id",
-            "subject",
+            "subject_id",
             "verification_method",
             "created_at",
             "audience",
@@ -505,7 +508,7 @@ mod tests {
         expected_list.sort_unstable();
         assert_eq!(keys(&list_transcript), expected_list);
 
-        // `resolve_organization` has no originator wire field: no `issuer`.
+        // `resolve_organization` has no originator wire field: no `issuer_id`.
         let mut expected_org = vec![
             "payload_digest",
             "operation_id",
@@ -525,17 +528,17 @@ mod tests {
     /// `domain`, no `proof_purpose`, single `audience` naming this directory,
     /// fresh `created_at`, `payload_digest` byte-equal to
     /// `SHA-256(JCS(list_body_without_proofs))`, and a `verification_method`
-    /// controlled by the request's own `requester`. The ONLY defect is that its
+    /// controlled by the request's own `requester_id`. The ONLY defect is that its
     /// JWS was produced over the `resolve_handle` family's transcript. It MUST
     /// still be rejected — that is the whole point of splitting the over-broad
     /// context into five per-family rows.
     #[test]
     fn proof_signed_under_another_family_context_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
 
-        let handle_body = signed_resolve_handle(&requester, now);
-        let mut list_body = signed_list_handles(&requester, now);
+        let handle_body = signed_resolve_handle(&requester_id, now);
+        let mut list_body = signed_list_handles(&requester_id, now);
 
         let transplanted = handle_body.proofs[0].jws.clone();
         assert_ne!(
@@ -555,11 +558,11 @@ mod tests {
     /// the other family's body either.
     #[test]
     fn whole_proof_replayed_across_families_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
 
-        let handle_body = signed_resolve_handle(&requester, now);
-        let mut list_body = list_handles_body(&requester);
+        let handle_body = signed_resolve_handle(&requester_id, now);
+        let mut list_body = list_handles_body(&requester_id);
         list_body.proofs = handle_body.proofs.clone();
 
         verify_requester_proofs(&list_body, DIRECTORY_AUDIENCE, &bindings(), now)
@@ -568,32 +571,32 @@ mod tests {
 
     #[test]
     fn proof_outside_the_300_second_window_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
         let stale = now - Duration::seconds(REQUESTER_PROOF_MAX_SKEW_SECONDS + 1);
-        let body = signed_resolve_handle(&requester, stale);
+        let body = signed_resolve_handle(&requester_id, stale);
         let error = verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect_err("a stale proof must be rejected");
         assert!(error.contains("outside the 300s window"), "reason: {error}");
 
         // The window is symmetric: a future-dated proof is equally rejected.
         let future = now + Duration::seconds(REQUESTER_PROOF_MAX_SKEW_SECONDS + 1);
-        let body = signed_resolve_handle(&requester, future);
+        let body = signed_resolve_handle(&requester_id, future);
         verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect_err("a future-dated proof must be rejected");
 
         // Inside the window it still verifies.
         let edge = now - Duration::seconds(REQUESTER_PROOF_MAX_SKEW_SECONDS);
-        let body = signed_resolve_handle(&requester, edge);
+        let body = signed_resolve_handle(&requester_id, edge);
         verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect("a proof at the window edge must verify");
     }
 
     #[test]
     fn proof_for_another_directory_audience_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
-        let body = signed_resolve_handle(&requester, now);
+        let body = signed_resolve_handle(&requester_id, now);
         let error = verify_requester_proofs(
             &body,
             "ak:did_core:web:other-directory.example",
@@ -606,15 +609,15 @@ mod tests {
 
     #[test]
     fn proof_carrying_domain_or_proof_purpose_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
 
-        let mut body = signed_resolve_handle(&requester, now);
+        let mut body = signed_resolve_handle(&requester_id, now);
         body.proofs[0].domain = Some("example.com".to_owned());
         verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect_err("`domain` MUST be absent");
 
-        let mut body = signed_resolve_handle(&requester, now);
+        let mut body = signed_resolve_handle(&requester_id, now);
         body.proofs[0].proof_purpose = Some(arkret_wire::PayloadProofPurpose::IssuerAttestation);
         verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect_err("`proof_purpose` MUST be absent");
@@ -622,9 +625,9 @@ mod tests {
 
     #[test]
     fn multi_valued_audience_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
-        let mut body = signed_resolve_handle(&requester, now);
+        let mut body = signed_resolve_handle(&requester_id, now);
         body.proofs[0].audience = Some(Audience::Multiple(vec![
             DIRECTORY_AUDIENCE.to_owned(),
             "ak:did_core:web:other-directory.example".to_owned(),
@@ -633,15 +636,15 @@ mod tests {
             .expect_err("audience MUST be the single target Directory service DID");
     }
 
-    /// `issuer` in the transcript is the request's `requester`, so a proof
+    /// `issuer_id` in the transcript is the request's `requester_id`, so a proof
     /// signed by a different principal's key cannot stand in for it.
     #[test]
     fn proof_signed_by_a_key_the_requester_does_not_control_is_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let impostor = test_requester(OTHER_SIGNING_SEED);
         let now = Utc::now();
 
-        let mut body = resolve_handle_body(&requester);
+        let mut body = resolve_handle_body(&requester_id);
         let mut proof = unsigned_proof(&impostor, body.payload_digest().unwrap(), now);
         let transcript = body.proof_binding_bytes(&proof).unwrap();
         proof.jws = sign_jws_ed25519(&transcript, &impostor.signing_key).unwrap();
@@ -659,10 +662,10 @@ mod tests {
     /// field fails closed inside the SDK binding helper.
     #[test]
     fn proofs_without_the_family_originator_field_are_rejected() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
-        let mut body = signed_resolve_handle(&requester, now);
-        body.requester = None;
+        let mut body = signed_resolve_handle(&requester_id, now);
+        body.requester_id = None;
         verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect_err("`proofs` without the originator field MUST fail closed");
     }
@@ -670,9 +673,9 @@ mod tests {
     /// A tampered request body no longer matches the signed `payload_digest`.
     #[test]
     fn mutated_request_body_breaks_the_payload_digest_binding() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
-        let mut body = signed_resolve_handle(&requester, now);
+        let mut body = signed_resolve_handle(&requester_id, now);
         body.handle = "mallory:example.com".to_owned();
         verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
             .expect_err("payload_digest MUST bind the whole request body");
@@ -680,9 +683,9 @@ mod tests {
 
     #[test]
     fn request_without_proofs_is_accepted() {
-        let requester = test_requester(SIGNING_SEED);
+        let requester_id = test_requester(SIGNING_SEED);
         verify_requester_proofs(
-            &resolve_handle_body(&requester),
+            &resolve_handle_body(&requester_id),
             DIRECTORY_AUDIENCE,
             &bindings(),
             Utc::now(),

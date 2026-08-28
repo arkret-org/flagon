@@ -199,7 +199,7 @@ impl SharedDidResolver {
         canonical_bytes: &[u8],
         jws: &str,
         verification_method: &str,
-        issuer: &str,
+        issuer_id: &str,
         purpose: DidBindingPurpose,
         kind: &'static str,
         now: DateTime<Utc>,
@@ -208,7 +208,7 @@ impl SharedDidResolver {
             canonical_bytes,
             jws,
             verification_method,
-            issuer,
+            issuer_id,
             purpose,
             now,
         );
@@ -227,15 +227,15 @@ impl SharedDidResolver {
         canonical_bytes: &[u8],
         jws: &str,
         verification_method: &str,
-        issuer: &str,
+        issuer_id: &str,
         purpose: DidBindingPurpose,
         now: DateTime<Utc>,
     ) -> Result<(), BindingFailure> {
-        let (issuer, verification_method) =
+        let (issuer_id, verification_method) =
             self.bindings
-                .parse_signer(verification_method, issuer, purpose)?;
+                .parse_signer(verification_method, issuer_id, purpose)?;
         let accepted =
-            self.accepted_or_resolved(&issuer, purpose, Some(&verification_method), now)?;
+            self.accepted_or_resolved(&issuer_id, purpose, Some(&verification_method), now)?;
         arkret_identity::verifier::verify_jws_with_binding(
             canonical_bytes,
             jws,
@@ -267,8 +267,8 @@ impl SharedDidResolver {
     /// [`DidBindingPurpose::DirectoryIssuer`] acceptance from the *same*
     /// document and the *same* receipt, at no extra network cost. That is what
     /// gives the zero-network query face something to consume: a DID that has
-    /// announced itself to this directory becomes an accepted directory issuer,
-    /// and an issuer that never announced stays unknown and fails closed
+    /// announced itself to this directory becomes an accepted directory issuer_id,
+    /// and an issuer_id that never announced stays unknown and fails closed
     /// (blinded `not_found`).
     ///
     /// # The endpoint digest moved, and why that is not a loss
@@ -357,7 +357,7 @@ impl SharedDidResolver {
             accepted.evidence_receipt().clone(),
             now,
         ) {
-            tracing::debug!(%error, "directory issuer binding mirror failed");
+            tracing::debug!(%error, "directory issuer_id binding mirror failed");
         }
     }
 
@@ -473,20 +473,20 @@ impl DidResolver for MeteredAuthorityResolver<'_> {
 /// Single copy of what `filter::discoverers` and `query::target` each used to
 /// define privately, byte-for-byte identically.
 pub fn verification_method_issuer(verification_method: &str) -> Option<&str> {
-    let issuer = verification_method
+    let issuer_id = verification_method
         .split_once('#')
         .map(|(did, _)| did)
         .unwrap_or(verification_method)
         .trim();
-    (!issuer.is_empty()).then_some(issuer)
+    (!issuer_id.is_empty()).then_some(issuer_id)
 }
 
 /// The stable identity core of the DID that owns a `verification_method`
 /// DID URL.
 ///
-/// A DID URL's bare controller is a resolvable `Did`; a subject id is a
+/// A DID URL's bare controller is a resolvable `Did`; a subject_id id is a
 /// `DidCoreId`. Comparing the two directly is always false, so anything that
-/// checks "this key belongs to that subject" MUST project the controller
+/// checks "this key belongs to that subject_id" MUST project the controller
 /// through the active method adapter first. Returns `None` when the DID URL
 /// has no controller, the controller is not a canonical DID, or the DID method
 /// has no registry-active adapter — all fail-closed for the callers.
@@ -807,7 +807,7 @@ mod tests {
         (spy, resolver, metrics)
     }
 
-    /// DID-P0-C04: a brand-new issuer costs exactly one network call, and every
+    /// DID-P0-C04: a brand-new issuer_id costs exactly one network call, and every
     /// repeat costs zero.
     #[test]
     fn first_ingest_resolves_once_and_repeats_resolve_zero_times() {
@@ -880,7 +880,7 @@ mod tests {
                     crate::observability::SIGNATURE_KIND_RESTRICTED_CLAIM,
                     now,
                 )
-                .expect("restricted claim verifies against the mirrored issuer binding");
+                .expect("restricted claim verifies against the mirrored issuer_id binding");
         }
         assert_eq!(spy.calls(), 1, "restricted queries add zero network calls");
         assert_eq!(metrics.did_resolve_count(DID_RESOLVE_SOURCE_NETWORK), 1);
@@ -1147,7 +1147,7 @@ mod tests {
         let bindings = Arc::clone(resolver.bindings());
         let removed = bindings
             .invalidate(&arkret_identity::binding_store::BindingInvalidation::for_did(did.clone()));
-        assert_eq!(removed, 2, "ingest + mirrored issuer acceptance");
+        assert_eq!(removed, 2, "ingest + mirrored issuer_id acceptance");
 
         let failure = bindings
             .verify_detached_jws(
@@ -1159,7 +1159,7 @@ mod tests {
                 crate::observability::SIGNATURE_KIND_RESTRICTED_CLAIM,
                 now,
             )
-            .expect_err("an invalidated issuer must fail closed on the query face");
+            .expect_err("an invalidated issuer_id must fail closed on the query face");
         assert_eq!(failure.outcome_label(), SIGNATURE_OUTCOME_NO_BINDING);
         assert_eq!(spy.calls(), 1, "the query face never live-resolves");
         assert_eq!(metrics.did_resolve_count(DID_RESOLVE_SOURCE_NETWORK), 1);

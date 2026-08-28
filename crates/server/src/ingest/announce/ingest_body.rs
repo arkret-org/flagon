@@ -21,7 +21,7 @@ pub struct DirectoryAnnounceIngest {
     /// resolvable DID: mapping it to a current `did` / URL requires a
     /// verified `ServiceResolutionRecord`, and the spec forbids handing this
     /// value to a DID resolver.
-    pub principal_server_service_id: DidCoreId,
+    pub principal_server_id: DidCoreId,
     #[serde(skip_serializing)]
     pub discovery_state: DirectoryDiscoveryState,
     pub source_refs: Vec<String>,
@@ -68,7 +68,7 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             discovery_event: event,
             resource_kind,
             resource_id,
-            principal_server_service_id: value.principal_server_service_id,
+            principal_server_id: value.principal_server_id,
             discovery_state,
             source_refs: value.source_refs,
             as_of: value.as_of,

@@ -2,17 +2,17 @@
 //! `ak.find.directory.read.list_handles_for_subject.v1`.
 //!
 //! This is the inverse of [`crate::query::handle::resolve_handle`]: given a
-//! known holder/principal DID (the `subject`) plus disclosure context, return
-//! the subject's currently-visible handle claims and (when present) the
-//! subject's primary handle. The mention renderer in inkson / sodmin uses
+//! known holder/principal DID (the `subject_id`) plus disclosure context, return
+//! the subject_id's currently-visible handle claims and (when present) the
+//! subject_id's primary handle. The mention renderer in inkson / sodmin uses
 //! this live-resolve path to turn a known DID into the `@handle` it should
 //! display.
 //!
 //! ## Privacy & anti-enumeration
 //!
-//! The subject is supplied by the caller, so this endpoint does NOT leak the
-//! existence of an unknown DID — but it CAN leak which handles a subject
-//! holds, so we apply the same disclosure-policy + issuer-trust + audience +
+//! The subject_id is supplied by the caller, so this endpoint does NOT leak the
+//! existence of an unknown DID — but it CAN leak which handles a subject_id
+//! holds, so we apply the same disclosure-policy + issuer_id-trust + audience +
 //! intent filtering that `resolve_handle` uses, plus the same anti-enumeration
 //! latency floor + deterministic jitter + 50ms stochastic resolve jitter
 //! (DIR-TBY-3). An over-broad query that filters every claim collapses to an
@@ -22,26 +22,26 @@
 //! ## Output invariant
 //!
 //! Per `ak.schema.list_handles_for_subject_response.v1`, every
-//! `claims[].subject` MUST byte-equal `response.subject`. We fail closed:
-//! any claim whose derived subject does not equal the request subject is
+//! `claims[].subject_id` MUST byte-equal `response.subject_id`. We fail closed:
+//! any claim whose derived subject_id does not equal the request subject_id is
 //! DROPPED before the response is built, and the assembled response is run
 //! through the SDK's [`DirectorySubjectHandleList::validate`] as a
 //! defence-in-depth check (a validate failure collapses to `not_found`).
 //!
 //! ## Disclosure scope
 //!
-//! This endpoint applies the directory-visibility gate, issuer-trust ordering,
+//! This endpoint applies the directory-visibility gate, issuer_id-trust ordering,
 //! audience scope filter, and historical `as_of` replay for the indexed handle
 //! projections.
 //!
 //! Its authorization inputs are exactly the ones the §9 operation table lists:
-//! `requester` and the §9.0.1 `proofs[]`. There is no `claim_presentations[]`
+//! `requester_id` and the §9.0.1 `proofs[]`. There is no `claim_presentations[]`
 //! channel here, so a `restricted` row (whose `allowed_discoverers` selectors
 //! are claim-shaped) stays invisible on this surface.
 //!
 //! ## Requester proof (§9.0.1)
 //!
-//! `proofs[]` carries the per-object-family requester proof bound to
+//! `proofs[]` carries the per-object-family requester_id proof bound to
 //! `ak.directory_list_handles_for_subject_request_proof.v1`. Verification lives
 //! in [`crate::query::requester_proof`] and runs inside the latency budget; a
 //! rejected proof collapses to the same blinded `not_found` as any other
@@ -81,7 +81,7 @@ const DEFAULT_LIMIT: u32 = 20;
 /// in one round trip.
 const MAX_LIMIT: u32 = 100;
 /// Cardinality guard for the candidate scan: we never load more than this
-/// many handle rows into memory for a single subject reverse lookup, mirroring
+/// many handle rows into memory for a single subject_id reverse lookup, mirroring
 /// the bounded scan `search_users` performs.
 const MAX_CANDIDATE_SCAN: i64 = 500;
 
@@ -94,44 +94,44 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             return;
         }
     };
-    let _query_timer = state.metrics().query_timer("list-handles-for-subject");
+    let _query_timer = state.metrics().query_timer("list-handles-for-subject_id");
 
     let body: DirectoryListHandlesForSubjectRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject", "json_invalid");
+                .record_query_outcome("list-handles-for-subject_id", "json_invalid");
             ApiErrorCode::JsonInvalid.render(res, format!("malformed body: {e}"));
             return;
         }
     };
 
-    // Input validator (DIR-TBY-2): the subject MUST be a holder/principal
+    // Input validator (DIR-TBY-2): the subject_id MUST be a holder/principal
     // DID. Reject `ak:actor:` Realm actor ids, `ak:account:` server-local
     // account ids, service DIDs, and any non-DID resource id with
     // `failed_precondition` carrying the `invalid_subject_kind` reason. We
     // reuse the SDK's `validate_handle_claim_subject` so the reverse-lookup
-    // key obeys exactly the same rule as the forward claim subject. This
+    // key obeys exactly the same rule as the forward claim subject_id. This
     // runs BEFORE rate-limit / latency padding because it is a structural
     // rejection, not a privacy-preserving miss.
-    if let Err(err) = validate_handle_claim_subject(&body.subject) {
+    if let Err(err) = validate_handle_claim_subject(&body.subject_id) {
         state
             .metrics()
-            .record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
+            .record_query_outcome("list-handles-for-subject_id", "invalid_subject_kind");
         state.metrics().record_filter_drop("invalid_subject_kind");
         ApiErrorCode::FailedPrecondition.render(
             res,
-            format!("invalid_subject_kind: subject must be a holder/principal DID ({err})"),
+            format!("invalid_subject_kind: subject_id must be a holder/principal DID ({err})"),
         );
         return;
     }
 
-    // Anti-enumeration rate-limit keyed on the subject DID (DIR-TBY-3).
-    if !enforce_resolve_rate_limit(req, res, &state, body.subject.as_str()) {
+    // Anti-enumeration rate-limit keyed on the subject_id DID (DIR-TBY-3).
+    if !enforce_resolve_rate_limit(req, res, &state, body.subject_id.as_str()) {
         state
             .metrics()
-            .record_query_outcome("list-handles-for-subject", "rate_limited");
+            .record_query_outcome("list-handles-for-subject_id", "rate_limited");
         return;
     }
 
@@ -149,7 +149,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT_V1,
         "realm_id": body.realm_id.as_ref(),
         "intent": body.intent.as_deref(),
-        "requester": body.requester.as_ref(),
+        "requester_id": body.requester_id.as_ref(),
         "as_of": body.as_of,
     })) {
         Ok(digest) => digest,
@@ -159,9 +159,9 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         }
     };
     let cursor_context = CursorBindingContext::new(
-        body.subject.as_str(),
+        body.subject_id.as_str(),
         None,
-        state.config().service_id.clone(),
+        state.service_core_id().clone(),
         filter_digest,
     );
     let cursor_offset = match body.cursor.as_deref() {
@@ -190,19 +190,19 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     );
     // Privacy key bundles every input that steers the visible-claims set so
     // repeated probes from one IP land on a stable latency tier without
-    // leaking the result back to the caller. The requester IP is hashed in
-    // so the same subject probed from two hosts cannot be cross-correlated.
+    // leaking the result back to the caller. The requester_id IP is hashed in
+    // so the same subject_id probed from two hosts cannot be cross-correlated.
     let requester_ip = req.remote_addr().to_string();
     let requester_ip_hash = super::requester_ip_hash(&requester_ip);
     let privacy_key = format!(
-        "subject={};intent={};realm={};req={};cursor={};limit={limit};iph={requester_ip_hash}",
-        body.subject.as_str(),
+        "subject_id={};intent={};realm={};req={};cursor={};limit={limit};iph={requester_ip_hash}",
+        body.subject_id.as_str(),
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id
             .as_ref()
             .map(|r| r.as_str())
             .unwrap_or_default(),
-        body.requester
+        body.requester_id
             .as_ref()
             .map(|r| r.as_str())
             .unwrap_or_default(),
@@ -217,7 +217,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         |target| {
             state
                 .metrics()
-                .record_anti_enum_pad("list-handles-for-subject", target)
+                .record_anti_enum_pad("list-handles-for-subject_id", target)
         },
         async { build_response(&state, &body, cursor_offset, limit, &metrics).await },
     )
@@ -239,7 +239,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
                     Err(error) => {
                         state
                             .metrics()
-                            .record_query_outcome("list-handles-for-subject", "internal_error");
+                            .record_query_outcome("list-handles-for-subject_id", "internal_error");
                         ApiErrorCode::InternalError.render(res, format!("handle cursor: {error}"));
                         return;
                     }
@@ -247,24 +247,24 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             }
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject", "ok");
+                .record_query_outcome("list-handles-for-subject_id", "ok");
             res.render(Json(response));
         }
         // A reverse lookup that finds nothing visible returns an EMPTY claim
-        // set (not a 404) — the subject is caller-supplied, so existence is
+        // set (not a 404) — the subject_id is caller-supplied, so existence is
         // not a secret; only the handle set is. A schema-invariant failure
-        // (claims[].subject mismatch that survived filtering) fails CLOSED to
-        // `not_found` so a malformed projection cannot leak a foreign subject.
+        // (claims[].subject_id mismatch that survived filtering) fails CLOSED to
+        // `not_found` so a malformed projection cannot leak a foreign subject_id.
         ListOutcome::FailClosed => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject", "fail_closed");
+                .record_query_outcome("list-handles-for-subject_id", "fail_closed");
             ApiErrorCode::NotFound.render(res, "not found");
         }
         ListOutcome::Error => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject", "internal_error");
+                .record_query_outcome("list-handles-for-subject_id", "internal_error");
             ApiErrorCode::InternalError.render(res, "list_handles_for_subject failed");
         }
     }
@@ -283,23 +283,23 @@ async fn build_response(
     limit: u32,
     metrics: &crate::observability::Metrics,
 ) -> ListOutcome {
-    // §9.0.1 requester proof. Runs inside the caller's latency budget so a
+    // §9.0.1 requester_id proof. Runs inside the caller's latency budget so a
     // proof-layer rejection is timing-equivalent to a genuine miss (§9.2), and
     // BEFORE any row load so an invalid proof cannot be timed against the
-    // presence of the subject.
+    // presence of the subject_id.
     if let Err(reason) = crate::query::requester_proof::verify_requester_proofs(
         body,
         state.config().service_id.as_str(),
         state.did_bindings(),
         Utc::now(),
     ) {
-        tracing::debug!(%reason, "list_handles_for_subject requester proof rejected");
+        tracing::debug!(%reason, "list_handles_for_subject requester_id proof rejected");
         metrics.record_filter_drop("requester_proof_invalid");
         return ListOutcome::FailClosed;
     }
 
     let (rows, scan_capped) =
-        match load_subject_handle_rows(state, body.subject.as_str(), body.as_of).await {
+        match load_subject_handle_rows(state, body.subject_id.as_str(), body.as_of).await {
             Ok(result) => result,
             Err(_) => return ListOutcome::Error,
         };
@@ -308,10 +308,10 @@ async fn build_response(
         // reverse-lookup set may be incomplete. Surface it for operators.
         metrics.record_cardinality_guard("candidate_scan_capped", 1);
     }
-    // One subject was resolved this request.
+    // One subject_id was resolved this request.
     metrics.record_cardinality_guard("resolved_subjects", 1);
 
-    // Issuer trust is domain-scoped. A Realm may authorize the same issuer for
+    // Issuer trust is domain-scoped. A Realm may authorize the same issuer_id for
     // one handle domain without trusting it for every domain it can sign.
     let handle_issuer_policy = match body.realm_id.as_ref() {
         Some(realm_id) => load_handle_issuer_policy(state, realm_id.as_str(), body.as_of).await,
@@ -331,9 +331,9 @@ async fn build_response(
 }
 
 /// Pure response assembler — extracted from [`build_response`] so the
-/// conformance suite (DIR-TBY-5) can exercise the disclosure / issuer-trust /
-/// audience / subject-mismatch filters, cursor pagination, and the
-/// `claims[].subject == response.subject` invariant WITHOUT a live Postgres
+/// conformance suite (DIR-TBY-5) can exercise the disclosure / issuer_id-trust /
+/// audience / subject_id-mismatch filters, cursor pagination, and the
+/// `claims[].subject_id == response.subject_id` invariant WITHOUT a live Postgres
 /// dependency.
 ///
 /// Returns `None` to signal a fail-closed (`not_found`) collapse when the
@@ -368,7 +368,7 @@ pub fn assemble_response(
             continue;
         }
         // Issuer-trust filter: a declared Realm policy authorizes both the
-        // issuer identity and the canonical handle domain. Malformed or empty
+        // issuer_id identity and the canonical handle domain. Malformed or empty
         // declared policy is fail-closed (all candidates are dropped).
         if handle_issuer_policy
             .is_some_and(|policy| !issuer_authorized_for_projection(&row.public_projection, policy))
@@ -376,7 +376,7 @@ pub fn assemble_response(
             drop("issuer_trust");
             continue;
         }
-        // Audience scope filter: when the request carries a requester/audience
+        // Audience scope filter: when the request carries a requester_id/audience
         // context and the claim pins an audience, drop claims whose audience
         // is mutually exclusive with the request context.
         if !audience_compatible(&row.public_projection, body) {
@@ -384,8 +384,8 @@ pub fn assemble_response(
             continue;
         }
 
-        let Some(claim) = claim_from_projection(&row, body.subject.as_str()) else {
-            // subject mismatch / unparseable — fail-closed DROP (DIR-TBY-2).
+        let Some(claim) = claim_from_projection(&row, body.subject_id.as_str()) else {
+            // subject_id mismatch / unparseable — fail-closed DROP (DIR-TBY-2).
             drop("subject_mismatch");
             continue;
         };
@@ -396,11 +396,11 @@ pub fn assemble_response(
     }
 
     // Stable order so the opaque cursor is deterministic: by canonical handle
-    // string then by issuer.
+    // string then by issuer_id.
     claims.sort_by(|a, b| {
         let ah = a.handle.as_ref().map(Handle::canonical).unwrap_or_default();
         let bh = b.handle.as_ref().map(Handle::canonical).unwrap_or_default();
-        ah.cmp(bh).then_with(|| a.issuer.cmp(&b.issuer))
+        ah.cmp(bh).then_with(|| a.issuer_id.cmp(&b.issuer_id))
     });
 
     // Primary handle: the first verified claim (sorted), else the first
@@ -417,7 +417,7 @@ pub fn assemble_response(
     let next_offset = cursor_offset + page.len();
     let has_more = next_offset < total;
     let response = DirectorySubjectHandleList {
-        subject: body.subject.clone(),
+        subject_id: body.subject_id.clone(),
         claims: page,
         primary_handle,
         as_of,
@@ -425,8 +425,8 @@ pub fn assemble_response(
         has_more,
     };
 
-    // Defence in depth: the SDK validator enforces claims[].subject ==
-    // response.subject byte-for-byte. We already dropped mismatches above, so
+    // Defence in depth: the SDK validator enforces claims[].subject_id ==
+    // response.subject_id byte-for-byte. We already dropped mismatches above, so
     // a failure here means a projection slipped through — fail CLOSED.
     if response.validate().is_err() {
         return None;
@@ -438,7 +438,7 @@ pub fn assemble_response(
 ///
 /// `ak.find.directory.read.list_handles_for_subject.v1` has no
 /// `claim_presentations[]` channel (spec §9 operation table): its only
-/// authorization inputs are `requester` and the §9.0.1 `proofs[]`, and
+/// authorization inputs are `requester_id` and the §9.0.1 `proofs[]`, and
 /// `allowed_discoverers` selectors are claim-shaped (§3). A `restricted` row
 /// therefore has no way to be unlocked on this surface and stays invisible —
 /// fail closed, and the same blinded outcome as a row that does not exist.
@@ -453,7 +453,7 @@ fn handle_row_visible_to_requester(row: &SubjectHandleRow) -> bool {
     }
 }
 
-/// One indexed handle row that may belong to the subject.
+/// One indexed handle row that may belong to the subject_id.
 #[derive(Debug, Queryable, Clone)]
 pub struct SubjectHandleRow {
     public_projection: JsonValue,
@@ -479,9 +479,9 @@ impl SubjectHandleRow {
 }
 
 /// Load every directory handle row whose projection asserts the requested
-/// subject DID. teabay stores the holder DID in the projection's `did` (and
-/// optionally `subject`) field; we scan the handle rows (bounded by
-/// [`MAX_CANDIDATE_SCAN`]) and match in memory because the subject is not the
+/// subject_id DID. teabay stores the holder DID in the projection's `did` (and
+/// optionally `subject_id`) field; we scan the handle rows (bounded by
+/// [`MAX_CANDIDATE_SCAN`]) and match in memory because the subject_id is not the
 /// row's primary key (the `resource_id` is the handle string).
 /// Returns `(matching_rows, scan_capped)`. `scan_capped` is true when the
 /// bounded candidate scan returned a full page ([`MAX_CANDIDATE_SCAN`] rows),
@@ -489,11 +489,11 @@ impl SubjectHandleRow {
 /// record the cardinality guard.
 async fn load_subject_handle_rows(
     state: &AppState,
-    subject: &str,
+    subject_id: &str,
     as_of: Option<DateTime<Utc>>,
 ) -> anyhow::Result<(Vec<SubjectHandleRow>, bool)> {
     if let Some(as_of) = as_of {
-        return load_subject_handle_rows_at(state, subject, as_of).await;
+        return load_subject_handle_rows_at(state, subject_id, as_of).await;
     }
     use crate::schema::directory_resources::dsl as r;
     let mut conn = state.db().get().await?;
@@ -510,7 +510,7 @@ async fn load_subject_handle_rows(
     let scan_capped = rows.len() as i64 >= MAX_CANDIDATE_SCAN;
     let matching = rows
         .into_iter()
-        .filter(|row| projection_subject(&row.public_projection) == Some(subject))
+        .filter(|row| projection_subject(&row.public_projection) == Some(subject_id))
         .collect();
     Ok((matching, scan_capped))
 }
@@ -525,7 +525,7 @@ struct HistoricalHandleRow {
 
 async fn load_subject_handle_rows_at(
     state: &AppState,
-    subject: &str,
+    subject_id: &str,
     as_of: DateTime<Utc>,
 ) -> anyhow::Result<(Vec<SubjectHandleRow>, bool)> {
     let mut conn = state.db().get().await?;
@@ -546,7 +546,7 @@ async fn load_subject_handle_rows_at(
         let public_projection =
             crate::ingest::announce::derive_public_projection(&discovery_state, discoverability)
                 .map_err(|(_, message)| anyhow::anyhow!(message))?;
-        if projection_subject(&public_projection) == Some(subject) {
+        if projection_subject(&public_projection) == Some(subject_id) {
             matching.push(SubjectHandleRow {
                 public_projection,
                 discoverability,
@@ -586,20 +586,20 @@ LIMIT $2
 "#;
 
 /// Extract the stable holder/principal id asserted by a handle projection.
-/// Returns `None` when the canonical `subject` field is absent or not a string.
+/// Returns `None` when the canonical `subject_id` field is absent or not a string.
 fn projection_subject(projection: &JsonValue) -> Option<&str> {
-    projection.get("subject").and_then(JsonValue::as_str)
+    projection.get("subject_id").and_then(JsonValue::as_str)
 }
 
 /// Build a typed [`HandleClaim`] from a stored handle row, binding the claim
-/// `subject` to the request subject. Returns `None` (DROP) when the row's
-/// asserted subject does not byte-equal the request subject — this is the
-/// fail-closed path for the `claims[].subject == response.subject` invariant.
-fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<HandleClaim> {
-    if projection_subject(&row.public_projection) != Some(subject) {
+/// `subject_id` to the request subject_id. Returns `None` (DROP) when the row's
+/// asserted subject_id does not byte-equal the request subject_id — this is the
+/// fail-closed path for the `claims[].subject_id == response.subject_id` invariant.
+fn claim_from_projection(row: &SubjectHandleRow, subject_id: &str) -> Option<HandleClaim> {
+    if projection_subject(&row.public_projection) != Some(subject_id) {
         return None;
     }
-    let subject_id = arkret_sdk::DidCoreId::new(subject.to_owned()).ok()?;
+    let subject_id = arkret_sdk::DidCoreId::new(subject_id.to_owned()).ok()?;
     // The handle string must come from the projection's canonical
     // `handle` field. The directory index key may use a dot-form
     // resource_id, so it is intentionally not a fallback.
@@ -615,13 +615,13 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
 
-    // `issuer` is a stable identity core. A present-but-unparseable issuer is
-    // not "no issuer": it would strip the trust anchor a caller filters on, so
-    // the whole claim is dropped instead (same fail-closed path as a subject
+    // `issuer_id` is a stable identity core. A present-but-unparseable issuer_id is
+    // not "no issuer_id": it would strip the trust anchor a caller filters on, so
+    // the whole claim is dropped instead (same fail-closed path as a subject_id
     // mismatch above).
-    let issuer = match row
+    let issuer_id = match row
         .public_projection
-        .get("issuer")
+        .get("issuer_id")
         .and_then(JsonValue::as_str)
     {
         Some(raw) => Some(arkret_sdk::DidCoreId::new(raw.to_owned()).ok()?),
@@ -637,7 +637,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
     // `created_at` is schema-required for handle claims
     // (`handle-claim.schema.json` `required` list). A projection without a
     // parseable canonical `created_at` cannot yield a compliant claim, so the
-    // row is dropped (same fail-closed path as the subject/issuer guards).
+    // row is dropped (same fail-closed path as the subject_id/issuer_id guards).
     let created_at = row
         .public_projection
         .get("created_at")
@@ -648,9 +648,9 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         schema: HandleClaim::SCHEMA.to_owned(),
         handle,
         handle_aliases: Vec::new(),
-        subject: Some(subject_id),
-        issuer,
-        issuer_service_id: None,
+        subject_id: Some(subject_id),
+        issuer_id,
+        issuer_id: None,
         binding_state: verified.then_some(arkret_sdk::HandleBindingState::Verified),
         claim_kind,
         visibility: None,
@@ -801,36 +801,32 @@ fn handle_issuer_policy_from_projection(
     Some(serde_json::from_value(value.clone()).unwrap_or_default())
 }
 
-/// True iff a policy entry authorizes both the projection issuer and the
+/// True iff a policy entry authorizes both the projection issuer_id and the
 /// canonical handle domain.
 fn issuer_authorized_for_projection(
     projection: &JsonValue,
     policy: &[HandleIssuerPolicyEntry],
 ) -> bool {
-    let issuer = projection
-        .get("issuer")
+    let issuer_id = projection
+        .get("issuer_id")
         .and_then(JsonValue::as_str)
-        .or_else(|| {
-            projection
-                .get("issuer_service_id")
-                .and_then(JsonValue::as_str)
-        })
+        .or_else(|| projection.get("issuer_id").and_then(JsonValue::as_str))
         .and_then(|raw| arkret_sdk::DidCoreId::new(raw.to_owned()).ok());
     let handle = projection
         .get("handle")
         .and_then(JsonValue::as_str)
         .and_then(|raw| Handle::parse(raw).ok());
-    match (issuer, handle) {
-        (Some(issuer), Some(handle)) => policy
+    match (issuer_id, handle) {
+        (Some(issuer_id), Some(handle)) => policy
             .iter()
-            .any(|entry| handle_issuer_policy_entry_authorizes(entry, &issuer, &handle)),
+            .any(|entry| handle_issuer_policy_entry_authorizes(entry, &issuer_id, &handle)),
         _ => false,
     }
 }
 
 /// Audience scope filter: when a claim pins an `audience` and the request
-/// declares a requester/audience context, the claim is only compatible when
-/// the audience matches the requester or the realm. A claim with no pinned
+/// declares a requester_id/audience context, the claim is only compatible when
+/// the audience matches the requester_id or the realm. A claim with no pinned
 /// audience is always compatible; a request with no context never filters.
 fn audience_compatible(
     projection: &JsonValue,
@@ -839,14 +835,14 @@ fn audience_compatible(
     let Some(claim_audience) = projection.get("audience").and_then(JsonValue::as_str) else {
         return true;
     };
-    let requester = body.requester.as_ref().map(|d| d.as_str());
+    let requester_id = body.requester_id.as_ref().map(|d| d.as_str());
     let realm = body.realm_id.as_ref().map(|r| r.as_str());
-    if requester.is_none() && realm.is_none() {
+    if requester_id.is_none() && realm.is_none() {
         // Request carries no audience context — do not filter audience-pinned
         // claims here (resolve_handle applies the stronger member_add gate).
         return true;
     }
-    Some(claim_audience) == requester || Some(claim_audience) == realm
+    Some(claim_audience) == requester_id || Some(claim_audience) == realm
 }
 
 #[cfg(test)]
@@ -867,7 +863,7 @@ mod tests {
     fn projection_subject_accepts_only_canonical_subject() {
         assert_eq!(
             projection_subject(
-                &json!({"subject":"ak:did_core:web:alice.example","did":"ak:did_core:web:other"})
+                &json!({"subject_id":"ak:did_core:web:alice.example","did":"ak:did_core:web:other"})
             ),
             Some("ak:did_core:web:alice.example")
         );
@@ -884,13 +880,13 @@ mod tests {
     #[test]
     fn claim_from_projection_binds_request_subject() {
         let row = handle_row(
-            json!({"subject":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true,"created_at":"2026-05-20T00:00:00.000Z"}),
+            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true,"created_at":"2026-05-20T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
         let claim =
             claim_from_projection(&row, "ak:did_core:web:alice.example").expect("claim built");
         assert_eq!(
-            claim.subject.as_ref().unwrap().as_str(),
+            claim.subject_id.as_ref().unwrap().as_str(),
             "ak:did_core:web:alice.example"
         );
         assert_eq!(
@@ -905,10 +901,10 @@ mod tests {
 
     #[test]
     fn claim_from_projection_drops_subject_mismatch() {
-        // The row asserts a different subject than the request — fail-closed
-        // DROP so claims[].subject == response.subject always holds.
+        // The row asserts a different subject_id than the request — fail-closed
+        // DROP so claims[].subject_id == response.subject_id always holds.
         let row = handle_row(
-            json!({"subject":"ak:did_core:web:eve.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00.000Z"}),
+            json!({"subject_id":"ak:did_core:web:eve.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
@@ -917,17 +913,17 @@ mod tests {
     #[test]
     fn claim_from_projection_drops_missing_created_at() {
         // `created_at` is required by `handle-claim.schema.json` and by the
-        // `claims[]` items of `list-handles-for-subject-response.schema.json`.
+        // `claims[]` items of `list-handles-for-subject_id-response.schema.json`.
         // A projection without a canonical `created_at` cannot produce a
         // compliant claim, so the row is dropped (fail-closed).
         let row = handle_row(
-            json!({"subject":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
+            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
         // A non-canonical spelling (no milliseconds) is rejected the same way.
         let row = handle_row(
-            json!({"subject":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
+            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
@@ -949,21 +945,21 @@ mod tests {
     #[test]
     fn issuer_policy_matches_issuer_and_handle_domain() {
         let policy: Vec<HandleIssuerPolicyEntry> = serde_json::from_value(json!([{
-            "issuer": "ak:did_core:web:issuer.tea",
+            "issuer_id": "ak:did_core:web:issuer_id.tea",
             "authorized_handle_domains": ["example.com"],
             "issuer_class": "domain_authority"
         }]))
         .unwrap();
         assert!(issuer_authorized_for_projection(
-            &json!({"issuer":"ak:did_core:web:issuer.tea","handle":"alice:example.com"}),
+            &json!({"issuer_id":"ak:did_core:web:issuer_id.tea","handle":"alice:example.com"}),
             &policy
         ));
         assert!(!issuer_authorized_for_projection(
-            &json!({"issuer":"ak:did_core:web:issuer.other","handle":"alice:example.com"}),
+            &json!({"issuer_id":"ak:did_core:web:issuer_id.other","handle":"alice:example.com"}),
             &policy
         ));
         assert!(!issuer_authorized_for_projection(
-            &json!({"issuer":"ak:did_core:web:issuer.tea","handle":"alice:other.example"}),
+            &json!({"issuer_id":"ak:did_core:web:issuer_id.tea","handle":"alice:other.example"}),
             &policy
         ));
     }
@@ -971,11 +967,11 @@ mod tests {
     #[test]
     fn audience_filter_passes_unpinned_and_matching() {
         let body = DirectoryListHandlesForSubjectRequestBody {
-            subject: arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned())
+            subject_id: arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned())
                 .unwrap(),
             realm_id: None,
             intent: None,
-            requester: Some(
+            requester_id: Some(
                 arkret_sdk::DidCoreId::new("ak:did_core:web:tea-org.example".to_owned()).unwrap(),
             ),
             proof_challenge: None,
@@ -986,12 +982,12 @@ mod tests {
         };
         // Unpinned audience always compatible.
         assert!(audience_compatible(&json!({"handle":"a:b.com"}), &body));
-        // Pinned audience matching the requester is compatible.
+        // Pinned audience matching the requester_id is compatible.
         assert!(audience_compatible(
             &json!({"audience":"ak:did_core:web:tea-org.example"}),
             &body
         ));
-        // Pinned audience mutually exclusive with the requester is dropped.
+        // Pinned audience mutually exclusive with the requester_id is dropped.
         assert!(!audience_compatible(
             &json!({"audience":"ak:did_core:web:someone-else.example"}),
             &body
@@ -1004,11 +1000,11 @@ mod tests {
             schema: HandleClaim::SCHEMA.to_owned(),
             handle: Some(Handle::parse("zed:example.com").unwrap()),
             handle_aliases: Vec::new(),
-            subject: Some(
+            subject_id: Some(
                 arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
             ),
-            issuer: None,
-            issuer_service_id: None,
+            issuer_id: None,
+            issuer_id: None,
             binding_state: Some(arkret_sdk::HandleBindingState::Verified),
             claim_kind: None,
             visibility: None,

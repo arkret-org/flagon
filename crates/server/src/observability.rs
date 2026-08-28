@@ -34,10 +34,10 @@ const QUERY_OPS: &[&str] = &[
     "search-users",
     "resolve-handle",
     // Product-private resolver/index probe. It is intentionally outside
-    // `/_arkret` and outside the well-known signed issuer channel.
+    // `/_arkret` and outside the well-known signed issuer_id channel.
     "handle-probe",
     // R3.2 (arkret-spec @ b56cab1) — reverse handle lookup.
-    "list-handles-for-subject",
+    "list-handles-for-subject_id",
     // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
     "resolve-target",
 ];
@@ -62,8 +62,8 @@ const QUERY_OUTCOMES: &[&str] = &[
 
 /// R3.2 (METRICS-TBY-1) — reasons recorded on
 /// `teabay_directory_filter_drop_total{reason}`. Covers anti-enumeration,
-/// disclosure policy, issuer trust, audience scope, homograph, and the
-/// subject-mismatch / invalid-subject-kind drops that
+/// disclosure policy, issuer_id trust, audience scope, homograph, and the
+/// subject_id-mismatch / invalid-subject_id-kind drops that
 /// `list_handles_for_subject` adds.
 const FILTER_DROP_REASONS: &[&str] = &[
     "anti_enumeration",
@@ -123,7 +123,7 @@ pub const DID_RESOLVE_SOURCE_NETWORK: &str = "network";
 /// verification" and "per-signature resolution" are independent counters).
 pub const SIGNATURE_KIND_INGEST_PROOF: &str = "ingest_governance_proof";
 pub const SIGNATURE_KIND_RESTRICTED_CLAIM: &str = "restricted_claim_presentation";
-/// `discovery-directory.md` §9.0.1 per-object-family requester proof carried in
+/// `discovery-directory.md` §9.0.1 per-object-family requester_id proof carried in
 /// a directory read request's `proofs[]`.
 pub const SIGNATURE_KIND_DIRECTORY_REQUESTER_PROOF: &str = "directory_requester_proof";
 pub const SIGNATURE_KIND_INVITE_TOKEN: &str = "invite_token";
@@ -133,7 +133,7 @@ pub const SIGNATURE_KIND_HTTP_SIGNATURE: &str = "http_signature";
 /// `outcome` label values on `teabay_signature_verify_total{kind,outcome}`.
 pub const SIGNATURE_OUTCOME_OK: &str = "ok";
 pub const SIGNATURE_OUTCOME_INVALID: &str = "invalid";
-/// No accepted binding for the issuer and no zero-network way to obtain one:
+/// No accepted binding for the issuer_id and no zero-network way to obtain one:
 /// the query face fails closed instead of live-resolving (spec §4 / §6).
 pub const SIGNATURE_OUTCOME_NO_BINDING: &str = "no_binding";
 /// Rejected before any cryptography by local policy (empty accepted-method
@@ -309,7 +309,7 @@ impl Metrics {
 
     /// R3.2 (METRICS-TBY-1) — increment
     /// `teabay_directory_query_total{op,outcome}`. `op` is the dashed route
-    /// label (`resolve-handle`, `list-handles-for-subject`, ...); `outcome`
+    /// label (`resolve-handle`, `list-handles-for-subject_id`, ...); `outcome`
     /// is one of [`QUERY_OUTCOMES`] (unknown values are still recorded).
     pub fn record_query_outcome(&self, op: &str, outcome: &str) {
         let mut outcomes = self
@@ -922,14 +922,14 @@ mod tests {
 
     /// R3.2 (METRICS-TBY-1) — the directory query / filter-drop /
     /// cardinality-guard counters render with the required label families,
-    /// including the `list-handles-for-subject` op and the new filter-drop
+    /// including the `list-handles-for-subject_id` op and the new filter-drop
     /// reasons.
     #[test]
     fn prometheus_render_includes_r3_2_directory_counters() {
         let metrics = Metrics::default();
-        metrics.record_query_outcome("list-handles-for-subject", "ok");
+        metrics.record_query_outcome("list-handles-for-subject_id", "ok");
         metrics.record_query_outcome("resolve-handle", "not_found");
-        metrics.record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
+        metrics.record_query_outcome("list-handles-for-subject_id", "invalid_subject_kind");
         metrics.record_filter_drop("issuer_trust");
         metrics.record_filter_drop("audience");
         metrics.record_filter_drop("subject_mismatch");
@@ -940,13 +940,13 @@ mod tests {
         let body = metrics.render_prometheus();
 
         assert!(body.contains(
-            "teabay_directory_query_total{op=\"list-handles-for-subject\",outcome=\"ok\"} 1.000000"
+            "teabay_directory_query_total{op=\"list-handles-for-subject_id\",outcome=\"ok\"} 1.000000"
         ));
         assert!(body.contains(
             "teabay_directory_query_total{op=\"resolve-handle\",outcome=\"not_found\"} 1.000000"
         ));
         assert!(body.contains(
-            "teabay_directory_query_total{op=\"list-handles-for-subject\",outcome=\"invalid_subject_kind\"} 1.000000"
+            "teabay_directory_query_total{op=\"list-handles-for-subject_id\",outcome=\"invalid_subject_kind\"} 1.000000"
         ));
         assert!(
             body.contains("teabay_directory_filter_drop_total{reason=\"issuer_trust\"} 1.000000")

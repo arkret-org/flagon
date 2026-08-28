@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::ApiErrorCode;
 
-/// SHA-256 of the requester IP, base64url-encoded. Mixed into the latency
+/// SHA-256 of the requester_id IP, base64url-encoded. Mixed into the latency
 /// privacy keys so identical probes from different IPs land on independent
 /// latency tiers and cannot be cross-correlated.
 pub(crate) fn requester_ip_hash(requester_ip: &str) -> String {

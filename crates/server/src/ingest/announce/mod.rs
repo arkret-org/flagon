@@ -97,7 +97,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             AuditEventKind::IngestRejected,
             Some(body.resource_kind),
             Some(&body.resource_id),
-            Some(body.principal_server_service_id.as_str()),
+            Some(body.principal_server_id.as_str()),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "circle_isolation_violation",
@@ -109,7 +109,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         return;
     }
     // Defence in depth: a few top-level announce fields are free-form
-    // strings (`resource_id`, `principal_server_service_id`,
+    // strings (`resource_id`, `principal_server_id`,
     // `supersedes_announce_id`) and could carry a smuggled
     // `ak:circle:` id if a caller is misbehaving. Re-run the typed-id
     // sentinel over the whole request envelope while preserving the same
@@ -169,7 +169,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         res,
         &state,
         &body.resource_id,
-        Some(body.principal_server_service_id.as_str()),
+        Some(body.principal_server_id.as_str()),
     ) {
         ingest_metric.set_outcome("rate_limited");
         return;
@@ -212,7 +212,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                     AuditEventKind::IngestRejected,
                     Some(body.resource_kind),
                     Some(&body.resource_id),
-                    Some(body.principal_server_service_id.as_str()),
+                    Some(body.principal_server_id.as_str()),
                     json!({
                         "code": code.wire_code(),
                         "message": msg,
@@ -244,14 +244,14 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
                 AuditEventKind::IngestHistoricalOnly,
                 Some(body.resource_kind),
                 Some(&body.resource_id),
-                Some(body.principal_server_service_id.as_str()),
+                Some(body.principal_server_id.as_str()),
                 json!({
                     "announce_id": cached.announce_id,
                     "reason": capability.as_ref().err().map(|(c, m)| json!({
                         "code": c.wire_code(),
                         "message": m,
                     })),
-                    "source_service_id": cache_inputs.source_service_id,
+                    "source_id": cache_inputs.source_id,
                     "verification_method": cache_inputs.verification_method,
                     "service_binding_ref": cache_inputs.service_binding_ref,
                 }),
@@ -435,7 +435,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         request_digest.clone(),
         public_projection,
         FederationCachePersist {
-            source_service_id: cache_inputs.source_service_id.clone(),
+            source_id: cache_inputs.source_id.clone(),
             verification_method: cache_inputs.verification_method.clone(),
             service_binding_ref: cache_inputs.service_binding_ref.clone(),
             origin_key_state_digest: cache_inputs.origin_key_state_digest.clone(),
@@ -561,7 +561,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             kind: crate::ingest::subscribe::TombstoneKind::RealmDestroyed,
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
-            principal_server_service_id: body.principal_server_service_id.as_str().to_owned(),
+            principal_server_id: body.principal_server_id.clone(),
             reason: arkret_wire::CapabilityActionId::REALM_DESTROY.into(),
             revoked_at: destroyed_at,
         };
@@ -577,7 +577,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             ingest_mode: IngestModeWire::Push,
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
-            principal_server_service_id: body.principal_server_service_id.as_str().to_owned(),
+            principal_server_id: body.principal_server_id.as_str().to_owned(),
             indexed_at,
             as_of: body.as_of,
             source_refs: body.source_refs.clone(),

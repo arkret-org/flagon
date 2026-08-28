@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_sdk::{DirectoryPushRegisterOutcome, DirectoryPushRegisterRequestBody};
+use arkret_sdk::{DidCoreId, DirectoryPushRegisterOutcome, DirectoryPushRegisterRequestBody};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -31,7 +31,7 @@ pub struct AcceptedIngestEvent {
     pub ingest_mode: IngestModeWire,
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    pub principal_server_service_id: String,
+    pub principal_server_id: String,
     pub indexed_at: DateTime<Utc>,
     pub as_of: DateTime<Utc>,
     pub source_refs: Vec<String>,
@@ -45,7 +45,7 @@ pub struct ReachabilityTombstone {
     pub kind: TombstoneKind,
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    pub principal_server_service_id: String,
+    pub principal_server_id: DidCoreId,
     pub reason: String,
     pub revoked_at: DateTime<Utc>,
 }
@@ -205,7 +205,7 @@ pub async fn fanout_reachability_tombstone(
                 ingest_mode: IngestModeWire::Push,
                 resource_kind: tombstone.resource_kind,
                 resource_id: tombstone.resource_id.clone(),
-                principal_server_service_id: tombstone.principal_server_service_id.clone(),
+                principal_server_id: tombstone.principal_server_id.to_string(),
                 indexed_at: now,
                 as_of: now,
                 source_refs: Vec::new(),
@@ -259,7 +259,7 @@ async fn deliver_tombstone(
         },
         "resource_kind": tombstone.resource_kind,
         "resource_id": tombstone.resource_id,
-        "principal_server_service_id": tombstone.principal_server_service_id,
+        "principal_server_id": tombstone.principal_server_id,
     });
     let bytes = serde_json::to_vec(&body)?;
     let secret = subscription
@@ -443,11 +443,7 @@ fn filter_matches(filter: &JsonValue, event: &AcceptedIngestEvent) -> bool {
     };
     field_matches(obj, "resource_kind", event.resource_kind.as_pg())
         && field_matches(obj, "resource_id", &event.resource_id)
-        && field_matches(
-            obj,
-            "principal_server_service_id",
-            &event.principal_server_service_id,
-        )
+        && field_matches(obj, "principal_server_id", &event.principal_server_id)
 }
 
 fn field_matches(obj: &serde_json::Map<String, JsonValue>, key: &str, actual: &str) -> bool {
@@ -469,7 +465,7 @@ async fn deliver_webhook(
         "ingest_mode": event.ingest_mode,
         "resource_kind": event.resource_kind,
         "resource_id": event.resource_id,
-        "principal_server_service_id": event.principal_server_service_id,
+        "principal_server_id": event.principal_server_id,
         "as_of": event.as_of,
         "source_refs": event.source_refs,
         "policy_revision": event.policy_revision,

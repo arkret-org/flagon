@@ -78,7 +78,7 @@ $$;
 CREATE TABLE directory_resources (
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    principal_server_service_id TEXT           NOT NULL,
+    principal_server_id TEXT           NOT NULL,
     discovery_state   JSONB             NOT NULL,
     public_projection JSONB             NOT NULL,
     discoverability   discoverability   NOT NULL,
@@ -322,7 +322,7 @@ CREATE INDEX directory_resources_reachability_revoked_idx
     WHERE reachability_revoked_at IS NOT NULL;
 
 ALTER TABLE ingest_announces
-    ADD COLUMN source_service_id TEXT NOT NULL DEFAULT '',
+    ADD COLUMN source_id TEXT NOT NULL DEFAULT '',
     ADD COLUMN verification_method TEXT NOT NULL DEFAULT '',
     ADD COLUMN service_binding_ref TEXT NOT NULL DEFAULT '',
     ADD COLUMN origin_key_state_digest BYTEA NOT NULL DEFAULT '\x'::bytea,
@@ -330,7 +330,7 @@ ALTER TABLE ingest_announces
 
 CREATE INDEX ingest_announces_cache_key_idx
     ON ingest_announces (
-        source_service_id,
+        source_id,
         verification_method,
         service_binding_ref,
         origin_key_state_digest
@@ -502,7 +502,7 @@ CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
 -- Identity core/full split — stable-identity shape audit.
 --
 -- `discovery-directory.md` §8.3 types the Organization / Actor / Applet
--- `resource_id` and the `principal_server_service_id` as `did_core_id`, not
+-- `resource_id` and the `principal_server_id` as `did_core_id`, not
 -- as resolvable DIDs. Both columns therefore carry the stable core form
 -- `ak:did_core:<method>:<core>` (lowercase ASCII method, non-empty
 -- whitespace-free core). These diagnostic CHECK constraints mirror the SDK
@@ -524,7 +524,7 @@ ALTER TABLE directory_resources
 
 ALTER TABLE directory_resources
     ADD CONSTRAINT directory_resources_principal_server_service_id_core_shape_chk
-        CHECK (principal_server_service_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
+        CHECK (principal_server_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 -- Mirror on ingest_announces so the announce ledger and the
 -- projected table agree on stable-identity shape.
@@ -600,7 +600,7 @@ UPDATE directory_resources
 -- (`verify_realm_organization_statement`).
 --
 -- Each verified statement is keyed by `(realm_id, organization_principal_id,
--- relationship)` — the spec reducer cell subject — so a newer statement for
+-- relationship)` — the spec reducer cell subject_id — so a newer statement for
 -- the same triple supersedes (or revokes) the prior one. `statement_issued_at`
 -- is the monotonic ordering key used to reject replayed older statements
 -- (TBY-ORG-03 replay protection).

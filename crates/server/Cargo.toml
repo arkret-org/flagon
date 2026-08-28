@@ -25,6 +25,7 @@ arkret-canonical = {workspace = true}
 arkret-sdk = {workspace = true}
 arkret-egress-reqwest = {workspace = true}
 arkret-identity = {workspace = true}
+arkret-identifiers = {workspace = true,features = ["diesel"]}
 arkret-models-collaboration = {workspace = true}
 arkret-models-identity = {workspace = true}
 arkret-policy = {workspace = true}

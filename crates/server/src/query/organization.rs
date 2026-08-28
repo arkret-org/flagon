@@ -51,14 +51,14 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
     let claims = parse_org_restricted_claims(&body.claims);
-    let requester = claims
-        .requester
+    let requester_id = claims
+        .requester_id
         .as_ref()
         .map(DidCoreId::as_str)
         .map(str::to_owned);
     let verified_claims = verified_restricted_claims_for_org_query(
         &state,
-        requester.as_deref(),
+        requester_id.as_deref(),
         claims.proof_challenge.as_deref(),
         &claims.claim_presentations,
     );
@@ -73,9 +73,9 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let cursor_context = CursorBindingContext::new(
-        requester.as_deref().unwrap_or("anonymous"),
+        requester_id.as_deref().unwrap_or("anonymous"),
         None,
-        state.config().service_id.clone(),
+        state.service_core_id().clone(),
         filter_digest,
     );
     let cursor = match body.cursor.as_deref() {
@@ -120,7 +120,7 @@ pub async fn search_organizations(req: &mut Request, depot: &mut Depot, res: &mu
                 &state,
                 &needle,
                 cursor.as_ref(),
-                requester.as_deref(),
+                requester_id.as_deref(),
                 &verified_claims,
                 limit + 1,
             )
@@ -240,7 +240,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         state.config().query_latency_floor,
         state.config().query_latency_jitter,
     );
-    // `ak.find.directory.read.resolve_organization.v1` has no requester,
+    // `ak.find.directory.read.resolve_organization.v1` has no requester_id,
     // proof_challenge or claim_presentations input (spec §9 operation table):
     // its only authorization channel is the §9.0.1 `proofs[]`. A `restricted`
     // organization row therefore has no way to be unlocked here and collapses
@@ -263,7 +263,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
                 state.did_bindings(),
                 Utc::now(),
             ) {
-                tracing::debug!(%reason, "resolve_organization requester proof rejected");
+                tracing::debug!(%reason, "resolve_organization requester_id proof rejected");
                 return Ok::<_, anyhow::Error>(None);
             }
             let row = load_org_row(&state, &key).await?;
@@ -300,7 +300,7 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
 #[derive(Debug, Default, Deserialize)]
 struct OrganizationRestrictedClaims {
     #[serde(default)]
-    requester: Option<DidCoreId>,
+    requester_id: Option<DidCoreId>,
     #[serde(default)]
     proof_challenge: Option<String>,
     #[serde(default)]
@@ -320,13 +320,13 @@ fn parse_org_restricted_claims(
 
 fn verified_restricted_claims_for_org_query(
     state: &AppState,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     proof_challenge: Option<&str>,
     presentations: &[DirectoryRestrictedClaimPresentation],
 ) -> VerifiedRestrictedClaims {
     verify_restricted_claim_presentations(
         presentations,
-        requester,
+        requester_id,
         proof_challenge,
         state.config().service_id.as_str(),
         state.did_bindings(),
@@ -348,18 +348,18 @@ struct OrgRow {
     indexed_at: DateTime<Utc>,
 }
 
-/// Whether an organization row is visible to the (requester, proofs) given its
+/// Whether an organization row is visible to the (requester_id, proofs) given its
 /// discoverability. `public`/`listed` are always visible; `restricted` is
 /// gated by `allowed_discoverers`; everything else is hidden (fail-closed).
 fn is_org_visible(
     row: &OrgRow,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> bool {
     match row.discoverability {
         DiscoverabilityDb::Public | DiscoverabilityDb::Listed => true,
         DiscoverabilityDb::Restricted => {
-            matches_allowed_discoverers(&row.public_projection, requester, verified_claims)
+            matches_allowed_discoverers(&row.public_projection, requester_id, verified_claims)
         }
         DiscoverabilityDb::Unlisted | DiscoverabilityDb::InviteOnly | DiscoverabilityDb::Secret => {
             false
@@ -422,7 +422,7 @@ async fn run_visible_org_search(
     state: &AppState,
     needle: &str,
     cursor: Option<&OrgCursor>,
-    requester: Option<&str>,
+    requester_id: Option<&str>,
     verified_claims: &VerifiedRestrictedClaims,
     visible_limit: i64,
 ) -> anyhow::Result<Vec<OrgRow>> {
@@ -446,7 +446,7 @@ async fn run_visible_org_search(
             });
             let needle_ok =
                 needle.is_empty() || org_matches(&row.public_projection, &row.resource_id, &needle);
-            if needle_ok && is_org_visible(&row, requester, verified_claims) {
+            if needle_ok && is_org_visible(&row, requester_id, verified_claims) {
                 visible_rows.push(row);
                 if visible_rows.len() >= target_len {
                     return Ok(visible_rows);
