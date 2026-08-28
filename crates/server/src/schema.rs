@@ -172,12 +172,12 @@ diesel::table! {
         kind -> AuditEventKind,
         resource_kind -> Nullable<ResourceKind>,
         resource_id -> Nullable<Text>,
-        actor -> Nullable<Text>,
+        actor_id -> Nullable<Text>,
         detail -> Jsonb,
         // A.8.5 — chained audit digest + operator-credential split.
         authentication_method -> Nullable<Text>,
-        authenticated_actor -> Nullable<Text>,
-        asserted_operator -> Nullable<Text>,
+        authenticated_credential_id -> Nullable<Text>,
+        asserted_operator_localpart -> Nullable<Text>,
         prev_digest -> Nullable<Bytea>,
         audit_digest -> Nullable<Bytea>,
     }

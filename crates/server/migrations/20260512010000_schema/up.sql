@@ -287,8 +287,13 @@ CREATE TABLE directory_audit (
     kind              audit_event_kind  NOT NULL,
     resource_kind     resource_kind,
     resource_id       TEXT,
-    actor             TEXT,
-    detail            JSONB NOT NULL DEFAULT '{}'::jsonb
+    actor_id          TEXT,
+    authenticated_credential_id TEXT,
+    asserted_operator_localpart TEXT,
+    authentication_method TEXT,
+    detail            JSONB NOT NULL DEFAULT '{}'::jsonb,
+    prev_digest       BYTEA,
+    audit_digest      BYTEA
 );
 
 CREATE INDEX directory_audit_resource_idx
@@ -406,26 +411,9 @@ ALTER TYPE audit_event_kind ADD VALUE IF NOT EXISTS 'expiry_purged';
 --
 -- Append `audit_digest = sha256(canonical(row) || prev_digest)` so an
 -- operator can verify the audit log was not tampered with after the
--- fact. The `authentication_method` column records which credential
--- the actor authenticated with (development static token, rotating HMAC,
--- or service signature); the `asserted_operator` column carries the
--- operator the actor claimed to be (separate from the
--- authenticated_actor identity).
-ALTER TABLE directory_audit
-    ADD COLUMN IF NOT EXISTS authentication_method TEXT,
-    ADD COLUMN IF NOT EXISTS authenticated_actor TEXT,
-    ADD COLUMN IF NOT EXISTS asserted_operator TEXT,
-    ADD COLUMN IF NOT EXISTS prev_digest BYTEA,
-    ADD COLUMN IF NOT EXISTS audit_digest BYTEA;
-
--- Backfill: existing rows keep `actor` as both `authenticated_actor`
--- and `asserted_operator` until the operator restamps them, and an
--- empty digest is acceptable for pre-chain history. New writes through
--- the audit module compute the chained digest going forward.
-UPDATE directory_audit
-   SET authenticated_actor = COALESCE(authenticated_actor, actor),
-       asserted_operator = COALESCE(asserted_operator, actor)
- WHERE authenticated_actor IS NULL OR asserted_operator IS NULL;
+-- fact. Identity categories are separate at table creation: `actor_id` is
+-- an Arkret permanent principal, `authenticated_credential_id` is a local
+-- credential id, and `asserted_operator_localpart` is an unverified byline.
 
 -- Append-only safeguard: block UPDATEs on the audit log. Inserts and
 -- DELETEs are still permitted (DELETEs are used by the data-retention

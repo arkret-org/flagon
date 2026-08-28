@@ -91,11 +91,11 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         return;
     }
 
-    let authenticated_actor = credential.authenticated_actor();
+    let authenticated_credential_id = credential.authenticated_credential_id();
     let identity = ActorIdentity {
         authentication_method: Some(credential.authentication_method()),
-        authenticated_actor: Some(&authenticated_actor),
-        asserted_operator: Some(operator),
+        authenticated_credential_id: Some(authenticated_credential_id.as_str()),
+        asserted_operator_localpart: Some(operator),
     };
     let _ = audit::record_with_identity(
         state.db(),

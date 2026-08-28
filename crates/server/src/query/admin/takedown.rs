@@ -32,11 +32,11 @@ struct TakedownAuditExportRow {
     occurred_at: DateTime<Utc>,
     resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<String>,
-    actor: Option<String>,
+    actor_id: Option<String>,
     detail: JsonValue,
     authentication_method: Option<String>,
-    authenticated_actor: Option<String>,
-    asserted_operator: Option<String>,
+    authenticated_credential_id: Option<String>,
+    asserted_operator_localpart: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,11 +45,11 @@ struct TakedownAuditExportItem {
     occurred_at: DateTime<Utc>,
     resource_kind: Option<&'static str>,
     resource_id: Option<String>,
-    actor: Option<String>,
+    actor_id: Option<arkret_sdk::DidCoreId>,
     detail: JsonValue,
     authentication_method: Option<String>,
-    authenticated_actor: Option<String>,
-    asserted_operator: Option<String>,
+    authenticated_credential_id: Option<teabay_contracts::AuthenticatedCredentialId>,
+    asserted_operator_localpart: Option<String>,
 }
 
 #[handler]
@@ -87,10 +87,18 @@ pub async fn takedown_audit_export(req: &mut Request, depot: &mut Depot, res: &m
 
     match load_takedown_export(&state, since, until, limit).await {
         Ok(rows) => {
-            let items: Vec<TakedownAuditExportItem> = rows
+            let items: Result<Vec<TakedownAuditExportItem>, _> = rows
                 .into_iter()
-                .map(TakedownAuditExportItem::from)
+                .map(TakedownAuditExportItem::try_from)
                 .collect();
+            let items = match items {
+                Ok(items) => items,
+                Err(error) => {
+                    ApiErrorCode::InternalError
+                        .render(res, format!("invalid audit identity: {error}"));
+                    return;
+                }
+            };
             res.render(Json(json!({
                 "items": items,
                 "since": since,
@@ -131,29 +139,37 @@ async fn load_takedown_export(
             a::occurred_at,
             a::resource_kind,
             a::resource_id,
-            a::actor,
+            a::actor_id,
             a::detail,
             a::authentication_method,
-            a::authenticated_actor,
-            a::asserted_operator,
+            a::authenticated_credential_id,
+            a::asserted_operator_localpart,
         ))
         .load(&mut *conn)
         .await?;
     Ok(rows)
 }
 
-impl From<TakedownAuditExportRow> for TakedownAuditExportItem {
-    fn from(row: TakedownAuditExportRow) -> Self {
-        Self {
+impl TryFrom<TakedownAuditExportRow> for TakedownAuditExportItem {
+    type Error = String;
+    fn try_from(row: TakedownAuditExportRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             audit_id: row.audit_id,
             occurred_at: row.occurred_at,
             resource_kind: row.resource_kind.map(DirectoryResourceKindDb::as_pg),
             resource_id: row.resource_id,
-            actor: row.actor,
+            actor_id: row
+                .actor_id
+                .map(arkret_sdk::DidCoreId::new)
+                .transpose()
+                .map_err(|error| error.to_string())?,
             detail: row.detail,
             authentication_method: row.authentication_method,
-            authenticated_actor: row.authenticated_actor,
-            asserted_operator: row.asserted_operator,
-        }
+            authenticated_credential_id: row
+                .authenticated_credential_id
+                .map(teabay_contracts::AuthenticatedCredentialId::new)
+                .transpose()?,
+            asserted_operator_localpart: row.asserted_operator_localpart,
+        })
     }
 }

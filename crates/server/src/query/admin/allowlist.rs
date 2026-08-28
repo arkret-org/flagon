@@ -83,10 +83,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
             return;
         }
     };
-    let actor = body
-        .added_by
-        .as_ref()
-        .unwrap_or(&state.config().service_id);
+    let actor = body.added_by.as_ref().unwrap_or(&state.config().service_id);
 
     match upsert_allowlist(&state, &body, actor).await {
         Ok(item) => {

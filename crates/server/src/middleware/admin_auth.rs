@@ -31,7 +31,7 @@ use crate::state::AppState;
 
 /// Identity established by `verify_admin_credential`. The audit writer
 /// uses these fields to populate `authentication_method` and
-/// `authenticated_actor`.
+/// `authenticated_credential_id`.
 #[derive(Debug, Clone)]
 pub struct AdminCredential {
     pub method: AdminAuthMethod,
@@ -62,12 +62,14 @@ impl AdminCredential {
     /// the key id for HMAC credentials and to a static literal for the
     /// development-only bearer (the static bearer is not pinned to a
     /// single operator identity).
-    pub fn authenticated_actor(&self) -> String {
-        match (self.method, self.key_id.as_deref()) {
+    pub fn authenticated_credential_id(&self) -> teabay_contracts::AuthenticatedCredentialId {
+        let value = match (self.method, self.key_id.as_deref()) {
             (AdminAuthMethod::RotatingHmac, Some(key_id)) => format!("admin:{key_id}"),
             (AdminAuthMethod::RotatingHmac, None) => "admin:unknown".to_owned(),
             (AdminAuthMethod::StaticBearer, _) => "admin:static-bearer".to_owned(),
-        }
+        };
+        teabay_contracts::AuthenticatedCredentialId::new(value)
+            .expect("static credential ids are valid")
     }
 }
 

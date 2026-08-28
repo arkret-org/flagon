@@ -164,7 +164,11 @@ pub fn AuditTable(rows: Vec<AuditEvent>) -> Element {
 fn AuditRow(item: AuditEvent) -> Element {
     let resource_id = item.resource_id.clone().unwrap_or_default();
     let resource_kind = item.resource_kind.clone().unwrap_or_default();
-    let actor = item.actor.clone().unwrap_or_default();
+    let actor = item
+        .actor_id
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
     let detail = compact_json(&item.detail);
     let badge_class = audit_badge_class(&item.kind);
 

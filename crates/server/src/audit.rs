@@ -12,12 +12,15 @@
 //! `directory_audit_block_update` makes that statically observable: the
 //! database itself refuses `UPDATE`s on this table.
 
+use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
-use teabay_contracts::{AuditChainVerificationFailure, AuditChainVerificationOutcome};
+use teabay_contracts::{
+    AuditChainVerificationFailure, AuditChainVerificationOutcome, AuthenticatedCredentialId,
+};
 
 use crate::db::Db;
 use crate::ingest::DirectoryResourceKindDb;
@@ -84,12 +87,12 @@ struct NewAuditRow<'a> {
     /// `principal_server_id`, the directory's own `service_id`, or an
     /// operator DID depending on the path. This is NOT a spec Realm `Actor`
     /// object; it is the initiating principal. For credential-vs-claim
-    /// disambiguation prefer `authenticated_actor` / `asserted_operator`.
-    actor: Option<&'a str>,
+    /// Credential and unverified byline metadata live in their dedicated fields.
+    actor_id: Option<&'a str>,
     detail: JsonValue,
     authentication_method: Option<&'a str>,
-    authenticated_actor: Option<&'a str>,
-    asserted_operator: Option<&'a str>,
+    authenticated_credential_id: Option<&'a str>,
+    asserted_operator_localpart: Option<&'a str>,
     prev_digest: Option<Vec<u8>>,
     audit_digest: Option<Vec<u8>>,
 }
@@ -101,25 +104,21 @@ struct AuditChainRow {
     kind: AuditEventKind,
     resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<String>,
-    actor: Option<String>,
+    actor_id: Option<String>,
     detail: JsonValue,
     authentication_method: Option<String>,
-    authenticated_actor: Option<String>,
-    asserted_operator: Option<String>,
+    authenticated_credential_id: Option<String>,
+    asserted_operator_localpart: Option<String>,
     prev_digest: Option<Vec<u8>>,
     audit_digest: Option<Vec<u8>>,
 }
 
-/// Authenticated-actor / operator-credential split for chained audit.
-/// `authenticated_actor` is who proved a credential at the
-/// transport/admin gateway; `asserted_operator` is who they CLAIMED to
-/// be in the request body. They are usually the same on healthy paths;
-/// they diverge when an automated runner posts on behalf of a human.
+/// Principal / local credential / asserted localpart split for chained audit.
 #[derive(Debug, Clone, Default)]
 pub struct ActorIdentity<'a> {
     pub authentication_method: Option<&'a str>,
-    pub authenticated_actor: Option<&'a str>,
-    pub asserted_operator: Option<&'a str>,
+    pub authenticated_credential_id: Option<&'a str>,
+    pub asserted_operator_localpart: Option<&'a str>,
 }
 
 /// Convenience wrapper for callers that do not have separate
@@ -130,7 +129,7 @@ pub async fn record(
     kind: AuditEventKind,
     resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
-    actor: Option<&str>,
+    actor_id: Option<&str>,
     detail: JsonValue,
 ) -> anyhow::Result<()> {
     record_with_identity(
@@ -138,12 +137,12 @@ pub async fn record(
         kind,
         resource_kind,
         resource_id,
-        actor,
+        actor_id,
         detail,
         ActorIdentity {
             authentication_method: None,
-            authenticated_actor: actor,
-            asserted_operator: actor,
+            authenticated_credential_id: None,
+            asserted_operator_localpart: None,
         },
     )
     .await
@@ -159,10 +158,11 @@ pub async fn record_with_identity(
     kind: AuditEventKind,
     resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
-    actor: Option<&str>,
+    actor_id: Option<&str>,
     detail: JsonValue,
     identity: ActorIdentity<'_>,
 ) -> anyhow::Result<()> {
+    let actor_id = actor_id.map(DidCoreId::new).transpose()?;
     let mut conn = db.get().await?;
     conn.transaction::<_, anyhow::Error, _>(async move |conn| {
         diesel::sql_query("SELECT pg_advisory_xact_lock(1952805748, 1635018092)")
@@ -184,7 +184,7 @@ pub async fn record_with_identity(
             kind,
             resource_kind,
             resource_id,
-            actor,
+            actor_id.as_ref().map(DidCoreId::as_str),
             &detail,
             &identity,
             prev_digest.as_deref(),
@@ -196,11 +196,11 @@ pub async fn record_with_identity(
                 kind,
                 resource_kind,
                 resource_id,
-                actor,
+                actor_id: actor_id.as_ref().map(DidCoreId::as_str),
                 detail,
                 authentication_method: identity.authentication_method,
-                authenticated_actor: identity.authenticated_actor.or(actor),
-                asserted_operator: identity.asserted_operator.or(actor),
+                authenticated_credential_id: identity.authenticated_credential_id,
+                asserted_operator_localpart: identity.asserted_operator_localpart,
                 prev_digest,
                 audit_digest: Some(row_digest),
             })
@@ -221,11 +221,11 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutco
             directory_audit::kind,
             directory_audit::resource_kind,
             directory_audit::resource_id,
-            directory_audit::actor,
+            directory_audit::actor_id,
             directory_audit::detail,
             directory_audit::authentication_method,
-            directory_audit::authenticated_actor,
-            directory_audit::asserted_operator,
+            directory_audit::authenticated_credential_id,
+            directory_audit::asserted_operator_localpart,
             directory_audit::prev_digest,
             directory_audit::audit_digest,
         ))
@@ -288,17 +288,25 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutco
             ));
         }
 
+        let actor_id = row.actor_id.map(DidCoreId::new).transpose()?;
+        let authenticated_credential_id = row
+            .authenticated_credential_id
+            .map(AuthenticatedCredentialId::new)
+            .transpose()
+            .map_err(anyhow::Error::msg)?;
         let identity = ActorIdentity {
             authentication_method: row.authentication_method.as_deref(),
-            authenticated_actor: row.authenticated_actor.as_deref(),
-            asserted_operator: row.asserted_operator.as_deref(),
+            authenticated_credential_id: authenticated_credential_id
+                .as_ref()
+                .map(AuthenticatedCredentialId::as_str),
+            asserted_operator_localpart: row.asserted_operator_localpart.as_deref(),
         };
         let expected_digest = compute_row_digest(
             row.occurred_at,
             row.kind,
             row.resource_kind,
             row.resource_id.as_deref(),
-            row.actor.as_deref(),
+            actor_id.as_ref().map(DidCoreId::as_str),
             &row.detail,
             &identity,
             row.prev_digest.as_deref(),
@@ -335,7 +343,7 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutco
 }
 
 /// Canonical digest input. Includes every operator-meaningful field so
-/// any tamper (e.g. swapping `detail.reason`, blanking `actor`) breaks
+/// any tamper (e.g. swapping `detail.reason`, blanking `actor_id`) breaks
 /// the chain.
 #[allow(clippy::too_many_arguments)]
 fn compute_row_digest(
@@ -343,7 +351,7 @@ fn compute_row_digest(
     kind: AuditEventKind,
     resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
-    actor: Option<&str>,
+    actor_id: Option<&str>,
     detail: &JsonValue,
     identity: &ActorIdentity<'_>,
     prev_digest: Option<&[u8]>,
@@ -353,11 +361,11 @@ fn compute_row_digest(
         "kind": kind.as_pg(),
         "resource_kind": resource_kind.map(crate::ingest::DirectoryResourceKindDb::as_pg),
         "resource_id": resource_id,
-        "actor": actor,
+        "actor_id": actor_id,
         "detail": detail,
         "authentication_method": identity.authentication_method,
-        "authenticated_actor": identity.authenticated_actor,
-        "asserted_operator": identity.asserted_operator,
+        "authenticated_credential_id": identity.authenticated_credential_id,
+        "asserted_operator_localpart": identity.asserted_operator_localpart,
     });
     // Use the shared SDK canonical serializer so "canonical row digest" is
     // accurate and matches the rest of the stack. Serialization failure is

@@ -61,21 +61,21 @@ async fn record_admin_audit(
     kind: crate::audit::AuditEventKind,
     resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&str>,
-    asserted_operator: Option<&str>,
+    asserted_operator_localpart: Option<&str>,
     detail: serde_json::Value,
 ) -> anyhow::Result<()> {
-    let authenticated_actor = credential.authenticated_actor();
+    let authenticated_credential_id = credential.authenticated_credential_id();
     crate::audit::record_with_identity(
         state.db(),
         kind,
         resource_kind,
         resource_id,
-        Some(&authenticated_actor),
+        Some(state.config().service_id.as_str()),
         detail,
         crate::audit::ActorIdentity {
             authentication_method: Some(credential.authentication_method()),
-            authenticated_actor: Some(&authenticated_actor),
-            asserted_operator,
+            authenticated_credential_id: Some(authenticated_credential_id.as_str()),
+            asserted_operator_localpart,
         },
     )
     .await

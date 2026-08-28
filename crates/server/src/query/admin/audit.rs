@@ -32,7 +32,10 @@ struct AuditDbRow {
     kind: AuditEventKind,
     resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<String>,
-    actor: Option<String>,
+    actor_id: Option<String>,
+    authenticated_credential_id: Option<String>,
+    asserted_operator_localpart: Option<String>,
+    authentication_method: Option<String>,
     detail: JsonValue,
 }
 
@@ -74,7 +77,15 @@ pub async fn audit_feed(req: &mut Request, depot: &mut Depot, res: &mut Response
     match load_audit_rows(&state, since, limit).await {
         Ok(rows) => {
             let next_since = rows.last().map(|row| row.occurred_at.to_rfc3339());
-            let events: Vec<_> = rows.into_iter().map(AuditEvent::from).collect();
+            let events: Result<Vec<_>, _> = rows.into_iter().map(AuditEvent::try_from).collect();
+            let events = match events {
+                Ok(events) => events,
+                Err(error) => {
+                    ApiErrorCode::InternalError
+                        .render(res, format!("invalid audit identity: {error}"));
+                    return;
+                }
+            };
             res.render(Json(AuditEnvelope { events, next_since }));
         }
         Err(error) => ApiErrorCode::InternalError.render(res, format!("audit feed: {error}")),
@@ -126,7 +137,10 @@ async fn load_audit_rows(
             a::kind,
             a::resource_kind,
             a::resource_id,
-            a::actor,
+            a::actor_id,
+            a::authenticated_credential_id,
+            a::asserted_operator_localpart,
+            a::authentication_method,
             a::detail,
         ))
         .load(&mut *conn)
@@ -134,9 +148,10 @@ async fn load_audit_rows(
     Ok(rows)
 }
 
-impl From<AuditDbRow> for AuditEvent {
-    fn from(row: AuditDbRow) -> Self {
-        Self {
+impl TryFrom<AuditDbRow> for AuditEvent {
+    type Error = String;
+    fn try_from(row: AuditDbRow) -> Result<Self, Self::Error> {
+        Ok(Self {
             audit_id: row.audit_id,
             occurred_at: row.occurred_at.to_rfc3339(),
             kind: row.kind.as_pg().to_owned(),
@@ -144,8 +159,18 @@ impl From<AuditDbRow> for AuditEvent {
                 .resource_kind
                 .map(|resource_kind| resource_kind.as_pg().to_owned()),
             resource_id: row.resource_id,
-            actor: row.actor,
+            actor_id: row
+                .actor_id
+                .map(arkret_sdk::DidCoreId::new)
+                .transpose()
+                .map_err(|error| error.to_string())?,
+            authenticated_credential_id: row
+                .authenticated_credential_id
+                .map(teabay_contracts::AuthenticatedCredentialId::new)
+                .transpose()?,
+            asserted_operator_localpart: row.asserted_operator_localpart,
+            authentication_method: row.authentication_method,
             detail: row.detail,
-        }
+        })
     }
 }

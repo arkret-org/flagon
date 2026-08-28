@@ -246,7 +246,7 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     }
 
     let decided_at = Utc::now();
-    let authenticated_actor = credential.authenticated_actor();
+    let authenticated_credential_id = credential.authenticated_credential_id();
     let decided_by = body
         .decided_by
         .as_ref()
@@ -292,8 +292,8 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
 
     let identity = ActorIdentity {
         authentication_method: Some(credential.authentication_method()),
-        authenticated_actor: Some(&authenticated_actor),
-        asserted_operator: Some(decided_by.as_str()),
+        authenticated_credential_id: Some(authenticated_credential_id.as_str()),
+        asserted_operator_localpart: None,
     };
     let _ = audit::record_with_identity(
         state.db(),

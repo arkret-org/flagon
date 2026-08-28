@@ -7,6 +7,41 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+/// Directory-local identifier of the credential that authenticated an admin
+/// request. It is not an Arkret principal identifier.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct AuthenticatedCredentialId(String);
+
+impl AuthenticatedCredentialId {
+    pub fn new(value: impl Into<String>) -> Result<Self, String> {
+        let value = value.into();
+        if value.is_empty() || value.len() > 256 || value.chars().any(char::is_whitespace) {
+            return Err(
+                "authenticated credential id must be 1..=256 non-whitespace characters".to_owned(),
+            );
+        }
+        Ok(Self(value))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for AuthenticatedCredentialId {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<AuthenticatedCredentialId> for String {
+    fn from(value: AuthenticatedCredentialId) -> Self {
+        value.0
+    }
+}
+
 macro_rules! json_boundary {
     ($name:ident) => {
         #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -253,7 +288,10 @@ pub struct AuditEvent {
     pub kind: String,
     pub resource_kind: Option<String>,
     pub resource_id: Option<String>,
-    pub actor: Option<String>,
+    pub actor_id: Option<DidCoreId>,
+    pub authenticated_credential_id: Option<AuthenticatedCredentialId>,
+    pub asserted_operator_localpart: Option<String>,
+    pub authentication_method: Option<String>,
     pub detail: JsonValue,
 }
 

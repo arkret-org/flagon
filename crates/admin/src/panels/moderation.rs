@@ -459,10 +459,7 @@ pub fn AppealDecisionPanel(base_url: String, token: String) -> Element {
             "overturned" => TakedownAppealDecision::Overturned,
             _ => TakedownAppealDecision::Upheld,
         };
-        let decided_by_value = match option_string(decided_by())
-            .map(DidCoreId::new)
-            .transpose()
-        {
+        let decided_by_value = match option_string(decided_by()).map(DidCoreId::new).transpose() {
             Ok(value) => value,
             Err(error_message) => {
                 error.set(format!("decided_by is invalid: {error_message}"));
