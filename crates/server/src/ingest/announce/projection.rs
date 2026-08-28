@@ -267,7 +267,7 @@ pub(crate) fn validate_handle_claim_ingest(
     }
 
     // (2) handle-claim subject MUST be a holder/principal identity core.
-    // `ak:actor:` / `ak:account:` resource ids and bare `did:` full DIDs fall
+    // `ak:actor:` / `ak:account:` resource ids and bare `did:` DIDs fall
     // into the same rejection family: only `ak:did_core:` is a subject.
     if let Some(subject) = obj.get("subject").and_then(JsonValue::as_str) {
         let is_principal_core = arkret_sdk::DidCoreId::new(subject.to_owned())

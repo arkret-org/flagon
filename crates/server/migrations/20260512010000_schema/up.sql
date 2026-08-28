@@ -90,7 +90,7 @@ CREATE TABLE directory_resources (
     next_revalidation_after TIMESTAMPTZ NOT NULL,
     stale             BOOLEAN           NOT NULL DEFAULT false,
     divergent         BOOLEAN           NOT NULL DEFAULT false,
-    -- Stable service core ids only. Full DIDs and URL-shaped route hints are
+    -- Stable service core ids only. DIDs and URL-shaped route hints are
     -- rejected by application admission and never persisted as authority.
     via_services      TEXT[]            NOT NULL DEFAULT '{}',
     last_announce_id  TEXT,
@@ -507,7 +507,7 @@ CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
 -- `ak:did_core:<method>:<core>` (lowercase ASCII method, non-empty
 -- whitespace-free core). These diagnostic CHECK constraints mirror the SDK
 -- `DidCoreId::new` parser so any future direct INSERT (e.g. a replay tool,
--- an admin-side data load) also fails closed against a full DID smuggled
+-- an admin-side data load) also fails closed against a DID smuggled
 -- into a stable-identity column. The constraint is intentionally a superset
 -- of what the application enforces — application-layer validation runs first
 -- and is more precise; this is a last-resort DB safety net.

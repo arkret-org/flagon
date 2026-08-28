@@ -112,7 +112,7 @@ pub fn matches_allowed_discoverers(
 /// `expected_audience` MUST be this directory's `did_core_id` — the same value
 /// `ak.find.directory.read.describe.v1` publishes as `service_id`.
 /// `directory-operations.schema.json#/$defs/directory_restricted_claim_presentation`
-/// types `audience` as `did_core_id`, so a full `did:` form can never compare
+/// types `audience` as `did_core_id`, so a `did:` form can never compare
 /// equal and every presentation would be rejected.
 ///
 /// # DID-P0-C03 — this path never resolves
@@ -185,7 +185,7 @@ fn verify_presentation_envelope(
     // value categories are never byte-equal. The controller is also the only
     // resolvable identity in the envelope, so it (not `iss`) is what the JWS
     // key lookup below is given.
-    let Some(signer_full_id) = verification_method_issuer(&presentation.verification_method) else {
+    let Some(signer_did) = verification_method_issuer(&presentation.verification_method) else {
         return Err("restricted claim verification method has no controller".to_owned());
     };
     if verification_method_controller_core_id(presentation.verification_method.as_str()).as_ref()
@@ -193,7 +193,7 @@ fn verify_presentation_envelope(
     {
         return Err("restricted claim verification method issuer mismatch".to_owned());
     }
-    let signer_full_id = signer_full_id.to_owned();
+    let signer_did = signer_did.to_owned();
     let now = Utc::now();
     if presentation
         .expires_at
@@ -219,7 +219,7 @@ fn verify_presentation_envelope(
         &canonical_bytes,
         &presentation.jws,
         &presentation.verification_method,
-        &signer_full_id,
+        &signer_did,
         bindings,
     )
 }
@@ -273,13 +273,13 @@ fn claim_selector_matches(
     let Ok(subject) = DidCoreId::new(requester.to_owned()) else {
         return false;
     };
-    let Ok(issuer_did) = DidCoreId::new(issuer.to_owned()) else {
+    let Ok(issuer_id) = DidCoreId::new(issuer.to_owned()) else {
         return false;
     };
     verified_claims
         .claims
         .iter()
-        .any(|claim| claim_satisfies_selector(claim, selector, &subject, &issuer_did, claim_kind))
+        .any(|claim| claim_satisfies_selector(claim, selector, &subject, &issuer_id, claim_kind))
 }
 
 fn claim_satisfies_selector(
@@ -353,10 +353,10 @@ mod tests {
     async fn signed_restricted_claim_presentation_authorizes_claim_selector() {
         let signing_key = SigningKey::from_bytes(&SIGNING_SEED);
         let multibase = did_key_multibase(&signing_key);
-        let issuer_full_id = arkret_sdk::DidFullId::new(format!("did:key:{multibase}")).unwrap();
+        let issuer_did = arkret_sdk::Did::new(format!("did:key:{multibase}")).unwrap();
         let verification_method =
-            arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_full_id.as_str())).unwrap();
-        let issuer = arkret_sdk::project_full_id_to_core_id(&issuer_full_id).unwrap();
+            arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_did.as_str())).unwrap();
+        let issuer = arkret_sdk::project_did_to_core_id(&issuer_did).unwrap();
         let subject = DidCoreId::new("ak:did_core:web:bob.example".to_owned()).unwrap();
         let org = DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
         let claim = organization_membership_claim(

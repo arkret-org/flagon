@@ -44,7 +44,7 @@ async fn test_app_state(
     unsafe {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
         std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
-        std::env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        std::env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         std::env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",

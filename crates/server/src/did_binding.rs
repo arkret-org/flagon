@@ -50,7 +50,7 @@ use arkret_identity::binding_store::{
 };
 use arkret_identity::verifier::verify_jws_with_binding;
 use arkret_sdk::identity::{DidDocument, DidKeyResolver, DidResolver};
-use arkret_wire::{DidFullId, DidUrl, Hash, TrustDomainId};
+use arkret_wire::{Did, DidUrl, Hash, TrustDomainId};
 use chrono::{DateTime, Utc};
 
 use crate::did_resolver::did_method_allowed;
@@ -177,7 +177,7 @@ impl std::fmt::Debug for DidBindingDirectory {
 impl DidBindingDirectory {
     /// Build the directory from the startup config snapshot.
     ///
-    /// `service_id` is this directory's own service DID; it scopes the trust
+    /// `service_id` is this directory's stable service core ID; it scopes the trust
     /// domain so two teabay deployments never share acceptances even if they
     /// somehow shared a store.
     pub fn new(
@@ -248,7 +248,7 @@ impl DidBindingDirectory {
     /// directory's trust domain and policy digest.
     pub fn binding_key(
         &self,
-        did: &DidFullId,
+        did: &Did,
         purpose: DidBindingPurpose,
         verification_method: Option<&DidUrl>,
     ) -> VerifiedDidBindingKey {
@@ -269,7 +269,7 @@ impl DidBindingDirectory {
     /// does not force an online resolution" rule.
     pub fn accepted(
         &self,
-        did: &DidFullId,
+        did: &Did,
         purpose: DidBindingPurpose,
         verification_method: Option<&DidUrl>,
         now: DateTime<Utc>,
@@ -362,7 +362,7 @@ impl DidBindingDirectory {
     /// `did:key` carries its own key material (spec §2.4).
     pub fn accept_did_key(
         &self,
-        did: &DidFullId,
+        did: &Did,
         purpose: DidBindingPurpose,
         verification_method: Option<&DidUrl>,
         now: DateTime<Utc>,
@@ -494,7 +494,7 @@ impl DidBindingDirectory {
         verification_method: &str,
         issuer: &str,
         purpose: DidBindingPurpose,
-    ) -> Result<(DidFullId, DidUrl), BindingFailure> {
+    ) -> Result<(Did, DidUrl), BindingFailure> {
         // No empty-allowlist guard is needed here any more, and one would be
         // dead code. `ResolverPolicy::allowed_methods` still treats an empty
         // list as "every method is allowed", but §5.3 forbids *declaring* that
@@ -507,7 +507,7 @@ impl DidBindingDirectory {
             DidUrl::new(verification_method.trim().to_owned()).map_err(|error| {
                 BindingFailure::PolicyRejected(format!("verification_method: {error}"))
             })?;
-        let issuer = DidFullId::new(issuer.trim().to_owned())
+        let issuer = Did::new(issuer.trim().to_owned())
             .map_err(|error| BindingFailure::PolicyRejected(format!("issuer: {error}")))?;
         let method_did = verification_method
             .as_str()
@@ -627,10 +627,10 @@ mod tests {
         format!("z{}", bs58::encode(bytes).into_string())
     }
 
-    fn did_key_signer(seed: u8) -> (SigningKey, DidFullId, DidUrl) {
+    fn did_key_signer(seed: u8) -> (SigningKey, Did, DidUrl) {
         let signing_key = SigningKey::from_bytes(&[seed; 32]);
         let multibase = did_key_multibase(&signing_key);
-        let did = DidFullId::new(format!("did:key:{multibase}")).expect("did");
+        let did = Did::new(format!("did:key:{multibase}")).expect("did");
         let verification_method =
             DidUrl::new(format!("{did}#{multibase}")).expect("verification method");
         (signing_key, did, verification_method)

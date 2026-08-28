@@ -98,7 +98,7 @@ cargo install diesel_cli --no-default-features --features postgres
 # 2. Provision the database
 createdb teabay
 cp .env.example .env
-# Edit .env: set DATABASE_URL plus the full service DID and its verified
+# Edit .env: set DATABASE_URL plus the service DID and its verified
 # method-history head/version commitment.
 
 # 3. Run migrations and start
@@ -285,7 +285,7 @@ active `admin_tokens` row. `/health.hardening.admin_auth_mode` reports
 withdrawals store the resource governance detached JWS and signed payload.
 Operator takedowns store a service-signed detached JWS receipt and require
 `TEABAY_RECEIPT_SIGNING_KEY_B64`; the verification method is
-`TEABAY_RECEIPT_KEY_ID` or `$TEABAY_SERVICE_FULL_ID#teabay-receipt-1`.
+`TEABAY_RECEIPT_KEY_ID` or `$TEABAY_SERVICE_DID#teabay-receipt-1`.
 
 - [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
 - [ ] TLS enabled at the reverse proxy (teabay itself serves plaintext HTTP)

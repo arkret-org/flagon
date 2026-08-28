@@ -11,7 +11,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use arkret_sdk::{
-    DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, DidCoreId, DidFullId, DirectoryPresentedClaim,
+    DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DidCoreId, DirectoryPresentedClaim,
     DirectoryRestrictedClaimPresentation, Hash, Hlc, ProducerEventProof, RealmId, ScopeRef,
     canonical,
 };
@@ -60,7 +60,7 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     unsafe {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
         std::env::set_var("TEABAY_PUBLIC_BASE_URL", "http://directory.test");
-        std::env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        std::env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         std::env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
@@ -159,10 +159,7 @@ async fn assert_describe_advertises_core(service: &Service) -> anyhow::Result<()
     let profiles = body["supported_profiles"].as_array().unwrap();
     assert!(profiles.is_empty());
     assert_eq!(body["service_id"], "ak:did_core:web:directory.test");
-    assert_eq!(
-        body["service_resolution"]["full_id"],
-        "did:web:directory.test"
-    );
+    assert_eq!(body["service_resolution"]["did"], "did:web:directory.test");
     assert_eq!(
         body["service_resolution"]["method_history_head"],
         "did-web-document-etag-fixture"
@@ -387,13 +384,13 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
 
     let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
     let multibase = did_key_multibase(&signing_key);
-    // The signing identity is a resolvable `did:key` full DID; the claim
+    // The signing identity is a resolvable `did:key` DID; the claim
     // identity it asserts is that DID's stable adapter projection.
-    let issuer_full_id = DidFullId::new(format!("did:key:{multibase}"))?;
+    let issuer_did = Did::new(format!("did:key:{multibase}"))?;
     let verification_method =
-        arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_full_id.as_str()))
+        arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_did.as_str()))
             .map_err(anyhow::Error::msg)?;
-    let issuer = arkret_sdk::project_full_id_to_core_id(&issuer_full_id)?;
+    let issuer = arkret_sdk::project_did_to_core_id(&issuer_did)?;
     let subject = DidCoreId::new("ak:did_core:web:alice.example".to_owned())?;
     let organization = DidCoreId::new("ak:did_core:web:tea-org.example".to_owned())?;
     install_restricted_realm_claim_selector(db, issuer.as_str(), organization.as_str()).await?;
@@ -775,7 +772,7 @@ async fn assert_three_path_takedown_strand(
         .json(&json!({
             "resource_kind": "organization",
             "resource_id": operator_resource_id,
-            "principal_server_service_id": "did:web:directory.test",
+            "principal_server_service_id": "ak:did_core:web:directory.test",
             "public_projection": {
                 "organization_principal_id": operator_resource_id,
                 "name": "Operator Takedown Target"
@@ -916,7 +913,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .json(&json!({
             "resource_kind": "organization",
             "resource_id": managed_resource_id,
-            "principal_server_service_id": "did:web:directory.test",
+            "principal_server_service_id": "ak:did_core:web:directory.test",
             "public_projection": {
                 "organization_principal_id": managed_resource_id,
                 "name": "Admin Managed Directory Row",
@@ -1087,8 +1084,8 @@ impl MockPrincipalServer {
     }
 
     fn principal_server_service_id(&self) -> anyhow::Result<String> {
-        let full_id = DidFullId::new(principal_did_for_addr(self.addr))?;
-        Ok(arkret_sdk::project_full_id_to_core_id(&full_id)?.to_string())
+        let did = Did::new(principal_did_for_addr(self.addr))?;
+        Ok(arkret_sdk::project_did_to_core_id(&did)?.to_string())
     }
 }
 
@@ -1169,13 +1166,13 @@ fn signed_realm_discovery_event(
     principal_server_service_id: &str,
 ) -> anyhow::Result<JsonValue> {
     let realm_id = RealmId::new(realm_id.to_owned())?;
-    let full_signer_id = DidFullId::new(
+    let signer_did = Did::new(
         verification_method
             .split_once('#')
             .map_or(verification_method, |(did, _)| did)
             .to_owned(),
     )?;
-    let actor_id = arkret_sdk::project_full_id_to_core_id(&full_signer_id)?;
+    let actor_id = arkret_sdk::project_did_to_core_id(&signer_did)?;
     let principal_server_id = DidCoreId::new(principal_server_service_id.to_owned())?;
     let mut event = arkret_wire::test_support::raw_event(
         "ak.realm.discovery",

@@ -19,7 +19,7 @@ use std::sync::Mutex;
 
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_signatures::jws::sign_jws_ed25519;
-use arkret_wire::{DidFullId, DidUrl};
+use arkret_wire::{Did, DidUrl};
 use chrono::Utc;
 use ed25519_dalek::SigningKey;
 use salvo::test::{ResponseExt, TestClient};
@@ -35,7 +35,7 @@ fn app_state() -> server::AppState {
     let _guard = ENV_LOCK.lock().expect("env lock");
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
@@ -56,12 +56,12 @@ fn app_state() -> server::AppState {
     server::AppState::new(config, db).expect("app state builds")
 }
 
-fn did_key_signer(seed: u8) -> (SigningKey, DidFullId, DidUrl) {
+fn did_key_signer(seed: u8) -> (SigningKey, Did, DidUrl) {
     let signing_key = SigningKey::from_bytes(&[seed; 32]);
     let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
         signing_key.verifying_key().as_bytes(),
     );
-    let did = DidFullId::new(format!("did:key:{multibase}")).expect("did");
+    let did = Did::new(format!("did:key:{multibase}")).expect("did");
     let verification_method = DidUrl::new(format!("{did}#{multibase}")).expect("did url");
     (signing_key, did, verification_method)
 }

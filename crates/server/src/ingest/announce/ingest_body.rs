@@ -18,7 +18,7 @@ pub struct DirectoryAnnounceIngest {
     pub resource_id: String,
     /// Stable service core id of the Principal Server that owns the resource's
     /// truth source (`discovery-directory.md` §8.3). This is **not** a
-    /// resolvable DID: mapping it to a current `full_id` / URL requires a
+    /// resolvable DID: mapping it to a current `did` / URL requires a
     /// verified `ServiceResolutionRecord`, and the spec forbids handing this
     /// value to a DID resolver.
     pub principal_server_service_id: DidCoreId,

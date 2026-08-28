@@ -373,7 +373,7 @@ mod tests {
 
     const REALM: &str = "ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR";
     const ORG: &str = "ak:did_core:webvh:zOrgExampleScid";
-    const ORG_FULL_ID: &str = "did:webvh:zOrgExampleScid:example.test:orgs:org1";
+    const ORG_DID: &str = "did:webvh:zOrgExampleScid:example.test:orgs:org1";
 
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 6, 25, 12, 0, 0).unwrap()
@@ -391,7 +391,7 @@ mod tests {
             "authorization": {
                 "issuer": ORG,
                 "issuer_role": "organization_principal_id",
-                "verification_method": format!("{ORG_FULL_ID}#k1"),
+                "verification_method": format!("{ORG_DID}#k1"),
                 "signed_at": "2026-06-25T00:00:00.000Z",
                 "proof": "c2ln"
             }

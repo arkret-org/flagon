@@ -63,7 +63,7 @@ INSERT INTO directory_resources (
     'ak.realm:restricted',
     'did:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"restricted"}'::jsonb,
-    '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"did:web:alice.example"}]}'::jsonb,
+    '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"ak:did_core:web:alice.example"}]}'::jsonb,
     'restricted'::discoverability,
     now(),
     ARRAY['evt-realm-restricted'],
@@ -157,7 +157,7 @@ INSERT INTO directory_resources (
 ),
 (
     'actor'::resource_kind,
-    'did:web:alice.example',
+    'ak:did_core:web:alice.example',
     'did:web:principal.test',
     '{"kind":"ak.actor.discovery","discoverability":"public"}'::jsonb,
     '{"handle":"alice:example.com","display_name":"Alice Tea","realm_ids":["ak:realm:tea"],"organization_principal_id":"did:web:tea-org.example"}'::jsonb,
@@ -181,7 +181,7 @@ INSERT INTO directory_resources (
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
     -- carries `member_delivery_binding.recipient_service_id` + binding_source
     -- so `resolve_handle(intent=member_add)` can run the Realm policy filter.
-    '{"handle":"alice:example.com","did":"did:web:alice.example","verified":true,"member_delivery_binding":{"recipient_service_id":"ak:did_core:web:principal.test","binding_source":"join_policy"}}'::jsonb,
+    '{"handle":"alice:example.com","subject":"ak:did_core:web:alice.example","verified":true,"member_delivery_binding":{"recipient_service_id":"ak:did_core:web:principal.test","binding_source":"join_policy"}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-handle-alice'],

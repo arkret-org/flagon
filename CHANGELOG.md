@@ -45,18 +45,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - `ServiceDescribe.service_id` is now the adapter-projected stable service
   core id and includes the required `service_resolution` commitment. Startup
-  requires the current full DID, verified method-history head, and method
+  requires the current DID, verified method-history head, and method
   version in every mode; Teabay never manufactures those values.
 - The HTTP route is advertised only through
   `transport_bindings[kind=http_json].base_url`. Directory authorization,
   `via_services`, and member delivery bindings use service core ids; receipt
-  verification methods continue to use full DID URLs.
+  verification methods continue to use DID URLs.
 - The optional cross-directory divergence worker is fail-closed until trusted
   peer service-resolution carriers are wired. A non-zero interval fails
   startup, and legacy DIDs/URLs in `via_services` are never used as network
   authority.
 - The existing initial schema now documents `directory_resources.via_services`
-  as stable service core ids only. Admission rejects full DIDs, URLs, and
+  as stable service core ids only. Admission rejects DIDs, URLs, and
   unknown pseudo-authorities before they can be persisted or used for routing.
 - Realm responses omit `join_candidates` while Teabay has only Principal
   Server core ids. A candidate requires a fully verified

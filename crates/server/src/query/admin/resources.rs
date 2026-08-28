@@ -124,7 +124,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     }
     // The operator supplies the Principal Server's *stable service core id*,
     // matching the announce wire (`discovery-directory.md` §8.3) and the
-    // `directory_resources.principal_server_service_id` column. A full DID is
+    // `directory_resources.principal_server_service_id` column. A DID is
     // rejected here rather than silently projected: the two are different
     // value categories and the column is keyed on the stable one.
     let principal_server_service_id =

@@ -30,7 +30,7 @@ Manual setup:
 ```bash
 createdb teabay
 cp .env.example .env
-# Edit .env for DATABASE_URL, TEABAY_SERVICE_FULL_ID, and the verified
+# Edit .env for DATABASE_URL, TEABAY_SERVICE_DID, and the verified
 # TEABAY_SERVICE_METHOD_HISTORY_HEAD / TEABAY_SERVICE_VERSION_ID pair.
 diesel setup
 cargo run -p server
@@ -83,7 +83,7 @@ Set these for every deployment:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string. |
-| `TEABAY_SERVICE_FULL_ID` | Current resolvable full DID. Teabay projects the stable core service id from it. |
+| `TEABAY_SERVICE_DID` | Current resolvable DID. Teabay projects the stable core service id from it. |
 | `TEABAY_SERVICE_METHOD_HISTORY_HEAD` | Verified current method-history head published in `service_resolution`; missing/empty fails startup. |
 | `TEABAY_SERVICE_VERSION_ID` | Verified current method version published in `service_resolution`; missing/empty fails startup. |
 | `TEABAY_PUBLIC_BASE_URL` | Public URL advertised only as the `http_json` binding base URL. |

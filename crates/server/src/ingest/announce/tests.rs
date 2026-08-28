@@ -43,14 +43,14 @@ fn trust_domain_verifier_rejects_partial_pair() {
 }
 
 #[test]
-fn federation_source_service_id_rejects_full_did_authority() {
+fn federation_source_service_id_rejects_did_authority() {
     let mut inputs = inputs_with_pair(
         "ak:trust_domain:other.example",
         "ak:trust_domain:teabay.test",
     );
     inputs.source_service_id = "did:web:peer.example".to_owned();
     let error = verify_federation_trust_domain_headers(&inputs, "ak:trust_domain:teabay.test")
-        .expect_err("full DID must not occupy Source-Service-ID");
+        .expect_err("DID must not occupy Source-Service-ID");
     assert_eq!(error.0, ApiErrorCode::CrossDomainReplayRejected);
 }
 

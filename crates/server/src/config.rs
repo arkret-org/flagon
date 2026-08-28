@@ -11,9 +11,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_sdk::{
-    DidFullId, DirectoryResourceKind, ResolutionCommitment, project_full_id_to_core_id,
-};
+use arkret_sdk::{Did, DirectoryResourceKind, ResolutionCommitment, project_did_to_core_id};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -124,12 +122,12 @@ pub struct AppConfig {
     pub bind: SocketAddr,
     pub metrics_bind: SocketAddr,
     pub public_base_url: String,
-    /// Stable business identity projected from [`Self::service_full_id`].
+    /// Stable business identity projected from [`Self::service_did`].
     /// This is never interpreted as a network locator.
     pub service_id: String,
     /// Current resolvable service DID retained for method verification and
     /// DID-URL verification-method construction.
-    pub service_full_id: DidFullId,
+    pub service_did: Did,
     /// Operator-verified current resolution commitment published by
     /// `ServiceDescribe`. Teabay never manufactures history heads or version
     /// identifiers from the DID text.
@@ -341,21 +339,20 @@ impl AppConfig {
         let public_base_url =
             std::env::var("TEABAY_PUBLIC_BASE_URL").unwrap_or_else(|_| format!("http://{bind}"));
 
-        // The configured identity is the current resolvable full DID. Business
+        // The configured identity is the current resolvable DID. Business
         // DTOs and persistence keys use only its adapter-projected core id.
-        let service_full_id_raw = required_non_empty_env("TEABAY_SERVICE_FULL_ID")?;
-        let service_full_id = DidFullId::new(service_full_id_raw.clone()).map_err(|error| {
-            anyhow::anyhow!("TEABAY_SERVICE_FULL_ID is not a valid full DID: {error}")
-        })?;
-        let service_id = project_full_id_to_core_id(&service_full_id)
+        let service_did_raw = required_non_empty_env("TEABAY_SERVICE_DID")?;
+        let service_did = Did::new(service_did_raw.clone())
+            .map_err(|error| anyhow::anyhow!("TEABAY_SERVICE_DID is not a valid DID: {error}"))?;
+        let service_id = project_did_to_core_id(&service_did)
             .map_err(|error| {
-                anyhow::anyhow!("TEABAY_SERVICE_FULL_ID has no active method adapter: {error}")
+                anyhow::anyhow!("TEABAY_SERVICE_DID has no active method adapter: {error}")
             })?
             .into_string();
         let method_history_head = required_non_empty_env("TEABAY_SERVICE_METHOD_HISTORY_HEAD")?;
         let version_id = required_non_empty_env("TEABAY_SERVICE_VERSION_ID")?;
         let service_resolution = ResolutionCommitment {
-            full_id: service_full_id.clone(),
+            did: service_did.clone(),
             method_history_head,
             version_id,
         };
@@ -478,7 +475,7 @@ impl AppConfig {
                 .as_deref(),
             std::env::var("TEABAY_RECEIPT_KEY_ID")
                 .ok()
-                .unwrap_or_else(|| format!("{service_full_id}#teabay-receipt-1")),
+                .unwrap_or_else(|| format!("{service_did}#teabay-receipt-1")),
         )?;
         // P2E.6 — db pool tunables.
         let defaults = DbPoolConfig::default();
@@ -546,7 +543,7 @@ impl AppConfig {
             metrics_bind,
             public_base_url,
             service_id,
-            service_full_id,
+            service_did,
             service_resolution,
             trust_domain,
             database_url,

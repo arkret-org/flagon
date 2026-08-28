@@ -17,7 +17,7 @@ fn config_rejects_missing_resolution_commitment_even_in_development() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
         env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
@@ -63,7 +63,7 @@ fn config_builds_with_minimal_state() {
     // test harness.
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
@@ -82,7 +82,7 @@ fn config_builds_with_minimal_state() {
 
     let config = server::AppConfig::from_env().expect("config builds");
     assert_eq!(config.service_id, "ak:did_core:web:directory.test");
-    assert_eq!(config.service_full_id.as_str(), "did:web:directory.test");
+    assert_eq!(config.service_did.as_str(), "did:web:directory.test");
     assert_eq!(
         config.service_resolution.method_history_head,
         "did-web-document-etag-fixture"
@@ -107,7 +107,7 @@ fn hardening_status_shape_matches_cross_service_contract() {
 
     unsafe {
         env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_FULL_ID", "did:web:directory.test");
+        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         env::set_var(
             "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",

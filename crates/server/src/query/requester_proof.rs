@@ -187,7 +187,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
 
     // §9.0.1: `audience` MUST be the target Directory `service_id` published by
     // `ak.find.directory.read.describe.v1`, single valued and in `did_core_id`
-    // form. The SDK helper rejects a missing, multi-valued, or full-DID
+    // form. The SDK helper rejects a missing, multi-valued, or DID
     // audience; only this directory knows whether the value names *it*.
     // `config().service_id` is the projected core id this directory publishes,
     // which is the same value `filter::discoverers` compares §2 claim
@@ -210,12 +210,12 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         .map_err(|error| format!("directory requester proof binding rejected: {error}"))?;
 
     let verification_method = proof.verification_method.as_str();
-    let Some(signer_full_id) = verification_method_issuer(verification_method) else {
+    let Some(signer_did) = verification_method_issuer(verification_method) else {
         return Err("directory requester proof verification_method has no controller".to_owned());
     };
     // `issuer` in the transcript is the request's originator field, so the
     // signing key MUST be controlled by that same subject. A DID URL's bare
-    // controller is a `DidFullId` and the originator is a `DidCoreId`; project
+    // controller is a `Did` and the originator is a `DidCoreId`; project
     // before comparing.
     if let Some(originator) = request.requester_proof_originator()
         && verification_method_controller_core_id(verification_method).as_ref() != Some(originator)
@@ -232,7 +232,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
             &binding_bytes,
             &proof.jws,
             verification_method,
-            signer_full_id,
+            signer_did,
             DidBindingPurpose::Principal,
             SIGNATURE_KIND_DIRECTORY_REQUESTER_PROOF,
             now,
@@ -247,7 +247,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use arkret_sdk::{DidFullId, RealmId};
+    use arkret_sdk::{Did, RealmId};
     use arkret_signatures::jws::sign_jws_ed25519;
     use arkret_wire::{DidUrl, Hash};
     use chrono::Duration;
@@ -284,9 +284,9 @@ mod tests {
     fn test_requester(seed: [u8; 32]) -> Requester {
         let signing_key = SigningKey::from_bytes(&seed);
         let multibase = did_key_multibase(&signing_key);
-        let full_id = DidFullId::new(format!("did:key:{multibase}")).unwrap();
-        let verification_method = DidUrl::new(format!("{}#{multibase}", full_id.as_str())).unwrap();
-        let core_id = arkret_sdk::project_full_id_to_core_id(&full_id).unwrap();
+        let did = Did::new(format!("did:key:{multibase}")).unwrap();
+        let verification_method = DidUrl::new(format!("{}#{multibase}", did.as_str())).unwrap();
+        let core_id = arkret_sdk::project_did_to_core_id(&did).unwrap();
         Requester {
             signing_key,
             core_id,

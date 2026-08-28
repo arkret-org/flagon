@@ -22,7 +22,7 @@ use arkret_identity::binding::DidBindingPurpose;
 use arkret_identity::document_canonical_digest;
 use arkret_sdk::identity::DidWebvhResolver;
 use arkret_sdk::{
-    DID_WEB_MAX_DOCUMENT_BYTES, DidCoreId, DidFullId, DidWebResolver, DirectoryGovernanceProof,
+    DID_WEB_MAX_DOCUMENT_BYTES, Did, DidCoreId, DidWebResolver, DirectoryGovernanceProof,
     DirectoryTakedownAppealRequestBody, DirectoryWithdrawRequestBody, canonical,
 };
 use arkret_wire::{Hash, TrustDomainId, WireError};
@@ -99,7 +99,7 @@ impl<'a> VerifyContext<'a> {
         // the rest of the Arkret stack share one normative parser.
         // Non-conforming inputs short-circuit with a structured rejection
         // BEFORE any signature / accept-policy work, which keeps audit logs
-        // clean and rules out a full DID smuggled into a stable-identity slot
+        // clean and rules out a DID smuggled into a stable-identity slot
         // at the ingest boundary. `principal_server_service_id` needs no check
         // here: it is already a parsed `DidCoreId` on the ingest body.
         if matches!(
@@ -657,13 +657,13 @@ async fn verify_first_source_ref_resolves(
         })?
         .clone();
     // `discovery-directory.md` §8.3: `principal_server_service_id` is a stable
-    // `did_core_id`. The Directory MUST map it to the peer's current `full_id`
+    // `did_core_id`. The Directory MUST map it to the peer's current `did`
     // / URL through a **verified `ServiceResolutionRecord`** before pulling,
     // and MUST NOT hand the core id to a DID resolver. teabay has no peer
     // service-resolution carrier yet, so this is the single choke point where
     // that evidence has to arrive; until it does, first ingest fails closed
     // rather than guessing a resolvable DID out of a stable identity core.
-    let principal_server_full_id = peer_principal_server_full_id(&req.principal_server_service_id)
+    let principal_server_did = peer_principal_server_did(&req.principal_server_service_id)
         .map_err(|reason| {
             (
                 ApiErrorCode::SourceRefsUnverifiable,
@@ -689,7 +689,7 @@ async fn verify_first_source_ref_resolves(
     let accepted = resolve_principal_server_endpoint(
         config,
         resolver,
-        &principal_server_full_id,
+        &principal_server_did,
         source_ref.as_str(),
     )
     .await
@@ -816,7 +816,7 @@ async fn verify_first_source_ref_resolves(
 /// `acceptance_digest` states.
 #[derive(Debug, Clone)]
 pub(crate) struct AcceptedServiceEndpoint {
-    pub service_did: DidFullId,
+    pub service_did: Did,
     pub service_kind: &'static str,
     pub trust_domain: TrustDomainId,
     pub endpoint: Url,
@@ -853,7 +853,7 @@ pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
 /// | method in `TEABAY_ACCEPTED_DID_METHODS` | `principal_did_method_allowed` + the chain's `ResolverPolicy` | unchanged, both still run |
 /// | document validation (content type, 64 KiB cap, `did:webvh` log chain + witness) | resolver | resolver |
 /// | SSRF / egress control on the fetch | `resolve_url_for_egress` inside the raw fetch | the shared chain's client: `https_only` + the shared guarded DNS resolver, both frozen from the startup config |
-/// | `document.id == principal_server_full_id` | compared on the raw JSON here | still compared here, now against the resolved document |
+/// | `document.id == principal_server_did` | compared on the raw JSON here | still compared here, now against the resolved document |
 /// | `service[].type == "ArkretPrincipalServer"` | raw JSON | `DidDocument::raw_properties["service"]`, which preserves the wire document verbatim |
 /// | relative `serviceEndpoint` resolution | `service_endpoint_url` | unchanged |
 ///
@@ -871,10 +871,10 @@ pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
 pub(crate) async fn resolve_principal_server_endpoint(
     config: &AppConfig,
     resolver: &SharedDidResolver,
-    principal_server_full_id: &DidFullId,
+    principal_server_did: &Did,
     source_ref: &str,
 ) -> anyhow::Result<AcceptedServiceEndpoint> {
-    let did = principal_server_full_id.clone();
+    let did = principal_server_did.clone();
     let principal_server_did = did.as_str();
     if !principal_did_method_allowed(config, principal_server_did) {
         anyhow::bail!("DID method is outside TEABAY_ACCEPTED_DID_METHODS");
@@ -970,7 +970,7 @@ fn json_digest(value: &JsonValue) -> anyhow::Result<Hash> {
 /// Assemble (and digest) the accepted five-tuple.
 fn accepted_service_endpoint(
     trust_domain: TrustDomainId,
-    service_did: DidFullId,
+    service_did: Did,
     endpoint: Url,
     document_digest: Hash,
     source_ref: &str,
@@ -1039,7 +1039,7 @@ fn principal_did_method_allowed(config: &AppConfig, did: &str) -> bool {
         .is_some_and(|method| did_method_allowed(&config.accepted_did_methods, method))
 }
 
-fn did_document_url(did: &DidFullId) -> anyhow::Result<Url> {
+fn did_document_url(did: &Did) -> anyhow::Result<Url> {
     let url = match did.method() {
         "web" => DidWebResolver::document_url(did)?,
         "webvh" => DidWebvhResolver::document_url(did)?,
@@ -1219,24 +1219,22 @@ fn derive_via_services(
 }
 
 /// Map a peer Principal Server's stable service core id to the resolvable
-/// `DidFullId` the source-ref anchor fetch needs.
+/// `Did` the source-ref anchor fetch needs.
 ///
 /// `discovery-directory.md` §8.3 permits exactly one route: a **verified
-/// `ServiceResolutionRecord`** that publishes the peer's current `full_id`.
+/// `ServiceResolutionRecord`** that publishes the peer's current `did`.
 /// The core id itself must never be handed to a DID resolver, and a
-/// `DidCoreId` can never be widened back into a `DidFullId` by string
-/// manipulation — `project_full_id_to_core_id` is deliberately one-way.
+/// `DidCoreId` can never be widened back into a `Did` by string
+/// manipulation — `project_did_to_core_id` is deliberately one-way.
 ///
 /// teabay has no peer service-resolution store yet — the same gap that made
 /// cross-directory divergence detection unimplementable — so this fails
 /// closed. Wiring a verified carrier here is the single change that
 /// re-enables first-ingest source-ref verification.
-fn peer_principal_server_full_id(
-    principal_server_service_id: &DidCoreId,
-) -> Result<DidFullId, String> {
+fn peer_principal_server_did(principal_server_service_id: &DidCoreId) -> Result<Did, String> {
     let _ = principal_server_service_id;
     Err(
-        "peer Principal Server core ids have no configured verified service-resolution          carrier, so the current full DID cannot be established;          `discovery-directory.md` §8.3 forbids resolving the core id directly"
+        "peer Principal Server core ids have no configured verified service-resolution          carrier, so the current DID cannot be established;          `discovery-directory.md` §8.3 forbids resolving the core id directly"
             .to_owned(),
     )
 }

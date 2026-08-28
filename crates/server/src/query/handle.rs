@@ -689,7 +689,7 @@ fn binding_passes(
 ) -> bool {
     let recipient_ok = match obj.get("recipient_service_id").and_then(JsonValue::as_str) {
         // Recipient routing policy binds the stable service core identity.
-        // A full DID or URL in this business field is dropped as if absent.
+        // A DID or URL in this business field is dropped as if absent.
         Some(service_id) => {
             is_service_core_id(service_id) && {
                 unrestricted_recipient
@@ -727,8 +727,8 @@ fn envelope_from_projection(
     expires_at: DateTime<Utc>,
     audience: Option<String>,
 ) -> ResultEnvelope {
-    let did = public_projection
-        .get("did")
+    let principal_id = public_projection
+        .get("subject")
         .and_then(JsonValue::as_str)
         .unwrap_or("")
         .to_string();
@@ -737,8 +737,7 @@ fn envelope_from_projection(
         .cloned()
         .unwrap_or(JsonValue::Null);
     let mut payload = json!({
-        "did": did,
-        "subject": did,
+        "principal_id": principal_id,
         "handle": resource_id,
         "verified": public_projection.get("verified").and_then(JsonValue::as_bool).unwrap_or(false),
         "claims": claims,
@@ -776,21 +775,13 @@ fn handle_resolution_from_envelope(
         .payload
         .as_object()
         .ok_or_else(|| "handle projection is not an object".to_owned())?;
-    let did_raw = payload
-        .get("did")
+    let principal_id_raw = payload
+        .get("principal_id")
         .and_then(JsonValue::as_str)
-        .filter(|did| arkret_sdk::DidCoreId::new((*did).to_owned()).is_ok())
-        .ok_or_else(|| "handle projection did is missing or invalid".to_owned())?
+        .ok_or_else(|| "handle projection principal_id is missing".to_owned())?
         .to_owned();
-    let did = DidCoreId::new(did_raw.clone())
-        .map_err(|error| format!("handle projection did is invalid: {error}"))?;
-    let subject = payload
-        .get("subject")
-        .and_then(JsonValue::as_str)
-        .unwrap_or(&did_raw);
-    if subject != did_raw {
-        return Err("handle projection subject must match did".to_owned());
-    }
+    let principal_id = DidCoreId::new(principal_id_raw)
+        .map_err(|error| format!("handle projection principal_id is invalid: {error}"))?;
     let handle = payload
         .get("handle")
         .and_then(JsonValue::as_str)
@@ -828,7 +819,7 @@ fn handle_resolution_from_envelope(
         .transpose()
         .map_err(|error| format!("handle projection handle_claim is invalid: {error}"))?;
     Ok(DirectoryHandleResolutionOutcome {
-        principal_id: did,
+        principal_id,
         handle,
         verified,
         claims,
@@ -964,7 +955,7 @@ mod tests {
     #[test]
     fn resolve_handle_filters_recipient_service() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.other",
@@ -989,7 +980,7 @@ mod tests {
     #[test]
     fn expected_principal_id_must_match_resolved_principal() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
         }));
         let mut body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
@@ -1005,7 +996,7 @@ mod tests {
     #[test]
     fn resolve_handle_keeps_allowed_member_delivery_binding() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",
@@ -1047,7 +1038,7 @@ mod tests {
     #[test]
     fn resolve_handle_unauthorized_requester_returns_not_found() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",
@@ -1073,7 +1064,7 @@ mod tests {
     #[test]
     fn empty_allowed_recipient_services_fails_closed() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.anywhere",
@@ -1097,7 +1088,7 @@ mod tests {
     #[test]
     fn wildcard_allowed_recipient_services_is_unrestricted() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.anywhere",
@@ -1139,7 +1130,7 @@ mod tests {
             &["did:web:tea-org.example"],
         );
         let allowed_row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",
@@ -1147,7 +1138,7 @@ mod tests {
             },
         }));
         let filtered_row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.other",
@@ -1273,7 +1264,7 @@ mod tests {
         );
         let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
         let mut row = dummy_row(json!({
-            "did": requester.as_str(),
+            "subject": requester.as_str(),
             "verified": true,
             "allowed_discoverers": [{
                 "type": "claim",
@@ -1317,7 +1308,7 @@ mod tests {
     #[test]
     fn binding_source_filter_prunes_disallowed_source() {
         let row = dummy_row(json!({
-            "did": "did:web:alice.example",
+            "subject": "ak:did_core:web:alice.example",
             "verified": true,
             "member_delivery_binding": {
                 "recipient_service_id": "ak:did_core:web:principal.tea",

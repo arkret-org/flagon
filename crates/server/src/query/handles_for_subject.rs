@@ -585,14 +585,10 @@ ORDER BY l.as_of DESC, l.resource_id ASC
 LIMIT $2
 "#;
 
-/// Extract the holder/principal DID a handle projection asserts. Order of
-/// preference: explicit `subject`, then `did` (teabay's stored holder DID
-/// field). Returns `None` when neither is a string.
+/// Extract the stable holder/principal id asserted by a handle projection.
+/// Returns `None` when the canonical `subject` field is absent or not a string.
 fn projection_subject(projection: &JsonValue) -> Option<&str> {
-    projection
-        .get("subject")
-        .and_then(JsonValue::as_str)
-        .or_else(|| projection.get("did").and_then(JsonValue::as_str))
+    projection.get("subject").and_then(JsonValue::as_str)
 }
 
 /// Build a typed [`HandleClaim`] from a stored handle row, binding the claim
@@ -603,7 +599,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
     if projection_subject(&row.public_projection) != Some(subject) {
         return None;
     }
-    let subject_did = arkret_sdk::DidCoreId::new(subject.to_owned()).ok()?;
+    let subject_id = arkret_sdk::DidCoreId::new(subject.to_owned()).ok()?;
     // The handle string must come from the projection's canonical
     // `handle` field. The directory index key may use a dot-form
     // resource_id, so it is intentionally not a fallback.
@@ -652,7 +648,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject: &str) -> Option<Handle
         schema: HandleClaim::SCHEMA.to_owned(),
         handle,
         handle_aliases: Vec::new(),
-        subject: Some(subject_did),
+        subject: Some(subject_id),
         issuer,
         issuer_service_id: None,
         binding_state: verified.then_some(arkret_sdk::HandleBindingState::Verified),
@@ -868,12 +864,12 @@ mod tests {
     }
 
     #[test]
-    fn projection_subject_prefers_subject_then_did() {
+    fn projection_subject_accepts_only_canonical_subject() {
         assert_eq!(
             projection_subject(
                 &json!({"subject":"ak:did_core:web:alice.example","did":"ak:did_core:web:other"})
             ),
-            Some("ak:did_core:web:alice.example")
+            None
         );
         assert_eq!(
             projection_subject(&json!({"did":"ak:did_core:web:alice.example"})),
@@ -888,7 +884,7 @@ mod tests {
     #[test]
     fn claim_from_projection_binds_request_subject() {
         let row = handle_row(
-            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true,"created_at":"2026-05-20T00:00:00.000Z"}),
+            json!({"subject":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true,"created_at":"2026-05-20T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
         let claim =
@@ -912,7 +908,7 @@ mod tests {
         // The row asserts a different subject than the request — fail-closed
         // DROP so claims[].subject == response.subject always holds.
         let row = handle_row(
-            json!({"did":"ak:did_core:web:eve.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00.000Z"}),
+            json!({"subject":"ak:did_core:web:eve.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
@@ -925,13 +921,13 @@ mod tests {
         // A projection without a canonical `created_at` cannot produce a
         // compliant claim, so the row is dropped (fail-closed).
         let row = handle_row(
-            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
+            json!({"subject":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
         // A non-canonical spelling (no milliseconds) is rejected the same way.
         let row = handle_row(
-            json!({"did":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
+            json!({"subject":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
             DiscoverabilityDb::Public,
         );
         assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());

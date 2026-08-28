@@ -751,7 +751,7 @@ fn join_candidates_for_row(_row: &RealmRow) -> Vec<RealmJoinCandidate> {
     // and Teabay does not persist remote carriers. Emitting no candidate is the
     // only safe behavior until ingest retains an independently verified current
     // record (or another trusted carrier source is configured). Never derive a
-    // URL/full DID from the core id and never reuse this directory's own
+    // URL/DID from the core id and never reuse this directory's own
     // resolution commitment for a remote Principal Server.
     Vec::new()
 }

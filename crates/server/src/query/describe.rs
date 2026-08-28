@@ -89,7 +89,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // no end-user account surface, so `mode` is `service_transport`; the
     // ingest/admin descriptors ride in `x_teabay_*` extension keys
     // (`auth_metadata` is `additionalProperties: true`).
-    let mut auth_metadata = AuthMetadata::minimal("service_transport");
+    let mut auth_metadata = AuthMetadata::minimal();
     auth_metadata.extra.insert(
         "x_teabay_ingest".to_owned(),
         json!({
@@ -311,7 +311,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use arkret_sdk::{DidFullId, ResolutionCommitment};
+    use arkret_sdk::{Did, ResolutionCommitment};
 
     use super::*;
     use crate::config::{AcceptPolicyKind, IngestModeAdvert};
@@ -322,9 +322,9 @@ mod tests {
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
             service_id: "ak:did_core:web:directory.test".to_owned(),
-            service_full_id: DidFullId::new("did:web:directory.test").unwrap(),
+            service_did: Did::new("did:web:directory.test").unwrap(),
             service_resolution: ResolutionCommitment {
-                full_id: DidFullId::new("did:web:directory.test").unwrap(),
+                did: Did::new("did:web:directory.test").unwrap(),
                 method_history_head: "did-web-document-etag-fixture".to_owned(),
                 version_id: "did-web-document-version-fixture".to_owned(),
             },
@@ -393,10 +393,7 @@ mod tests {
         assert_eq!(value["development_mode"], true);
         assert_eq!(value["trust_domain"], "ak:trust_domain:local.test");
         assert_eq!(value["service_id"], "ak:did_core:web:directory.test");
-        assert_eq!(
-            value["service_resolution"]["full_id"],
-            "did:web:directory.test"
-        );
+        assert_eq!(value["service_resolution"]["did"], "did:web:directory.test");
         assert_eq!(value["service_kind"], "directory_service");
         // verified_profiles MUST be empty when development_mode = true.
         assert!(
@@ -448,7 +445,7 @@ mod tests {
         let describe_body = ServiceDescribe {
             service_id: DidCoreId::new("ak:did_core:web:directory.test").unwrap(),
             service_resolution: ResolutionCommitment {
-                full_id: DidFullId::new("did:web:directory.test").unwrap(),
+                did: Did::new("did:web:directory.test").unwrap(),
                 method_history_head: "did-web-document-etag-fixture".to_owned(),
                 version_id: "did-web-document-version-fixture".to_owned(),
             },
@@ -467,7 +464,7 @@ mod tests {
             }],
             supported_features: Vec::new(),
             calendar_tzdb_versions: Vec::new(),
-            auth_metadata: AuthMetadata::minimal("service_transport"),
+            auth_metadata: AuthMetadata::minimal(),
             limits: ServerLimits::default(),
             egress_network_policy: None,
             plaintext_visibility: PlaintextVisibility::none(),
