@@ -344,7 +344,7 @@ struct OrgRow {
     policy_revision: String,
     stale: bool,
     divergent: bool,
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
     indexed_at: DateTime<Utc>,
 }
 

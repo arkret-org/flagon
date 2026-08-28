@@ -1,5 +1,6 @@
 //! Accept-allowlist CRUD endpoints.
 
+use arkret_sdk::{Did, DidCoreId};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -31,7 +32,7 @@ struct AllowlistDeleteQuery {
 #[derive(Debug, Queryable)]
 struct AllowlistDbRow {
     resource_did: String,
-    added_by: String,
+    added_by: DidCoreId,
     added_at: DateTime<Utc>,
     note: Option<String>,
 }
@@ -40,7 +41,7 @@ struct AllowlistDbRow {
 #[diesel(table_name = crate::schema::accept_allowlist)]
 struct NewAllowlistRow<'a> {
     resource_did: &'a str,
-    added_by: &'a str,
+    added_by: &'a DidCoreId,
     added_at: DateTime<Utc>,
     note: Option<&'a str>,
 }
@@ -82,15 +83,10 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
             return;
         }
     };
-    if body.resource_did.trim().is_empty() {
-        ApiErrorCode::ParamMissing.render(res, "resource_did is required");
-        return;
-    }
     let actor = body
         .added_by
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(state.config().service_id.as_str());
+        .as_ref()
+        .unwrap_or(&state.config().service_id);
 
     match upsert_allowlist(&state, &body, actor).await {
         Ok(item) => {
@@ -99,8 +95,8 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
                 &credential,
                 AuditEventKind::AllowlistAdded,
                 None,
-                Some(&body.resource_did),
-                Some(actor),
+                Some(body.resource_did.as_str()),
+                Some(actor.as_str()),
                 json!({ "note": body.note }),
             )
             .await;
@@ -129,14 +125,20 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
         .as_deref()
         .filter(|value| !value.trim().is_empty())
     {
-        Some(resource_did) => resource_did,
+        Some(resource_did) => match Did::new(resource_did.trim().to_owned()) {
+            Ok(resource_did) => resource_did,
+            Err(_) => {
+                ApiErrorCode::QueryInvalid.render(res, "resource_did must be a W3C DID");
+                return;
+            }
+        },
         None => {
             ApiErrorCode::ParamMissing.render(res, "resource_did query parameter is required");
             return;
         }
     };
 
-    match delete_allowlist(&state, resource_did).await {
+    match delete_allowlist(&state, &resource_did).await {
         Ok(deleted) => {
             if deleted > 0 {
                 let _ = record_admin_audit(
@@ -144,7 +146,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
                     &credential,
                     AuditEventKind::AllowlistRemoved,
                     None,
-                    Some(resource_did),
+                    Some(resource_did.as_str()),
                     Some(state.config().service_id.as_str()),
                     json!({ "deleted": deleted }),
                 )
@@ -168,13 +170,13 @@ async fn load_allowlist(state: &AppState, limit: i64) -> anyhow::Result<Vec<Allo
         .select((a::resource_did, a::added_by, a::added_at, a::note))
         .load(&mut *conn)
         .await?;
-    Ok(rows.into_iter().map(AllowlistItem::from).collect())
+    rows.into_iter().map(AllowlistItem::try_from).collect()
 }
 
 async fn upsert_allowlist(
     state: &AppState,
     body: &DirectoryAdminAllowlistUpsertRequestBody,
-    actor: &str,
+    actor: &DidCoreId,
 ) -> anyhow::Result<AllowlistItem> {
     use crate::schema::accept_allowlist::dsl as a;
 
@@ -182,7 +184,7 @@ async fn upsert_allowlist(
     let now = Utc::now();
     diesel::insert_into(a::accept_allowlist)
         .values(NewAllowlistRow {
-            resource_did: &body.resource_did,
+            resource_did: body.resource_did.as_str(),
             added_by: actor,
             added_at: now,
             note: body.note.as_deref(),
@@ -198,30 +200,34 @@ async fn upsert_allowlist(
         .await?;
 
     let item: AllowlistDbRow = a::accept_allowlist
-        .filter(a::resource_did.eq(&body.resource_did))
+        .filter(a::resource_did.eq(body.resource_did.as_str()))
         .select((a::resource_did, a::added_by, a::added_at, a::note))
         .first(&mut *conn)
         .await?;
-    Ok(item.into())
+    item.try_into()
 }
 
-async fn delete_allowlist(state: &AppState, resource_did: &str) -> anyhow::Result<usize> {
+async fn delete_allowlist(state: &AppState, resource_did: &Did) -> anyhow::Result<usize> {
     use crate::schema::accept_allowlist::dsl as a;
 
     let mut conn = state.db().get().await?;
-    let deleted = diesel::delete(a::accept_allowlist.filter(a::resource_did.eq(resource_did)))
-        .execute(&mut *conn)
-        .await?;
+    let deleted =
+        diesel::delete(a::accept_allowlist.filter(a::resource_did.eq(resource_did.as_str())))
+            .execute(&mut *conn)
+            .await?;
     Ok(deleted)
 }
 
-impl From<AllowlistDbRow> for AllowlistItem {
-    fn from(row: AllowlistDbRow) -> Self {
-        Self {
-            resource_did: row.resource_did,
+impl TryFrom<AllowlistDbRow> for AllowlistItem {
+    type Error = anyhow::Error;
+
+    fn try_from(row: AllowlistDbRow) -> Result<Self, Self::Error> {
+        Ok(Self {
+            resource_did: Did::new(row.resource_did)
+                .map_err(|_| anyhow::anyhow!("database resource_did is not a valid W3C DID"))?,
             added_by: row.added_by,
             added_at: row.added_at.to_rfc3339(),
             note: row.note,
-        }
+        })
     }
 }

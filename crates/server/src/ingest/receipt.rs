@@ -33,7 +33,7 @@ struct ResourceWithdrawalStatement<'a> {
 #[derive(serde::Serialize)]
 struct WithdrawalVerification<'a> {
     status: &'static str,
-    verified_by: &'a str,
+    verified_by: &'a arkret_sdk::DidCoreId,
     verified_at: DateTime<Utc>,
 }
 
@@ -76,7 +76,7 @@ pub(crate) fn resource_withdrawal_proof(
         governance_proof: &body.governance_proof,
         verification: WithdrawalVerification {
             status: "verified",
-            verified_by: config.service_id.as_str(),
+            verified_by: &config.service_id,
             verified_at: acked_at,
         },
     };
@@ -179,7 +179,7 @@ pub(crate) fn takedown_appeal_decision_receipt(
     argument_digest: &str,
     decision_evidence_digest: Option<&str>,
     decision: TakedownAppealDecision,
-    decided_by: &str,
+    decided_by: &arkret_sdk::DidCoreId,
     reason: &str,
     decided_at: DateTime<Utc>,
 ) -> anyhow::Result<JsonValue> {

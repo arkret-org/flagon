@@ -50,8 +50,7 @@ impl AppState {
     /// resolver that cannot be built is a configuration error, and
     /// configuration errors belong at boot.
     pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
-        let service_core_id = DidCoreId::new(config.service_id.clone())
-            .expect("AppConfig service_id is projected from a validated service DID");
+        let service_core_id = config.service_id.clone();
         // Built before the resolver so the DID counters land on the same
         // `Metrics` instance `/metrics` renders.
         let metrics = Metrics::default();

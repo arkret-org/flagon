@@ -8,7 +8,7 @@
 //! used for audience gating here.
 
 use arkret_sdk::{
-    ActorPreview, DirectoryActorSearchOutcome, DirectorySearchActorsRequestBody,
+    ActorPreview, DidCoreId, DirectoryActorSearchOutcome, DirectorySearchActorsRequestBody,
     DirectorySearchUsersRequestBody, DirectoryUserSearchOutcome, UserSearchOutcome,
 };
 use chrono::{DateTime, Utc};
@@ -102,7 +102,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 }
             };
             res.render(Json(DirectoryActorSearchOutcome {
-                actor_previews,
+                actors: actor_previews,
                 next_cursor: None,
                 has_more,
             }));
@@ -214,7 +214,7 @@ struct ActorRow {
     policy_revision: String,
     stale: bool,
     divergent: bool,
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
 }
 
 async fn run_actor_search(

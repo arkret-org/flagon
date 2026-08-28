@@ -31,7 +31,7 @@ pub struct AcceptedIngestEvent {
     pub ingest_mode: IngestModeWire,
     pub resource_kind: DirectoryResourceKindDb,
     pub resource_id: String,
-    pub principal_server_id: String,
+    pub principal_server_id: DidCoreId,
     pub indexed_at: DateTime<Utc>,
     pub as_of: DateTime<Utc>,
     pub source_refs: Vec<String>,
@@ -85,8 +85,8 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         }
     };
 
-    let subscriber_principal_id = body.subscriber_principal_id.as_str();
-    if !enforce_ingest_rate_limit(req, res, &state, subscriber_principal_id, None) {
+    let subscriber_principal_id = &body.subscriber_principal_id;
+    if !enforce_ingest_rate_limit(req, res, &state, subscriber_principal_id.as_str(), None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
@@ -122,7 +122,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
             crate::audit::AuditEventKind::IngestRejected,
             None,
             None,
-            Some(subscriber_principal_id),
+            Some(subscriber_principal_id.as_str()),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "circle_isolation_violation",
@@ -134,8 +134,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         ApiErrorCode::SchemaViolation.render(res, rejection.safe_message());
         return;
     }
-    if let Err(message) = validate_endpoint(&body.webhook_uri, state.config().development_mode)
-    {
+    if let Err(message) = validate_endpoint(&body.webhook_url, state.config().development_mode) {
         ingest_metric.set_outcome("invalid_endpoint");
         ApiErrorCode::ParamInvalid.render(res, message);
         return;
@@ -151,13 +150,13 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
             generate_secret(
                 subscription_id.as_str(),
                 subscriber_principal_id,
-                &body.webhook_uri,
+                &body.webhook_url,
             )
         }
         None => generate_secret(
             subscription_id.as_str(),
             subscriber_principal_id,
-            &body.webhook_uri,
+            &body.webhook_url,
         ),
     };
 
@@ -205,7 +204,7 @@ pub async fn fanout_reachability_tombstone(
                 ingest_mode: IngestModeWire::Push,
                 resource_kind: tombstone.resource_kind,
                 resource_id: tombstone.resource_id.clone(),
-                principal_server_id: tombstone.principal_server_id.to_string(),
+                principal_server_id: tombstone.principal_server_id.clone(),
                 indexed_at: now,
                 as_of: now,
                 source_refs: Vec::new(),
@@ -262,13 +261,9 @@ async fn deliver_tombstone(
         "principal_server_id": tombstone.principal_server_id,
     });
     let bytes = serde_json::to_vec(&body)?;
-    let secret = subscription
-        .secret
-        .filter(|secret| !secret.is_empty())
-        .unwrap_or_else(|| generate_secret(&subscription.subscription_id, "", ""));
-    let signature = sign_body(&secret, &bytes)?;
+    let signature = sign_body(&subscription.secret, &bytes)?;
     let target = crate::egress::resolve_http_url_for_egress(
-        &subscription.webhook_uri,
+        &subscription.webhook_url,
         "reachability tombstone webhook",
         development_mode,
     )
@@ -337,15 +332,15 @@ fn locked_webhook_http_client(target: &crate::egress::LockedEgressUrl) -> anyhow
 }
 
 fn validate_endpoint(endpoint: &str, development_mode: bool) -> Result<(), String> {
-    let url = Url::parse(endpoint).map_err(|error| format!("webhook_uri URL: {error}"))?;
+    let url = Url::parse(endpoint).map_err(|error| format!("webhook_url URL: {error}"))?;
     match url.scheme() {
         "https" => {}
         "http" if development_mode => {}
-        other => return Err(format!("webhook_uri scheme `{other}` is not allowed")),
+        other => return Err(format!("webhook_url scheme `{other}` is not allowed")),
     };
     crate::egress::validate_url_for_egress(
         &url,
-        "webhook_uri",
+        "webhook_url",
         crate::egress::local_development_enabled(development_mode),
     )
 }
@@ -366,12 +361,12 @@ fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
 
 fn generate_secret(
     subscription_id: &str,
-    subscriber_principal_id: &str,
+    subscriber_principal_id: &arkret_sdk::DidCoreId,
     endpoint: &str,
 ) -> Vec<u8> {
     let mut h = Sha256::new();
     h.update(subscription_id.as_bytes());
-    h.update(subscriber_principal_id.as_bytes());
+    h.update(subscriber_principal_id.as_str().as_bytes());
     h.update(endpoint.as_bytes());
     h.update(
         Utc::now()
@@ -397,8 +392,8 @@ async fn persist_subscription(
             s::subscription_id.eq(subscription_id),
             s::subscriber_principal_id.eq(body.subscriber_principal_id.as_str()),
             s::resource_filter.eq(resource_filter),
-            s::webhook_uri.eq(&body.webhook_uri),
-            s::secret.eq(Some(secret)),
+            s::webhook_url.eq(&body.webhook_url),
+            s::secret.eq(secret),
             s::expires_at.eq(body.expires_at),
             s::created_at.eq(created_at),
         ))
@@ -411,8 +406,8 @@ async fn persist_subscription(
 struct WebhookSubscriptionRow {
     subscription_id: String,
     resource_filter: JsonValue,
-    webhook_uri: String,
-    secret: Option<Vec<u8>>,
+    webhook_url: String,
+    secret: Vec<u8>,
 }
 
 async fn matching_subscriptions(
@@ -426,7 +421,7 @@ async fn matching_subscriptions(
         .select((
             s::subscription_id,
             s::resource_filter,
-            s::webhook_uri,
+            s::webhook_url,
             s::secret,
         ))
         .load(&mut *conn)
@@ -443,7 +438,11 @@ fn filter_matches(filter: &JsonValue, event: &AcceptedIngestEvent) -> bool {
     };
     field_matches(obj, "resource_kind", event.resource_kind.as_pg())
         && field_matches(obj, "resource_id", &event.resource_id)
-        && field_matches(obj, "principal_server_id", &event.principal_server_id)
+        && field_matches(
+            obj,
+            "principal_server_id",
+            event.principal_server_id.as_str(),
+        )
 }
 
 fn field_matches(obj: &serde_json::Map<String, JsonValue>, key: &str, actual: &str) -> bool {
@@ -472,13 +471,9 @@ async fn deliver_webhook(
         "public_projection": event.public_projection,
     });
     let bytes = serde_json::to_vec(&body)?;
-    let secret = subscription
-        .secret
-        .filter(|secret| !secret.is_empty())
-        .unwrap_or_else(|| generate_secret(&subscription.subscription_id, "", ""));
-    let signature = sign_body(&secret, &bytes)?;
+    let signature = sign_body(&subscription.secret, &bytes)?;
     let target = crate::egress::resolve_http_url_for_egress(
-        &subscription.webhook_uri,
+        &subscription.webhook_url,
         "accepted ingest webhook",
         development_mode,
     )

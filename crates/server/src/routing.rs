@@ -185,7 +185,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         // handler (no transport signature required, same as the other query
         // routes). The mention renderer's live-resolve path consumes this.
         .push(
-            Router::with_path("list-handles-for-subject_id")
+            Router::with_path("list-handles-for-subject")
                 .post(query::handles_for_subject::list_handles_for_subject),
         );
 
@@ -862,7 +862,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle
             // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
-            "/_arkret/find/directory/list-handles-for-subject_id",
+            "/_arkret/find/directory/list-handles-for-subject",
             PathItemType::Post,
             "ak.find.directory.read.list_handles_for_subject",
             "query",

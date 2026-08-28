@@ -10,9 +10,9 @@ use crate::api::{
 use crate::icons::{ListIcon, RefreshIcon, SaveIcon, SendIcon, TrashIcon};
 use crate::model::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
-    BADGE_NEUTRAL, BADGE_WARN, DirectoryAdminAllowlistUpsertRequestBody, DirectoryResourceKind,
-    OperatorTakedownOutcome, OperatorTakedownRequestBody, TakedownAppealDecision,
-    TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
+    BADGE_NEUTRAL, BADGE_WARN, Did, DidCoreId, DirectoryAdminAllowlistUpsertRequestBody,
+    DirectoryResourceKind, OperatorTakedownOutcome, OperatorTakedownRequestBody,
+    TakedownAppealDecision, TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
 };
 use crate::shell::{AuditTable, PanelHeader, StatusLine};
 
@@ -55,14 +55,23 @@ pub fn AllowlistPanel(base_url: String, token: String) -> Element {
     let save_base_url = base_url.clone();
     let save_token = token.clone();
     let save = move |_| {
-        let did = resource_did().trim().to_string();
-        if did.is_empty() {
-            error.set("resource_did is required".to_string());
-            return;
-        }
+        let did = match Did::new(resource_did().trim().to_owned()) {
+            Ok(did) => did,
+            Err(_) => {
+                error.set("resource_did must be a W3C DID".to_string());
+                return;
+            }
+        };
+        let added_by_value = match option_string(added_by()).map(DidCoreId::new).transpose() {
+            Ok(value) => value,
+            Err(error_message) => {
+                error.set(format!("added_by is invalid: {error_message}"));
+                return;
+            }
+        };
         let body = DirectoryAdminAllowlistUpsertRequestBody {
             resource_did: did,
-            added_by: option_string(added_by()),
+            added_by: added_by_value,
             note: option_string(note()),
         };
         let base_url = save_base_url.clone();
@@ -135,7 +144,7 @@ pub fn AllowlistPanel(base_url: String, token: String) -> Element {
                     }
                 }
                 div { class: "field span-3",
-                    label { "Added by" }
+                    label { "Added by ID" }
                     input {
                         value: "{actor_value}",
                         oninput: move |event| added_by.set(event.value()),
@@ -180,7 +189,7 @@ pub fn AllowlistPanel(base_url: String, token: String) -> Element {
                                 token: token.clone(),
                                 on_deleted: move |deleted: String| {
                                     let mut next = rows();
-                                    next.retain(|row| row.resource_did != deleted);
+                                    next.retain(|row| row.resource_did.as_str() != deleted);
                                     let count = next.len();
                                     rows.set(next);
                                     status.set(format!("{count} allowlist entries"));
@@ -209,8 +218,8 @@ fn AllowlistRow(
     let note_text = item.note.clone().unwrap_or_default();
 
     let delete = move |_| {
-        let did = resource_did.clone();
-        let deleted_did = resource_did.clone();
+        let did = resource_did.to_string();
+        let deleted_did = resource_did.to_string();
         let base_url = base_url.clone();
         let token = token.clone();
         deleting.set(true);
@@ -410,7 +419,7 @@ pub fn AppealDecisionPanel(base_url: String, token: String) -> Element {
     let mut appeal_id = use_signal(String::new);
     let mut decision = use_signal(|| "upheld".to_string());
     let mut reason = use_signal(String::new);
-    let mut decided_by = use_signal(|| "admin-console".to_string());
+    let mut decided_by = use_signal(String::new);
     let mut evidence_digest = use_signal(String::new);
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| "Idle".to_string());
@@ -450,11 +459,21 @@ pub fn AppealDecisionPanel(base_url: String, token: String) -> Element {
             "overturned" => TakedownAppealDecision::Overturned,
             _ => TakedownAppealDecision::Upheld,
         };
+        let decided_by_value = match option_string(decided_by())
+            .map(DidCoreId::new)
+            .transpose()
+        {
+            Ok(value) => value,
+            Err(error_message) => {
+                error.set(format!("decided_by is invalid: {error_message}"));
+                return;
+            }
+        };
         let body = TakedownAppealDecisionRequestBody {
             appeal_id: appeal_id_text,
             decision: decision_kind,
             reason: reason_text,
-            decided_by: option_string(decided_by()),
+            decided_by: decided_by_value,
             evidence_digest: option_string(evidence_digest()),
         };
         let base_url = base_url.clone();
@@ -524,7 +543,7 @@ pub fn AppealDecisionPanel(base_url: String, token: String) -> Element {
                         }
                     }
                     div { class: "field",
-                        label { "Decided by" }
+                        label { "Decided by ID" }
                         input {
                             value: "{decided_by_value}",
                             oninput: move |event| decided_by.set(event.value()),

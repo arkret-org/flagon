@@ -457,7 +457,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // TBY-ORG-01/03 — verify and project any `ak.realm.organization` relationship
     // statements the Realm announce carries. Only `active`, in-validity-window,
     // proof-bearing, scope-covering statements that pass the SDK verifier enter
-    // the verified index; a bare `organization_principal_id` / `owning_organizations`
+    // the verified index; a bare `organization_principal_id` / `owning_organization_ids`
     // hint is NOT treated as an official relationship. Failures are audited but
     // never block the announce (the projection hint still lands).
     if matches!(body.resource_kind, DirectoryResourceKindDb::Realm) {
@@ -577,7 +577,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             ingest_mode: IngestModeWire::Push,
             resource_kind: body.resource_kind,
             resource_id: body.resource_id.clone(),
-            principal_server_id: body.principal_server_id.as_str().to_owned(),
+            principal_server_id: body.principal_server_id.clone(),
             indexed_at,
             as_of: body.as_of,
             source_refs: body.source_refs.clone(),

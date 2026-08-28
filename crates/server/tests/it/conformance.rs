@@ -234,7 +234,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
             .await;
         assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
         let body: JsonValue = res.take_json().await.expect("resolve-realm body");
-        body["realm_preview"]["owning_organizations"]
+        body["realm_preview"]["owning_organization_ids"]
             .as_array()
             .map(|orgs| {
                 orgs.iter()
@@ -256,7 +256,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     let declared_only = resolve_owning_orgs(service, "ak:realm:org-declared-only").await;
     assert!(
         declared_only.is_empty(),
-        "declared owning_organizations / organization_principal_id hint MUST NOT yield a verified badge"
+        "declared owning_organization_ids / organization_principal_id hint MUST NOT yield a verified badge"
     );
 
     // (3) relationship mismatch: sponsor is NOT owner/governance ⇒ no owning org.
@@ -612,7 +612,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
                 "resource_kinds": ["realm"],
                 "resource_ids": ["ak:realm:pushed"]
             },
-            "webhook_uri": "http://127.0.0.1:9/teabay-conformance-webhook",
+            "webhook_url": "http://127.0.0.1:9/teabay-conformance-webhook",
             "secret": secret
         }))
         .send(service)
@@ -900,7 +900,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_did": "did:web:principal.test",
-            "added_by": "cotest",
+            "added_by": "ak:did_core:web:cotest.example",
             "note": "conformance"
         }))
         .send(service)
@@ -1222,9 +1222,9 @@ fn signed_realm_discovery_event(
 #[derive(serde::Serialize)]
 struct DirectoryRestrictedClaimPresentationSigningPayload<'a> {
     kind: &'a str,
-    iss: &'a DidCoreId,
+    issuer_id: &'a DidCoreId,
     verification_method: &'a str,
-    audience: &'a DidCoreId,
+    audience_id: &'a DidCoreId,
     nonce: &'a str,
     claim: &'a DirectoryPresentedClaim,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1234,20 +1234,20 @@ struct DirectoryRestrictedClaimPresentationSigningPayload<'a> {
 
 fn signed_restricted_claim_presentation(
     signing_key: &SigningKey,
-    iss: DidCoreId,
+    issuer_id: DidCoreId,
     verification_method: arkret_wire::DidUrl,
-    audience: &str,
+    audience_id: &str,
     nonce: &str,
     claim: DirectoryPresentedClaim,
 ) -> anyhow::Result<DirectoryRestrictedClaimPresentation> {
-    let audience = DidCoreId::new(audience.to_owned())?;
+    let audience_id = DidCoreId::new(audience_id.to_owned())?;
     let created_at = Utc::now();
     let expires_at = Some(created_at + ChronoDuration::minutes(5));
     let payload = DirectoryRestrictedClaimPresentationSigningPayload {
         kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,
-        iss: &iss,
+        issuer_id: &issuer_id,
         verification_method: &verification_method,
-        audience: &audience,
+        audience_id: &audience_id,
         nonce,
         claim: &claim,
         expires_at,
@@ -1257,9 +1257,9 @@ fn signed_restricted_claim_presentation(
     let jws = sign_jws_ed25519(&canonical, signing_key).map_err(anyhow::Error::msg)?;
     Ok(DirectoryRestrictedClaimPresentation {
         kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND.to_owned(),
-        iss,
+        issuer_id,
         verification_method,
-        audience,
+        audience_id,
         nonce: nonce.to_owned(),
         claim,
         expires_at,
@@ -1276,7 +1276,7 @@ fn did_key_multibase(signing_key: &SigningKey) -> String {
 
 /// §8.7.1: the signed transcript is the canonical binding object built by the
 /// SDK helper, not the request body. `payload_digest` covers the request
-/// without the top-level `governance_proof` member, `audience` names this
+/// without the top-level `governance_proof` member, `audience_id` names this
 /// directory's `service_id`, `proof_purpose` is `governance_authorization`,
 /// and `created_at` must sit inside the 300-second freshness window.
 fn signed_withdraw_body(
@@ -1295,7 +1295,7 @@ fn signed_withdraw_body(
                 .map_err(|error| anyhow::anyhow!("digest: {error}"))?,
             created_at: Utc::now(),
             proof_purpose: arkret_sdk::DirectoryGovernanceProofPurpose::GovernanceAuthorization,
-            audience: arkret_sdk::DidCoreId::new("ak:did_core:web:directory.test".to_owned())
+            audience_id: arkret_sdk::DidCoreId::new("ak:did_core:web:directory.test".to_owned())
                 .map_err(|error| anyhow::anyhow!("audience: {error}"))?,
             jws: "pending".to_owned(),
         },

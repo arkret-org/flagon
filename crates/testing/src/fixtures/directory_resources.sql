@@ -97,13 +97,13 @@ INSERT INTO directory_resources (
 (
     -- TBY-ORG-02/04 — a Realm that DECLARES an owning organization in its
     -- projection but has NO verified `ak.realm.organization` statement. It MUST
-    -- NOT surface an official verified `owning_organizations` set (declared-only
+    -- NOT surface an official verified `owning_organization_ids` set (declared-only
     -- ⇒ no badge).
     'realm'::resource_kind,
     'ak.realm:org-declared-only',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
-    '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_principal_id":"ak:did_core:web:tea-org.example","owning_organizations":["ak:did_core:web:tea-org.example"]}'::jsonb,
+    '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_principal_id":"ak:did_core:web:tea-org.example","owning_organization_ids":["ak:did_core:web:tea-org.example"]}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-org-declared'],
@@ -119,7 +119,7 @@ INSERT INTO directory_resources (
 (
     -- TBY-ORG-02/04 — a Realm with an ACTIVE verified owner relationship (see
     -- verified_realm_organizations.sql). It MUST surface the verified org as an
-    -- official `owning_organizations` member.
+    -- official `owning_organization_ids` member.
     'realm'::resource_kind,
     'ak.realm:org-verified',
     'ak:did_core:web:principal.test',

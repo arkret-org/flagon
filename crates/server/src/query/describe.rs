@@ -77,7 +77,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .map(|bundle| (*bundle).to_owned())
         .collect();
     let transport_bindings = vec![TransportBinding::HttpJson {
-        base_uri: cfg.public_base_url.clone(),
+        base_url: cfg.public_base_url.clone(),
         extension_profile_required: (),
     }];
     let supported_features = Vec::new();
@@ -459,7 +459,7 @@ mod tests {
                 "ak.operation_bundle.directory_service.http_core.v1".to_owned(),
             ],
             transport_bindings: vec![TransportBinding::HttpJson {
-                base_uri: "http://directory.test".to_owned(),
+                base_url: "http://directory.test".to_owned(),
                 extension_profile_required: (),
             }],
             supported_features: Vec::new(),

@@ -37,7 +37,7 @@ const QUERY_OPS: &[&str] = &[
     // `/_arkret` and outside the well-known signed issuer_id channel.
     "handle-probe",
     // R3.2 (arkret-spec @ b56cab1) — reverse handle lookup.
-    "list-handles-for-subject_id",
+    "list-handles-for-subject",
     // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
     "resolve-target",
 ];
@@ -309,7 +309,7 @@ impl Metrics {
 
     /// R3.2 (METRICS-TBY-1) — increment
     /// `teabay_directory_query_total{op,outcome}`. `op` is the dashed route
-    /// label (`resolve-handle`, `list-handles-for-subject_id`, ...); `outcome`
+    /// label (`resolve-handle`, `list-handles-for-subject`, ...); `outcome`
     /// is one of [`QUERY_OUTCOMES`] (unknown values are still recorded).
     pub fn record_query_outcome(&self, op: &str, outcome: &str) {
         let mut outcomes = self
@@ -922,14 +922,14 @@ mod tests {
 
     /// R3.2 (METRICS-TBY-1) — the directory query / filter-drop /
     /// cardinality-guard counters render with the required label families,
-    /// including the `list-handles-for-subject_id` op and the new filter-drop
+    /// including the `list-handles-for-subject` op and the new filter-drop
     /// reasons.
     #[test]
     fn prometheus_render_includes_r3_2_directory_counters() {
         let metrics = Metrics::default();
-        metrics.record_query_outcome("list-handles-for-subject_id", "ok");
+        metrics.record_query_outcome("list-handles-for-subject", "ok");
         metrics.record_query_outcome("resolve-handle", "not_found");
-        metrics.record_query_outcome("list-handles-for-subject_id", "invalid_subject_kind");
+        metrics.record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
         metrics.record_filter_drop("issuer_trust");
         metrics.record_filter_drop("audience");
         metrics.record_filter_drop("subject_mismatch");
@@ -940,13 +940,13 @@ mod tests {
         let body = metrics.render_prometheus();
 
         assert!(body.contains(
-            "teabay_directory_query_total{op=\"list-handles-for-subject_id\",outcome=\"ok\"} 1.000000"
+            "teabay_directory_query_total{op=\"list-handles-for-subject\",outcome=\"ok\"} 1.000000"
         ));
         assert!(body.contains(
             "teabay_directory_query_total{op=\"resolve-handle\",outcome=\"not_found\"} 1.000000"
         ));
         assert!(body.contains(
-            "teabay_directory_query_total{op=\"list-handles-for-subject_id\",outcome=\"invalid_subject_kind\"} 1.000000"
+            "teabay_directory_query_total{op=\"list-handles-for-subject\",outcome=\"invalid_subject_kind\"} 1.000000"
         ));
         assert!(
             body.contains("teabay_directory_filter_drop_total{reason=\"issuer_trust\"} 1.000000")

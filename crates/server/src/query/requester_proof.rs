@@ -84,9 +84,9 @@ pub trait DirectoryRequesterProofFamily {
     fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError>;
 
     /// The family's originator wire field, whose value the binding object
-    /// carries as `issuer_id`. `None` only for
+    /// carries as the registry-defined `issuer`. `None` only for
     /// `directory_resolve_organization_request_body`, which has no originator
-    /// field: its binding object omits `issuer_id` and the signer identity is
+    /// field: its binding object omits `issuer` and the signer identity is
     /// borne solely by `verification_method`.
     fn requester_proof_originator(&self) -> Option<&DidCoreId>;
 }
@@ -216,7 +216,7 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
             "directory requester_id proof verification_method has no controller".to_owned(),
         );
     };
-    // `issuer_id` in the transcript is the request's originator field, so the
+    // `issuer` in the transcript is the request's originator field, so the
     // signing key MUST be controlled by that same subject_id. A DID URL's bare
     // controller is a `Did` and the originator is a `DidCoreId`; project
     // before comparing.
@@ -400,7 +400,7 @@ mod tests {
     /// Each family stamps its OWN registered context and operation id into the
     /// signed bytes, and the registered `binding_fields` sets differ per family
     /// (`resolve_handle` binds `handle`, `list_handles_for_subject` binds
-    /// `subject_id`, `resolve_organization` binds neither and omits `issuer_id`).
+    /// `subject_id`, `resolve_organization` binds neither and omits `issuer`).
     /// This is what the removed fragmentless `ak.directory_operation_proof.v1`
     /// row could not express.
     #[test]
@@ -484,7 +484,7 @@ mod tests {
         };
         let mut expected_handle = vec![
             "payload_digest",
-            "issuer_id",
+            "issuer",
             "operation_id",
             "handle",
             "verification_method",
@@ -497,7 +497,7 @@ mod tests {
 
         let mut expected_list = vec![
             "payload_digest",
-            "issuer_id",
+            "issuer",
             "operation_id",
             "subject_id",
             "verification_method",
@@ -508,7 +508,7 @@ mod tests {
         expected_list.sort_unstable();
         assert_eq!(keys(&list_transcript), expected_list);
 
-        // `resolve_organization` has no originator wire field: no `issuer_id`.
+        // `resolve_organization` has no originator wire field: no `issuer`.
         let mut expected_org = vec![
             "payload_digest",
             "operation_id",
@@ -636,7 +636,7 @@ mod tests {
             .expect_err("audience MUST be the single target Directory service DID");
     }
 
-    /// `issuer_id` in the transcript is the request's `requester_id`, so a proof
+    /// `issuer` in the transcript is the request's `requester_id`, so a proof
     /// signed by a different principal's key cannot stand in for it.
     #[test]
     fn proof_signed_by_a_key_the_requester_does_not_control_is_rejected() {

@@ -22,6 +22,7 @@
 
 use std::time::Duration;
 
+use arkret_sdk::DidCoreId;
 use chrono::Utc;
 use diesel::sql_types::{Int4, Nullable, Text, Timestamptz};
 use diesel_async::RunQueryDsl;
@@ -85,7 +86,7 @@ struct PendingRow {
     #[diesel(sql_type = Text)]
     reason: String,
     #[diesel(sql_type = Text)]
-    proposed_by: String,
+    proposed_by: DidCoreId,
     #[diesel(sql_type = Timestamptz)]
     proposed_at: chrono::DateTime<chrono::Utc>,
     #[diesel(sql_type = Nullable<Int4>)]

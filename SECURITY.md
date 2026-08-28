@@ -53,7 +53,7 @@ Enforcement points (all in `crates/server/src/`):
   avoiding list-length enumeration.
 - `ingest/announce.rs` calls the preview-aware rejector on
   `discovery_state` and the full serialized request envelope (catching
-  smuggling via top-level `resource_id` / `principal_server_service_id` /
+  smuggling via top-level `resource_id` / `principal_server_id` /
   `supersedes_announce_id`).
 - `ingest/subscribe.rs` still calls the hard rejector on
   `resource_filter`.

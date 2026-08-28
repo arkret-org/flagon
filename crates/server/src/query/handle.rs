@@ -15,7 +15,7 @@
 //! same blinded `not_found` inside the latency budget.
 
 use arkret_sdk::{
-    DidCoreId, DirectoryHandleResolutionOutcome, DirectoryResolveHandleRequestBody, Handle,
+    DidCoreId, DirectoryHandleResolutionOutcome, DirectoryResolveHandleRequestBody, Handle, RealmId,
 };
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -36,7 +36,7 @@ use crate::state::AppState;
 #[derive(Debug, Clone)]
 struct ResolveHandleRequestView {
     pub handle: String,
-    pub expected_principal_id: Option<String>,
+    pub expected_principal_id: Option<DidCoreId>,
     pub proof_challenge: Option<String>,
     pub claim_presentations: Vec<arkret_sdk::DirectoryRestrictedClaimPresentation>,
     /// Why the handle is being resolved. Spec 0a5ab85:
@@ -44,32 +44,30 @@ struct ResolveHandleRequestView {
     /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
     /// filter when `intent ∈ {member_add, invite}`.
     pub intent: Option<String>,
-    /// DID or service DID of the requester_id. Used to scope audience-bearing
+    /// Stable Arkret identity of the requester. Used to scope audience-bearing
     /// claims so that the verifier can enforce `audience == self` and to
     /// authorize disclosure of Realm-restricted bindings.
-    pub requester_id: Option<String>,
+    pub requester_id: Option<DidCoreId>,
     /// Explicit audience the verifier expects on the claim (typically a
     /// target Realm DID or inviter service DID).
     pub audience: Option<String>,
-    /// Target Realm DID for `intent=member_add | invite`. When present we
+    /// Target Realm ID for `intent=member_add | invite`. When present we
     /// load the Realm `delivery_binding_policy` baseline and filter
     /// candidate bindings against `allowed_recipient_services`.
-    pub realm_id: Option<String>,
+    pub realm_id: Option<RealmId>,
 }
 
 impl From<DirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
     fn from(body: DirectoryResolveHandleRequestBody) -> Self {
         Self {
             handle: body.handle,
-            expected_principal_id: body
-                .expected_principal_id
-                .map(|did| did.as_str().to_owned()),
+            expected_principal_id: body.expected_principal_id,
             proof_challenge: body.proof_challenge,
             claim_presentations: body.claim_presentations,
             intent: body.intent.map(|intent| intent.to_string()),
-            requester_id: body.requester_id.map(|did| did.as_str().to_owned()),
+            requester_id: body.requester_id,
             audience: body.audience,
-            realm_id: body.realm_id.map(|realm_id| realm_id.as_str().to_owned()),
+            realm_id: body.realm_id,
         }
     }
 }
@@ -281,10 +279,19 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let privacy_key = format!(
         "handle={};expected={};intent={};realm={};req={};aud={};claims={};proofs={};iph={}",
         body.handle,
-        body.expected_principal_id.as_deref().unwrap_or_default(),
+        body.expected_principal_id
+            .as_ref()
+            .map(DidCoreId::as_str)
+            .unwrap_or_default(),
         body.intent.as_deref().unwrap_or_default(),
-        body.realm_id.as_deref().unwrap_or_default(),
-        body.requester_id.as_deref().unwrap_or_default(),
+        body.realm_id
+            .as_ref()
+            .map(RealmId::as_str)
+            .unwrap_or_default(),
+        body.requester_id
+            .as_ref()
+            .map(DidCoreId::as_str)
+            .unwrap_or_default(),
         body.audience.as_deref().unwrap_or_default(),
         body.claim_presentations.len(),
         proof_count,
@@ -358,7 +365,7 @@ fn verified_restricted_claims_for_handle_query(
 ) -> VerifiedRestrictedClaims {
     verify_restricted_claim_presentations(
         &body.claim_presentations,
-        body.requester_id.as_deref(),
+        body.requester_id.as_ref().map(DidCoreId::as_str),
         body.proof_challenge.as_deref(),
         state.config().service_id.as_str(),
         state.did_bindings(),
@@ -389,7 +396,7 @@ struct HandleRow {
     policy_revision: String,
     stale: bool,
     divergent: bool,
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
     expires_at: DateTime<Utc>,
 }
 
@@ -456,10 +463,10 @@ async fn member_add_policy_for(
     if !is_member_add_intent(body.intent.as_deref()) {
         return Ok(None);
     }
-    let Some(realm_id) = body.realm_id.as_deref().filter(|s| !s.is_empty()) else {
+    let Some(realm_id) = body.realm_id.as_ref() else {
         return Ok(None);
     };
-    load_realm_policy(state, realm_id).await.map(Some)
+    load_realm_policy(state, realm_id.as_str()).await.map(Some)
 }
 
 fn is_member_add_intent(intent: Option<&str>) -> bool {
@@ -561,25 +568,35 @@ fn evaluate_handle_disclosure(
     verified_claims: &VerifiedRestrictedClaims,
     policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
-    if body
-        .expected_principal_id
-        .as_deref()
-        .is_some_and(|expected| {
-            row.public_projection.get("did").and_then(JsonValue::as_str) != Some(expected)
-        })
-    {
+    if body.expected_principal_id.as_ref().is_some_and(|expected| {
+        row.public_projection
+            .get("subject_id")
+            .and_then(JsonValue::as_str)
+            != Some(expected.as_str())
+    }) {
         return ResolveOutcome::NotFound;
     }
 
     let audience = body
         .audience
         .clone()
-        .or_else(|| body.requester_id.clone())
-        .or_else(|| body.realm_id.clone());
+        .or_else(|| {
+            body.requester_id
+                .as_ref()
+                .map(|requester_id| requester_id.as_str().to_owned())
+        })
+        .or_else(|| {
+            body.realm_id
+                .as_ref()
+                .map(|realm_id| realm_id.as_str().to_owned())
+        });
 
     // Member-add path: audience-bind on the Realm, filter candidate bindings.
     if let Some(policy) = policy {
-        if !policy.audience_authorized(body.requester_id.as_deref(), verified_claims) {
+        if !policy.audience_authorized(
+            body.requester_id.as_ref().map(DidCoreId::as_str),
+            verified_claims,
+        ) {
             // Unauthorized requester_id: collapse to not_found so the
             // directory does not disclose subject_id / member_delivery_binding.
             return ResolveOutcome::NotFound;
@@ -609,7 +626,7 @@ fn evaluate_handle_disclosure(
     if matches!(row.discoverability, DiscoverabilityDb::Restricted)
         && !matches_allowed_discoverers(
             &row.public_projection,
-            body.requester_id.as_deref(),
+            body.requester_id.as_ref().map(DidCoreId::as_str),
             verified_claims,
         )
     {
@@ -723,7 +740,7 @@ fn envelope_from_projection(
     policy_revision: String,
     stale: bool,
     divergent: bool,
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
     expires_at: DateTime<Utc>,
     audience: Option<String>,
 ) -> ResultEnvelope {
@@ -854,7 +871,7 @@ mod tests {
             policy_revision: "rev-handle-1".to_string(),
             stale: false,
             divergent: false,
-            via_services: vec!["ak:did_core:web:principal.test".to_string()],
+            via_services: vec![DidCoreId::new("ak:did_core:web:principal.test").unwrap()],
             expires_at: Utc.timestamp_opt(3_600, 0).unwrap(),
         }
     }
@@ -866,9 +883,9 @@ mod tests {
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("member_add".to_string()),
-            requester_id: Some(requester_id.to_string()),
+            requester_id: Some(DidCoreId::new(requester_id).unwrap()),
             audience: None,
-            realm_id: Some(realm_id.to_string()),
+            realm_id: Some(RealmId::new(realm_id).unwrap()),
         }
     }
 
@@ -963,7 +980,10 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
             &["ak:did_core:web:tea-org.example"],
@@ -984,12 +1004,32 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
         }));
-        let mut body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
-        body.expected_principal_id = Some("ak:did_core:web:bob.example".to_owned());
+        let mut body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
+        body.expected_principal_id = Some(DidCoreId::new("ak:did_core:web:bob.example").unwrap());
 
         let outcome =
             evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None);
         assert!(matches!(outcome, ResolveOutcome::NotFound));
+    }
+
+    #[test]
+    fn matching_expected_principal_id_preserves_resolution() {
+        let row = dummy_row(json!({
+            "subject_id": "ak:did_core:web:alice.example",
+            "verified": true,
+        }));
+        let mut body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
+        body.expected_principal_id = Some(DidCoreId::new("ak:did_core:web:alice.example").unwrap());
+
+        let outcome =
+            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None);
+        assert!(matches!(outcome, ResolveOutcome::Found(_)));
     }
 
     /// When a member_delivery_binding passes policy the resolver MUST surface
@@ -1004,7 +1044,10 @@ mod tests {
                 "binding_source": "join_policy"
             }
         }));
-        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
             &["ak:did_core:web:tea-org.example"],
@@ -1044,7 +1087,10 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "ak:did_core:web:eve.example");
+        let body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:eve.example",
+        );
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
             &["ak:did_core:web:tea-org.example"],
@@ -1070,7 +1116,10 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
         let policy = realm_policy(&[], &["ak:did_core:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
@@ -1094,7 +1143,10 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
         let policy = realm_policy(&["*"], &["ak:did_core:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
@@ -1148,9 +1200,18 @@ mod tests {
         let warmup = 256;
         let iters = 4096;
 
-        let found_body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
-        let unauthorized_body = member_add_request("ak:realm:tea", "ak:did_core:web:eve.example");
-        let filtered_body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let found_body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
+        let unauthorized_body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:eve.example",
+        );
+        let filtered_body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
 
         // Warm caches / branch predictor.
         for _ in 0..warmup {
@@ -1279,7 +1340,7 @@ mod tests {
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("lookup".to_owned()),
-            requester_id: Some(requester_id.as_str().to_owned()),
+            requester_id: Some(requester_id.clone()),
             audience: None,
             realm_id: None,
         };
@@ -1321,7 +1382,10 @@ mod tests {
                 "trusted_audiences": ["ak:did_core:web:tea-org.example"],
             },
         }));
-        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let body = member_add_request(
+            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
+            "ak:did_core:web:tea-org.example",
+        );
 
         let outcome = evaluate_handle_disclosure(
             row,

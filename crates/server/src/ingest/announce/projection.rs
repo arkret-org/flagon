@@ -153,13 +153,13 @@ pub(crate) fn derive_public_projection(
         // they MUST NOT leak verbatim into the public projection (which is
         // served to unauthenticated callers and indexed for search).
         obj.remove("organization_statements");
-        // TBY-ORG-02 — `owning_organizations` / `organization_principal_id` that survive
+        // TBY-ORG-02 — `owning_organization_ids` / `organization_principal_id` that survive
         // here are DECLARED hints only (realm.schema: "This field alone is not a
         // verified ownership/governance endorsement; directories MUST require an
         // active ak.realm.organization statement"). They are retained for
         // org-scoped *search* filtering, but a caller MUST NOT be able to inject
         // an official verified badge through the projection — the query layer
-        // re-derives the verified `owning_organizations` from the verified index
+        // re-derives the verified `owning_organization_ids` from the verified index
         // and ignores any pre-supplied badge field here.
         obj.remove("verified_badge");
         obj.remove("official_badge");

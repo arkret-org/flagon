@@ -2,7 +2,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-pub use arkret_sdk::{DirectoryResourceKind, Discoverability};
+pub use arkret_sdk::{Did, DidCoreId, DirectoryResourceKind, Discoverability};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -70,9 +70,9 @@ json_boundary!(DirectoryDiscoveryState);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirectoryAdminAllowlistUpsertRequestBody {
-    pub resource_did: String,
+    pub resource_did: Did,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub added_by: Option<String>,
+    pub added_by: Option<DidCoreId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -127,7 +127,7 @@ pub struct TakedownAppealDecisionRequestBody {
     pub decision: TakedownAppealDecision,
     pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decided_by: Option<String>,
+    pub decided_by: Option<DidCoreId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence_digest: Option<String>,
 }
@@ -145,7 +145,7 @@ pub struct TakedownAppealDecisionOutcome {
 pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,
     pub resource_id: String,
-    pub principal_server_id: String,
+    pub principal_server_id: DidCoreId,
     pub discoverability: Discoverability,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,
@@ -159,7 +159,7 @@ pub struct DirectoryAdminResourceUpsertRequestBody {
     #[serde(default)]
     pub divergent: bool,
     #[serde(default)]
-    pub via_services: Vec<String>,
+    pub via_services: Vec<DidCoreId>,
     pub public_projection: DirectoryPublicProjection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discovery_state: Option<DirectoryDiscoveryState>,
@@ -192,11 +192,11 @@ pub struct ResourceList {
     pub items: Vec<ResourceItem>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResourceItem {
     pub resource_kind: String,
     pub resource_id: String,
-    pub principal_server_id: String,
+    pub principal_server_id: DidCoreId,
     pub discovery_state: DirectoryDiscoveryState,
     pub public_projection: DirectoryPublicProjection,
     pub discoverability: String,
@@ -208,11 +208,11 @@ pub struct ResourceItem {
     pub next_revalidation_after: String,
     pub stale: bool,
     pub divergent: bool,
-    pub via_services: Vec<String>,
+    pub via_services: Vec<DidCoreId>,
     pub last_announce_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResourceMutationEnvelope {
     pub item: ResourceItem,
 }
@@ -227,15 +227,15 @@ pub struct AllowlistEnvelope {
     pub items: Vec<AllowlistItem>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AllowlistItem {
-    pub resource_did: String,
-    pub added_by: String,
+    pub resource_did: Did,
+    pub added_by: DidCoreId,
     pub added_at: String,
     pub note: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AllowlistMutationEnvelope {
     pub item: AllowlistItem,
 }

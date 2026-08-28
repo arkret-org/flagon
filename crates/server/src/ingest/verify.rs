@@ -51,7 +51,7 @@ pub struct VerifyOutcome {
     pub discoverability: super::DiscoverabilityDb,
     /// Stable service core ids explicitly supplied by the verified state, or
     /// `principal_server_id` itself as a fallback.
-    pub via_services: Vec<String>,
+    pub via_services: Vec<DidCoreId>,
     /// Effective `policy_revision` from the verified discovery state.
     pub policy_revision: String,
 }
@@ -1188,21 +1188,20 @@ fn read_discoverability(
 fn derive_via_services(
     discovery_state: &JsonValue,
     principal_server_id: &DidCoreId,
-) -> Vec<String> {
+) -> Vec<DidCoreId> {
     if let Some(arr) = discovery_state
         .get("via_services")
         .and_then(JsonValue::as_array)
     {
         let mut services = Vec::new();
         for value in arr.iter().filter_map(JsonValue::as_str) {
-            let service_id = value.trim();
-            if service_id.is_empty()
-                || DidCoreId::new(service_id.to_owned()).is_err()
-                || services.iter().any(|existing| existing == service_id)
-            {
+            let Ok(service_id) = DidCoreId::new(value.trim().to_owned()) else {
+                continue;
+            };
+            if services.contains(&service_id) {
                 continue;
             }
-            services.push(service_id.to_owned());
+            services.push(service_id);
             if services.len() == MAX_VIA_SERVICES {
                 break;
             }
@@ -1214,7 +1213,7 @@ fn derive_via_services(
     // The announce already carries the Principal Server as a stable service
     // core id, so the fallback is the value itself — no projection, and
     // certainly no reconstruction of a resolvable DID.
-    vec![principal_server_id.as_str().to_owned()]
+    vec![principal_server_id.clone()]
 }
 
 /// Map a peer Principal Server's stable service core id to the resolvable
@@ -1314,8 +1313,8 @@ mod tests {
         let derived = derive_via_services(&discovery_state, &fallback_service_id());
 
         assert_eq!(derived.len(), MAX_VIA_SERVICES);
-        assert_eq!(derived[0], "ak:did_core:web:primary.example");
-        assert!(!derived.iter().any(|id| id == "not-a-service-id"));
+        assert_eq!(derived[0].as_str(), "ak:did_core:web:primary.example");
+        assert!(!derived.iter().any(|id| id.as_str() == "not-a-service-id"));
         assert_eq!(
             derived
                 .iter()
@@ -1337,7 +1336,7 @@ mod tests {
 
         assert_eq!(
             derive_via_services(&discovery_state, &fallback_service_id()),
-            vec!["ak:did_core:web:fallback.example".to_owned()]
+            vec![fallback_service_id()]
         );
     }
 

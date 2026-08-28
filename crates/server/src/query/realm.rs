@@ -203,7 +203,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
                 apply_verified_organizations(&state, &realm_id, preview).await;
             }
             res.render(Json(DirectoryRealmSearchOutcome {
-                realm_previews: results,
+                realms: results,
                 next_cursor,
                 has_more,
             }));
@@ -310,7 +310,7 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         Ok(Some((realm_preview, join_candidates))) => {
             res.render(Json(DirectoryRealmResolutionOutcome {
                 realm_preview,
-                stripped_state: Vec::new(),
+                stripped_state_entries: Vec::new(),
                 join_rule: None,
                 join_candidates,
             }));
@@ -435,7 +435,7 @@ struct RealmStoredRow {
     policy_revision: String,
     stale: bool,
     divergent: bool,
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
     indexed_at: DateTime<Utc>,
     // `ak.realm.destroy` terminal state.
     realm_destroyed_at: Option<DateTime<Utc>>,
@@ -453,7 +453,7 @@ struct RealmRow {
     policy_revision: String,
     stale: bool,
     divergent: bool,
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
     indexed_at: DateTime<Utc>,
     score: f64,
     realm_destroyed_at: Option<DateTime<Utc>>,
@@ -479,7 +479,7 @@ struct RealmSqlRow {
     #[diesel(sql_type = Bool)]
     divergent: bool,
     #[diesel(sql_type = Array<Text>)]
-    via_services: Vec<String>,
+    via_services: Vec<DidCoreId>,
     #[diesel(sql_type = Timestamptz)]
     indexed_at: DateTime<Utc>,
     #[diesel(sql_type = Double)]
@@ -666,13 +666,13 @@ pub(crate) fn realm_preview_from_envelope(
         "realm_id".to_owned(),
         JsonValue::String(realm_id.to_owned()),
     );
-    // TBY-ORG-02 — `owning_organizations` / `organization_principal_id` carried by the
+    // TBY-ORG-02 — `owning_organization_ids` / `organization_principal_id` carried by the
     // public projection are DECLARED hints only. They MUST NOT auto-populate the
     // verified-relationship surface of the preview; the official badge / verified
     // organization set is re-derived from the `verified_realm_organizations`
     // index by `apply_verified_organizations`. Drop the declared values here so a
     // realm with only declared hints surfaces an EMPTY verified set (no badge).
-    object.remove("owning_organizations");
+    object.remove("owning_organization_ids");
     object.remove("organization_principal_id");
     serde_json::from_value(value).map_err(|e| format!("realm preview is not SDK-compatible: {e}"))
 }
@@ -684,15 +684,15 @@ fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
 }
 
 /// TBY-ORG-02 — overwrite a Realm preview's verified-relationship surface
-/// (`owning_organizations` + the single `organization_principal_id` convenience field)
+/// (`owning_organization_ids` + the single `organization_principal_id` convenience field)
 /// from the `verified_realm_organizations` index. Only `active`,
 /// in-validity-window, non-stale relationships whose verified `control_scopes`
 /// cover `official_badge` are surfaced as owning organizations, so a Realm that
-/// carries only a declared `owning_organizations` / `organization_principal_id` hint (or
+/// carries only a declared `owning_organization_ids` / `organization_principal_id` hint (or
 /// a relationship that lacks the `official_badge` scope) shows NO official
 /// verified organization. `owner` and `governance` relationships are the
 /// ownership / governance surface; `sponsor` and `directory_certifier` are not
-/// owners and never populate `owning_organizations`.
+/// owners and never populate `owning_organization_ids`.
 async fn apply_verified_organizations(
     state: &AppState,
     realm_id: &str,
@@ -710,7 +710,7 @@ async fn apply_verified_organizations(
         Err(error) => {
             // Fail closed: an index read error must not fabricate a badge.
             tracing::warn!(%realm_id, %error, "failed to load verified realm organizations");
-            preview.owning_organizations.clear();
+            preview.owning_organization_ids.clear();
             preview.organization_principal_id = None;
             return;
         }
@@ -740,7 +740,7 @@ async fn apply_verified_organizations(
     } else {
         None
     };
-    preview.owning_organizations = owning;
+    preview.owning_organization_ids = owning;
 }
 
 fn join_candidates_for_row(_row: &RealmRow) -> Vec<RealmJoinCandidate> {
@@ -880,10 +880,10 @@ WITH ranked AS (
       -- TBY-ORG-02 — `organization_principal_id` here is the DECLARED announce hint, so
       -- this is a declared-hint filter (a cheap pre-filter / discovery aid). It
       -- is NOT a verified-relationship filter: each returned preview's
-      -- `owning_organizations` is re-derived from the verified
+      -- `owning_organization_ids` is re-derived from the verified
       -- `ak.realm.organization` index by `apply_verified_organizations`, so the
       -- client distinguishes "claims this org" (matched here) from "verified
-      -- official relationship" (present in the preview's owning_organizations).
+      -- official relationship" (present in the preview's owning_organization_ids).
       AND (
           $2::text IS NULL
           OR public_projection->>'organization_principal_id' = $2

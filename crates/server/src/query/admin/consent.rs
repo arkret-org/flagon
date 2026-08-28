@@ -1,5 +1,6 @@
 //! `consent_revoke{scope=any}` invalidation endpoint.
 
+use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
@@ -28,8 +29,8 @@ use crate::state::AppState;
 /// announce handler uses.
 #[derive(Debug, Deserialize)]
 struct DirectoryAdminConsentRevokeRequestBody {
-    /// Affected actor DID. Required.
-    actor_id: String,
+    /// Stable Arkret core id of the affected actor. Required.
+    actor_id: DidCoreId,
     /// Subject scope — MUST be `"any"` per spec; other values are
     /// rejected so soland and the directory can't drift on enum.
     #[serde(default)]
@@ -68,10 +69,6 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
             return;
         }
     };
-    if body.actor_id.trim().is_empty() {
-        ApiErrorCode::ParamMissing.render(res, "actor_id is required");
-        return;
-    }
     let scope = body.scope.as_deref().unwrap_or("any").trim().to_owned();
     if !scope.eq_ignore_ascii_case("any") {
         ApiErrorCode::ParamInvalid.render(
@@ -100,7 +97,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         &credential,
         AuditEventKind::ConsentRevokeInvalidation,
         None,
-        Some(&body.actor_id),
+        Some(body.actor_id.as_str()),
         Some(state.config().service_id.as_str()),
         json!({
             "actor_id": body.actor_id,

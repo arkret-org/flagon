@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
 pub use teabay_contracts::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
-    DashboardStats, DeleteCount, DirectoryAdminAllowlistUpsertRequestBody,
+    DashboardStats, DeleteCount, Did, DidCoreId, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
     DirectoryResourceKind, Discoverability, OperatorTakedownOutcome, OperatorTakedownRequestBody,
     ResourceItem, ResourceList, ResourceMutationEnvelope, TakedownAppealDecision,
@@ -119,7 +119,7 @@ impl ResourceEditorForm {
         Self {
             resource_kind: item.resource_kind.clone(),
             resource_id: item.resource_id.clone(),
-            principal_server_id: item.principal_server_id.clone(),
+            principal_server_id: item.principal_server_id.to_string(),
             discoverability: item.discoverability.clone(),
             as_of: item.as_of.clone(),
             source_refs: pretty_string_array(&item.source_refs),
@@ -127,7 +127,13 @@ impl ResourceEditorForm {
             effective_ttl_seconds: item.effective_ttl_seconds.to_string(),
             stale: item.stale,
             divergent: item.divergent,
-            via_services: pretty_string_array(&item.via_services),
+            via_services: pretty_string_array(
+                &item
+                    .via_services
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>(),
+            ),
             public_projection: pretty_json(item.public_projection.as_value()),
             discovery_state: pretty_json(item.discovery_state.as_value()),
             last_announce_id: item.last_announce_id.clone().unwrap_or_default(),
@@ -140,10 +146,8 @@ impl ResourceEditorForm {
             return Err("resource_id is required".to_string());
         }
 
-        let principal_server_id = self.principal_server_id.trim().to_string();
-        if principal_server_id.is_empty() {
-            return Err("principal_server_id is required".to_string());
-        }
+        let principal_server_id = DidCoreId::new(self.principal_server_id.trim())
+            .map_err(|_| "principal_server_id must be a stable Arkret core id".to_string())?;
 
         if self.resource_kind.parse::<DirectoryResourceKind>().is_err() {
             return Err("resource_kind is invalid".to_string());
@@ -175,7 +179,14 @@ impl ResourceEditorForm {
             )?,
             stale: self.stale,
             divergent: self.divergent,
-            via_services: parse_string_array(&self.via_services, "via_services")?,
+            via_services: parse_string_array(&self.via_services, "via_services")?
+                .into_iter()
+                .map(|value| {
+                    DidCoreId::new(value).map_err(|_| {
+                        "via_services entries must be stable Arkret core ids".to_string()
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
             public_projection: DirectoryPublicProjection::from_json_object(
                 parse_json_object(&self.public_projection, "public_projection")?,
                 "public_projection",

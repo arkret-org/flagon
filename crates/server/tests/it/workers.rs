@@ -228,7 +228,7 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
                  quorum, status, expires_at) \
              VALUES (\
                  'pt-test', 'realm'::resource_kind, 'ak.realm:dlq', 'spam', \
-                 'did:web:operator.test', 1, 'pending', now() + interval '1 day')",
+                 'ak:did_core:web:operator.test', 1, 'pending', now() + interval '1 day')",
         )
         .execute(&mut conn)
         .await?;

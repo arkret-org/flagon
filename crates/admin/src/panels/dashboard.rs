@@ -209,7 +209,7 @@ pub fn DiagnosticsPanel(base_url: String) -> Element {
             let body = JsonValue::Object(body);
             match post_directory::<JsonValue, JsonValue>(
                 base_url,
-                "list-handles-for-subject_id",
+                "list-handles-for-subject",
                 &body,
             )
             .await

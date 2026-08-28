@@ -159,7 +159,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   source service key has been revoked) the cached body is served with
   `historical_only=true` and no new side effects are triggered. New audit
   kind `ingest_historical_only` records the replay-after-revocation path.
-  `ingest_announces` grew matching columns (`source_service_id`,
+  `ingest_announces` grew matching columns (`source_id`,
   `verification_method`, `service_binding_ref`, `origin_key_state_digest`,
   `historical_only`) so the audit trail captures the full cache key.
 - **T17 — `consent_revoke{scope=any}` directory reachability

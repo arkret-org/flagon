@@ -980,9 +980,9 @@ fn trim_realm_preview_for_policy(
     if !preview_policy_field_allowed(policy, "avatar_blob_ref") {
         preview.avatar_blob_ref = None;
     }
-    if !preview_policy_field_allowed(policy, "owning_organizations") {
+    if !preview_policy_field_allowed(policy, "owning_organization_ids") {
         preview.organization_principal_id = None;
-        preview.owning_organizations.clear();
+        preview.owning_organization_ids.clear();
     }
     if !preview_policy_field_allowed(policy, "join_rule") {
         preview.join_rule = None;
@@ -1491,7 +1491,7 @@ mod tests {
                 "rev-7".to_owned(),
                 false,
                 false,
-                vec!["ak:did_core:web:hps.example".to_owned()],
+                vec![arkret_sdk::DidCoreId::new("ak:did_core:web:hps.example".to_owned()).unwrap()],
             ),
             join_candidates: Vec::new(),
         };

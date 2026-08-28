@@ -4,7 +4,7 @@
 //! wrapper that handlers populate from the `directory_resources` row plus
 //! the per-query freshness check.
 
-use arkret_sdk::RealmJoinCandidate;
+use arkret_sdk::{DidCoreId, RealmJoinCandidate};
 use chrono::{DateTime, Utc};
 use serde::ser::{Error as _, SerializeMap};
 use serde::{Serialize, Serializer};
@@ -49,7 +49,7 @@ impl ResultEnvelope {
         policy_revision: String,
         stale: bool,
         divergent: bool,
-        _via_services: Vec<String>,
+        _via_services: Vec<DidCoreId>,
     ) -> Self {
         Self {
             payload: DirectoryPublicProjection::from_json(payload),

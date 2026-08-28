@@ -94,14 +94,14 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             return;
         }
     };
-    let _query_timer = state.metrics().query_timer("list-handles-for-subject_id");
+    let _query_timer = state.metrics().query_timer("list-handles-for-subject");
 
     let body: DirectoryListHandlesForSubjectRequestBody = match req.parse_json().await {
         Ok(b) => b,
         Err(e) => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject_id", "json_invalid");
+                .record_query_outcome("list-handles-for-subject", "json_invalid");
             ApiErrorCode::JsonInvalid.render(res, format!("malformed body: {e}"));
             return;
         }
@@ -118,7 +118,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     if let Err(err) = validate_handle_claim_subject(&body.subject_id) {
         state
             .metrics()
-            .record_query_outcome("list-handles-for-subject_id", "invalid_subject_kind");
+            .record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
         state.metrics().record_filter_drop("invalid_subject_kind");
         ApiErrorCode::FailedPrecondition.render(
             res,
@@ -131,7 +131,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     if !enforce_resolve_rate_limit(req, res, &state, body.subject_id.as_str()) {
         state
             .metrics()
-            .record_query_outcome("list-handles-for-subject_id", "rate_limited");
+            .record_query_outcome("list-handles-for-subject", "rate_limited");
         return;
     }
 
@@ -217,7 +217,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         |target| {
             state
                 .metrics()
-                .record_anti_enum_pad("list-handles-for-subject_id", target)
+                .record_anti_enum_pad("list-handles-for-subject", target)
         },
         async { build_response(&state, &body, cursor_offset, limit, &metrics).await },
     )
@@ -239,7 +239,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
                     Err(error) => {
                         state
                             .metrics()
-                            .record_query_outcome("list-handles-for-subject_id", "internal_error");
+                            .record_query_outcome("list-handles-for-subject", "internal_error");
                         ApiErrorCode::InternalError.render(res, format!("handle cursor: {error}"));
                         return;
                     }
@@ -247,7 +247,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
             }
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject_id", "ok");
+                .record_query_outcome("list-handles-for-subject", "ok");
             res.render(Json(response));
         }
         // A reverse lookup that finds nothing visible returns an EMPTY claim
@@ -258,13 +258,13 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         ListOutcome::FailClosed => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject_id", "fail_closed");
+                .record_query_outcome("list-handles-for-subject", "fail_closed");
             ApiErrorCode::NotFound.render(res, "not found");
         }
         ListOutcome::Error => {
             state
                 .metrics()
-                .record_query_outcome("list-handles-for-subject_id", "internal_error");
+                .record_query_outcome("list-handles-for-subject", "internal_error");
             ApiErrorCode::InternalError.render(res, "list_handles_for_subject failed");
         }
     }
@@ -913,7 +913,7 @@ mod tests {
     #[test]
     fn claim_from_projection_drops_missing_created_at() {
         // `created_at` is required by `handle-claim.schema.json` and by the
-        // `claims[]` items of `list-handles-for-subject_id-response.schema.json`.
+        // `claims[]` items of `list-handles-for-subject-response.schema.json`.
         // A projection without a canonical `created_at` cannot produce a
         // compliant claim, so the row is dropped (fail-closed).
         let row = handle_row(

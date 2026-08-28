@@ -249,10 +249,8 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     let authenticated_actor = credential.authenticated_actor();
     let decided_by = body
         .decided_by
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(&authenticated_actor);
+        .as_ref()
+        .unwrap_or(&state.config().service_id);
     let reason = body.reason.trim();
     let decision_receipt = match takedown_appeal_decision_receipt(
         state.config(),
@@ -295,14 +293,14 @@ pub async fn decide_takedown_appeal(req: &mut Request, depot: &mut Depot, res: &
     let identity = ActorIdentity {
         authentication_method: Some(credential.authentication_method()),
         authenticated_actor: Some(&authenticated_actor),
-        asserted_operator: Some(decided_by),
+        asserted_operator: Some(decided_by.as_str()),
     };
     let _ = audit::record_with_identity(
         state.db(),
         AuditEventKind::TakedownAppealDecided,
         Some(appeal.resource_kind),
         Some(&appeal.resource_id),
-        Some(decided_by),
+        Some(decided_by.as_str()),
         json!({
             "appeal_id": &appeal.appeal_id,
             "takedown_id": &appeal.takedown_id,
@@ -339,7 +337,7 @@ fn validate_appeal_body(
             "resource_id is required".to_owned(),
         ));
     }
-    // `appellant_actor_id` (Did), `argument_digest` (Hash), and `requested_outcome`
+    // `appellant_actor_id` (DidCoreId), `argument_digest` (Hash), and `requested_outcome`
     // (closed enum) are validated structurally by the SDK types during
     // deserialization, so no further string checks are needed here.
     Ok(())
@@ -439,7 +437,7 @@ async fn persist_appeal_decision(
     state: &AppState,
     appeal: &AppealRow,
     body: &TakedownAppealDecisionRequestBody,
-    decided_by: &str,
+    decided_by: &arkret_sdk::DidCoreId,
     reason: &str,
     decided_at: DateTime<Utc>,
     receipt: &JsonValue,

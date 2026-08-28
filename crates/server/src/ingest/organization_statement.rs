@@ -2,7 +2,7 @@
 //! relationship statements.
 //!
 //! The directory never trusts a bare `organization_principal_id` /
-//! `owning_organizations` projection hint as an official organization
+//! `owning_organization_ids` projection hint as an official organization
 //! relationship. An official badge, organization scoping, or
 //! directory-certifier relationship is only valid once it derives from an
 //! `active`, in-validity-window, scope-covering `ak.realm.organization`

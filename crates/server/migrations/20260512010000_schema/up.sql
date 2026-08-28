@@ -197,7 +197,7 @@ CREATE TABLE takedown_appeals (
     status            TEXT              NOT NULL DEFAULT 'pending',
     accepted_at       TIMESTAMPTZ       NOT NULL DEFAULT now(),
     decided_at        TIMESTAMPTZ,
-    decided_by        TEXT,
+    decided_by     TEXT,
     decision          TEXT,
     decision_reason   TEXT,
     decision_receipt  JSONB,
@@ -218,8 +218,8 @@ CREATE TABLE webhook_subscriptions (
     subscription_id   TEXT              PRIMARY KEY,
     subscriber_principal_id    TEXT              NOT NULL,
     resource_filter   JSONB             NOT NULL,
-    webhook_uri       TEXT              NOT NULL,
-    secret            BYTEA,
+    webhook_url       TEXT              NOT NULL,
+    secret            BYTEA             NOT NULL,
     expires_at        TIMESTAMPTZ,
     created_at        TIMESTAMPTZ       NOT NULL DEFAULT now()
 );
@@ -262,7 +262,7 @@ CREATE TABLE directory_invite_revocations (
     token_payload_digest BYTEA       PRIMARY KEY,
     target_digest        TEXT        NOT NULL,
     revoked_at           TIMESTAMPTZ NOT NULL,
-    revoked_by           TEXT        NOT NULL,
+    revoked_by        TEXT        NOT NULL,
     reason               TEXT,
     expires_at           TIMESTAMPTZ
 );
@@ -274,7 +274,7 @@ CREATE INDEX directory_invite_revocations_target_idx
 
 CREATE TABLE accept_allowlist (
     resource_did      TEXT              PRIMARY KEY,
-    added_by          TEXT              NOT NULL,
+    added_by       TEXT              NOT NULL,
     added_at          TIMESTAMPTZ       NOT NULL DEFAULT now(),
     note              TEXT
 );
@@ -523,7 +523,7 @@ ALTER TABLE directory_resources
         );
 
 ALTER TABLE directory_resources
-    ADD CONSTRAINT directory_resources_principal_server_service_id_core_shape_chk
+    ADD CONSTRAINT directory_resources_principal_server_id_core_shape_chk
         CHECK (principal_server_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 -- Mirror on ingest_announces so the announce ledger and the
@@ -536,14 +536,14 @@ ALTER TABLE ingest_announces
         );
 
 ALTER TABLE ingest_announces
-    ADD CONSTRAINT ingest_announces_principal_server_service_id_core_shape_chk
+    ADD CONSTRAINT ingest_announces_principal_server_id_core_shape_chk
         CHECK (principal_server_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 COMMENT ON CONSTRAINT directory_resources_resource_id_core_shape_chk
     ON directory_resources IS
     'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 
-COMMENT ON CONSTRAINT directory_resources_principal_server_service_id_core_shape_chk
+COMMENT ON CONSTRAINT directory_resources_principal_server_id_core_shape_chk
     ON directory_resources IS
     'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 
@@ -592,7 +592,7 @@ UPDATE directory_resources
 -- Verified `ak.realm.organization` relationship index.
 --
 -- The directory MUST NOT treat a bare `organization_principal_id` /
--- `owning_organizations` projection hint as an official organization
+-- `owning_organization_ids` projection hint as an official organization
 -- relationship. An official badge, organization scoping, or
 -- directory-certifier relationship is only valid when it derives from an
 -- `active`, in-validity-window, scope-covering `ak.realm.organization`
