@@ -218,7 +218,7 @@ CREATE TABLE webhook_subscriptions (
     subscription_id   TEXT              PRIMARY KEY,
     subscriber_principal_id    TEXT              NOT NULL,
     resource_filter   JSONB             NOT NULL,
-    webhook_endpoint  TEXT              NOT NULL,
+    webhook_uri       TEXT              NOT NULL,
     secret            BYTEA,
     expires_at        TIMESTAMPTZ,
     created_at        TIMESTAMPTZ       NOT NULL DEFAULT now()

@@ -1414,7 +1414,7 @@ mod tests {
             payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).expect("digest"),
             created_at,
             proof_purpose: DirectoryGovernanceProofPurpose::GovernanceAuthorization,
-            audience: DidCoreId::new(audience).expect("directory service id"),
+            audience_id: DidCoreId::new(audience).expect("directory service id"),
             jws: "pending".to_owned(),
         }
     }

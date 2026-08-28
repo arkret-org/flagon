@@ -819,6 +819,7 @@ fn handle_resolution_from_envelope(
         .transpose()
         .map_err(|error| format!("handle projection handle_claim is invalid: {error}"))?;
     Ok(DirectoryHandleResolutionOutcome {
+        subject_id: principal_id.clone(),
         principal_id,
         handle,
         verified,

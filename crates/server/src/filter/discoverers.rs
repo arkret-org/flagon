@@ -23,9 +23,9 @@ use crate::observability::SIGNATURE_KIND_RESTRICTED_CLAIM;
 #[derive(Debug, Serialize)]
 struct RestrictedClaimPresentationPayload<'a> {
     kind: &'a str,
-    iss: &'a DidCoreId,
+    issuer_id: &'a DidCoreId,
     verification_method: &'a str,
-    audience: &'a DidCoreId,
+    audience_id: &'a DidCoreId,
     nonce: &'a str,
     claim: &'a DirectoryPresentedClaim,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,7 +168,7 @@ fn verify_presentation_envelope(
     if presentation.kind != DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND {
         return Err("unsupported restricted claim presentation kind".to_owned());
     }
-    if presentation.audience.as_str() != expected_audience {
+    if presentation.audience_id.as_str() != expected_audience {
         return Err("restricted claim presentation audience mismatch".to_owned());
     }
     if presentation.nonce != challenge {
@@ -177,7 +177,7 @@ fn verify_presentation_envelope(
     if presentation.claim.subject_id.as_str() != requester_id {
         return Err("restricted claim subject_id mismatch".to_owned());
     }
-    if presentation.claim.issuer_id != presentation.iss {
+    if presentation.claim.issuer_id != presentation.issuer_id {
         return Err("restricted claim issuer_id mismatch".to_owned());
     }
     // `verification_method` names a key on a resolvable DID; `iss` is the
@@ -189,7 +189,7 @@ fn verify_presentation_envelope(
         return Err("restricted claim verification method has no controller".to_owned());
     };
     if verification_method_controller_core_id(presentation.verification_method.as_str()).as_ref()
-        != Some(&presentation.iss)
+        != Some(&presentation.issuer_id)
     {
         return Err("restricted claim verification method issuer_id mismatch".to_owned());
     }
@@ -204,9 +204,9 @@ fn verify_presentation_envelope(
 
     let payload = RestrictedClaimPresentationPayload {
         kind: &presentation.kind,
-        iss: &presentation.iss,
+        issuer_id: &presentation.issuer_id,
         verification_method: &presentation.verification_method,
-        audience: &presentation.audience,
+        audience_id: &presentation.audience_id,
         nonce: &presentation.nonce,
         claim: &presentation.claim,
         expires_at: presentation.expires_at,
@@ -423,9 +423,9 @@ mod tests {
         let audience = DidCoreId::new(audience.to_owned()).unwrap();
         let payload = RestrictedClaimPresentationPayload {
             kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,
-            iss: &iss,
+            issuer_id: &iss,
             verification_method: &verification_method,
-            audience: &audience,
+            audience_id: &audience,
             nonce,
             claim: &claim,
             expires_at,
@@ -435,9 +435,9 @@ mod tests {
         let jws = sign_jws_ed25519(&canonical, signing_key).unwrap();
         DirectoryRestrictedClaimPresentation {
             kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND.to_owned(),
-            iss,
+            issuer_id: iss,
             verification_method,
-            audience,
+            audience_id: audience,
             nonce: nonce.to_owned(),
             claim,
             expires_at,

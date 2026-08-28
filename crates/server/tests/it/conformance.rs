@@ -612,7 +612,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
                 "resource_kinds": ["realm"],
                 "resource_ids": ["ak:realm:pushed"]
             },
-            "webhook_endpoint": "http://127.0.0.1:9/teabay-conformance-webhook",
+            "webhook_uri": "http://127.0.0.1:9/teabay-conformance-webhook",
             "secret": secret
         }))
         .send(service)

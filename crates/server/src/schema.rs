@@ -117,7 +117,7 @@ diesel::table! {
         subscription_id -> Text,
         subscriber_principal_id -> Text,
         resource_filter -> Jsonb,
-        webhook_endpoint -> Text,
+        webhook_uri -> Text,
         secret -> Nullable<Bytea>,
         expires_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,

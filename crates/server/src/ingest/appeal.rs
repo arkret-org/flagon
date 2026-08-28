@@ -511,7 +511,7 @@ mod tests {
                 payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).expect("digest"),
                 created_at: Utc::now(),
                 proof_purpose: DirectoryGovernanceProofPurpose::GovernanceAuthorization,
-                audience: DidCoreId::new("ak:did_core:web:directory.test")
+                audience_id: DidCoreId::new("ak:did_core:web:directory.test")
                     .expect("directory service id"),
                 jws: "aaa..bbb".to_owned(),
             },
