@@ -747,7 +747,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/describe",
             PathItemType::Get,
-            arkret_wire::ServiceOperationId::SERVER_READ_DESCRIBE_V1,
+            "ak.server.read.describe",
             "directory",
             "Describe Directory Service Role",
             "Expose the role-local Directory Service capability document.",
@@ -755,7 +755,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/describe",
             PathItemType::Get,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_DESCRIBE_V1,
+            "ak.find.directory.read.describe",
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
@@ -763,7 +763,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/takedown/appeal",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL_V1,
+            "ak.find.directory.command.takedown_appeal",
             "directory",
             "Submit Takedown Appeal",
             "Submit a resource-signed operator takedown appeal packet.",
@@ -771,7 +771,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-realms",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            "ak.find.directory.read.search_realms",
             "query",
             "Search Realms",
             "Return listed/public Realm directory results using the §9.1 result envelope.",
@@ -779,7 +779,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-realm",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            "ak.find.directory.read.resolve_realm",
             "query",
             "Resolve Realm",
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
@@ -792,7 +792,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // resolved object. Realm resolution delegates to resolve_realm.
             "/_arkret/find/directory/resolve-target",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_TARGET_V1,
+            "ak.find.directory.read.resolve_target",
             "query",
             "Resolve Target",
             "Resolve a client-agnostic shareable object address (Realm / Strand / Message) to a \
@@ -803,7 +803,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-organizations",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS_V1,
+            "ak.find.directory.read.search_organizations",
             "query",
             "Search Organizations",
             "Return public/listed Organization directory results.",
@@ -811,7 +811,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-organization",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
+            "ak.find.directory.read.resolve_organization",
             "query",
             "Resolve Organization",
             "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
@@ -819,7 +819,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-actors",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ACTORS_V1,
+            "ak.find.directory.read.search_actors",
             "query",
             "Search Actors",
             "Return public Actor discovery records.",
@@ -827,7 +827,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-users",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_USERS_V1,
+            "ak.find.directory.read.search_users",
             "query",
             "Search Users",
             "Realm-gated user search using indexed membership hints.",
@@ -835,7 +835,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-handle",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
+            "ak.find.directory.read.resolve_handle",
             "query",
             "Resolve Handle",
             "Resolve handle discovery resources with the Directory result envelope.",
@@ -855,7 +855,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
             "/_arkret/find/directory/list-handles-for-subject",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT_V1,
+            "ak.find.directory.read.list_handles_for_subject",
             "query",
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
@@ -865,7 +865,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/announce",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
+            "ak.find.directory.command.announce",
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed ak.{kind}.discovery state.",
@@ -873,7 +873,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/withdraw",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_WITHDRAW_V1,
+            "ak.find.directory.command.withdraw",
             "ingest",
             "Withdraw Discovery State",
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
@@ -881,7 +881,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/push/register",
             PathItemType::Post,
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER_V1,
+            "ak.find.directory.push.command.register",
             "ingest",
             "Subscribe To Directory Updates",
             "Register an HMAC-signed webhook subscription for accepted ingest updates.",

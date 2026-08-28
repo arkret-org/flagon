@@ -1259,7 +1259,7 @@ mod tests {
     const R: &str = "AY789mrKRCQEVlbVgiTgLdjVO5oCMJiUCrF-D-JlRNxI";
     const F: &str = "AT3ARBdH1FM6GjXK9ulTx-YMvQOXys39dlUzZV6KyID9";
     const F2: &str = "AZFOTfHDWaNQpQFbd0YLjIJoV68u4p8EclMLP4vbnVS4";
-    const VIA: &str = "did:web:relay.example";
+    const VIA: &str = "ak:did_core:web:relay.example";
     const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
 
     /// Mint a signed token JSON string whose embedded `target_descriptor` is
@@ -1278,7 +1278,7 @@ mod tests {
             "iss": issuer,
             "verification_method": verification_method,
             "exp": Utc::now().timestamp() + 3600,
-            "aud": "did:web:alice.example",
+            "aud": "ak:did_core:web:alice.example",
             "target_descriptor": descriptor,
         });
         let canonical = canonical::canonical_json_bytes(&payload).unwrap();
@@ -1387,7 +1387,7 @@ mod tests {
             "iss": issuer,
             "verification_method": verification_method,
             "exp": Utc::now().timestamp() - 1,
-            "aud": "did:web:alice.example",
+            "aud": "ak:did_core:web:alice.example",
             "target_descriptor": descriptor,
         });
         let canonical_payload = canonical::canonical_json_bytes(&payload).unwrap();
@@ -1415,7 +1415,7 @@ mod tests {
         descriptor.address_link_kind = AddressLinkKind::Invite;
         let token = json!({
             "exp": Utc::now().timestamp() + 3600,
-            "aud": "did:web:alice.example",
+            "aud": "ak:did_core:web:alice.example",
             "target_descriptor": descriptor,
         })
         .to_string();
@@ -1491,7 +1491,7 @@ mod tests {
                 "rev-7".to_owned(),
                 false,
                 false,
-                vec!["did:web:hps.example".to_owned()],
+                vec!["ak:did_core:web:hps.example".to_owned()],
             ),
             join_candidates: Vec::new(),
         };
@@ -1521,19 +1521,19 @@ mod tests {
 
         assert!(!object_access_allowed(
             &row,
-            Some("did:web:alice.example"),
+            Some("ak:did_core:web:alice.example"),
             &VerifiedRestrictedClaims::default(),
             false,
         ));
         assert!(!object_access_allowed(
             &row,
-            Some("did:web:bob.example"),
+            Some("ak:did_core:web:bob.example"),
             &VerifiedRestrictedClaims::default(),
             false,
         ));
         assert!(object_access_allowed(
             &row,
-            Some("did:web:bob.example"),
+            Some("ak:did_core:web:bob.example"),
             &VerifiedRestrictedClaims::default(),
             true,
         ));
@@ -1577,7 +1577,7 @@ mod tests {
         ));
         assert!(!object_access_allowed(
             &row,
-            Some("did:web:bob.example"),
+            Some("ak:did_core:web:bob.example"),
             &verified_claims,
             false,
         ));

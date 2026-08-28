@@ -66,7 +66,7 @@ fn verify_address_token(
         Err(reject) => reject,
     }
 }
-const VIA: &str = "did:web:relay.example";
+const VIA: &str = "ak:did_core:web:relay.example";
 const INVITE_SIGNING_SEED: [u8; 32] = [17u8; 32];
 const PREVIEW_SIGNING_SEED: [u8; 32] = [23u8; 32];
 
@@ -86,7 +86,7 @@ fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
         "iss": issuer,
         "verification_method": verification_method,
         "exp": Utc::now().timestamp() + 3600,
-        "aud": "did:web:alice.example",
+        "aud": "ak:did_core:web:alice.example",
         "target_descriptor": descriptor,
     });
     let canonical = canonical::canonical_json_bytes(&payload).unwrap();
@@ -266,7 +266,7 @@ async fn preview_token_matching_current_policy_digest_is_accepted() {
         &addr,
         &canonical,
         &digest,
-        json!("did:web:alice.example"),
+        json!("ak:did_core:web:alice.example"),
         (now + Duration::hours(1)).timestamp(),
         Some("nonce-1"),
     );
@@ -278,7 +278,7 @@ async fn preview_token_matching_current_policy_digest_is_accepted() {
             &canonical,
             &policy,
             &digest,
-            Some("did:web:alice.example"),
+            Some("ak:did_core:web:alice.example"),
             now,
         ),
         TokenCheck::Pass
@@ -402,7 +402,7 @@ async fn malformed_preview_token_lifecycle_fields_are_rejected() {
         &addr,
         &canonical,
         &digest,
-        json!("did:web:bob.example"),
+        json!("ak:did_core:web:bob.example"),
         (now + Duration::hours(1)).timestamp(),
         Some("nonce-1"),
     );
@@ -415,7 +415,7 @@ async fn malformed_preview_token_lifecycle_fields_are_rejected() {
                 &canonical,
                 &policy,
                 &digest,
-                Some("did:web:alice.example"),
+                Some("ak:did_core:web:alice.example"),
                 now,
             ),
             TokenCheck::Reject
@@ -432,7 +432,7 @@ async fn unsigned_invite_token_with_matching_descriptor_is_rejected() {
     descriptor.address_link_kind = AddressLinkKind::Invite;
     let token = json!({
         "exp": Utc::now().timestamp() + 3600,
-        "aud": "did:web:alice.example",
+        "aud": "ak:did_core:web:alice.example",
         "target_descriptor": descriptor,
     })
     .to_string();

@@ -106,16 +106,17 @@ fn handle_claim_ingest_rejects_service_handle_claim_type() {
     let state = json!({
         "kind": "ak.handle.discovery",
         "claim_kind": "service_handle",
-        "subject": "did:web:alice.example",
+        "subject": "ak:did_core:web:alice.example",
     });
     let err = validate_handle_claim_ingest(&state).unwrap_err();
     assert_eq!(err.0, ApiErrorCode::SchemaViolation);
     assert!(err.1.contains("claim_type_unsupported"));
 
     // Also reject retired discriminator fields outright.
-    let state = json!({ "class": "service_handle", "subject": "did:web:alice.example" });
+    let state = json!({ "class": "service_handle", "subject": "ak:did_core:web:alice.example" });
     assert!(validate_handle_claim_ingest(&state).is_err());
-    let state = json!({ "claim_type": "handle_binding", "subject": "did:web:alice.example" });
+    let state =
+        json!({ "claim_type": "handle_binding", "subject": "ak:did_core:web:alice.example" });
     assert!(validate_handle_claim_ingest(&state).is_err());
 }
 
@@ -172,7 +173,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
         },
         "search_policy": {
             "enabled_profile_refs": ["ak.profile.search.blind_index.v1"],
-            "allowed_service_ids": ["did:web:search.example"],
+            "allowed_service_ids": ["ak:did_core:web:search.example"],
             "data_classes": ["encrypted_index", "blind_tokens"],
             "index_retention_ms": 3600,
             "revocation_behavior": "drop_stale"
@@ -184,7 +185,7 @@ fn public_projection_separates_directory_preview_from_private_search() {
             "epoch_id": 7
         },
         "service_capabilities": [{
-            "service_id": "did:web:search.example",
+            "service_id": "ak:did_core:web:search.example",
             "profile": "ak.profile.search.blind_index.v1",
             "blind_tokens": ["tok"]
         }]
@@ -231,9 +232,9 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
             "member_count": 7,
             "member_count_bucket": "1-10",
             "join_rule": "invite",
-            "members": ["did:web:alice.example"],
-            "created_by": "did:web:alice.example",
-            "join_history": [{ "actor_id": "did:web:alice.example" }]
+            "members": ["ak:did_core:web:alice.example"],
+            "created_by": "ak:did_core:web:alice.example",
+            "join_history": [{ "actor_id": "ak:did_core:web:alice.example" }]
         }]
     });
 
@@ -256,7 +257,7 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
         "private circle summary",
         "short_name",
         "member_count",
-        "did:web:alice.example",
+        "ak:did_core:web:alice.example",
         "created_by",
         "join_history",
     ] {

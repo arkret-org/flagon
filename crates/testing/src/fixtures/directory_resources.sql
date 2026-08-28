@@ -19,7 +19,7 @@ INSERT INTO directory_resources (
 (
     'realm'::resource_kind,
     'ak.realm:tea',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     -- The §3 discovery event kind for the
     -- Realm security boundary is `ak.realm.discovery`.
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
@@ -27,7 +27,7 @@ INSERT INTO directory_resources (
     -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
     -- (when narrowing) `allowed_binding_sources`. `trusted_audiences` is the
     -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
-    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["ak:did_core:web:principal.test"],"allowed_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["did:web:tea-org.example"]}}'::jsonb,
+    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["ak:did_core:web:principal.test"],"allowed_binding_sources":["join_policy","invite","organization_policy"],"trusted_audiences":["ak:did_core:web:tea-org.example"]}}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-tea'],
@@ -43,7 +43,7 @@ INSERT INTO directory_resources (
 (
     'realm'::resource_kind,
     'ak.realm:tea-lab',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"listed"}'::jsonb,
     '{"name":"Tea Protocol Lab","summary":"Second public conformance realm","member_count_bucket":"11-50"}'::jsonb,
     'listed'::discoverability,
@@ -61,7 +61,7 @@ INSERT INTO directory_resources (
 (
     'realm'::resource_kind,
     'ak.realm:restricted',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"restricted"}'::jsonb,
     '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester":"ak:did_core:web:alice.example"}]}'::jsonb,
     'restricted'::discoverability,
@@ -79,7 +79,7 @@ INSERT INTO directory_resources (
 (
     'realm'::resource_kind,
     'ak.realm:secret',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
     'secret'::discoverability,
@@ -101,9 +101,9 @@ INSERT INTO directory_resources (
     -- ⇒ no badge).
     'realm'::resource_kind,
     'ak.realm:org-declared-only',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
-    '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_principal_id":"did:web:tea-org.example","owning_organizations":["did:web:tea-org.example"]}'::jsonb,
+    '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_principal_id":"ak:did_core:web:tea-org.example","owning_organizations":["ak:did_core:web:tea-org.example"]}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-org-declared'],
@@ -122,7 +122,7 @@ INSERT INTO directory_resources (
     -- official `owning_organizations` member.
     'realm'::resource_kind,
     'ak.realm:org-verified',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Verified Org Realm","summary":"Has an active ak.realm.organization owner statement"}'::jsonb,
     'public'::discoverability,
@@ -139,8 +139,8 @@ INSERT INTO directory_resources (
 ),
 (
     'organization'::resource_kind,
-    'did:web:tea-org.example',
-    'did:web:principal.test',
+    'ak:did_core:web:tea-org.example',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.organization.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Tea Org","handle":"tea-org","summary":"Organization conformance fixture"}'::jsonb,
     'public'::discoverability,
@@ -158,9 +158,9 @@ INSERT INTO directory_resources (
 (
     'actor'::resource_kind,
     'ak:did_core:web:alice.example',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.actor.discovery","discoverability":"public"}'::jsonb,
-    '{"handle":"alice:example.com","display_name":"Alice Tea","realm_ids":["ak:realm:tea"],"organization_principal_id":"did:web:tea-org.example"}'::jsonb,
+    '{"handle":"alice:example.com","display_name":"Alice Tea","realm_ids":["ak:realm:tea"],"organization_principal_id":"ak:did_core:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-actor-alice'],
@@ -176,7 +176,7 @@ INSERT INTO directory_resources (
 (
     'handle'::resource_kind,
     'alice:example.com',
-    'did:web:principal.test',
+    'ak:did_core:web:principal.test',
     '{"kind":"ak.handle.discovery","discoverability":"public"}'::jsonb,
     -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
     -- carries `member_delivery_binding.recipient_service_id` + binding_source

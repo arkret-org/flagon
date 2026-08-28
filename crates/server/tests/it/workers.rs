@@ -84,7 +84,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES (\
-                 'realm'::resource_kind, 'ak.realm:expired', 'did:web:expired.test', \
+                 'realm'::resource_kind, 'ak.realm:expired', 'ak:did_core:web:expired.test', \
                  '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '50 hours', \
                  ARRAY['evt-expired'], 'rev-expired', now() - interval '50 hours', 60, now() + interval '1 minute', \
                  true, false, ARRAY[]::text[], now() - interval '50 hours', now() - interval '48 hours')",
@@ -132,11 +132,11 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
                  effective_ttl_seconds, next_revalidation_after, stale, divergent, \
                  via_services, last_refreshed_at, expires_at) \
              VALUES \
-                 ('realm'::resource_kind, 'ak.realm:within-grace', 'did:web:fresh.test', \
+                 ('realm'::resource_kind, 'ak.realm:within-grace', 'ak:did_core:web:fresh.test', \
                   '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '2 hours', \
                   ARRAY['evt-within-grace'], 'rev-within-grace', now() - interval '2 hours', 60, now() - interval '30 minutes', \
                   false, false, ARRAY[]::text[], now() - interval '2 hours', now() - interval '30 minutes'), \
-                 ('realm'::resource_kind, 'ak.realm:past-grace', 'did:web:stale.test', \
+                 ('realm'::resource_kind, 'ak.realm:past-grace', 'ak:did_core:web:stale.test', \
                   '{}'::jsonb, '{}'::jsonb, 'public'::discoverability, now() - interval '3 hours', \
                   ARRAY['evt-past-grace'], 'rev-past-grace', now() - interval '3 hours', 60, now() - interval '2 hours', \
                   false, false, ARRAY[]::text[], now() - interval '3 hours', now() - interval '2 hours')",

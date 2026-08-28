@@ -932,7 +932,7 @@ mod tests {
             "delivery_binding_policy": {
                 "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
                 "allowed_binding_sources": ["join_policy"],
-                "trusted_audiences": ["did:web:tea-org.example"],
+                "trusted_audiences": ["ak:did_core:web:tea-org.example"],
             },
         }));
         assert_eq!(
@@ -945,7 +945,7 @@ mod tests {
         );
         assert_eq!(
             policy.trusted_audiences,
-            vec!["did:web:tea-org.example".to_string()]
+            vec!["ak:did_core:web:tea-org.example".to_string()]
         );
     }
 
@@ -962,10 +962,10 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
-            &["did:web:tea-org.example"],
+            &["ak:did_core:web:tea-org.example"],
         );
 
         let outcome = evaluate_handle_disclosure(
@@ -983,8 +983,8 @@ mod tests {
             "subject": "ak:did_core:web:alice.example",
             "verified": true,
         }));
-        let mut body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
-        body.expected_principal_id = Some("did:web:bob.example".to_owned());
+        let mut body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        body.expected_principal_id = Some("ak:did_core:web:bob.example".to_owned());
 
         let outcome =
             evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None);
@@ -1003,10 +1003,10 @@ mod tests {
                 "binding_source": "join_policy"
             }
         }));
-        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
-            &["did:web:tea-org.example"],
+            &["ak:did_core:web:tea-org.example"],
         );
 
         let outcome = evaluate_handle_disclosure(
@@ -1045,10 +1045,10 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "did:web:eve.example");
+        let body = member_add_request("ak:realm:tea", "ak:did_core:web:eve.example");
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
-            &["did:web:tea-org.example"],
+            &["ak:did_core:web:tea-org.example"],
         );
 
         let outcome = evaluate_handle_disclosure(
@@ -1071,8 +1071,8 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
-        let policy = realm_policy(&[], &["did:web:tea-org.example"]);
+        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let policy = realm_policy(&[], &["ak:did_core:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
             row,
@@ -1095,8 +1095,8 @@ mod tests {
                 "binding_source": "join_policy",
             },
         }));
-        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
-        let policy = realm_policy(&["*"], &["did:web:tea-org.example"]);
+        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let policy = realm_policy(&["*"], &["ak:did_core:web:tea-org.example"]);
 
         let outcome = evaluate_handle_disclosure(
             row,
@@ -1127,7 +1127,7 @@ mod tests {
     fn timing_consistency_smoke() {
         let policy = realm_policy(
             &["ak:did_core:web:principal.tea"],
-            &["did:web:tea-org.example"],
+            &["ak:did_core:web:tea-org.example"],
         );
         let allowed_row = dummy_row(json!({
             "subject": "ak:did_core:web:alice.example",
@@ -1149,9 +1149,9 @@ mod tests {
         let warmup = 256;
         let iters = 4096;
 
-        let found_body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
-        let unauthorized_body = member_add_request("ak:realm:tea", "did:web:eve.example");
-        let filtered_body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        let found_body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
+        let unauthorized_body = member_add_request("ak:realm:tea", "ak:did_core:web:eve.example");
+        let filtered_body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
 
         // Warm caches / branch predictor.
         for _ in 0..warmup {
@@ -1207,13 +1207,13 @@ mod tests {
 
     #[test]
     fn audience_authorization_accepts_trusted_audiences() {
-        let policy = realm_policy(&[], &["did:web:tea-org.example"]);
+        let policy = realm_policy(&[], &["ak:did_core:web:tea-org.example"]);
         assert!(policy.audience_authorized(
-            Some("did:web:tea-org.example"),
+            Some("ak:did_core:web:tea-org.example"),
             &VerifiedRestrictedClaims::default()
         ));
         assert!(!policy.audience_authorized(
-            Some("did:web:eve.example"),
+            Some("ak:did_core:web:eve.example"),
             &VerifiedRestrictedClaims::default()
         ));
     }
@@ -1243,7 +1243,7 @@ mod tests {
         }));
         assert!(policy.audience_authorized(Some(requester.as_str()), &verified_claims));
         assert!(!policy.audience_authorized(
-            Some("did:web:bob.example"),
+            Some("ak:did_core:web:bob.example"),
             &VerifiedRestrictedClaims::default()
         ));
     }
@@ -1300,7 +1300,7 @@ mod tests {
             },
         }));
         assert!(policy.audience_authorized(
-            Some("did:web:anybody.example"),
+            Some("ak:did_core:web:anybody.example"),
             &VerifiedRestrictedClaims::default()
         ));
     }
@@ -1319,10 +1319,10 @@ mod tests {
             "delivery_binding_policy": {
                 "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
                 "allowed_binding_sources": ["join_policy"],
-                "trusted_audiences": ["did:web:tea-org.example"],
+                "trusted_audiences": ["ak:did_core:web:tea-org.example"],
             },
         }));
-        let body = member_add_request("ak:realm:tea", "did:web:tea-org.example");
+        let body = member_add_request("ak:realm:tea", "ak:did_core:web:tea-org.example");
 
         let outcome = evaluate_handle_disclosure(
             row,

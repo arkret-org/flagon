@@ -105,10 +105,10 @@ mod tests {
             "member_count_bucket": "1-10",
             "join_rule": "invite",
             "history_access": "since_join",
-            "members": ["did:web:alice.example"],
-            "created_by": "did:web:alice.example",
+            "members": ["ak:did_core:web:alice.example"],
+            "created_by": "ak:did_core:web:alice.example",
             "created_at": "2026-06-19T00:00:00Z",
-            "join_history": [{ "actor_id": "did:web:alice.example" }]
+            "join_history": [{ "actor_id": "ak:did_core:web:alice.example" }]
         })
     }
 
@@ -151,7 +151,7 @@ mod tests {
         for forbidden in [
             "Security Council",
             "short_name",
-            "did:web:alice.example",
+            "ak:did_core:web:alice.example",
             "member_count",
             "created_by",
             "join_history",

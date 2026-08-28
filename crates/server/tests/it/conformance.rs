@@ -248,7 +248,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     let verified = resolve_owning_orgs(service, "ak:realm:org-verified").await;
     assert_eq!(
         verified,
-        vec!["did:web:tea-org.example".to_owned()],
+        vec!["ak:did_core:web:tea-org.example".to_owned()],
         "active owner ak.realm.organization MUST surface verified owning org"
     );
 
@@ -290,7 +290,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
                (realm_id, organization_principal_id, relationship, control_scopes, statement_id, \
                 statement_issued_at, not_before, expires_at, realm_frontier_digest, stale, \
                 verified_at, source_announce_id) \
-             VALUES ('ak.realm:org-verified', 'did:web:tea-org.example', 'owner', \
+             VALUES ('ak.realm:org-verified', 'ak:did_core:web:tea-org.example', 'owner', \
                      ARRAY['official_badge'], 'org-stmt-expired', now() - interval '2 hours', \
                      NULL, now() - interval '1 hour', NULL, false, now(), 'ak.announce:expired')",
         )
@@ -471,16 +471,19 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
         body["organizations"][0]["organization_principal_id"],
-        "did:web:tea-org.example"
+        "ak:did_core:web:tea-org.example"
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-organization")
-        .json(&json!({ "organization_principal_id": "did:web:tea-org.example" }))
+        .json(&json!({ "organization_principal_id": "ak:did_core:web:tea-org.example" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["organization_principal_id"], "did:web:tea-org.example");
+    assert_eq!(
+        body["organization_principal_id"],
+        "ak:did_core:web:tea-org.example"
+    );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-actors")
         .json(&json!({ "query": "alice", "limit": 10 }))
@@ -488,12 +491,15 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["actors"][0]["actor_id"], "did:web:alice.example");
+    assert_eq!(
+        body["actors"][0]["actor_id"],
+        "ak:did_core:web:alice.example"
+    );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-users")
         .json(&json!({
             "query": "alice",
-            "requester": "did:web:alice.example",
+            "requester": "ak:did_core:web:alice.example",
             "realm_id": "ak:realm:tea",
             "limit": 10
         }))
@@ -501,7 +507,10 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["users"][0]["actor_id"], "did:web:alice.example");
+    assert_eq!(
+        body["users"][0]["actor_id"],
+        "ak:did_core:web:alice.example"
+    );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
         .json(&json!({ "handle": "alice:example.com" }))
@@ -509,7 +518,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["did"], "did:web:alice.example");
+    assert_eq!(body["principal_id"], "ak:did_core:web:alice.example");
     assert!(body.get("as_of").is_some());
     assert!(
         body["source_refs"]
@@ -598,7 +607,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
     let secret = URL_SAFE_NO_PAD.encode([1_u8; 16]);
     let mut res = TestClient::post("http://local/_arkret/find/directory/push/register")
         .json(&json!({
-            "subscriber_principal_id": "did:web:subscriber.example",
+            "subscriber_principal_id": "ak:did_core:web:subscriber.example",
             "resource_filter": {
                 "resource_kinds": ["realm"],
                 "resource_ids": ["ak:realm:pushed"]
@@ -766,7 +775,7 @@ async fn assert_three_path_takedown_strand(
 
     // Path 3: operator takedown signs a service receipt over the full
     // takedown statement and removes the indexed row.
-    let operator_resource_id = "did:web:takedown-operator.example";
+    let operator_resource_id = "ak:did_core:web:takedown-operator.example";
     let res = TestClient::post("http://local/_teabay/admin/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
@@ -865,7 +874,7 @@ async fn withdrawal_proof(
 }
 
 async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> {
-    let managed_resource_id = "did:web:admin-managed.example";
+    let managed_resource_id = "ak:did_core:web:admin-managed.example";
 
     let res = TestClient::get("http://local/_teabay/admin/resources?limit=5")
         .send(service)
@@ -986,7 +995,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["deleted"], 1);
 
     let mut res = TestClient::delete(
-        "http://local/_teabay/admin/resources?resource_kind=organization&resource_id=did:web:admin-managed.example",
+        "http://local/_teabay/admin/resources?resource_kind=organization&resource_id=ak:did_core:web:admin-managed.example",
     )
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)

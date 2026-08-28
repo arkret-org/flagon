@@ -869,11 +869,11 @@ mod tests {
             projection_subject(
                 &json!({"subject":"ak:did_core:web:alice.example","did":"ak:did_core:web:other"})
             ),
-            None
+            Some("ak:did_core:web:alice.example")
         );
         assert_eq!(
             projection_subject(&json!({"did":"ak:did_core:web:alice.example"})),
-            Some("ak:did_core:web:alice.example")
+            None
         );
         assert_eq!(
             projection_subject(&json!({"handle":"alice:example.com"})),
