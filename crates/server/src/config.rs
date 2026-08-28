@@ -11,7 +11,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_sdk::{Did, DirectoryResourceKind, ResolutionCommitment, project_did_to_core_id};
+use arkret_sdk::{
+    Did, DidCoreId, DirectoryResourceKind, ResolutionCommitment, project_did_to_core_id,
+};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::SigningKey;
@@ -124,7 +126,7 @@ pub struct AppConfig {
     pub public_base_url: String,
     /// Stable business identity projected from [`Self::service_did`].
     /// This is never interpreted as a network locator.
-    pub service_id: String,
+    pub service_id: DidCoreId,
     /// Current resolvable service DID retained for method verification and
     /// DID-URL verification-method construction.
     pub service_did: Did,
@@ -344,11 +346,9 @@ impl AppConfig {
         let service_did_raw = required_non_empty_env("TEABAY_SERVICE_DID")?;
         let service_did = Did::new(service_did_raw.clone())
             .map_err(|error| anyhow::anyhow!("TEABAY_SERVICE_DID is not a valid DID: {error}"))?;
-        let service_id = project_did_to_core_id(&service_did)
-            .map_err(|error| {
-                anyhow::anyhow!("TEABAY_SERVICE_DID has no active method adapter: {error}")
-            })?
-            .into_string();
+        let service_id = project_did_to_core_id(&service_did).map_err(|error| {
+            anyhow::anyhow!("TEABAY_SERVICE_DID has no active method adapter: {error}")
+        })?;
         let method_history_head = required_non_empty_env("TEABAY_SERVICE_METHOD_HISTORY_HEAD")?;
         let version_id = required_non_empty_env("TEABAY_SERVICE_VERSION_ID")?;
         let service_resolution = ResolutionCommitment {

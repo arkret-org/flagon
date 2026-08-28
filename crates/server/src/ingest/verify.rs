@@ -156,7 +156,8 @@ impl<'a> VerifyContext<'a> {
                     .to_owned(),
             ));
         }
-        let listed = directory_services_lists_self(&req.discovery_state, &self.config.service_id);
+        let listed =
+            directory_services_lists_self(&req.discovery_state, self.config.service_id.as_str());
         if !listed {
             return Err((
                 ApiErrorCode::DirectoryUnauthorized,

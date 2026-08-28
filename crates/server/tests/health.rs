@@ -81,7 +81,7 @@ fn config_builds_with_minimal_state() {
     }
 
     let config = server::AppConfig::from_env().expect("config builds");
-    assert_eq!(config.service_id, "ak:did_core:web:directory.test");
+    assert_eq!(config.service_id.as_str(), "ak:did_core:web:directory.test");
     assert_eq!(config.service_did.as_str(), "did:web:directory.test");
     assert_eq!(
         config.service_resolution.method_history_head,

@@ -73,7 +73,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         &body,
         resource_kind,
         expected_controller.as_deref(),
-        &state.config().service_id,
+        state.config().service_id.as_str(),
         state.did_resolver(),
         Utc::now(),
     ) {

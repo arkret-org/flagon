@@ -90,7 +90,7 @@ pub async fn allowlist_upsert(req: &mut Request, depot: &mut Depot, res: &mut Re
         .added_by
         .as_deref()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&state.config().service_id);
+        .unwrap_or(state.config().service_id.as_str());
 
     match upsert_allowlist(&state, &body, actor).await {
         Ok(item) => {
@@ -145,7 +145,7 @@ pub async fn allowlist_delete(req: &mut Request, depot: &mut Depot, res: &mut Re
                     AuditEventKind::AllowlistRemoved,
                     None,
                     Some(resource_did),
-                    Some(&state.config().service_id),
+                    Some(state.config().service_id.as_str()),
                     json!({ "deleted": deleted }),
                 )
                 .await;

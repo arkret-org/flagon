@@ -217,7 +217,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
                 AuditEventKind::AdminResourceUpserted,
                 Some(resource_kind),
                 Some(&body.resource_id),
-                Some(&state.config().service_id),
+                Some(state.config().service_id.as_str()),
                 json!({
                     "principal_server_id": body.principal_server_id.as_str(),
                     "discoverability": discoverability.as_pg(),
@@ -276,7 +276,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
                 AuditEventKind::AdminResourceDeleted,
                 Some(resource_kind),
                 Some(resource_id),
-                Some(&state.config().service_id),
+                Some(state.config().service_id.as_str()),
                 json!({
                     "principal_server_id": detail.principal_server_id,
                     "policy_revision": detail.policy_revision,

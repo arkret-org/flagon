@@ -60,7 +60,7 @@ impl AppState {
         let did_resolver = SharedDidResolver::with_metrics(
             &config.accepted_did_methods,
             config.development_mode,
-            &config.service_id,
+            config.service_id.as_str(),
             metrics.clone(),
         )
         .map_err(|error| anyhow::anyhow!("DID resolver init failed: {error}"))?;

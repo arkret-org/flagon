@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, ClaimedProfileEntry, DidCoreId, DirectoryAcceptPolicyKind, DirectoryIngestMode,
+    AuthMetadata, ClaimedProfileEntry, DirectoryAcceptPolicyKind, DirectoryIngestMode,
     DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry, PlaintextVisibility,
     RateLimitPolicy, ServerLimits, ServiceDescribe, TransportBinding, TrustDomainId,
     VerifiedProfileEntry,
@@ -60,8 +60,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 /// deployment (e.g. `development_mode=true` paired with non-empty
 /// `verified_profiles`) fails closed.
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
-    let service_id = DidCoreId::new(cfg.service_id.clone())
-        .map_err(|err| format!("configured service core id is invalid: {err}"))?;
+    let service_id = cfg.service_id.clone();
     let trust_domain = TrustDomainId::new(cfg.trust_domain.clone())
         .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
 
@@ -311,7 +310,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use arkret_sdk::{Did, ResolutionCommitment};
+    use arkret_sdk::{Did, DidCoreId, ResolutionCommitment};
 
     use super::*;
     use crate::config::{AcceptPolicyKind, IngestModeAdvert};
@@ -321,7 +320,8 @@ mod tests {
             bind: "127.0.0.1:0".parse().unwrap(),
             metrics_bind: "127.0.0.1:9095".parse().unwrap(),
             public_base_url: "http://directory.test".to_owned(),
-            service_id: "ak:did_core:web:directory.test".to_owned(),
+            service_id: arkret_sdk::DidCoreId::new("ak:did_core:web:directory.test")
+                .expect("valid service id"),
             service_did: Did::new("did:web:directory.test").unwrap(),
             service_resolution: ResolutionCommitment {
                 did: Did::new("did:web:directory.test").unwrap(),

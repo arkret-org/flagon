@@ -101,7 +101,7 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         AuditEventKind::ConsentRevokeInvalidation,
         None,
         Some(&body.actor_id),
-        Some(&state.config().service_id),
+        Some(state.config().service_id.as_str()),
         json!({
             "actor_id": body.actor_id,
             "scope": scope,

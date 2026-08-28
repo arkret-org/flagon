@@ -142,6 +142,15 @@ fn admin_router() -> Router {
 }
 
 fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
+    debug_assert!(
+        arkret_sdk::ServiceOperationId::from_wire(
+            arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL_V1,
+        )
+        .is_some_and(|operation| operation
+            .matches_http_request("POST", "/_arkret/find/directory/takedown/appeal",)),
+        "the takedown-appeal route must stay bound to its canonical operation id",
+    );
+
     // Query face — no transport signature required (search/resolve are
     // read-only against the indexed view, and CORS / auth gating is
     // handled per-handler where applicable).
