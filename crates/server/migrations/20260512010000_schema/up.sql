@@ -546,6 +546,74 @@ CREATE TABLE IF NOT EXISTS http_signature_replays (
 CREATE INDEX IF NOT EXISTS http_signature_replays_expires_at_idx
     ON http_signature_replays (expires_at);
 
+-- Private-contact-discovery durable dark core. These tables are intentionally
+-- not connected to any HTTP route, ServiceDescribe claim, feature flag, or
+-- background worker. They retain only authenticated credential digests,
+-- canonical request/outcome bytes, and custody references; no raw connection
+-- identifiers or VOPRF private key material are stored.
+CREATE TABLE pcd_key_epochs (
+    key_epoch          BIGINT      PRIMARY KEY CHECK (key_epoch >= 0),
+    public_key         BYTEA       NOT NULL CHECK (octet_length(public_key) = 32),
+    custody_key_ref    TEXT        NOT NULL CHECK (length(custody_key_ref) BETWEEN 1 AND 512),
+    activated_at       TIMESTAMPTZ NOT NULL,
+    retired_at         TIMESTAMPTZ,
+    CHECK (retired_at IS NULL OR retired_at >= activated_at)
+);
+
+CREATE TABLE pcd_quota_windows (
+    device_credential_digest BYTEA       PRIMARY KEY
+        CHECK (octet_length(device_credential_digest) = 32),
+    window_started_at        TIMESTAMPTZ NOT NULL,
+    window_expires_at        TIMESTAMPTZ NOT NULL,
+    admitted_queries         BIGINT      NOT NULL CHECK (admitted_queries >= 0),
+    CHECK (window_expires_at > window_started_at)
+);
+
+CREATE INDEX pcd_quota_windows_expires_at_idx
+    ON pcd_quota_windows (window_expires_at);
+
+CREATE TABLE pcd_batches (
+    device_credential_digest BYTEA       NOT NULL
+        CHECK (octet_length(device_credential_digest) = 32),
+    batch_id                 TEXT        NOT NULL
+        CHECK (batch_id ~ '^ak:batch:[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
+    blind_request_digest     BYTEA       NOT NULL
+        CHECK (octet_length(blind_request_digest) = 32),
+    match_request_digest     BYTEA
+        CHECK (match_request_digest IS NULL OR octet_length(match_request_digest) = 32),
+    pinned_key_epoch         BIGINT      NOT NULL
+        REFERENCES pcd_key_epochs (key_epoch) ON DELETE RESTRICT,
+    item_count               INTEGER     NOT NULL CHECK (item_count BETWEEN 1 AND 1024),
+    admitted_at              TIMESTAMPTZ NOT NULL,
+    expires_at               TIMESTAMPTZ NOT NULL,
+    blind_outcome            BYTEA
+        CHECK (blind_outcome IS NULL OR octet_length(blind_outcome) BETWEEN 1 AND 262144),
+    match_outcome            BYTEA
+        CHECK (match_outcome IS NULL OR octet_length(match_outcome) BETWEEN 1 AND 262144),
+    blind_lease_owner        BYTEA       NOT NULL CHECK (octet_length(blind_lease_owner) = 32),
+    blind_lease_version      BIGINT      NOT NULL CHECK (blind_lease_version >= 1),
+    blind_lease_expires_at   TIMESTAMPTZ NOT NULL,
+    match_lease_owner        BYTEA       CHECK (match_lease_owner IS NULL OR octet_length(match_lease_owner) = 32),
+    match_lease_version      BIGINT      CHECK (match_lease_version IS NULL OR match_lease_version >= 1),
+    match_lease_expires_at   TIMESTAMPTZ,
+    PRIMARY KEY (device_credential_digest, batch_id),
+    CHECK (expires_at > admitted_at),
+    CHECK (blind_lease_expires_at <= expires_at),
+    CHECK (match_outcome IS NULL OR match_request_digest IS NOT NULL),
+    CHECK (match_request_digest IS NULL OR blind_outcome IS NOT NULL),
+    CHECK ((match_request_digest IS NULL) = (match_lease_owner IS NULL)),
+    CHECK ((match_request_digest IS NULL) = (match_lease_version IS NULL)),
+    CHECK ((match_request_digest IS NULL) = (match_lease_expires_at IS NULL)),
+    CHECK (match_lease_expires_at IS NULL OR match_lease_expires_at <= expires_at)
+);
+
+CREATE INDEX pcd_batches_expiry_idx ON pcd_batches (expires_at);
+CREATE INDEX pcd_batches_pinned_epoch_idx ON pcd_batches (pinned_key_epoch, expires_at);
+
+-- Any future key-epoch retirement writer MUST lock its pcd_key_epochs row
+-- FOR UPDATE in the same transaction. Blind admission locks the active row
+-- FOR SHARE through quota consumption and the FK-backed batch insert.
+
 -- Spec §3 `bucketed` member_count anti-enumeration: hysteresis / minimum
 -- residency for the publicly-emitted member-count bucket.
 --

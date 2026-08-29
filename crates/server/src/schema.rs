@@ -280,6 +280,48 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    pcd_key_epochs (key_epoch) {
+        key_epoch -> Int8,
+        public_key -> Bytea,
+        custody_key_ref -> Text,
+        activated_at -> Timestamptz,
+        retired_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    pcd_quota_windows (device_credential_digest) {
+        device_credential_digest -> Bytea,
+        window_started_at -> Timestamptz,
+        window_expires_at -> Timestamptz,
+        admitted_queries -> Int8,
+    }
+}
+
+diesel::table! {
+    pcd_batches (device_credential_digest, batch_id) {
+        device_credential_digest -> Bytea,
+        batch_id -> Text,
+        blind_request_digest -> Bytea,
+        match_request_digest -> Nullable<Bytea>,
+        pinned_key_epoch -> Int8,
+        item_count -> Int4,
+        admitted_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        blind_outcome -> Nullable<Bytea>,
+        match_outcome -> Nullable<Bytea>,
+        blind_lease_owner -> Bytea,
+        blind_lease_version -> Int8,
+        blind_lease_expires_at -> Timestamptz,
+        match_lease_owner -> Nullable<Bytea>,
+        match_lease_version -> Nullable<Int8>,
+        match_lease_expires_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::joinable!(pcd_batches -> pcd_key_epochs (pinned_key_epoch));
+
 diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
     ingest_announces,
@@ -295,4 +337,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     pending_takedown_webhooks,
     takedown_appeals,
     verified_realm_organizations,
+    pcd_key_epochs,
+    pcd_quota_windows,
+    pcd_batches,
 );
