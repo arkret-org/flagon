@@ -51,10 +51,6 @@ pub enum AuditEventKind {
     /// service key was revoked. We served the cached body with
     /// `historical_only=true` and skipped side effects.
     IngestHistoricalOnly,
-    /// Operator takedown appeal packet accepted from a resource governance key.
-    TakedownAppealSubmitted,
-    /// Operator decision over a takedown appeal, with a signed receipt.
-    TakedownAppealDecided,
 }
 
 crate::db_enum::impl_pg_enum!(AuditEventKind, crate::schema::sql_types::AuditEventKind, {
@@ -72,8 +68,6 @@ crate::db_enum::impl_pg_enum!(AuditEventKind, crate::schema::sql_types::AuditEve
     AuditEventKind::ConsentRevokeInvalidation => "consent_revoke_invalidation",
     AuditEventKind::RealmDestroyed => "realm_destroyed",
     AuditEventKind::IngestHistoricalOnly => "ingest_historical_only",
-    AuditEventKind::TakedownAppealSubmitted => "takedown_appeal_submitted",
-    AuditEventKind::TakedownAppealDecided => "takedown_appeal_decided",
 });
 
 #[derive(Debug, Insertable)]

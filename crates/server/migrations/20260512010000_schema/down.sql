@@ -87,10 +87,6 @@ DROP TABLE IF EXISTS directory_object_access;
 DROP INDEX IF EXISTS webhook_subscriptions_subscriber_idx;
 DROP TABLE IF EXISTS webhook_subscriptions;
 
-DROP INDEX IF EXISTS takedown_appeals_status_idx;
-DROP INDEX IF EXISTS takedown_appeals_takedown_idx;
-DROP TABLE IF EXISTS takedown_appeals;
-
 DROP INDEX IF EXISTS withdrawals_active_takedown_idx;
 DROP INDEX IF EXISTS withdrawals_resource_idx;
 DROP TABLE IF EXISTS withdrawals;

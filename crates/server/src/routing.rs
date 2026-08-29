@@ -128,10 +128,6 @@ fn admin_router() -> Router {
                 .delete(query::admin::resource_delete),
         )
         .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
-        .push(
-            Router::with_path("takedown/appeals/decision")
-                .post(ingest::appeal::decide_takedown_appeal),
-        )
         // B.8.6 — operator-facing export of every takedown row, for
         // legal / ops review. Bearer-auth same as the rest of admin.
         .push(Router::with_path("takedowns").get(query::admin::takedown_audit_export))
@@ -142,15 +138,6 @@ fn admin_router() -> Router {
 }
 
 fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
-    debug_assert!(
-        arkret_sdk::ServiceOperationId::from_wire(
-            arkret_sdk::ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL_V1,
-        )
-        .is_some_and(|operation| operation
-            .matches_http_request("POST", "/_arkret/find/directory/takedown/appeal",)),
-        "the takedown-appeal route must stay bound to its canonical operation id",
-    );
-
     // Query face — no transport signature required (search/resolve are
     // read-only against the indexed view, and CORS / auth gating is
     // handled per-handler where applicable).
@@ -200,7 +187,6 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .hoop(http_sig_middleware)
         .push(Router::with_path("announce").post(ingest::announce::announce))
         .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
-        .push(Router::with_path("takedown/appeal").post(ingest::appeal::submit_takedown_appeal))
         .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
 
     Router::with_path("_arkret/find/directory")
@@ -738,14 +724,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Admin-only operator takedown path for §8.7 path 3.",
         ),
         (
-            "/_teabay/admin/takedown/appeals/decision",
-            PathItemType::Post,
-            "org.arkret.teabay.admin.takedown_appeal_decision",
-            "admin",
-            "Decide Takedown Appeal",
-            "Return a signed decision receipt and clear takedown_in_force when overturned.",
-        ),
-        (
             "/_teabay/admin/takedowns",
             PathItemType::Get,
             "org.arkret.teabay.admin.takedown_audit_export",
@@ -768,14 +746,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
-        ),
-        (
-            "/_arkret/find/directory/takedown/appeal",
-            PathItemType::Post,
-            "ak.find.directory.command.takedown_appeal",
-            "directory",
-            "Submit Takedown Appeal",
-            "Submit a resource-signed operator takedown appeal packet.",
         ),
         (
             "/_arkret/find/directory/search-realms",

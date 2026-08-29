@@ -23,7 +23,7 @@ use arkret_identity::document_canonical_digest;
 use arkret_sdk::identity::DidWebvhResolver;
 use arkret_sdk::{
     DID_WEB_MAX_DOCUMENT_BYTES, Did, DidCoreId, DidWebResolver, DirectoryGovernanceProof,
-    DirectoryTakedownAppealRequestBody, DirectoryWithdrawRequestBody, canonical,
+    DirectoryWithdrawRequestBody, canonical,
 };
 use arkret_wire::{Hash, TrustDomainId, WireError};
 use chrono::{DateTime, Utc};
@@ -433,20 +433,6 @@ impl DirectoryGovernanceRequest for DirectoryWithdrawRequestBody {
     }
 }
 
-impl DirectoryGovernanceRequest for DirectoryTakedownAppealRequestBody {
-    fn governance_proof(&self) -> &DirectoryGovernanceProof {
-        &self.governance_proof
-    }
-
-    fn governance_resource_id(&self) -> &str {
-        &self.resource_id
-    }
-
-    fn governance_binding_bytes(&self) -> Result<Vec<u8>, WireError> {
-        self.proof_binding_bytes()
-    }
-}
-
 /// Verify the §8.7.1 governance proof of a write-surface request.
 ///
 /// Five semantic checks on top of the SDK binding helper:
@@ -457,8 +443,7 @@ impl DirectoryGovernanceRequest for DirectoryTakedownAppealRequestBody {
 /// 2. `audience` MUST name *this* directory's `service_id` (the value
 ///    `ak.find.directory.read.describe.v1` publishes) — the typed `DidCoreId` already rejected
 ///    every other shape at deserialization;
-/// 3. `operation_id` is stamped from the operation actually being served, so a `withdraw` signature
-///    cannot be replayed as `takedown_appeal` or vice versa;
+/// 3. `operation_id` is stamped from the operation actually being served;
 /// 4. `payload_digest` MUST be byte-identical to `SHA-256(JCS(request_without_governance_proof))`,
 ///    recomputed by the SDK helper from the typed body;
 /// 5. `created_at` MUST sit within 300 seconds of receipt time.
@@ -1483,30 +1468,7 @@ mod tests {
             .expect_err("audience MUST name the receiving directory");
     }
 
-    /// Negative 2 — cross-operation replay: the same proof leaf signed under
-    /// the `takedown_appeal` operation id MUST NOT verify as `withdraw`
-    /// (§8.7.1 `operation_id` binding).
-    #[tokio::test]
-    async fn cross_operation_replay_is_rejected() {
-        let signer = test_signer();
-        let now = Utc::now();
-        let mut body = signed_withdraw(&signer, now, DIRECTORY_SERVICE_ID);
-        let appeal_transcript = body
-            .governance_proof
-            .binding_bytes(
-                ServiceOperationId::FIND_DIRECTORY_COMMAND_TAKEDOWN_APPEAL_V1,
-                &body.resource_id,
-                &body.payload_digest().expect("payload digest"),
-            )
-            .expect("appeal binding bytes");
-        body.governance_proof.jws =
-            sign_jws_ed25519(&appeal_transcript, &signer.signing_key).expect("sign");
-        let (code, _) = verify_withdraw(&body, &signer, DIRECTORY_SERVICE_ID, now)
-            .expect_err("an appeal-operation signature MUST NOT verify as withdraw");
-        assert_eq!(code, ApiErrorCode::DirectoryGovernanceProofSignatureInvalid);
-    }
-
-    /// Negative 3 — expired proof: `created_at` outside the 300-second window
+    /// Negative 2 — expired proof: `created_at` outside the 300-second window
     /// MUST be rejected in both directions (§8.7.1 freshness).
     #[tokio::test]
     async fn stale_governance_proof_is_rejected() {

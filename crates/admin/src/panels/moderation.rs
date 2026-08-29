@@ -5,14 +5,13 @@ use serde_json::Value as JsonValue;
 
 use crate::api::{
     delete_admin, get_admin, is_review_event, nonempty_or, option_string, parse_evidence,
-    post_admin, pretty_json, push_param,
+    post_admin, push_param,
 };
 use crate::icons::{ListIcon, RefreshIcon, SaveIcon, SendIcon, TrashIcon};
 use crate::model::{
     AllowlistEnvelope, AllowlistItem, AuditChainVerificationOutcome, AuditEnvelope, AuditEvent,
     BADGE_NEUTRAL, BADGE_WARN, Did, DidCoreId, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryResourceKind, OperatorTakedownOutcome, OperatorTakedownRequestBody,
-    TakedownAppealDecision, TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
 };
 use crate::shell::{AuditTable, PanelHeader, StatusLine};
 
@@ -404,168 +403,6 @@ pub fn TakedownPanel(base_url: String, token: String) -> Element {
                                 div { "notification_status: {payload.notification_status}" }
                             },
                             None => rsx! { div { class: "muted", "No submission" } },
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-pub fn AppealDecisionPanel(base_url: String, token: String) -> Element {
-    let base_url: Rc<str> = Rc::from(base_url);
-    let token: Rc<str> = Rc::from(token);
-    let mut appeal_id = use_signal(String::new);
-    let mut decision = use_signal(|| "upheld".to_string());
-    let mut reason = use_signal(String::new);
-    let mut decided_by = use_signal(String::new);
-    let mut evidence_digest = use_signal(String::new);
-    let mut loading = use_signal(|| false);
-    let mut status = use_signal(|| "Idle".to_string());
-    let mut error = use_signal(String::new);
-    let mut response = use_signal(Option::<TakedownAppealDecisionOutcome>::default);
-
-    let appeal_id_value = appeal_id();
-    let decision_value = decision();
-    let reason_value = reason();
-    let decided_by_value = decided_by();
-    let evidence_digest_value = evidence_digest();
-    let loading_now = loading();
-    let status_text = status();
-    let error_text = error();
-    let response_detail = response().as_ref().map(|payload| {
-        (
-            payload.appeal_id.clone(),
-            payload.takedown_id.clone(),
-            payload.decision.as_str().to_string(),
-            payload.decided_at.to_string(),
-            pretty_json(payload.receipt.as_value()),
-        )
-    });
-
-    let submit = move |_| {
-        let appeal_id_text = appeal_id().trim().to_string();
-        let reason_text = reason().trim().to_string();
-        if appeal_id_text.is_empty() {
-            error.set("appeal_id is required".to_string());
-            return;
-        }
-        if reason_text.is_empty() {
-            error.set("reason is required".to_string());
-            return;
-        }
-        let decision_kind = match decision().as_str() {
-            "overturned" => TakedownAppealDecision::Overturned,
-            _ => TakedownAppealDecision::Upheld,
-        };
-        let decided_by_value = match option_string(decided_by()).map(DidCoreId::new).transpose() {
-            Ok(value) => value,
-            Err(error_message) => {
-                error.set(format!("decided_by is invalid: {error_message}"));
-                return;
-            }
-        };
-        let body = TakedownAppealDecisionRequestBody {
-            appeal_id: appeal_id_text,
-            decision: decision_kind,
-            reason: reason_text,
-            decided_by: decided_by_value,
-            evidence_digest: option_string(evidence_digest()),
-        };
-        let base_url = base_url.clone();
-        let token = token.clone();
-        loading.set(true);
-        error.set(String::new());
-        status.set("Submitting appeal decision".to_string());
-        spawn(async move {
-            match post_admin::<TakedownAppealDecisionRequestBody, TakedownAppealDecisionOutcome>(
-                base_url,
-                token,
-                "takedown/appeals/decision",
-                &body,
-            )
-            .await
-            {
-                Ok(payload) => {
-                    response.set(Some(payload));
-                    status.set("Appeal decision recorded".to_string());
-                }
-                Err(message) => {
-                    error.set(message);
-                    status.set("Appeal decision failed".to_string());
-                }
-            }
-            loading.set(false);
-        });
-    };
-
-    rsx! {
-        div { class: "panel",
-            PanelHeader {
-                title: "Appeal decision",
-                actions: rsx! {
-                    button {
-                        class: "button primary",
-                        disabled: loading_now,
-                        onclick: submit,
-                        SendIcon {}
-                        "Submit"
-                    }
-                },
-            }
-            div { class: "split",
-                div { class: "form-surface",
-                    div { class: "field",
-                        label { "Appeal id" }
-                        input {
-                            value: "{appeal_id_value}",
-                            oninput: move |event| appeal_id.set(event.value()),
-                        }
-                    }
-                    div { class: "field",
-                        label { "Decision" }
-                        select {
-                            value: "{decision_value}",
-                            onchange: move |event| decision.set(event.value()),
-                            option { value: "upheld", "upheld" }
-                            option { value: "overturned", "overturned" }
-                        }
-                    }
-                    div { class: "field",
-                        label { "Reason" }
-                        input {
-                            value: "{reason_value}",
-                            oninput: move |event| reason.set(event.value()),
-                        }
-                    }
-                    div { class: "field",
-                        label { "Decided by ID" }
-                        input {
-                            value: "{decided_by_value}",
-                            oninput: move |event| decided_by.set(event.value()),
-                        }
-                    }
-                    div { class: "field",
-                        label { "Evidence digest" }
-                        input {
-                            value: "{evidence_digest_value}",
-                            oninput: move |event| evidence_digest.set(event.value()),
-                        }
-                    }
-                }
-                div {
-                    StatusLine { status: status_text, error: error_text }
-                    div { class: "result-box mono",
-                        match response_detail {
-                            Some((appeal_id, takedown_id, decision, decided_at, receipt)) => rsx! {
-                                div { "appeal_id: {appeal_id}" }
-                                div { "takedown_id: {takedown_id}" }
-                                div { "decision: {decision}" }
-                                div { "decided_at: {decided_at}" }
-                                pre { "{receipt}" }
-                            },
-                            None => rsx! { div { class: "muted", "No decision" } },
                         }
                     }
                 }

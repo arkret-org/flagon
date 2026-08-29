@@ -52,9 +52,7 @@ CREATE TYPE audit_event_kind AS ENUM (
     'allowlist_removed',
     'admin_resource_upserted',
     'admin_resource_deleted',
-    'expiry_purged',
-    'takedown_appeal_submitted',
-    'takedown_appeal_decided'
+    'expiry_purged'
 );
 
 -- ---- Search helpers ------------------------------------------------------
@@ -180,37 +178,6 @@ CREATE INDEX withdrawals_resource_idx
 CREATE INDEX withdrawals_active_takedown_idx
     ON withdrawals (resource_kind, resource_id, effective_at DESC)
     WHERE overturned_at IS NULL;
-
-CREATE TABLE takedown_appeals (
-    appeal_id         TEXT              PRIMARY KEY,
-    takedown_id       TEXT              NOT NULL
-        REFERENCES withdrawals (withdraw_id) ON DELETE CASCADE,
-    resource_kind     resource_kind     NOT NULL,
-    resource_id       TEXT              NOT NULL,
-    appellant_actor_id     TEXT              NOT NULL,
-    requested_outcome TEXT              NOT NULL,
-    -- Spec wire carries only a sha256 digest of the appeal argument/evidence;
-    -- the directory never stores plaintext appeal content (privacy: the
-    -- directory is a deanonymized-metadata index, not an appeal-body store).
-    argument_digest   TEXT              NOT NULL,
-    appeal_packet     JSONB             NOT NULL,
-    status            TEXT              NOT NULL DEFAULT 'pending',
-    accepted_at       TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    decided_at        TIMESTAMPTZ,
-    decided_by     TEXT,
-    decision          TEXT,
-    decision_reason   TEXT,
-    decision_receipt  JSONB,
-    created_at        TIMESTAMPTZ       NOT NULL,
-    CHECK (status IN ('pending', 'upheld', 'overturned')),
-    CHECK (decision IS NULL OR decision IN ('upheld', 'overturned'))
-);
-
-CREATE INDEX takedown_appeals_takedown_idx
-    ON takedown_appeals (takedown_id, accepted_at DESC);
-
-CREATE INDEX takedown_appeals_status_idx
-    ON takedown_appeals (status, accepted_at DESC);
 
 -- ---- Webhook subscriptions ----------------------------------------------
 

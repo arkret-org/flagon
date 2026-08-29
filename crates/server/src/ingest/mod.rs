@@ -1,7 +1,6 @@
 //! Discovery ingest protocol — spec discovery-directory.md §8.
 
 pub mod announce;
-pub mod appeal;
 pub mod freshness_worker;
 pub mod operator;
 pub mod organization_statement;

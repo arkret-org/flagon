@@ -29,7 +29,7 @@
 //!
 //! | purpose | established by | consumed by |
 //! | --- | --- | --- |
-//! | [`DidBindingPurpose::DirectoryIngest`] | `ingest::verify` governance proof | repeat announce / withdraw / appeal |
+//! | [`DidBindingPurpose::DirectoryIngest`] | `ingest::verify` governance proof | repeat announce / withdraw |
 //! | [`DidBindingPurpose::DirectoryIssuer`] | mirrored from a `DirectoryIngest` acceptance | `filter::discoverers` restricted claims, `query::target` invite / preview tokens |
 //! | [`DidBindingPurpose::PrincipalServiceEndpoint`] | `ingest::verify::resolve_principal_server_endpoint` | first-ingest source-ref anchor fetch |
 //!
@@ -76,10 +76,9 @@ const MAX_BINDINGS: usize = 4096;
 ///
 /// The id is `ongoing_governance`, the profile the three registered directory
 /// ingest call sites name: `ak.find.directory.command.announce.v1`,
-/// `ak.find.directory.command.withdraw.v1` and
-/// `ak.find.directory.command.takedown_appeal.v1` each carry a `did_authority`
-/// row with `evidence_class = ongoing_governance`, and
-/// `did-freshness-profile-registry.json` lists all three in `call_sites[]`.
+/// `ak.find.directory.command.withdraw.v1` carry a `did_authority` row with
+/// `evidence_class = ongoing_governance`, and the freshness registry lists
+/// both call sites.
 /// What this path verifies is the governance signer of a service or
 /// organization — the closed `ongoing_governance` trigger scenario — not a
 /// human principal's operation, so it does not collide with the §4 exclusion

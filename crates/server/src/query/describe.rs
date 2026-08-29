@@ -27,7 +27,6 @@ use crate::state::AppState;
 pub(crate) const SUPPORTED_OPERATION_BUNDLES: &[&str] = &[
     "ak.operation_bundle.directory_service.describe.v1",
     "ak.operation_bundle.directory_service.http_core.v1",
-    "ak.operation_bundle.directory_service.takedown_appeal.v1",
 ];
 
 pub(crate) fn supports_http_operation(operation: arkret_wire::ServiceOperationId) -> bool {

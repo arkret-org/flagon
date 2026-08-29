@@ -133,49 +133,6 @@ pub struct OperatorTakedownOutcome {
     pub notification_status: String,
 }
 
-// `ak.find.directory.command.takedown_appeal.v1` wire types live in
-// `arkret-rust-sdk` (`DirectoryTakedownAppealRequestBody` /
-// `DirectoryTakedownAppealOutcome`). The directory consumes those spec types
-// directly — see `crates/server/src/ingest/appeal.rs`. The local
-// admin-side decision command types below (teabay product surface, not a spec
-// operation) remain here.
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TakedownAppealDecision {
-    Upheld,
-    Overturned,
-}
-
-impl TakedownAppealDecision {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Upheld => "upheld",
-            Self::Overturned => "overturned",
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TakedownAppealDecisionRequestBody {
-    pub appeal_id: String,
-    pub decision: TakedownAppealDecision,
-    pub reason: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decided_by: Option<DidCoreId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence_digest: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct TakedownAppealDecisionOutcome {
-    pub appeal_id: String,
-    pub takedown_id: String,
-    pub decision: TakedownAppealDecision,
-    pub decided_at: DateTime<Utc>,
-    pub receipt: DirectoryDecisionReceipt,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,

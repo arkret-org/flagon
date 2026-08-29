@@ -238,30 +238,6 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::ResourceKind;
-
-    takedown_appeals (appeal_id) {
-        appeal_id -> Text,
-        takedown_id -> Text,
-        resource_kind -> ResourceKind,
-        resource_id -> Text,
-        appellant_actor_id -> Text,
-        requested_outcome -> Text,
-        argument_digest -> Text,
-        appeal_packet -> Jsonb,
-        status -> Text,
-        accepted_at -> Timestamptz,
-        decided_at -> Nullable<Timestamptz>,
-        decided_by -> Nullable<Text>,
-        decision -> Nullable<Text>,
-        decision_reason -> Nullable<Text>,
-        decision_receipt -> Nullable<Jsonb>,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
 
     // Verified `ak.realm.organization` relationships.
     verified_realm_organizations (realm_id, organization_principal_id, relationship) {
@@ -347,7 +323,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     pending_takedowns,
     pending_takedown_approvals,
     pending_takedown_webhooks,
-    takedown_appeals,
     verified_realm_organizations,
     pcd_key_epochs,
     pcd_config_snapshots,

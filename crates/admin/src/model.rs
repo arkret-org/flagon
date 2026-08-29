@@ -5,8 +5,7 @@ pub use teabay_contracts::{
     DashboardStats, DeleteCount, Did, DidCoreId, DirectoryAdminAllowlistUpsertRequestBody,
     DirectoryAdminResourceUpsertRequestBody, DirectoryDiscoveryState, DirectoryPublicProjection,
     DirectoryResourceKind, Discoverability, OperatorTakedownOutcome, OperatorTakedownRequestBody,
-    ResourceItem, ResourceList, ResourceMutationEnvelope, TakedownAppealDecision,
-    TakedownAppealDecisionOutcome, TakedownAppealDecisionRequestBody,
+    ResourceItem, ResourceList, ResourceMutationEnvelope,
 };
 
 use crate::api::{
@@ -36,19 +35,17 @@ pub enum Tab {
     Diagnostics,
     Allowlist,
     Takedown,
-    Appeals,
     Audit,
     Review,
 }
 
 impl Tab {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::Dashboard,
         Self::Resources,
         Self::Diagnostics,
         Self::Allowlist,
         Self::Takedown,
-        Self::Appeals,
         Self::Audit,
         Self::Review,
     ];
@@ -60,7 +57,6 @@ impl Tab {
             Self::Diagnostics => "Diagnostics",
             Self::Allowlist => "Allowlist",
             Self::Takedown => "Takedown",
-            Self::Appeals => "Appeals",
             Self::Audit => "Audit",
             Self::Review => "Review",
         }
