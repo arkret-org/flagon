@@ -548,9 +548,10 @@ CREATE INDEX IF NOT EXISTS http_signature_replays_expires_at_idx
 
 -- Private-contact-discovery durable dark core. These tables are intentionally
 -- not connected to any HTTP route, ServiceDescribe claim, feature flag, or
--- background worker. They retain only authenticated credential digests,
--- canonical request/outcome bytes, and custody references; no raw connection
--- identifiers or VOPRF private key material are stored.
+-- background worker. They retain only authenticated credential/request digests,
+-- opaque exact-bucket outcome bytes, canonical config snapshots, and custody
+-- references; no raw connection identifiers or VOPRF private key material are
+-- stored.
 CREATE TABLE pcd_key_epochs (
     key_epoch          BIGINT      PRIMARY KEY CHECK (key_epoch >= 0),
     public_key         BYTEA       NOT NULL CHECK (octet_length(public_key) = 32),
@@ -559,6 +560,18 @@ CREATE TABLE pcd_key_epochs (
     retired_at         TIMESTAMPTZ,
     CHECK (retired_at IS NULL OR retired_at >= activated_at)
 );
+
+CREATE TABLE pcd_config_snapshots (
+    config_digest       BYTEA       PRIMARY KEY CHECK (octet_length(config_digest) = 32),
+    canonical_config    BYTEA       NOT NULL UNIQUE
+        CHECK (octet_length(canonical_config) BETWEEN 1 AND 65536),
+    key_epoch           BIGINT      NOT NULL
+        REFERENCES pcd_key_epochs (key_epoch) ON DELETE RESTRICT,
+    created_at          TIMESTAMPTZ NOT NULL,
+    UNIQUE (config_digest, key_epoch)
+);
+
+CREATE INDEX pcd_config_snapshots_epoch_idx ON pcd_config_snapshots (key_epoch);
 
 CREATE TABLE pcd_quota_windows (
     device_credential_digest BYTEA       PRIMARY KEY
@@ -583,6 +596,8 @@ CREATE TABLE pcd_batches (
         CHECK (match_request_digest IS NULL OR octet_length(match_request_digest) = 32),
     pinned_key_epoch         BIGINT      NOT NULL
         REFERENCES pcd_key_epochs (key_epoch) ON DELETE RESTRICT,
+    pinned_config_digest     BYTEA       NOT NULL
+        CHECK (octet_length(pinned_config_digest) = 32),
     item_count               INTEGER     NOT NULL CHECK (item_count BETWEEN 1 AND 1024),
     admitted_at              TIMESTAMPTZ NOT NULL,
     expires_at               TIMESTAMPTZ NOT NULL,
@@ -597,6 +612,8 @@ CREATE TABLE pcd_batches (
     match_lease_version      BIGINT      CHECK (match_lease_version IS NULL OR match_lease_version >= 1),
     match_lease_expires_at   TIMESTAMPTZ,
     PRIMARY KEY (device_credential_digest, batch_id),
+    FOREIGN KEY (pinned_config_digest, pinned_key_epoch)
+        REFERENCES pcd_config_snapshots (config_digest, key_epoch) ON DELETE RESTRICT,
     CHECK (expires_at > admitted_at),
     CHECK (blind_lease_expires_at <= expires_at),
     CHECK (match_outcome IS NULL OR match_request_digest IS NOT NULL),
@@ -609,6 +626,7 @@ CREATE TABLE pcd_batches (
 
 CREATE INDEX pcd_batches_expiry_idx ON pcd_batches (expires_at);
 CREATE INDEX pcd_batches_pinned_epoch_idx ON pcd_batches (pinned_key_epoch, expires_at);
+CREATE INDEX pcd_batches_pinned_config_idx ON pcd_batches (pinned_config_digest, expires_at);
 
 -- Any future key-epoch retirement writer MUST lock its pcd_key_epochs row
 -- FOR UPDATE in the same transaction. Blind admission locks the active row

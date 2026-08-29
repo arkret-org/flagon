@@ -6,10 +6,13 @@
 //! ready to expose the canonical endpoint. Outcome storage is deliberately
 //! opaque: this module checks only exact current-v1 bucket length, not typed
 //! outcome semantics, JCS, or padding contents. It must not be wired to
-//! production without the existing SDK validator and a durable snapshot of the
-//! complete config (public key, buckets, handoff mode, and related policy).
+//! production without the existing closed request/outcome SDK validators. This
+//! state machine does validate and durably pin the complete SDK config (public
+//! key, buckets, handoff mode, delay, quota, TTL, and related policy).
+//! Custody references are persisted, but this repository has no KMS activation
+//! verifier; verified custody activation remains an explicit enablement blocker.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use arkret_sdk::PrivateContactDiscovery;
@@ -17,6 +20,7 @@ use chrono::{DateTime, Duration, Utc};
 use diesel::sql_types::{BigInt, Bytea, Integer, Nullable, Text, Timestamptz};
 use diesel::{OptionalExtension, QueryableByName};
 use diesel_async::{AsyncConnection, RunQueryDsl};
+use sha2::{Digest, Sha256};
 
 use crate::Db;
 
@@ -25,29 +29,52 @@ const CURRENT_V1_RESPONSE_BUCKETS_BYTES: [u32; 4] =
     PrivateContactDiscovery::RESPONSE_SIZE_BUCKETS_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PcdLimits {
-    pub batch_item_count: u16,
-    pub max_queries_per_window: u64,
-    pub quota_window_seconds: u32,
-    pub batch_completion_ttl_seconds: u32,
+pub struct PcdOperationalLimits {
     pub evaluation_lease_seconds: u32,
 }
 
-impl PcdLimits {
-    pub fn validate(self) -> Result<Self, PcdError> {
-        if self.batch_item_count == 0 || self.batch_item_count > 1024 {
-            return Err(PcdReject::InvalidConfiguration.into());
-        }
-        if self.max_queries_per_window == 0
-            || self.max_queries_per_window > i64::MAX as u64
-            || self.quota_window_seconds == 0
-            || self.batch_completion_ttl_seconds == 0
-            || self.evaluation_lease_seconds == 0
-            || self.evaluation_lease_seconds > self.batch_completion_ttl_seconds
-        {
+impl PcdOperationalLimits {
+    fn validate(self) -> Result<Self, PcdError> {
+        if self.evaluation_lease_seconds == 0 {
             return Err(PcdReject::InvalidConfiguration.into());
         }
         Ok(self)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PcdLimits {
+    batch_item_count: u16,
+    max_queries_per_window: u64,
+    quota_window_seconds: u32,
+    batch_completion_ttl_seconds: u32,
+    evaluation_lease_seconds: u32,
+}
+
+impl PcdLimits {
+    fn from_config(
+        config: &PrivateContactDiscovery,
+        operational: PcdOperationalLimits,
+    ) -> Result<Self, PcdError> {
+        config
+            .validate()
+            .map_err(|_| PcdReject::InvalidConfiguration)?;
+        let operational = operational.validate()?;
+        if config.max_psi_queries_per_window > i64::MAX as u64 {
+            return Err(PcdReject::InvalidConfiguration.into());
+        }
+        Ok(Self {
+            batch_item_count: config.batch_item_count,
+            max_queries_per_window: config.max_psi_queries_per_window,
+            quota_window_seconds: config.quota_window_seconds,
+            batch_completion_ttl_seconds: config.batch_completion_ttl_seconds,
+            // This is operational policy rather than wire configuration.  It
+            // may change while an older batch is live, so clamp it to that
+            // batch's pinned TTL instead of rejecting the pinned snapshot.
+            evaluation_lease_seconds: operational
+                .evaluation_lease_seconds
+                .min(config.batch_completion_ttl_seconds),
+        })
     }
 }
 
@@ -111,6 +138,74 @@ impl PcdRequestDigest {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PcdConfigDigest([u8; 32]);
+
+impl PcdConfigDigest {
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+/// Immutable canonical SDK configuration pinned by each admitted batch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PcdConfigSnapshot {
+    digest: PcdConfigDigest,
+    canonical_bytes: Vec<u8>,
+    config: PrivateContactDiscovery,
+}
+
+impl PcdConfigSnapshot {
+    pub fn digest(&self) -> PcdConfigDigest {
+        self.digest
+    }
+
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub fn config(&self) -> &PrivateContactDiscovery {
+        &self.config
+    }
+
+    fn validated(config: &PrivateContactDiscovery) -> Result<Self, PcdError> {
+        config
+            .validate()
+            .map_err(|_| PcdReject::InvalidConfiguration)?;
+        let canonical_bytes = arkret_sdk::canonical::canonical_json_bytes(config)
+            .map_err(|_| PcdReject::InvalidConfiguration)?;
+        let digest = PcdConfigDigest(Sha256::digest(&canonical_bytes).into());
+        Ok(Self {
+            digest,
+            canonical_bytes,
+            config: config.clone(),
+        })
+    }
+
+    fn from_persisted(
+        digest: Vec<u8>,
+        canonical_bytes: Vec<u8>,
+        stored_key_epoch: i64,
+    ) -> Result<Self, PcdError> {
+        let digest = PcdConfigDigest(bytes32(digest)?);
+        let config: PrivateContactDiscovery =
+            arkret_sdk::canonical::from_canonical_json_slice(&canonical_bytes).map_err(storage)?;
+        config.validate().map_err(storage)?;
+        if u64::try_from(stored_key_epoch).map_err(storage)? != config.key_epoch {
+            return Err(storage("persisted PCD config epoch mismatch"));
+        }
+        let expected = PcdConfigDigest(Sha256::digest(&canonical_bytes).into());
+        if digest != expected {
+            return Err(storage("persisted PCD config digest mismatch"));
+        }
+        Ok(Self {
+            digest,
+            canonical_bytes,
+            config,
+        })
+    }
+}
+
 /// Opaque bytes whose length equals one advertised current-v1 response bucket.
 ///
 /// This type intentionally does not claim typed outcome, phase, VOPRF, JCS, or
@@ -171,16 +266,19 @@ pub struct MatchAdmissionRequest {
 pub enum PcdAdmission {
     Evaluate {
         pinned_key_epoch: u64,
+        pinned_config: PcdConfigSnapshot,
         lease_version: u64,
         lease_expires_at: DateTime<Utc>,
     },
     PendingRetry {
         pinned_key_epoch: u64,
+        pinned_config: PcdConfigSnapshot,
         lease_version: u64,
         retry_after_seconds: u64,
     },
     Cached {
         pinned_key_epoch: u64,
+        pinned_config: PcdConfigSnapshot,
         outcome: OpaqueExactBucketBytes,
     },
 }
@@ -189,6 +287,14 @@ pub enum PcdAdmission {
 pub enum OutcomeWrite {
     Recorded,
     ExactRetry,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GarbageCollectionStats {
+    pub expired_batches: u64,
+    pub expired_quota_windows: u64,
+    pub unreferenced_config_snapshots: u64,
+    pub retired_key_epochs: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -255,6 +361,7 @@ struct BatchRecord {
     blind_request_digest: PcdRequestDigest,
     match_request_digest: Option<PcdRequestDigest>,
     pinned_key_epoch: u64,
+    pinned_config_digest: PcdConfigDigest,
     item_count: u16,
     expires_at: DateTime<Utc>,
     blind_outcome: Option<OpaqueExactBucketBytes>,
@@ -270,6 +377,7 @@ struct BatchRecord {
 #[derive(Default)]
 pub struct ModelPcdStore {
     epochs: HashMap<u64, KeyEpochState>,
+    config_snapshots: HashMap<PcdConfigDigest, PcdConfigSnapshot>,
     quotas: HashMap<DeviceCredentialDigest, QuotaWindow>,
     batches: HashMap<(DeviceCredentialDigest, PcdBatchId), BatchRecord>,
 }
@@ -313,22 +421,49 @@ impl ModelPcdStore {
 
     pub fn admit_blind(
         &mut self,
-        limits: PcdLimits,
+        current_config: &PrivateContactDiscovery,
+        operational: PcdOperationalLimits,
         now: DateTime<Utc>,
         request: BlindAdmissionRequest,
     ) -> Result<PcdAdmission, PcdError> {
-        let limits = validate_limits_for_epoch(limits, request.key_epoch)?;
+        validate_key_epoch_shape(request.key_epoch)?;
         let key = (request.device_credential_digest, request.batch_id.clone());
-        if let Some(batch) = self.batches.get_mut(&key) {
-            return classify_blind_retry(limits, now, &request, batch);
+        if let Some(pinned_digest) = self
+            .batches
+            .get(&key)
+            .map(|batch| batch.pinned_config_digest)
+        {
+            let pinned_config = self
+                .config_snapshots
+                .get(&pinned_digest)
+                .cloned()
+                .ok_or_else(|| storage("model batch lost pinned config snapshot"))?;
+            let limits = PcdLimits::from_config(pinned_config.config(), operational)?;
+            let batch = self.batches.get_mut(&key).expect("checked above");
+            return classify_blind_retry(limits, now, &request, batch, pinned_config);
         }
+        let current_snapshot = PcdConfigSnapshot::validated(current_config)?;
+        let limits = PcdLimits::from_config(current_config, operational)?;
         validate_new_blind_cardinality(limits, request.item_count)?;
+        if request.key_epoch != current_config.key_epoch {
+            return Err(PcdReject::PinnedEpochMismatch.into());
+        }
         let epoch = self
             .epochs
             .get(&request.key_epoch)
             .ok_or(PcdReject::EpochUnavailable)?;
         if now < epoch.activated_at || epoch.retired_at.is_some_and(|retired| now >= retired) {
             return Err(PcdReject::EpochUnavailable.into());
+        }
+        if epoch.public_key != config_public_key(current_config)? {
+            return Err(PcdReject::EpochUnavailable.into());
+        }
+        match self.config_snapshots.get(&current_snapshot.digest) {
+            Some(existing) if existing != &current_snapshot => {
+                return Err(PcdReject::DuplicateConflict.into());
+            }
+            Some(_) => {}
+            None => {}
         }
 
         let quota = self
@@ -350,6 +485,9 @@ impl ModelPcdStore {
         }
 
         quota.admitted_queries += 1;
+        self.config_snapshots
+            .entry(current_snapshot.digest)
+            .or_insert_with(|| current_snapshot.clone());
         let batch_expires_at =
             now + Duration::seconds(i64::from(limits.batch_completion_ttl_seconds));
         let blind_lease_expires_at = lease_expiry(limits, now, batch_expires_at);
@@ -359,6 +497,7 @@ impl ModelPcdStore {
                 blind_request_digest: request.request_digest,
                 match_request_digest: None,
                 pinned_key_epoch: request.key_epoch,
+                pinned_config_digest: current_snapshot.digest,
                 item_count: request.item_count,
                 expires_at: batch_expires_at,
                 blind_outcome: None,
@@ -373,6 +512,7 @@ impl ModelPcdStore {
         );
         Ok(PcdAdmission::Evaluate {
             pinned_key_epoch: request.key_epoch,
+            pinned_config: current_snapshot,
             lease_version: 1,
             lease_expires_at: blind_lease_expires_at,
         })
@@ -401,21 +541,30 @@ impl ModelPcdStore {
 
     pub fn admit_match(
         &mut self,
-        limits: PcdLimits,
+        operational: PcdOperationalLimits,
         now: DateTime<Utc>,
         request: MatchAdmissionRequest,
     ) -> Result<PcdAdmission, PcdError> {
-        let limits = validate_limits_for_epoch(limits, request.key_epoch)?;
-        let batch = self
+        validate_key_epoch_shape(request.key_epoch)?;
+        let key = (request.device_credential_digest, request.batch_id.clone());
+        let pinned_digest = self
             .batches
-            .get_mut(&(request.device_credential_digest, request.batch_id.clone()))
+            .get(&key)
+            .map(|batch| batch.pinned_config_digest)
             .ok_or(PcdReject::BatchUnavailable)?;
+        let pinned_config = self
+            .config_snapshots
+            .get(&pinned_digest)
+            .cloned()
+            .ok_or_else(|| storage("model batch lost pinned config snapshot"))?;
+        let limits = PcdLimits::from_config(pinned_config.config(), operational)?;
+        let batch = self.batches.get_mut(&key).expect("checked above");
         validate_live_match(now, &request, batch)?;
         match batch.match_request_digest {
             Some(digest) if digest != request.request_digest => {
                 Err(PcdReject::DuplicateConflict.into())
             }
-            Some(_) => classify_match_retry(limits, now, &request, batch),
+            Some(_) => classify_match_retry(limits, now, &request, batch, pinned_config),
             None => {
                 batch.match_request_digest = Some(request.request_digest);
                 batch.match_lease_owner = Some(request.lease_owner);
@@ -423,6 +572,7 @@ impl ModelPcdStore {
                 batch.match_lease_expires_at = Some(lease_expiry(limits, now, batch.expires_at));
                 Ok(PcdAdmission::Evaluate {
                     pinned_key_epoch: batch.pinned_key_epoch,
+                    pinned_config,
                     lease_version: 1,
                     lease_expires_at: batch.match_lease_expires_at.expect("set above"),
                 })
@@ -461,6 +611,75 @@ impl ModelPcdStore {
             Some(digest) if digest == request.request_digest => Err(PcdReject::LeaseLost.into()),
             Some(_) => Err(PcdReject::DuplicateConflict.into()),
             None => Err(PcdReject::BatchUnavailable.into()),
+        }
+    }
+
+    /// Mark an epoch retired under the same immutable-identity contract as the
+    /// PostgreSQL row. Existing unexpired batches remain retryable via their
+    /// pinned snapshot; only new admissions require an active epoch.
+    pub fn retire_key_epoch(
+        &mut self,
+        key_epoch: u64,
+        retired_at: DateTime<Utc>,
+    ) -> Result<(), PcdError> {
+        let epoch = self
+            .epochs
+            .get_mut(&key_epoch)
+            .ok_or(PcdReject::EpochUnavailable)?;
+        if retired_at < epoch.activated_at {
+            return Err(PcdReject::InvalidConfiguration.into());
+        }
+        match epoch.retired_at {
+            Some(existing) if existing == retired_at => Ok(()),
+            Some(_) => Err(PcdReject::DuplicateConflict.into()),
+            None => {
+                epoch.retired_at = Some(retired_at);
+                Ok(())
+            }
+        }
+    }
+
+    /// Explicit bounded-retention primitive. `retained_config_digest` is the
+    /// caller's current validated config marker; unpinned older snapshots are
+    /// deleted even when they share an active epoch. No worker invokes this
+    /// dark API.
+    pub fn garbage_collect(
+        &mut self,
+        now: DateTime<Utc>,
+        retained_config_digest: PcdConfigDigest,
+    ) -> GarbageCollectionStats {
+        let before_batches = self.batches.len();
+        self.batches.retain(|_, batch| batch.expires_at > now);
+
+        let before_quotas = self.quotas.len();
+        self.quotas.retain(|_, quota| quota.expires_at > now);
+
+        let live_config_digests: HashSet<_> = self
+            .batches
+            .values()
+            .map(|batch| batch.pinned_config_digest)
+            .collect();
+        let before_snapshots = self.config_snapshots.len();
+        self.config_snapshots.retain(|digest, _| {
+            live_config_digests.contains(digest) || *digest == retained_config_digest
+        });
+
+        let snapshot_epochs: HashSet<_> = self
+            .config_snapshots
+            .values()
+            .map(|snapshot| snapshot.config.key_epoch)
+            .collect();
+        let before_epochs = self.epochs.len();
+        self.epochs.retain(|key_epoch, epoch| {
+            !epoch.retired_at.is_some_and(|retired| retired <= now)
+                || snapshot_epochs.contains(key_epoch)
+        });
+
+        GarbageCollectionStats {
+            expired_batches: (before_batches - self.batches.len()) as u64,
+            expired_quota_windows: (before_quotas - self.quotas.len()) as u64,
+            unreferenced_config_snapshots: (before_snapshots - self.config_snapshots.len()) as u64,
+            retired_key_epochs: (before_epochs - self.epochs.len()) as u64,
         }
     }
 }
@@ -503,7 +722,7 @@ impl PostgresPcdStore {
             return Ok(());
         }
         let existing = diesel::sql_query(
-            "SELECT public_key, custody_key_ref, activated_at FROM pcd_key_epochs \
+            "SELECT public_key, custody_key_ref, activated_at, retired_at FROM pcd_key_epochs \
              WHERE key_epoch = $1",
         )
         .bind::<BigInt, _>(key_epoch)
@@ -513,6 +732,7 @@ impl PostgresPcdStore {
         if existing.public_key == public_key
             && existing.custody_key_ref == custody_key_ref
             && existing.activated_at == activated_at
+            && existing.retired_at.is_none()
         {
             Ok(())
         } else {
@@ -520,20 +740,75 @@ impl PostgresPcdStore {
         }
     }
 
+    /// Retire an epoch while holding the exclusive counterpart of admission's
+    /// `FOR SHARE` lock. The custody reference remains durable until explicit
+    /// GC proves that no retained snapshot or batch pins this epoch.
+    pub async fn retire_key_epoch(
+        &self,
+        key_epoch: u64,
+        retired_at: DateTime<Utc>,
+    ) -> Result<(), PcdError> {
+        let key_epoch = i64::try_from(key_epoch).map_err(|_| PcdReject::EpochUnavailable)?;
+        let mut conn = self.db.get().await.map_err(storage)?;
+        conn.transaction::<_, PcdError, _>(async move |conn| {
+            let row = diesel::sql_query(
+                "SELECT activated_at, retired_at FROM pcd_key_epochs \
+                 WHERE key_epoch = $1 FOR UPDATE",
+            )
+            .bind::<BigInt, _>(key_epoch)
+            .get_result::<EpochRetirementRow>(conn)
+            .await
+            .optional()
+            .map_err(storage)?
+            .ok_or(PcdReject::EpochUnavailable)?;
+            if retired_at < row.activated_at {
+                return Err(PcdReject::InvalidConfiguration.into());
+            }
+            match row.retired_at {
+                Some(existing) if existing == retired_at => Ok(()),
+                Some(_) => Err(PcdReject::DuplicateConflict.into()),
+                None => {
+                    diesel::sql_query(
+                        "UPDATE pcd_key_epochs SET retired_at = $2 WHERE key_epoch = $1",
+                    )
+                    .bind::<BigInt, _>(key_epoch)
+                    .bind::<Timestamptz, _>(retired_at)
+                    .execute(conn)
+                    .await
+                    .map_err(storage)?;
+                    Ok(())
+                }
+            }
+        })
+        .await
+    }
+
     pub async fn admit_blind(
         &self,
-        limits: PcdLimits,
+        current_config: &PrivateContactDiscovery,
+        operational: PcdOperationalLimits,
         now: DateTime<Utc>,
         request: BlindAdmissionRequest,
     ) -> Result<PcdAdmission, PcdError> {
-        let limits = validate_limits_for_epoch(limits, request.key_epoch)?;
+        validate_key_epoch_shape(request.key_epoch)?;
+        let current_config = current_config.clone();
         let mut conn = self.db.get().await.map_err(storage)?;
         conn.transaction::<_, PcdError, _>(async move |conn| {
             lock_device(conn, request.device_credential_digest).await?;
             if let Some(batch) = load_batch(conn, &request.device_credential_digest, &request.batch_id).await? {
                 let old_version = u64::try_from(batch.blind_lease_version).map_err(storage)?;
                 let mut record = batch.into_record()?;
-                let admission = classify_blind_retry(limits, now, &request, &mut record)?;
+                let pinned_config = load_config_snapshot(conn, record.pinned_config_digest)
+                    .await?
+                    .ok_or_else(|| storage("batch lost pinned config snapshot"))?;
+                let limits = PcdLimits::from_config(pinned_config.config(), operational)?;
+                let admission = classify_blind_retry(
+                    limits,
+                    now,
+                    &request,
+                    &mut record,
+                    pinned_config,
+                )?;
                 if matches!(admission, PcdAdmission::Evaluate { .. }) {
                     let updated = diesel::sql_query(
                         "UPDATE pcd_batches SET blind_lease_owner = $3, \
@@ -556,7 +831,12 @@ impl PostgresPcdStore {
                 }
                 return Ok(admission);
             }
+            let current_snapshot = PcdConfigSnapshot::validated(&current_config)?;
+            let limits = PcdLimits::from_config(&current_config, operational)?;
             validate_new_blind_cardinality(limits, request.item_count)?;
+            if request.key_epoch != current_snapshot.config.key_epoch {
+                return Err(PcdReject::PinnedEpochMismatch.into());
+            }
             // The share lock is held through quota admission and batch insert,
             // so a future retirement writer cannot invalidate the pinned epoch
             // between validation and the FK-backed insert. Such a writer MUST
@@ -564,16 +844,37 @@ impl PostgresPcdStore {
             let epoch = diesel::sql_query(
                 "SELECT key_epoch FROM pcd_key_epochs \
                  WHERE key_epoch = $1 AND activated_at <= $2 \
-                   AND (retired_at IS NULL OR retired_at > $2) FOR SHARE",
+                   AND (retired_at IS NULL OR retired_at > $2) \
+                   AND public_key = $3 FOR SHARE",
             )
             .bind::<BigInt, _>(i64::try_from(request.key_epoch).map_err(storage)?)
             .bind::<Timestamptz, _>(now)
+            .bind::<Bytea, _>(config_public_key(&current_snapshot.config)?)
             .get_result::<EpochLockRow>(conn)
             .await
             .optional()
             .map_err(storage)?;
             if epoch.is_none() {
                 return Err(PcdReject::EpochUnavailable.into());
+            }
+
+            diesel::sql_query(
+                "INSERT INTO pcd_config_snapshots \
+                 (config_digest, canonical_config, key_epoch, created_at) \
+                 VALUES ($1, $2, $3, $4) ON CONFLICT (config_digest) DO NOTHING",
+            )
+            .bind::<Bytea, _>(current_snapshot.digest.as_bytes())
+            .bind::<Bytea, _>(&current_snapshot.canonical_bytes)
+            .bind::<BigInt, _>(i64::try_from(current_snapshot.config.key_epoch).map_err(storage)?)
+            .bind::<Timestamptz, _>(now)
+            .execute(conn)
+            .await
+            .map_err(storage)?;
+            let persisted_snapshot = load_config_snapshot(conn, current_snapshot.digest)
+                .await?
+                .ok_or_else(|| storage("inserted PCD config snapshot disappeared"))?;
+            if persisted_snapshot != current_snapshot {
+                return Err(PcdReject::DuplicateConflict.into());
             }
 
             let quota = load_quota(conn, &request.device_credential_digest).await?;
@@ -619,14 +920,16 @@ impl PostgresPcdStore {
             diesel::sql_query(
                 "INSERT INTO pcd_batches \
                  (device_credential_digest, batch_id, blind_request_digest, pinned_key_epoch, \
+                  pinned_config_digest, \
                   item_count, admitted_at, expires_at, blind_lease_owner, \
                   blind_lease_version, blind_lease_expires_at) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)",
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)",
             )
             .bind::<Bytea, _>(request.device_credential_digest.as_bytes())
             .bind::<Text, _>(request.batch_id.as_str())
             .bind::<Bytea, _>(request.request_digest.as_bytes())
             .bind::<BigInt, _>(key_epoch)
+            .bind::<Bytea, _>(current_snapshot.digest.as_bytes())
             .bind::<Integer, _>(i32::from(request.item_count))
             .bind::<Timestamptz, _>(now)
             .bind::<Timestamptz, _>(batch_expires_at)
@@ -638,6 +941,7 @@ impl PostgresPcdStore {
 
             Ok(PcdAdmission::Evaluate {
                 pinned_key_epoch: request.key_epoch,
+                pinned_config: current_snapshot,
                 lease_version: 1,
                 lease_expires_at: blind_lease_expires_at,
             })
@@ -668,11 +972,11 @@ impl PostgresPcdStore {
 
     pub async fn admit_match(
         &self,
-        limits: PcdLimits,
+        operational: PcdOperationalLimits,
         now: DateTime<Utc>,
         request: MatchAdmissionRequest,
     ) -> Result<PcdAdmission, PcdError> {
-        let limits = validate_limits_for_epoch(limits, request.key_epoch)?;
+        validate_key_epoch_shape(request.key_epoch)?;
         let mut conn = self.db.get().await.map_err(storage)?;
         conn.transaction::<_, PcdError, _>(async move |conn| {
             lock_device(conn, request.device_credential_digest).await?;
@@ -680,6 +984,10 @@ impl PostgresPcdStore {
                 .await?
                 .ok_or(PcdReject::BatchUnavailable)?;
             let batch = row.clone().into_record()?;
+            let pinned_config = load_config_snapshot(conn, batch.pinned_config_digest)
+                .await?
+                .ok_or_else(|| storage("batch lost pinned config snapshot"))?;
+            let limits = PcdLimits::from_config(pinned_config.config(), operational)?;
             validate_live_match(now, &request, &batch)?;
             match batch.match_request_digest {
                 Some(digest) if digest != request.request_digest => {
@@ -690,7 +998,8 @@ impl PostgresPcdStore {
                         .match_lease_version
                         .ok_or(PcdReject::BatchUnavailable)?;
                     let mut mutable = batch;
-                    let admission = classify_match_retry(limits, now, &request, &mut mutable)?;
+                    let admission =
+                        classify_match_retry(limits, now, &request, &mut mutable, pinned_config)?;
                     if matches!(admission, PcdAdmission::Evaluate { .. }) {
                         let updated = diesel::sql_query(
                             "UPDATE pcd_batches SET match_lease_owner = $3, \
@@ -740,6 +1049,7 @@ impl PostgresPcdStore {
                     }
                     Ok(PcdAdmission::Evaluate {
                         pinned_key_epoch: batch.pinned_key_epoch,
+                        pinned_config,
                         lease_version: 1,
                         lease_expires_at: match_lease_expires_at,
                     })
@@ -767,6 +1077,61 @@ impl PostgresPcdStore {
             outcome,
             Phase::Match,
         )
+        .await
+    }
+
+    /// Explicit bounded-retention transaction. `retained_config_digest` is the
+    /// caller's current validated config marker, and `now` must come from its
+    /// trusted database-time policy. This method is intentionally not connected
+    /// to a scheduler or worker while the PCD product surface is dark.
+    pub async fn garbage_collect(
+        &self,
+        now: DateTime<Utc>,
+        retained_config_digest: PcdConfigDigest,
+    ) -> Result<GarbageCollectionStats, PcdError> {
+        let mut conn = self.db.get().await.map_err(storage)?;
+        conn.transaction::<_, PcdError, _>(async move |conn| {
+            let expired_batches =
+                diesel::sql_query("DELETE FROM pcd_batches WHERE expires_at <= $1")
+                    .bind::<Timestamptz, _>(now)
+                    .execute(conn)
+                    .await
+                    .map_err(storage)?;
+            let expired_quota_windows =
+                diesel::sql_query("DELETE FROM pcd_quota_windows WHERE window_expires_at <= $1")
+                    .bind::<Timestamptz, _>(now)
+                    .execute(conn)
+                    .await
+                    .map_err(storage)?;
+            let unreferenced_config_snapshots = diesel::sql_query(
+                "DELETE FROM pcd_config_snapshots AS snapshot \
+                 WHERE snapshot.config_digest <> $1 \
+                   AND NOT EXISTS (SELECT 1 FROM pcd_batches AS batch \
+                                   WHERE batch.pinned_config_digest = snapshot.config_digest)",
+            )
+            .bind::<Bytea, _>(retained_config_digest.as_bytes())
+            .execute(conn)
+            .await
+            .map_err(storage)?;
+            let retired_key_epochs = diesel::sql_query(
+                "DELETE FROM pcd_key_epochs AS epoch \
+                 WHERE epoch.retired_at IS NOT NULL AND epoch.retired_at <= $1 \
+                   AND NOT EXISTS (SELECT 1 FROM pcd_config_snapshots AS snapshot \
+                                   WHERE snapshot.key_epoch = epoch.key_epoch) \
+                   AND NOT EXISTS (SELECT 1 FROM pcd_batches AS batch \
+                                   WHERE batch.pinned_key_epoch = epoch.key_epoch)",
+            )
+            .bind::<Timestamptz, _>(now)
+            .execute(conn)
+            .await
+            .map_err(storage)?;
+            Ok(GarbageCollectionStats {
+                expired_batches: expired_batches as u64,
+                expired_quota_windows: expired_quota_windows as u64,
+                unreferenced_config_snapshots: unreferenced_config_snapshots as u64,
+                retired_key_epochs: retired_key_epochs as u64,
+            })
+        })
         .await
     }
 
@@ -879,10 +1244,17 @@ enum Phase {
     Match,
 }
 
-fn validate_limits_for_epoch(limits: PcdLimits, key_epoch: u64) -> Result<PcdLimits, PcdError> {
-    let limits = limits.validate()?;
+fn validate_key_epoch_shape(key_epoch: u64) -> Result<(), PcdError> {
     i64::try_from(key_epoch).map_err(|_| PcdReject::PinnedEpochMismatch)?;
-    Ok(limits)
+    Ok(())
+}
+
+fn config_public_key(config: &PrivateContactDiscovery) -> Result<[u8; 32], PcdError> {
+    let decoded = arkret_sdk::canonical::base64url_decode(&config.public_key)
+        .map_err(|_| PcdReject::InvalidConfiguration)?;
+    decoded
+        .try_into()
+        .map_err(|_| PcdReject::InvalidConfiguration.into())
 }
 
 fn validate_new_blind_cardinality(limits: PcdLimits, item_count: u16) -> Result<(), PcdError> {
@@ -937,17 +1309,20 @@ fn classify_blind_retry(
     now: DateTime<Utc>,
     request: &BlindAdmissionRequest,
     batch: &mut BatchRecord,
+    pinned_config: PcdConfigSnapshot,
 ) -> Result<PcdAdmission, PcdError> {
     validate_live_blind(now, request, batch)?;
     if let Some(outcome) = &batch.blind_outcome {
         return Ok(PcdAdmission::Cached {
             pinned_key_epoch: batch.pinned_key_epoch,
+            pinned_config,
             outcome: outcome.clone(),
         });
     }
     if now < batch.blind_lease_expires_at {
         return Ok(PcdAdmission::PendingRetry {
             pinned_key_epoch: batch.pinned_key_epoch,
+            pinned_config,
             lease_version: batch.blind_lease_version,
             retry_after_seconds: lease_retry_after_seconds(now, batch.blind_lease_expires_at),
         });
@@ -957,6 +1332,7 @@ fn classify_blind_retry(
     batch.blind_lease_expires_at = lease_expiry(limits, now, batch.expires_at);
     Ok(PcdAdmission::Evaluate {
         pinned_key_epoch: batch.pinned_key_epoch,
+        pinned_config,
         lease_version: batch.blind_lease_version,
         lease_expires_at: batch.blind_lease_expires_at,
     })
@@ -967,10 +1343,12 @@ fn classify_match_retry(
     now: DateTime<Utc>,
     request: &MatchAdmissionRequest,
     batch: &mut BatchRecord,
+    pinned_config: PcdConfigSnapshot,
 ) -> Result<PcdAdmission, PcdError> {
     if let Some(outcome) = &batch.match_outcome {
         return Ok(PcdAdmission::Cached {
             pinned_key_epoch: batch.pinned_key_epoch,
+            pinned_config,
             outcome: outcome.clone(),
         });
     }
@@ -983,6 +1361,7 @@ fn classify_match_retry(
     if now < lease_expires_at {
         return Ok(PcdAdmission::PendingRetry {
             pinned_key_epoch: batch.pinned_key_epoch,
+            pinned_config,
             lease_version,
             retry_after_seconds: lease_retry_after_seconds(now, lease_expires_at),
         });
@@ -994,6 +1373,7 @@ fn classify_match_retry(
     batch.match_lease_expires_at = Some(new_expiry);
     Ok(PcdAdmission::Evaluate {
         pinned_key_epoch: batch.pinned_key_epoch,
+        pinned_config,
         lease_version: new_version,
         lease_expires_at: new_expiry,
     })
@@ -1071,6 +1451,8 @@ struct EpochIdentityRow {
     custody_key_ref: String,
     #[diesel(sql_type = Timestamptz)]
     activated_at: DateTime<Utc>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    retired_at: Option<DateTime<Utc>>,
 }
 
 #[derive(QueryableByName)]
@@ -1078,6 +1460,14 @@ struct EpochLockRow {
     #[diesel(sql_type = BigInt)]
     #[allow(dead_code, reason = "row existence plus FOR SHARE is the contract")]
     key_epoch: i64,
+}
+
+#[derive(QueryableByName)]
+struct EpochRetirementRow {
+    #[diesel(sql_type = Timestamptz)]
+    activated_at: DateTime<Utc>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    retired_at: Option<DateTime<Utc>>,
 }
 
 async fn load_quota(
@@ -1095,6 +1485,35 @@ async fn load_quota(
     .map_err(storage)
 }
 
+#[derive(QueryableByName)]
+struct ConfigSnapshotRow {
+    #[diesel(sql_type = Bytea)]
+    config_digest: Vec<u8>,
+    #[diesel(sql_type = Bytea)]
+    canonical_config: Vec<u8>,
+    #[diesel(sql_type = BigInt)]
+    key_epoch: i64,
+}
+
+async fn load_config_snapshot(
+    conn: &mut diesel_async::AsyncPgConnection,
+    digest: PcdConfigDigest,
+) -> Result<Option<PcdConfigSnapshot>, PcdError> {
+    let row = diesel::sql_query(
+        "SELECT config_digest, canonical_config, key_epoch FROM pcd_config_snapshots \
+         WHERE config_digest = $1",
+    )
+    .bind::<Bytea, _>(digest.as_bytes())
+    .get_result::<ConfigSnapshotRow>(conn)
+    .await
+    .optional()
+    .map_err(storage)?;
+    row.map(|row| {
+        PcdConfigSnapshot::from_persisted(row.config_digest, row.canonical_config, row.key_epoch)
+    })
+    .transpose()
+}
+
 #[derive(Clone, QueryableByName)]
 struct BatchRow {
     #[diesel(sql_type = Bytea)]
@@ -1103,6 +1522,8 @@ struct BatchRow {
     match_request_digest: Option<Vec<u8>>,
     #[diesel(sql_type = BigInt)]
     pinned_key_epoch: i64,
+    #[diesel(sql_type = Bytea)]
+    pinned_config_digest: Vec<u8>,
     #[diesel(sql_type = Integer)]
     item_count: i32,
     #[diesel(sql_type = Timestamptz)]
@@ -1135,6 +1556,7 @@ impl BatchRow {
                 .transpose()?
                 .map(PcdRequestDigest),
             pinned_key_epoch: u64::try_from(self.pinned_key_epoch).map_err(storage)?,
+            pinned_config_digest: PcdConfigDigest(bytes32(self.pinned_config_digest)?),
             item_count: u16::try_from(self.item_count).map_err(storage)?,
             expires_at: self.expires_at,
             blind_outcome: self
@@ -1171,7 +1593,8 @@ async fn load_batch(
     batch_id: &PcdBatchId,
 ) -> Result<Option<BatchRow>, PcdError> {
     diesel::sql_query(
-        "SELECT blind_request_digest, match_request_digest, pinned_key_epoch, item_count, \
+        "SELECT blind_request_digest, match_request_digest, pinned_key_epoch, \
+                pinned_config_digest, item_count, \
                 expires_at, blind_outcome, match_outcome, blind_lease_owner, \
                 blind_lease_version, blind_lease_expires_at, match_lease_owner, \
                 match_lease_version, match_lease_expires_at \
@@ -1189,14 +1612,52 @@ async fn load_batch(
 mod tests {
     use super::*;
 
-    fn limits() -> PcdLimits {
-        PcdLimits {
-            batch_item_count: 4,
-            max_queries_per_window: 1,
-            quota_window_seconds: 86_400,
-            batch_completion_ttl_seconds: 3_600,
+    const PUBLIC_KEY: &str = "yAPizGsF_BUGRUm1kgZZykp3ssym8E9rNXAJM1R2rU4";
+
+    fn config(batch_item_count: u16) -> PrivateContactDiscovery {
+        config_at(14, batch_item_count)
+    }
+
+    fn config_at(key_epoch: u64, batch_item_count: u16) -> PrivateContactDiscovery {
+        let config = PrivateContactDiscovery::new(
+            PUBLIC_KEY,
+            key_epoch,
+            batch_item_count,
+            arkret_sdk::PrivateContactDiscoveryHandoffStubsMode::Never,
+            4096,
+            4096,
+            3_600,
+            1,
+            86_400,
+            arkret_sdk::AntiEnumerationDelay {
+                minimum_ms: 100,
+                jitter_ms: 50,
+                distribution: arkret_sdk::AntiEnumerationDelayDistribution::Uniform,
+            },
+        );
+        config.validate().expect("valid test PCD config");
+        config
+    }
+
+    fn changed_config() -> PrivateContactDiscovery {
+        let mut config = config(8);
+        config.handoff_stubs_mode = arkret_sdk::PrivateContactDiscoveryHandoffStubsMode::Always;
+        config.anti_enumeration_delay.minimum_ms = 200;
+        config.validate().expect("valid changed test PCD config");
+        config
+    }
+
+    fn operational() -> PcdOperationalLimits {
+        PcdOperationalLimits {
             evaluation_lease_seconds: 30,
         }
+    }
+
+    fn public_key() -> [u8; 32] {
+        arkret_sdk::canonical::base64url_decode(PUBLIC_KEY)
+            .expect("valid public key")
+            .try_into()
+            .expect("32-byte public key")
     }
 
     fn now() -> DateTime<Utc> {
@@ -1238,7 +1699,7 @@ mod tests {
         store
             .register_key_epoch(
                 14,
-                [3; 32],
+                public_key(),
                 "kms://teabay/pcd/epoch/14",
                 now() - Duration::seconds(1),
                 None,
@@ -1253,7 +1714,7 @@ mod tests {
         assert_eq!(
             store.register_key_epoch(
                 14,
-                [3; 32],
+                public_key(),
                 "kms://teabay/pcd/epoch/14",
                 now() - Duration::seconds(1),
                 None,
@@ -1278,27 +1739,29 @@ mod tests {
         let mut invalid = blind(1, 1, 1);
         invalid.item_count = 3;
         assert_eq!(
-            store.admit_blind(limits(), now(), invalid),
+            store.admit_blind(&config(4), operational(), now(), invalid),
             Err(PcdReject::FixedBatchCardinality.into())
         );
 
         let first = blind(1, 1, 1);
         assert_eq!(
-            store.admit_blind(limits(), now(), first.clone()),
+            store.admit_blind(&config(4), operational(), now(), first.clone()),
             Ok(PcdAdmission::Evaluate {
                 pinned_key_epoch: 14,
+                pinned_config: PcdConfigSnapshot::validated(&config(4)).expect("snapshot"),
                 lease_version: 1,
                 lease_expires_at: now() + Duration::seconds(30),
             })
         );
         assert!(matches!(
-            store.admit_blind(limits(), now(), blind(1, 2, 2)),
+            store.admit_blind(&config(4), operational(), now(), blind(1, 2, 2)),
             Err(PcdError::Rejected(PcdReject::QuotaExhausted { .. }))
         ));
         assert_eq!(
-            store.admit_blind(limits(), now(), first),
+            store.admit_blind(&config(4), operational(), now(), first),
             Ok(PcdAdmission::PendingRetry {
                 pinned_key_epoch: 14,
+                pinned_config: PcdConfigSnapshot::validated(&config(4)).expect("snapshot"),
                 lease_version: 1,
                 retry_after_seconds: 30,
             })
@@ -1310,36 +1773,45 @@ mod tests {
         let mut store = store();
         let existing = blind(1, 1, 1);
         store
-            .admit_blind(limits(), now(), existing.clone())
+            .admit_blind(&config(4), operational(), now(), existing.clone())
             .expect("admit under old fixed batch");
 
-        let mut current = limits();
-        current.batch_item_count = 8;
-        assert_eq!(
-            store.admit_blind(current, now(), existing.clone()),
-            Ok(PcdAdmission::PendingRetry {
-                pinned_key_epoch: 14,
-                lease_version: 1,
-                retry_after_seconds: 30,
-            })
-        );
+        let current = changed_config();
+        assert!(matches!(
+            store.admit_blind(&current, operational(), now(), existing.clone()),
+            Ok(PcdAdmission::PendingRetry { pinned_config, retry_after_seconds: 30, .. })
+                if pinned_config.config() == &config(4)
+        ));
+        let mut temporarily_invalid_current = current.clone();
+        temporarily_invalid_current.batch_item_count = 0;
+        assert!(matches!(
+            store.admit_blind(
+                &temporarily_invalid_current,
+                operational(),
+                now(),
+                existing.clone(),
+            ),
+            Ok(PcdAdmission::PendingRetry { pinned_config, .. })
+                if pinned_config.config() == &config(4)
+        ));
         store
             .record_blind_outcome(now(), &existing, 1, padded(b"old-batch"))
             .expect("record old batch");
         assert!(matches!(
-            store.admit_match(current, now(), matching(&existing, 2)),
-            Ok(PcdAdmission::Evaluate { .. })
+            store.admit_match(operational(), now(), matching(&existing, 2)),
+            Ok(PcdAdmission::Evaluate { pinned_config, .. })
+                if pinned_config.config() == &config(4)
         ));
 
         let stale_new = blind(2, 2, 3);
         assert_eq!(
-            store.admit_blind(current, now(), stale_new.clone()),
+            store.admit_blind(&current, operational(), now(), stale_new.clone()),
             Err(PcdReject::FixedBatchCardinality.into())
         );
         let mut current_new = stale_new;
         current_new.item_count = 8;
         assert!(matches!(
-            store.admit_blind(current, now(), current_new),
+            store.admit_blind(&current, operational(), now(), current_new),
             Ok(PcdAdmission::Evaluate { .. })
         ));
     }
@@ -1349,33 +1821,33 @@ mod tests {
         let mut store = store();
         let blind = blind(1, 1, 1);
         store
-            .admit_blind(limits(), now(), blind.clone())
+            .admit_blind(&config(4), operational(), now(), blind.clone())
             .expect("admit blind");
         assert_eq!(
             store.record_blind_outcome(now(), &blind, 1, padded(b"blind-body")),
             Ok(OutcomeWrite::Recorded)
         );
         assert!(matches!(
-            store.admit_blind(limits(), now(), blind.clone()),
+            store.admit_blind(&config(4), operational(), now(), blind.clone()),
             Ok(PcdAdmission::Cached { outcome, .. }) if outcome == padded(b"blind-body")
         ));
         let mut conflict = blind.clone();
         conflict.request_digest = PcdRequestDigest::from_closed_body_sha256([9; 32]);
         assert_eq!(
-            store.admit_blind(limits(), now(), conflict),
+            store.admit_blind(&config(4), operational(), now(), conflict),
             Err(PcdReject::DuplicateConflict.into())
         );
 
         let matching = matching(&blind, 2);
         assert!(matches!(
-            store.admit_match(limits(), now(), matching.clone()),
+            store.admit_match(operational(), now(), matching.clone()),
             Ok(PcdAdmission::Evaluate { .. })
         ));
         store
             .record_match_outcome(now(), &matching, 1, padded(b"match-body"))
             .expect("record match");
         assert!(matches!(
-            store.admit_match(limits(), now(), matching),
+            store.admit_match(operational(), now(), matching),
             Ok(PcdAdmission::Cached { outcome, .. }) if outcome == padded(b"match-body")
         ));
     }
@@ -1385,7 +1857,7 @@ mod tests {
         let mut store = store();
         let blind = blind(1, 1, 1);
         store
-            .admit_blind(limits(), now(), blind.clone())
+            .admit_blind(&config(4), operational(), now(), blind.clone())
             .expect("admit blind");
         store
             .record_blind_outcome(now(), &blind, 1, padded(b"blind-body"))
@@ -1393,12 +1865,12 @@ mod tests {
         let mut wrong_epoch = matching(&blind, 2);
         wrong_epoch.key_epoch = 15;
         assert_eq!(
-            store.admit_match(limits(), now(), wrong_epoch),
+            store.admit_match(operational(), now(), wrong_epoch),
             Err(PcdReject::PinnedEpochMismatch.into())
         );
         assert_eq!(
             store.admit_match(
-                limits(),
+                operational(),
                 now() + Duration::seconds(3_600),
                 matching(&blind, 2)
             ),
@@ -1411,7 +1883,7 @@ mod tests {
         let mut store = store();
         let blind = blind(1, 1, 1);
         store
-            .admit_blind(limits(), now(), blind.clone())
+            .admit_blind(&config(4), operational(), now(), blind.clone())
             .expect("admit blind");
         store
             .record_blind_outcome(now(), &blind, 1, padded(b"blind-body"))
@@ -1419,7 +1891,7 @@ mod tests {
         let mut wrong_device = matching(&blind, 2);
         wrong_device.device_credential_digest = DeviceCredentialDigest::new([2; 32]);
         assert_eq!(
-            store.admit_match(limits(), now(), wrong_device),
+            store.admit_match(operational(), now(), wrong_device),
             Err(PcdReject::BatchUnavailable.into())
         );
     }
@@ -1429,14 +1901,19 @@ mod tests {
         let mut store = store();
         let first_owner = blind(1, 1, 1);
         store
-            .admit_blind(limits(), now(), first_owner.clone())
+            .admit_blind(&config(4), operational(), now(), first_owner.clone())
             .expect("admit blind");
 
         let takeover_at = now() + Duration::seconds(31);
         let mut blind_takeover = first_owner.clone();
         blind_takeover.lease_owner = [9; 32];
         assert!(matches!(
-            store.admit_blind(limits(), takeover_at, blind_takeover.clone()),
+            store.admit_blind(
+                &config(4),
+                operational(),
+                takeover_at,
+                blind_takeover.clone()
+            ),
             Ok(PcdAdmission::Evaluate {
                 lease_version: 2,
                 ..
@@ -1452,13 +1929,13 @@ mod tests {
 
         let first_match_owner = matching(&blind_takeover, 2);
         store
-            .admit_match(limits(), takeover_at, first_match_owner.clone())
+            .admit_match(operational(), takeover_at, first_match_owner.clone())
             .expect("admit match");
         let match_takeover_at = takeover_at + Duration::seconds(31);
         let mut match_takeover = first_match_owner.clone();
         match_takeover.lease_owner = [10; 32];
         assert!(matches!(
-            store.admit_match(limits(), match_takeover_at, match_takeover.clone()),
+            store.admit_match(operational(), match_takeover_at, match_takeover.clone()),
             Ok(PcdAdmission::Evaluate {
                 lease_version: 2,
                 ..
@@ -1482,12 +1959,12 @@ mod tests {
 
         let first_blind_owner = blind(3, 3, 3);
         store
-            .admit_blind(limits(), now(), first_blind_owner.clone())
+            .admit_blind(&config(4), operational(), now(), first_blind_owner.clone())
             .expect("admit blind");
         let mut blind_takeover = first_blind_owner.clone();
         blind_takeover.lease_owner = [9; 32];
         assert!(matches!(
-            store.admit_blind(limits(), near_expiry, blind_takeover.clone()),
+            store.admit_blind(&config(4), operational(), near_expiry, blind_takeover.clone()),
             Ok(PcdAdmission::Evaluate {
                 lease_version: 2,
                 lease_expires_at,
@@ -1499,7 +1976,7 @@ mod tests {
             .expect("record clamped blind outcome");
         let first_match = matching(&blind_takeover, 4);
         assert!(matches!(
-            store.admit_match(limits(), near_expiry, first_match.clone()),
+            store.admit_match(operational(), near_expiry, first_match.clone()),
             Ok(PcdAdmission::Evaluate {
                 lease_version: 1,
                 lease_expires_at,
@@ -1507,25 +1984,25 @@ mod tests {
             }) if lease_expires_at == batch_expires_at
         ));
         assert_eq!(
-            store.admit_match(limits(), batch_expires_at, first_match),
+            store.admit_match(operational(), batch_expires_at, first_match),
             Err(PcdReject::BatchUnavailable.into())
         );
 
         let second_blind = blind(4, 4, 5);
         store
-            .admit_blind(limits(), now(), second_blind.clone())
+            .admit_blind(&config(4), operational(), now(), second_blind.clone())
             .expect("admit second blind");
         store
             .record_blind_outcome(now(), &second_blind, 1, padded(b"blind"))
             .expect("record second blind");
         let first_match_owner = matching(&second_blind, 6);
         store
-            .admit_match(limits(), now(), first_match_owner.clone())
+            .admit_match(operational(), now(), first_match_owner.clone())
             .expect("admit initial match");
         let mut match_takeover = first_match_owner;
         match_takeover.lease_owner = [10; 32];
         assert!(matches!(
-            store.admit_match(limits(), near_expiry, match_takeover.clone()),
+            store.admit_match(operational(), near_expiry, match_takeover.clone()),
             Ok(PcdAdmission::Evaluate {
                 lease_version: 2,
                 lease_expires_at,
@@ -1536,6 +2013,131 @@ mod tests {
             store.record_match_outcome(batch_expires_at, &match_takeover, 2, padded(b"too-late"),),
             Err(PcdReject::BatchUnavailable.into())
         );
+    }
+
+    #[test]
+    fn config_snapshot_is_canonical_hashed_and_epoch_bound() {
+        let snapshot = PcdConfigSnapshot::validated(&config(4)).expect("snapshot");
+        let exact = PcdConfigSnapshot::from_persisted(
+            snapshot.digest.as_bytes().to_vec(),
+            snapshot.canonical_bytes.clone(),
+            14,
+        )
+        .expect("exact persisted snapshot");
+        assert_eq!(exact, snapshot);
+        assert_ne!(
+            snapshot.digest,
+            PcdConfigSnapshot::validated(&changed_config())
+                .expect("changed snapshot")
+                .digest
+        );
+        assert!(matches!(
+            PcdConfigSnapshot::from_persisted(
+                [9; 32].to_vec(),
+                snapshot.canonical_bytes.clone(),
+                14,
+            ),
+            Err(PcdError::Storage(_))
+        ));
+        assert!(matches!(
+            PcdConfigSnapshot::from_persisted(
+                snapshot.digest.as_bytes().to_vec(),
+                snapshot.canonical_bytes,
+                15,
+            ),
+            Err(PcdError::Storage(_))
+        ));
+    }
+
+    #[test]
+    fn explicit_gc_bounds_config_history_without_breaking_live_pins() {
+        let mut store = store();
+        let old_config = config(4);
+        let old_request = blind(1, 1, 1);
+        let old_digest = match store
+            .admit_blind(&old_config, operational(), now(), old_request)
+            .expect("admit old config")
+        {
+            PcdAdmission::Evaluate { pinned_config, .. } => pinned_config.digest(),
+            other => panic!("unexpected admission: {other:?}"),
+        };
+
+        let current_epoch_config = changed_config();
+        let mut current_epoch_request = blind(2, 2, 2);
+        current_epoch_request.item_count = 8;
+        let current_epoch_digest = match store
+            .admit_blind(
+                &current_epoch_config,
+                operational(),
+                now(),
+                current_epoch_request,
+            )
+            .expect("admit changed config in same epoch")
+        {
+            PcdAdmission::Evaluate { pinned_config, .. } => pinned_config.digest(),
+            other => panic!("unexpected admission: {other:?}"),
+        };
+        store
+            .retire_key_epoch(14, now() + Duration::seconds(3_599))
+            .expect("retire old epoch");
+        assert_eq!(
+            store.register_key_epoch(
+                14,
+                public_key(),
+                "kms://teabay/pcd/epoch/14",
+                now() - Duration::seconds(1),
+                None,
+            ),
+            Err(PcdReject::DuplicateConflict.into())
+        );
+
+        let live_gc = store.garbage_collect(now() + Duration::seconds(3_599), current_epoch_digest);
+        assert_eq!(live_gc, GarbageCollectionStats::default());
+
+        let first_gc =
+            store.garbage_collect(now() + Duration::seconds(3_600), current_epoch_digest);
+        assert_eq!(first_gc.expired_batches, 2);
+        assert_eq!(first_gc.unreferenced_config_snapshots, 1);
+        assert_eq!(first_gc.retired_key_epochs, 0);
+        assert!(!store.config_snapshots.contains_key(&old_digest));
+        assert!(store.config_snapshots.contains_key(&current_epoch_digest));
+        assert!(store.epochs.contains_key(&14));
+
+        store
+            .register_key_epoch(
+                15,
+                public_key(),
+                "kms://teabay/pcd/epoch/15",
+                now() + Duration::seconds(3_599),
+                None,
+            )
+            .expect("register replacement epoch");
+        let replacement_config = config_at(15, 4);
+        let mut replacement_request = blind(3, 3, 3);
+        replacement_request.key_epoch = 15;
+        let replacement_digest = match store
+            .admit_blind(
+                &replacement_config,
+                operational(),
+                now() + Duration::seconds(3_600),
+                replacement_request,
+            )
+            .expect("admit replacement config")
+        {
+            PcdAdmission::Evaluate { pinned_config, .. } => pinned_config.digest(),
+            other => panic!("unexpected admission: {other:?}"),
+        };
+        let second_gc = store.garbage_collect(now() + Duration::seconds(7_200), replacement_digest);
+        assert_eq!(second_gc.expired_batches, 1);
+        assert_eq!(second_gc.unreferenced_config_snapshots, 1);
+        assert_eq!(second_gc.retired_key_epochs, 1);
+        assert!(!store.config_snapshots.contains_key(&current_epoch_digest));
+        assert!(!store.epochs.contains_key(&14));
+        assert!(store.config_snapshots.contains_key(&replacement_digest));
+        assert!(store.epochs.contains_key(&15));
+
+        let quota_gc = store.garbage_collect(now() + Duration::seconds(90_000), replacement_digest);
+        assert_eq!(quota_gc.expired_quota_windows, 3);
     }
 
     #[test]

@@ -1,15 +1,23 @@
 //! PostgreSQL contracts for the deliberately unreachable PCD durable core.
 
 use chrono::{DateTime, Duration, Utc};
+use diesel::QueryableByName;
+use diesel::sql_types::BigInt;
 use diesel_async::RunQueryDsl;
 use server::pcd_dark::{
     BlindAdmissionRequest, DeviceCredentialDigest, MatchAdmissionRequest, OpaqueExactBucketBytes,
-    OutcomeWrite, PcdAdmission, PcdBatchId, PcdError, PcdLimits, PcdReject, PcdRequestDigest,
-    PostgresPcdStore,
+    OutcomeWrite, PcdAdmission, PcdBatchId, PcdError, PcdOperationalLimits, PcdReject,
+    PcdRequestDigest, PostgresPcdStore,
 };
 use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
+
+#[derive(QueryableByName)]
+struct CountRow {
+    #[diesel(sql_type = BigInt)]
+    count: i64,
+}
 
 fn docker_tests_enabled() -> bool {
     std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() == Some("1")
@@ -33,14 +41,48 @@ async fn boot_postgres() -> anyhow::Result<(
     Ok((container, database_url))
 }
 
-fn limits() -> PcdLimits {
-    PcdLimits {
-        batch_item_count: 4,
-        max_queries_per_window: 1,
-        quota_window_seconds: 86_400,
-        batch_completion_ttl_seconds: 3_600,
+const PUBLIC_KEY: &str = "yAPizGsF_BUGRUm1kgZZykp3ssym8E9rNXAJM1R2rU4";
+
+fn config(key_epoch: u64, batch_item_count: u16) -> arkret_sdk::PrivateContactDiscovery {
+    let config = arkret_sdk::PrivateContactDiscovery::new(
+        PUBLIC_KEY,
+        key_epoch,
+        batch_item_count,
+        arkret_sdk::PrivateContactDiscoveryHandoffStubsMode::Never,
+        4096,
+        4096,
+        3_600,
+        1,
+        86_400,
+        arkret_sdk::AntiEnumerationDelay {
+            minimum_ms: 100,
+            jitter_ms: 50,
+            distribution: arkret_sdk::AntiEnumerationDelayDistribution::Uniform,
+        },
+    );
+    config.validate().expect("valid test PCD config");
+    config
+}
+
+fn changed_config() -> arkret_sdk::PrivateContactDiscovery {
+    let mut config = config(14, 8);
+    config.handoff_stubs_mode = arkret_sdk::PrivateContactDiscoveryHandoffStubsMode::Always;
+    config.anti_enumeration_delay.minimum_ms = 200;
+    config.validate().expect("valid changed test PCD config");
+    config
+}
+
+fn operational() -> PcdOperationalLimits {
+    PcdOperationalLimits {
         evaluation_lease_seconds: 30,
     }
+}
+
+fn public_key() -> [u8; 32] {
+    arkret_sdk::canonical::base64url_decode(PUBLIC_KEY)
+        .expect("valid public key")
+        .try_into()
+        .expect("32-byte public key")
 }
 
 fn now() -> DateTime<Utc> {
@@ -95,7 +137,7 @@ async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Resul
     store
         .register_key_epoch(
             14,
-            [3; 32],
+            public_key(),
             "kms://teabay/pcd/epoch/14",
             now() - Duration::days(1),
         )
@@ -103,7 +145,7 @@ async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Resul
     store
         .register_key_epoch(
             14,
-            [3; 32],
+            public_key(),
             "kms://teabay/pcd/epoch/14",
             now() - Duration::days(1),
         )
@@ -149,26 +191,44 @@ async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Resul
     drop(epoch_reader);
 
     let blind_request = blind(1, 1, 1, 7);
+    let original_config = config(14, 4);
     assert!(matches!(
         store
-            .admit_blind(limits(), now(), blind_request.clone())
+            .admit_blind(&original_config, operational(), now(), blind_request.clone())
             .await?,
-        PcdAdmission::Evaluate {
+        PcdAdmission::Evaluate { ref pinned_config,
             lease_version: 1,
             ..
-        }
+        } if pinned_config.config() == &original_config
     ));
-    let mut changed_limits = limits();
-    changed_limits.batch_item_count = 8;
+    let mut changed_config = config(14, 8);
+    changed_config.handoff_stubs_mode = arkret_sdk::PrivateContactDiscoveryHandoffStubsMode::Always;
+    changed_config.anti_enumeration_delay.minimum_ms = 200;
+    changed_config.validate()?;
     assert!(matches!(
         store
-            .admit_blind(changed_limits, now(), blind_request.clone())
+            .admit_blind(&changed_config, operational(), now(), blind_request.clone())
             .await?,
         PcdAdmission::PendingRetry {
+            ref pinned_config,
             lease_version: 1,
             retry_after_seconds: 30,
             ..
-        }
+        } if pinned_config.config() == &original_config
+    ));
+    let mut temporarily_invalid_current = changed_config.clone();
+    temporarily_invalid_current.batch_item_count = 0;
+    assert!(matches!(
+        store
+            .admit_blind(
+                &temporarily_invalid_current,
+                operational(),
+                now(),
+                blind_request.clone(),
+            )
+            .await?,
+        PcdAdmission::PendingRetry { ref pinned_config, .. }
+            if pinned_config.config() == &original_config
     ));
     assert_eq!(
         store
@@ -178,12 +238,16 @@ async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Resul
     );
     assert!(matches!(
         store
-            .admit_blind(changed_limits, now(), blind_request.clone())
+            .admit_blind(&changed_config, operational(), now(), blind_request.clone())
             .await?,
-        PcdAdmission::Cached { ref outcome, .. } if outcome == &padded(b"canonical-blind-body")
+        PcdAdmission::Cached { ref pinned_config, ref outcome, .. }
+            if pinned_config.config() == &original_config
+                && outcome == &padded(b"canonical-blind-body")
     ));
     assert!(matches!(
-        store.admit_blind(limits(), now(), blind(1, 2, 2, 7)).await,
+        store
+            .admit_blind(&original_config, operational(), now(), blind(1, 2, 2, 7))
+            .await,
         Err(PcdError::Rejected(PcdReject::QuotaExhausted { .. }))
     ));
 
@@ -196,21 +260,23 @@ async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Resul
     let matching = matching(&blind_request, 2, 8);
     assert!(matches!(
         restarted_store
-            .admit_match(changed_limits, now(), matching.clone())
+            .admit_match(operational(), now(), matching.clone())
             .await?,
-        PcdAdmission::Evaluate {
+        PcdAdmission::Evaluate { ref pinned_config,
             lease_version: 1,
             ..
-        }
+        } if pinned_config.config() == &original_config
     ));
     restarted_store
         .record_match_outcome(now(), &matching, 1, padded(b"canonical-match-body"))
         .await?;
     assert!(matches!(
         restarted_store
-            .admit_match(changed_limits, now(), matching)
+            .admit_match(operational(), now(), matching)
             .await?,
-        PcdAdmission::Cached { ref outcome, .. } if outcome == &padded(b"canonical-match-body")
+        PcdAdmission::Cached { ref pinned_config, ref outcome, .. }
+            if pinned_config.config() == &original_config
+                && outcome == &padded(b"canonical-match-body")
     ));
 
     let mut conn = restarted.get().await?;
@@ -239,7 +305,7 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
     store
         .register_key_epoch(
             14,
-            [3; 32],
+            public_key(),
             "kms://teabay/pcd/epoch/14",
             now() - Duration::days(1),
         )
@@ -247,13 +313,18 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
 
     let first_owner = blind(2, 2, 2, 7);
     store
-        .admit_blind(limits(), now(), first_owner.clone())
+        .admit_blind(&config(14, 4), operational(), now(), first_owner.clone())
         .await?;
     let mut takeover = first_owner.clone();
     takeover.lease_owner = [9; 32];
     assert!(matches!(
         store
-            .admit_blind(limits(), now() + Duration::seconds(31), takeover.clone())
+            .admit_blind(
+                &config(14, 4),
+                operational(),
+                now() + Duration::seconds(31),
+                takeover.clone(),
+            )
             .await?,
         PcdAdmission::Evaluate {
             lease_version: 2,
@@ -288,13 +359,23 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
 
     let first_near_ttl_owner = blind(3, 3, 3, 7);
     store
-        .admit_blind(limits(), now(), first_near_ttl_owner.clone())
+        .admit_blind(
+            &config(14, 4),
+            operational(),
+            now(),
+            first_near_ttl_owner.clone(),
+        )
         .await?;
     let mut blind_near_ttl_takeover = first_near_ttl_owner.clone();
     blind_near_ttl_takeover.lease_owner = [9; 32];
     assert!(matches!(
         store
-            .admit_blind(limits(), near_expiry, blind_near_ttl_takeover.clone())
+            .admit_blind(
+                &config(14, 4),
+                operational(),
+                near_expiry,
+                blind_near_ttl_takeover.clone(),
+            )
             .await?,
         PcdAdmission::Evaluate {
             lease_version: 2,
@@ -313,7 +394,7 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
     let first_match_near_ttl = matching(&blind_near_ttl_takeover, 4, 8);
     assert!(matches!(
         store
-            .admit_match(limits(), near_expiry, first_match_near_ttl.clone())
+            .admit_match(operational(), near_expiry, first_match_near_ttl.clone())
             .await?,
         PcdAdmission::Evaluate {
             lease_version: 1,
@@ -323,27 +404,32 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
     ));
     assert_eq!(
         store
-            .admit_match(limits(), batch_expires_at, first_match_near_ttl)
+            .admit_match(operational(), batch_expires_at, first_match_near_ttl)
             .await,
         Err(PcdError::Rejected(PcdReject::BatchUnavailable))
     );
 
     let second_near_ttl_blind = blind(4, 4, 5, 7);
     store
-        .admit_blind(limits(), now(), second_near_ttl_blind.clone())
+        .admit_blind(
+            &config(14, 4),
+            operational(),
+            now(),
+            second_near_ttl_blind.clone(),
+        )
         .await?;
     store
         .record_blind_outcome(now(), &second_near_ttl_blind, 1, padded(b"blind"))
         .await?;
     let first_match_owner = matching(&second_near_ttl_blind, 6, 8);
     store
-        .admit_match(limits(), now(), first_match_owner.clone())
+        .admit_match(operational(), now(), first_match_owner.clone())
         .await?;
     let mut match_near_ttl_takeover = first_match_owner;
     match_near_ttl_takeover.lease_owner = [10; 32];
     assert!(matches!(
         store
-            .admit_match(limits(), near_expiry, match_near_ttl_takeover.clone())
+            .admit_match(operational(), near_expiry, match_near_ttl_takeover.clone())
             .await?,
         PcdAdmission::Evaluate {
             lease_version: 2,
@@ -362,5 +448,137 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
             .await,
         Err(PcdError::Rejected(PcdReject::BatchUnavailable))
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_gc_preserves_current_and_live_bindings_then_reclaims_history()
+-> anyhow::Result<()> {
+    if !docker_tests_enabled() {
+        eprintln!(
+            "skipping explicit_gc_preserves_current_and_live_bindings_then_reclaims_history; set TEABAY_RUN_DOCKER_TESTS=1"
+        );
+        return Ok(());
+    }
+    let (_postgres, database_url) = boot_postgres().await?;
+    let db = server::Db::connect(&database_url)?;
+    db.run_migrations(&database_url).await?;
+    let store = PostgresPcdStore::new(db.clone());
+    store
+        .register_key_epoch(
+            14,
+            public_key(),
+            "kms://teabay/pcd/epoch/14",
+            now() - Duration::days(1),
+        )
+        .await?;
+    store
+        .register_key_epoch(
+            15,
+            public_key(),
+            "kms://teabay/pcd/epoch/15",
+            now() + Duration::seconds(3_599),
+        )
+        .await?;
+
+    let old_digest = match store
+        .admit_blind(&config(14, 4), operational(), now(), blind(10, 10, 10, 7))
+        .await?
+    {
+        PcdAdmission::Evaluate { pinned_config, .. } => pinned_config.digest(),
+        other => anyhow::bail!("unexpected old admission: {other:?}"),
+    };
+    let mut changed_request = blind(11, 11, 11, 7);
+    changed_request.item_count = 8;
+    let current_epoch_digest = match store
+        .admit_blind(&changed_config(), operational(), now(), changed_request)
+        .await?
+    {
+        PcdAdmission::Evaluate { pinned_config, .. } => pinned_config.digest(),
+        other => anyhow::bail!("unexpected changed admission: {other:?}"),
+    };
+    assert_ne!(old_digest, current_epoch_digest);
+
+    // Epoch 15 exists, so only the composite snapshot binding can reject this
+    // split-brain operator write.
+    let mut conn = db.get().await?;
+    let split_binding = diesel::sql_query(
+        "UPDATE pcd_batches SET pinned_key_epoch = 15 \
+         WHERE batch_id = 'ak:batch:0196429a-0000-7000-8000-00000000000a'",
+    )
+    .execute(&mut conn)
+    .await;
+    assert!(
+        split_binding.is_err(),
+        "composite config-digest/epoch FK must reject split binding"
+    );
+    drop(conn);
+
+    store
+        .retire_key_epoch(14, now() + Duration::seconds(3_599))
+        .await?;
+    assert_eq!(
+        store
+            .register_key_epoch(
+                14,
+                public_key(),
+                "kms://teabay/pcd/epoch/14",
+                now() - Duration::days(1),
+            )
+            .await,
+        Err(PcdError::Rejected(PcdReject::DuplicateConflict))
+    );
+    store
+        .retire_key_epoch(14, now() + Duration::seconds(3_599))
+        .await?;
+    let live_gc = store
+        .garbage_collect(now() + Duration::seconds(3_599), current_epoch_digest)
+        .await?;
+    assert_eq!(live_gc, Default::default());
+    let first_gc = store
+        .garbage_collect(now() + Duration::seconds(3_600), current_epoch_digest)
+        .await?;
+    assert_eq!(first_gc.expired_batches, 2);
+    assert_eq!(first_gc.unreferenced_config_snapshots, 1);
+    assert_eq!(first_gc.retired_key_epochs, 0);
+
+    let mut replacement_request = blind(12, 12, 12, 7);
+    replacement_request.key_epoch = 15;
+    let replacement_digest = match store
+        .admit_blind(
+            &config(15, 4),
+            operational(),
+            now() + Duration::seconds(3_600),
+            replacement_request,
+        )
+        .await?
+    {
+        PcdAdmission::Evaluate { pinned_config, .. } => pinned_config.digest(),
+        other => anyhow::bail!("unexpected replacement admission: {other:?}"),
+    };
+    let second_gc = store
+        .garbage_collect(now() + Duration::seconds(7_200), replacement_digest)
+        .await?;
+    assert_eq!(second_gc.expired_batches, 1);
+    assert_eq!(second_gc.unreferenced_config_snapshots, 1);
+    assert_eq!(second_gc.retired_key_epochs, 1);
+
+    let mut conn = db.get().await?;
+    let epochs = diesel::sql_query("SELECT COUNT(*)::BIGINT AS count FROM pcd_key_epochs")
+        .get_result::<CountRow>(&mut conn)
+        .await?;
+    let snapshots = diesel::sql_query("SELECT COUNT(*)::BIGINT AS count FROM pcd_config_snapshots")
+        .get_result::<CountRow>(&mut conn)
+        .await?;
+    let batches = diesel::sql_query("SELECT COUNT(*)::BIGINT AS count FROM pcd_batches")
+        .get_result::<CountRow>(&mut conn)
+        .await?;
+    assert_eq!((epochs.count, snapshots.count, batches.count), (1, 1, 0));
+    drop(conn);
+
+    let quota_gc = store
+        .garbage_collect(now() + Duration::seconds(90_000), replacement_digest)
+        .await?;
+    assert_eq!(quota_gc.expired_quota_windows, 3);
     Ok(())
 }

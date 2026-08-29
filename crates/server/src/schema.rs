@@ -291,6 +291,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    pcd_config_snapshots (config_digest) {
+        config_digest -> Bytea,
+        canonical_config -> Bytea,
+        key_epoch -> Int8,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     pcd_quota_windows (device_credential_digest) {
         device_credential_digest -> Bytea,
         window_started_at -> Timestamptz,
@@ -306,6 +315,7 @@ diesel::table! {
         blind_request_digest -> Bytea,
         match_request_digest -> Nullable<Bytea>,
         pinned_key_epoch -> Int8,
+        pinned_config_digest -> Bytea,
         item_count -> Int4,
         admitted_at -> Timestamptz,
         expires_at -> Timestamptz,
@@ -321,6 +331,8 @@ diesel::table! {
 }
 
 diesel::joinable!(pcd_batches -> pcd_key_epochs (pinned_key_epoch));
+diesel::joinable!(pcd_batches -> pcd_config_snapshots (pinned_config_digest));
+diesel::joinable!(pcd_config_snapshots -> pcd_key_epochs (key_epoch));
 
 diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
@@ -338,6 +350,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     takedown_appeals,
     verified_realm_organizations,
     pcd_key_epochs,
+    pcd_config_snapshots,
     pcd_quota_windows,
     pcd_batches,
 );
