@@ -29,7 +29,7 @@ use salvo::test::{ResponseExt, TestClient};
 use serde_json::{Value as JsonValue, json};
 use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
-use testcontainers_modules::testcontainers::runners::SyncRunner;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
 #[derive(diesel::QueryableByName)]
 struct WithdrawalProofRow {
@@ -50,11 +50,12 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
         std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
     let container = postgres::Postgres::default()
         .with_tag(postgres_tag)
-        .start()?;
+        .start()
+        .await?;
     let database_url = format!(
         "postgres://postgres:postgres@{}:{}/postgres",
-        container.get_host()?,
-        container.get_host_port_ipv4(5432)?
+        container.get_host().await?,
+        container.get_host_port_ipv4(5432).await?
     );
 
     unsafe {

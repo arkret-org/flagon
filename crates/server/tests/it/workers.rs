@@ -15,25 +15,26 @@ use std::time::Duration;
 use diesel_async::RunQueryDsl;
 use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
-use testcontainers_modules::testcontainers::runners::SyncRunner;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
 fn docker_tests_enabled() -> bool {
     std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() == Some("1")
 }
 
-fn boot_postgres() -> anyhow::Result<(
-    testcontainers_modules::testcontainers::Container<postgres::Postgres>,
+async fn boot_postgres() -> anyhow::Result<(
+    testcontainers_modules::testcontainers::ContainerAsync<postgres::Postgres>,
     String,
 )> {
     let postgres_tag =
         std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
     let container = postgres::Postgres::default()
         .with_tag(postgres_tag)
-        .start()?;
+        .start()
+        .await?;
     let database_url = format!(
         "postgres://postgres:postgres@{}:{}/postgres",
-        container.get_host()?,
-        container.get_host_port_ipv4(5432)?
+        container.get_host().await?,
+        container.get_host_port_ipv4(5432).await?
     );
     Ok((container, database_url))
 }
@@ -70,7 +71,7 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
         eprintln!("skipping expiry_worker_purges_rows_past_grace; set TEABAY_RUN_DOCKER_TESTS=1");
         return Ok(());
     }
-    let (_pg, database_url) = boot_postgres()?;
+    let (_pg, database_url) = boot_postgres().await?;
     let (_config, state) = test_app_state(&database_url).await?;
 
     {
@@ -120,7 +121,7 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
         );
         return Ok(());
     }
-    let (_pg, database_url) = boot_postgres()?;
+    let (_pg, database_url) = boot_postgres().await?;
     let (_config, state) = test_app_state(&database_url).await?;
 
     {
@@ -179,7 +180,7 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    let (_pg, database_url) = boot_postgres()?;
+    let (_pg, database_url) = boot_postgres().await?;
     let (_config, state) = test_app_state(&database_url).await?;
 
     // Start a tiny TCP server that returns HTTP 500 to every request.
