@@ -14,7 +14,9 @@ INSERT INTO directory_resources (
     stale,
     divergent,
     via_services,
-    last_announce_id
+    last_announce_id,
+    last_refreshed_at,
+    expires_at
 ) VALUES
 (
     'realm'::resource_kind,
@@ -34,7 +36,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-realm'
+    'ak.announce:test-realm',
+    now(),
+    now() + interval '1 day'
 ),
 (
     'realm'::resource_kind,
@@ -52,7 +56,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-realm-lab'
+    'ak.announce:test-realm-lab',
+    now() - interval '1 minute',
+    now() + interval '1 day' - interval '1 minute'
 ),
 (
     'realm'::resource_kind,
@@ -70,7 +76,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-realm-restricted'
+    'ak.announce:test-realm-restricted',
+    now(),
+    now() + interval '1 day'
 ),
 (
     'realm'::resource_kind,
@@ -88,7 +96,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-realm-secret'
+    'ak.announce:test-realm-secret',
+    now(),
+    now() + interval '1 day'
 ),
 (
     -- TBY-ORG-02/04 — a Realm that DECLARES an owning organization in its
@@ -110,7 +120,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-realm-org-declared'
+    'ak.announce:test-realm-org-declared',
+    now(),
+    now() + interval '1 day'
 ),
 (
     -- TBY-ORG-02/04 — a Realm with an ACTIVE verified owner relationship (see
@@ -131,7 +143,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-realm-org-verified'
+    'ak.announce:test-realm-org-verified',
+    now(),
+    now() + interval '1 day'
 ),
 (
     'organization'::resource_kind,
@@ -149,7 +163,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-org'
+    'ak.announce:test-org',
+    now(),
+    now() + interval '1 day'
 ),
 (
     'actor'::resource_kind,
@@ -167,7 +183,9 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-actor'
+    'ak.announce:test-actor',
+    now(),
+    now() + interval '1 day'
 ),
 (
     'handle'::resource_kind,
@@ -185,5 +203,7 @@ INSERT INTO directory_resources (
     false,
     false,
     ARRAY['ak:did_core:web:principal.test'],
-    'ak.announce:test-handle'
+    'ak.announce:test-handle',
+    now(),
+    now() + interval '1 day'
 );
