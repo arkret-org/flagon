@@ -623,14 +623,11 @@ fn claim_from_projection(
     // not "no issuer_id": it would strip the trust anchor a caller filters on, so
     // the whole claim is dropped instead (same fail-closed path as a subject_id
     // mismatch above).
-    let issuer_id = match row
+    let issuer_id = row
         .public_projection
         .get("issuer_id")
         .and_then(JsonValue::as_str)
-    {
-        Some(raw) => arkret_sdk::DidCoreId::new(raw.to_owned()).ok()?,
-        None => return None,
-    };
+        .and_then(|raw| arkret_sdk::DidCoreId::new(raw.to_owned()).ok())?;
 
     let claim_kind = row
         .public_projection
