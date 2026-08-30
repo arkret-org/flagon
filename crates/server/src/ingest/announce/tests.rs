@@ -6,6 +6,38 @@ use super::projection::{derive_public_projection, validate_handle_claim_ingest};
 use crate::error::ApiErrorCode;
 use crate::ingest::DiscoverabilityDb;
 
+#[test]
+fn announce_transport_origin_requires_signed_exact_actor_route_and_service_key() {
+    use arkret_sdk::{AccountId, ActorId, DidCoreId};
+
+    use super::ingest_body::transport_origin_matches_actor;
+    use crate::middleware::http_sig::AuthenticatedHttpSignature;
+    let principal = DidCoreId::new("ak:did_core:web:alice.example").unwrap();
+    let station = DidCoreId::new("ak:did_core:web:station.example").unwrap();
+    let foreign = DidCoreId::new("ak:did_core:web:foreign.example").unwrap();
+    let mut signature = AuthenticatedHttpSignature {
+        key_id: "did:web:station.example#http".to_owned(),
+        source_service_id: Some(station.clone()),
+    };
+    for actor in [
+        ActorId::account(AccountId::new(principal.clone(), station.clone())),
+        ActorId::hosted_principal(principal.clone(), station.clone()),
+        ActorId::service(station.clone()),
+    ] {
+        assert!(transport_origin_matches_actor(&signature, &actor));
+    }
+    let actor = ActorId::account(AccountId::new(principal.clone(), foreign.clone()));
+    assert!(!transport_origin_matches_actor(&signature, &actor));
+    let local_actor = ActorId::account(AccountId::new(principal, station));
+    signature.source_service_id = None;
+    assert!(!transport_origin_matches_actor(&signature, &local_actor));
+    signature.source_service_id = Some(foreign);
+    assert!(!transport_origin_matches_actor(&signature, &local_actor));
+    signature.source_service_id = Some(local_actor.route_service_id().clone());
+    signature.key_id = "did:web:foreign.example#http".to_owned();
+    assert!(!transport_origin_matches_actor(&signature, &local_actor));
+}
+
 fn inputs_with_pair(
     source_trust_domain: &str,
     destination_trust_domain: &str,

@@ -514,10 +514,46 @@ fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
 fn organization_preview_from_envelope(
     envelope: ResultEnvelope,
 ) -> Result<OrganizationPreview, String> {
-    let value = serde_json::to_value(envelope)
-        .map_err(|error| format!("organization envelope serialization failed: {error}"))?;
-    serde_json::from_value(value)
-        .map_err(|error| format!("organization preview is not SDK-compatible: {error}"))
+    // The index also carries disclosure policy and search-only fields. They
+    // have already served admission above and are not OrganizationPreview
+    // fields. Build the closed public DTO explicitly; never serialize the
+    // entire internal envelope and never relax the SDK's unknown-field gate.
+    let projection = envelope
+        .payload
+        .as_object()
+        .ok_or_else(|| "organization projection must be an object".to_owned())?;
+    Ok(OrganizationPreview {
+        organization_principal_id: organization_projection_field(
+            projection,
+            "organization_principal_id",
+        )?
+        .ok_or_else(|| "organization projection identity is missing".to_owned())?,
+        handle: organization_projection_field(projection, "handle")?,
+        display_name: organization_projection_field(projection, "display_name")?,
+        avatar_blob_ref: organization_projection_field(projection, "avatar_blob_ref")?,
+        verified_badge: organization_projection_field(projection, "verified_badge")?,
+        member_count: organization_projection_field(projection, "member_count")?,
+        realm_ids: organization_projection_field(projection, "realm_ids")?.unwrap_or_default(),
+        realm_count: organization_projection_field(projection, "realm_count")?,
+        as_of: envelope.as_of,
+        source_refs: envelope.source_refs,
+        policy_revision: envelope.policy_revision,
+        stale: envelope.stale.then_some(true),
+        divergent: envelope.divergent.then_some(true),
+    })
+}
+
+fn organization_projection_field<T: serde::de::DeserializeOwned>(
+    projection: &serde_json::Map<String, JsonValue>,
+    field: &str,
+) -> Result<Option<T>, String> {
+    projection
+        .get(field)
+        .filter(|value| !value.is_null())
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("invalid organization preview {field}: {error}"))
 }
 
 fn org_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {
@@ -526,4 +562,68 @@ fn org_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool 
             .iter()
             .filter_map(|key| projection.get(*key).and_then(JsonValue::as_str))
             .any(|value| value.to_ascii_lowercase().contains(needle))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn row(projection: JsonValue) -> OrgRow {
+        OrgRow {
+            resource_id: "ak:did_core:web:tea-org.example".to_owned(),
+            public_projection: projection,
+            discoverability: DiscoverabilityDb::Public,
+            as_of: DateTime::from_timestamp_millis(1_782_000_000_123).unwrap(),
+            source_refs: vec!["fixture-source".to_owned()],
+            policy_revision: "accepted-revision".to_owned(),
+            stale: true,
+            divergent: false,
+            via_services: Vec::new(),
+            indexed_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn public_org_preview_excludes_internal_policy_and_preserves_typed_fields() {
+        let preview = organization_preview_from_envelope(envelope_from_row(row(json!({
+            "display_name": "Tea Org",
+            "handle": "tea-org",
+            "member_count": 7,
+            "allowed_discoverers": [{"issuer_id": "private-issuer"}],
+            "name": "search-only name",
+            "summary": "search-only summary",
+            "policy_revision": "untrusted-mirror"
+        }))))
+        .unwrap();
+        assert_eq!(
+            preview.organization_principal_id.as_str(),
+            "ak:did_core:web:tea-org.example"
+        );
+        assert_eq!(preview.display_name.as_deref(), Some("Tea Org"));
+        assert_eq!(preview.member_count, Some(7));
+        assert_eq!(preview.policy_revision, "accepted-revision");
+        assert_eq!(preview.stale, Some(true));
+        let value = serde_json::to_value(&preview).unwrap();
+        for field in [
+            "discoverability",
+            "allowed_discoverers",
+            "name",
+            "summary",
+            "via_services",
+        ] {
+            assert!(value.get(field).is_none(), "leaked {field}");
+        }
+        let _: OrganizationPreview = serde_json::from_value(value).unwrap();
+    }
+
+    #[test]
+    fn public_org_preview_rejects_invalid_registered_field_types() {
+        let error = organization_preview_from_envelope(envelope_from_row(row(json!({
+            "member_count": "seven"
+        }))))
+        .unwrap_err();
+        assert!(error.contains("member_count"));
+    }
 }

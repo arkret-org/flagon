@@ -184,6 +184,9 @@ pub struct HttpSigMiddleware {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthenticatedHttpSignature {
     pub key_id: String,
+    /// Present only when the successfully verified signature covers the
+    /// canonical Source-Service-ID header and its value is a service core id.
+    pub source_service_id: Option<arkret_sdk::DidCoreId>,
 }
 
 impl HttpSigMiddleware {
@@ -586,6 +589,17 @@ impl Handler for HttpSigMiddleware {
         // teabay's announce/withdraw/subscribe handlers do their own
         // §8 verify chain on top of this transport guarantee.
         depot.insert_typed(AuthenticatedHttpSignature {
+            source_service_id: signature_input
+                .covered_components
+                .iter()
+                .any(|component| {
+                    matches!(component,
+                    arkret_signatures::http_signature::Component::Header(name)
+                        if name.eq_ignore_ascii_case("source-service-id"))
+                })
+                .then(|| read_header(req, "source-service-id"))
+                .flatten()
+                .and_then(|value| arkret_sdk::DidCoreId::new(value).ok()),
             key_id: signature_input.key_id,
         });
     }
@@ -866,6 +880,71 @@ mod tests {
         let status = res.status_code.unwrap_or(StatusCode::OK);
         let body_text = res.take_string().await.unwrap_or_default();
         assert_eq!(status, StatusCode::OK, "expected 200, body: {body_text}");
+    }
+
+    #[tokio::test]
+    async fn source_service_identity_is_exposed_only_when_covered_by_verified_signature() {
+        #[handler]
+        async fn origin(depot: &mut Depot, res: &mut Response) {
+            let signature = depot.get_typed::<AuthenticatedHttpSignature>().unwrap();
+            res.render(Json(json!({"source": signature.source_service_id})));
+        }
+        let source = "ak:did_core:web:alice.example";
+        for covered in [false, true] {
+            let router = Router::with_path("_arkret/find/directory/announce")
+                .hoop(HttpSigMiddleware::new(directory_with_test_key()))
+                .post(origin);
+            let body = b"{}";
+            let digest = ContentDigest::compute(body, ContentDigestAlgorithm::Sha256);
+            let now = unix_now_secs();
+            let extra = if covered {
+                " \"source-service-id\""
+            } else {
+                ""
+            };
+            let signature_input = format!(
+                "sig1=(\"@method\" \"@target-uri\" \"@authority\" \"content-digest\"{extra});created={};expires={};keyid=\"{TEST_KEY_ID}\";alg=\"ed25519\"",
+                now - 1,
+                now + 299
+            );
+            let parsed = parse_signature_input(&signature_input).unwrap();
+            let parts = SignedRequestParts {
+                method: "POST".to_owned(),
+                target_uri: "http://teabay.test/_arkret/find/directory/announce".to_owned(),
+                authority: "teabay.test".to_owned(),
+                path: "/_arkret/find/directory/announce".to_owned(),
+                headers: vec![
+                    ("content-digest".to_owned(), digest.wire_value.clone()),
+                    ("source-service-id".to_owned(), source.to_owned()),
+                ],
+                body_digest: None,
+            };
+            let signature =
+                sign_message(&canonical_message(&parts, &parsed).unwrap(), &signing_key());
+            let mut response = TestClient::post(&parts.target_uri)
+                .add_header("host", "teabay.test", true)
+                .add_header("signature-input", signature_input, true)
+                .add_header("signature", format!("sig1=:{signature}:"), true)
+                .add_header("content-digest", digest.wire_value, true)
+                .add_header("source-service-id", source, true)
+                .add_header("content-type", "application/json", true)
+                .bytes(body.to_vec())
+                .send(router)
+                .await;
+            assert_eq!(
+                response.status_code.unwrap_or(StatusCode::OK),
+                StatusCode::OK
+            );
+            let value: JsonValue = response.take_json().await.unwrap();
+            assert_eq!(
+                value["source"],
+                if covered {
+                    json!(source)
+                } else {
+                    JsonValue::Null
+                }
+            );
+        }
     }
 
     #[tokio::test]

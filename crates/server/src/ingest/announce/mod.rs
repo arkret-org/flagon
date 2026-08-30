@@ -83,6 +83,22 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
+    if state.config().require_http_sig
+        && !depot
+            .get_typed::<crate::middleware::http_sig::AuthenticatedHttpSignature>()
+            .is_ok_and(|signature| {
+                ingest_body::transport_origin_matches_actor(
+                    signature,
+                    &body.discovery_event.actor_id,
+                )
+            })
+    {
+        ingest_metric.set_outcome("signature_invalid");
+        ApiErrorCode::SignatureInvalid.render(res,
+            "verified Source-Service-ID and signing service must equal discovery Event author route");
+        return;
+    }
+
     // Circle directory preview/stub convergence: a Realm discovery event may
     // carry Circle directory entry ids, but only under the recognized preview
     // containers. Every other Circle typed-id occurrence is still rejected

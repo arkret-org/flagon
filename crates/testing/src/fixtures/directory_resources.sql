@@ -175,7 +175,7 @@ INSERT INTO directory_resources (
     '{"handle":"alice:example.com","display_name":"Alice Tea","realm_ids":["ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu"],"organization_principal_id":"ak:did_core:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
-    ARRAY['evt-actor-alice'],
+    ARRAY['ak:event:AR8bu-n-kOOB3nRUvYuIEglCX5B-JpFaNTex9gxs_cWY'],
     'rev-actor-1',
     now(),
     86400,

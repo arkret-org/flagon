@@ -3,13 +3,6 @@
     reason = "integration tests mutate process environment before server startup and restore it"
 )]
 
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
-
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DidCoreId, DirectoryPresentedClaim,
     DirectoryRestrictedClaimPresentation, Hash, Hlc, ProducerEventProof, RealmId, ScopeRef,
@@ -81,6 +74,9 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
             "did:web:directory.test#receipt-conformance",
         );
         std::env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
+        // This harness explicitly uses self-contained governance and claim
+        // keys, outside the production default allowlist.
+        std::env::set_var("TEABAY_ACCEPTED_DID_METHODS", "did:key,did:web");
         std::env::set_var("TEABAY_QUERY_LATENCY_FLOOR_MS", "0");
         std::env::set_var("TEABAY_QUERY_LATENCY_JITTER_MS", "0");
         // The conformance harness posts unsigned envelopes against the
@@ -103,7 +99,8 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     assert_search_realms_finds_seeded_realm(&service).await?;
     assert_official_badge_is_verified_relationship_driven(&db, &service).await?;
     assert_pull_subscribe_registers_webhook(&service).await?;
-    assert_push_announce_uses_mock_station(&service).await?;
+    assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resource(&db, &service)
+        .await?;
     assert_freshness_flags_are_exposed(&db, &service).await?;
     assert_three_path_takedown_strand(&db, &service).await?;
     assert_admin_operator_surface(&service).await?;
@@ -155,7 +152,12 @@ async fn assert_describe_advertises_core(service: &Service) -> anyhow::Result<()
         )
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     let profiles = body["supported_profiles"].as_array().unwrap();
     assert!(profiles.is_empty());
@@ -212,7 +214,12 @@ async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::R
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(body["realms"].as_array().unwrap().iter().any(
         |result| result["realm_id"] == "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu"
@@ -239,7 +246,12 @@ async fn assert_official_badge_is_verified_relationship_driven(
             .json(&json!({ "realm_id": realm_id }))
             .send(service)
             .await;
-        assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+        assert_eq!(
+            res.status_code.unwrap_or(StatusCode::OK),
+            StatusCode::OK,
+            "{}",
+            res.take_string().await.unwrap_or_default()
+        );
         let body: JsonValue = res.take_json().await.expect("resolve-realm body");
         body["realm_preview"]["owning_organization_ids"]
             .as_array()
@@ -395,7 +407,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .json(&json!({ "query": "tea", "limit": 1, "cursor": cursor }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realms"].as_array().unwrap().len(), 1);
 
@@ -516,7 +533,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(body["realms"].as_array().unwrap().iter().any(
         |result| result["realm_id"] == "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt"
@@ -531,7 +553,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
         body["organizations"][0]["organization_principal_id"],
@@ -547,10 +574,15 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .json(&json!({ "organization_principal_id": "ak:did_core:web:tea-org.example" }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
-        body["organization_principal_id"],
+        body["organization_preview"]["organization_principal_id"],
         "ak:did_core:web:tea-org.example"
     );
 
@@ -563,7 +595,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .json(&json!({ "query": "alice", "limit": 10 }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
         body["actors"][0]["actor_id"],
@@ -583,7 +620,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["users"][0]["display_name"], "Alice Tea");
     assert!(body["users"][0].get("account_id").is_none());
@@ -598,7 +640,12 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .json(&json!({ "handle": "alice:example.com" }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     // Handle resolution is the closed SDK outcome, not a directory result
     // envelope. Its identity is the complete principal/Station account pair.
     let outcome: arkret_sdk::DirectoryHandleResolutionOutcome = res.take_json().await?;
@@ -638,14 +685,42 @@ async fn assert_resolve_realm_status(
     Ok(())
 }
 
-async fn assert_push_announce_uses_mock_station(service: &Service) -> anyhow::Result<()> {
+// These rows represent previously accepted resources. They do not establish
+// first-ingest source verification, which needs a peer resolution carrier.
+async fn seed_previously_indexed_realm(
+    db: &server::Db,
+    realm_id: &str,
+    station_id: &str,
+) -> anyhow::Result<()> {
+    let mut conn = db.get().await?;
+    diesel::sql_query(
+        "INSERT INTO directory_resources \
+         (resource_kind, resource_id, station_id, discovery_state, public_projection, \
+          discoverability, as_of, source_refs, policy_revision, indexed_at, \
+          effective_ttl_seconds, next_revalidation_after, stale, divergent, via_services, \
+          last_announce_id, last_refreshed_at, expires_at) \
+         VALUES ('realm'::resource_kind, $1, $2, $3, $3, 'public'::discoverability, \
+          now() - interval '1 minute', ARRAY[]::text[], 'seeded-accepted-state', now(), \
+          3600, now() + interval '1 hour', false, false, ARRAY[$2], \
+          'ak:announce:01991000-0000-7000-8000-000000000001', now(), now() + interval '1 hour')",
+    )
+    .bind::<Text, _>(realm_id)
+    .bind::<Text, _>(station_id)
+    .bind::<Jsonb, _>(realm_discovery_state("Previously indexed Realm"))
+    .execute(&mut conn)
+    .await?;
+    Ok(())
+}
+
+async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resource(
+    db: &server::Db,
+    service: &Service,
+) -> anyhow::Result<()> {
     let source_ref = "ak:event:ASWGTju1AH5ri82iFC0b-lZTclyFRuOI8TagaYiq5ZD2";
     let realm_id = "ak:realm:ATH75ame6bMfYpXtcoLOVb7FKmgpWVniZZqVBz1dUdQa";
-    let mock = MockStation::spawn(source_ref)?;
     let signing_key = SigningKey::from_bytes(&[7; 32]);
-    let public_key = did_key_multibase(&signing_key);
-    let signer_did = format!("did:key:{public_key}");
-    let verification_method = format!("{signer_did}#{public_key}");
+    let mock = FixtureStation::new(&signing_key);
+    let verification_method = mock.verification_method();
     let station_id = mock.station_id()?;
     let discovery_event = signed_realm_discovery_event(
         realm_id,
@@ -655,25 +730,50 @@ async fn assert_push_announce_uses_mock_station(service: &Service) -> anyhow::Re
         &station_id,
     )?;
 
+    let request = json!({
+        "discovery_event": discovery_event,
+        "source_refs": [source_ref],
+        "as_of": canonical::format_timestamp_canonical(Utc::now()),
+        "ttl_seconds": 3600,
+    });
+    let mut rejected = TestClient::post("http://local/_arkret/find/directory/announce")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
+            true,
+        )
+        .json(&request)
+        .send(service)
+        .await;
+    assert_eq!(
+        rejected.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::BAD_REQUEST
+    );
+    let rejection: JsonValue = rejected.take_json().await?;
+    assert_eq!(
+        rejection["type"], "https://arkret.org/problems/source_refs_unverifiable",
+        "{rejection}"
+    );
+    assert!(
+        rejection.to_string().contains("service-resolution carrier"),
+        "{rejection}"
+    );
+    assert_resolve_realm_status(service, realm_id, StatusCode::NOT_FOUND, json!({})).await?;
+
+    seed_previously_indexed_realm(db, realm_id, &station_id).await?;
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .add_header(
             "Arkret-Operation",
             arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
             true,
         )
-        .json(&json!({
-            "discovery_event": discovery_event,
-            "source_refs": [source_ref],
-            "as_of": canonical::format_timestamp_canonical(Utc::now()),
-            "station_id": station_id,
-            "ttl_seconds": 3600,
-        }))
+        .json(&request)
         .send(service)
         .await;
     let status = res.status_code.unwrap_or(StatusCode::OK);
     if status != StatusCode::OK {
         let body = res.take_string().await.unwrap_or_default();
-        panic!("announce with mock Station failed with {status}: {body}");
+        panic!("refresh of seeded resource failed with {status}: {body}");
     }
     let body: JsonValue = res.take_json().await?;
     assert!(
@@ -691,7 +791,12 @@ async fn assert_push_announce_uses_mock_station(service: &Service) -> anyhow::Re
         .json(&json!({ "realm_id": realm_id }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realm_preview"]["realm_id"], realm_id);
     assert_eq!(body["realm_preview"]["member_count_bucket"], "11-50");
@@ -723,12 +828,17 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(
         body["subscription_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("teabay:subscription:"))
+            .is_some_and(|id| arkret_sdk::SubscriptionId::new(id.to_owned()).is_ok())
     );
     assert!(body.get("effective_at").is_some());
     assert!(body.get("created_at").is_none());
@@ -760,7 +870,12 @@ async fn assert_freshness_flags_are_exposed(
         .json(&json!({ "realm_id": "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu" }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realm_preview"]["stale"], true);
     Ok(())
@@ -771,9 +886,6 @@ async fn assert_three_path_takedown_strand(
     service: &Service,
 ) -> anyhow::Result<()> {
     let signing_key = SigningKey::from_bytes(&[14; 32]);
-    let public_key = did_key_multibase(&signing_key);
-    let signer_did = format!("did:key:{public_key}");
-    let verification_method = format!("{signer_did}#{public_key}");
     let destroyed_realm_id = "ak:realm:AQpwDm7ZXVTjUWCnaqcmxxZ49Y8CpzFJ-vLzmvCjBXfw";
     let withdrawn_realm_id = "ak:realm:Ac1aCK8aQdnkYImvdH3DFjq4jDCP198pXYWCGzGuVyj5";
 
@@ -783,8 +895,10 @@ async fn assert_three_path_takedown_strand(
     destroyed_state["terminal_state"] = JsonValue::String("destroyed".to_owned());
     destroyed_state["as_of_destroyed"] = json!(canonical::format_timestamp_canonical(Utc::now()));
     let destroy_source_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
-    let destroy_mock = MockStation::spawn(destroy_source_ref)?;
+    let destroy_mock = FixtureStation::new(&signing_key);
+    let verification_method = destroy_mock.verification_method();
     let destroy_station_id = destroy_mock.station_id()?;
+    seed_previously_indexed_realm(db, destroyed_realm_id, &destroy_station_id).await?;
     let discovery_event = signed_realm_discovery_event(
         destroyed_realm_id,
         destroyed_state,
@@ -792,7 +906,7 @@ async fn assert_three_path_takedown_strand(
         &signing_key,
         &destroy_station_id,
     )?;
-    let res = TestClient::post("http://local/_arkret/find/directory/announce")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .add_header(
             "Arkret-Operation",
             arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
@@ -802,12 +916,16 @@ async fn assert_three_path_takedown_strand(
             "discovery_event": discovery_event,
             "source_refs": [destroy_source_ref],
             "as_of": canonical::format_timestamp_canonical(Utc::now()),
-            "station_id": destroy_station_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
         .add_header(
@@ -818,7 +936,12 @@ async fn assert_three_path_takedown_strand(
         .json(&json!({ "realm_id": destroyed_realm_id }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realm_preview"]["title"], "[erased]");
     assert_eq!(body["realm_preview"]["summary"], "[erased]");
@@ -843,8 +966,10 @@ async fn assert_three_path_takedown_strand(
     // Path 2: resource-initiated withdraw stores a verifiable governance
     // proof receipt and blinds subsequent resolves.
     let withdraw_source_ref = "ak:event:AR8bu-n-kOOB3nRUvYuIEglCX5B-JpFaNTex9gxs_cWY";
-    let withdraw_mock = MockStation::spawn(withdraw_source_ref)?;
+    let withdraw_mock = FixtureStation::new(&signing_key);
+    let verification_method = withdraw_mock.verification_method();
     let withdraw_station_id = withdraw_mock.station_id()?;
+    seed_previously_indexed_realm(db, withdrawn_realm_id, &withdraw_station_id).await?;
     let discovery_event = signed_realm_discovery_event(
         withdrawn_realm_id,
         realm_discovery_state("Withdrawable Tea"),
@@ -852,7 +977,7 @@ async fn assert_three_path_takedown_strand(
         &signing_key,
         &withdraw_station_id,
     )?;
-    let res = TestClient::post("http://local/_arkret/find/directory/announce")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .add_header(
             "Arkret-Operation",
             arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
@@ -862,12 +987,16 @@ async fn assert_three_path_takedown_strand(
             "discovery_event": discovery_event,
             "source_refs": [withdraw_source_ref],
             "as_of": canonical::format_timestamp_canonical(Utc::now()),
-            "station_id": withdraw_station_id,
             "ttl_seconds": 3600,
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
 
     let withdraw_body = signed_withdraw_body(
         withdrawn_realm_id,
@@ -884,7 +1013,12 @@ async fn assert_three_path_takedown_strand(
         .json(&withdraw_body)
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(
         body["withdrawal_ref"]
@@ -929,7 +1063,7 @@ async fn assert_three_path_takedown_strand(
     // Path 3: operator takedown signs a service receipt over the full
     // takedown statement and removes the indexed row.
     let operator_resource_id = "ak:did_core:web:takedown-operator.example";
-    let res = TestClient::post("http://local/_teabay/admin/resources")
+    let mut res = TestClient::post("http://local/_teabay/admin/resources")
         .add_header("authorization", "Bearer cotest-admin", true)
         .json(&json!({
             "resource_kind": "organization",
@@ -948,7 +1082,12 @@ async fn assert_three_path_takedown_strand(
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
 
     let mut res = TestClient::post("http://local/_teabay/admin/takedown")
         .add_header("authorization", "Bearer cotest-admin", true)
@@ -961,7 +1100,12 @@ async fn assert_three_path_takedown_strand(
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     let operator_withdraw_id = body["withdraw_id"].as_str().expect("withdraw_id");
 
@@ -1046,7 +1190,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(
         body["items"]
@@ -1063,7 +1212,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["item"]["resource_did"], "did:web:principal.test");
 
@@ -1071,7 +1225,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"][0]["resource_did"], "did:web:principal.test");
 
@@ -1095,7 +1254,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["item"]["resource_id"], managed_resource_id);
     assert_eq!(body["item"]["policy_revision"], "admin-r1");
@@ -1109,7 +1273,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .json(&json!({ "query": "Admin Managed", "limit": 10 }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(
         body["organizations"]
@@ -1130,7 +1299,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         }))
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(
         body["withdraw_id"]
@@ -1158,7 +1332,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
     .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["deleted"], 1);
 
@@ -1168,7 +1347,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
     .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["deleted"], 1);
 
@@ -1178,7 +1362,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     .add_header("authorization", "Bearer cotest-admin", true)
     .send(service)
     .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["items"].as_array().unwrap().len(), 0);
 
@@ -1186,7 +1375,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
         .add_header("authorization", "Bearer cotest-admin", true)
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
+    assert_eq!(
+        res.status_code.unwrap_or(StatusCode::OK),
+        StatusCode::OK,
+        "{}",
+        res.take_string().await.unwrap_or_default()
+    );
     let body: JsonValue = res.take_json().await?;
     assert!(
         body["events"]
@@ -1220,105 +1414,27 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     Ok(())
 }
 
-struct MockStation {
-    addr: SocketAddr,
-    shutdown: Arc<AtomicBool>,
-    handle: Option<JoinHandle<()>>,
+// This fixture proves governance-key ownership only. It intentionally has no
+// peer ServiceResolutionCarrier or network endpoint, so it cannot prove first ingest.
+struct FixtureStation {
+    multibase: String,
 }
 
-impl MockStation {
-    fn spawn(event_id: &str) -> anyhow::Result<Self> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        listener.set_nonblocking(true)?;
-        let addr = listener.local_addr()?;
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let thread_shutdown = Arc::clone(&shutdown);
-        let event_id = event_id.to_owned();
-        let station_id = principal_did_for_addr(addr);
-
-        let handle = thread::spawn(move || {
-            while !thread_shutdown.as_ref().load(Ordering::SeqCst) {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        handle_mock_principal_connection(stream, addr, &station_id, &event_id)
-                    }
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        Ok(Self {
-            addr,
-            shutdown,
-            handle: Some(handle),
-        })
+impl FixtureStation {
+    fn new(signing_key: &SigningKey) -> Self {
+        Self {
+            multibase: did_key_multibase(signing_key),
+        }
     }
 
     fn station_id(&self) -> anyhow::Result<String> {
-        let did = Did::new(principal_did_for_addr(self.addr))?;
+        let did = Did::new(format!("did:key:{}", self.multibase))?;
         Ok(arkret_sdk::project_did_to_core_id(&did)?.to_string())
     }
-}
 
-impl Drop for MockStation {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(self.addr);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
+    fn verification_method(&self) -> String {
+        format!("did:key:{0}#{0}", self.multibase)
     }
-}
-
-fn principal_did_for_addr(addr: SocketAddr) -> String {
-    format!("did:webvh:teabay-conformance:127.0.0.1%3A{}", addr.port())
-}
-
-fn handle_mock_principal_connection(
-    mut stream: TcpStream,
-    addr: SocketAddr,
-    station_id: &str,
-    event_id: &str,
-) {
-    let mut buffer = [0_u8; 2048];
-    let Ok(size) = stream.read(&mut buffer) else {
-        return;
-    };
-    let request = String::from_utf8_lossy(&buffer[..size]);
-    let path = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or("/");
-    let did_doc = json!({
-        "@context": ["https://www.w3.org/ns/did/v1"],
-        "id": station_id,
-        "service": [{
-            "id": format!("{station_id}#principal"),
-            "type": "ArkretStation",
-            "serviceEndpoint": format!("http://127.0.0.1:{}/_arkret", addr.port()),
-        }]
-    });
-    let (status, body) = if path == "/.well-known/did.json" {
-        ("200 OK", did_doc)
-    } else if path == format!("/_arkret/self/events/{event_id}") {
-        ("200 OK", json!({ "event_id": event_id }))
-    } else {
-        (
-            "404 Not Found",
-            json!({ "error": "not_found", "path": path }),
-        )
-    };
-
-    let body = body.to_string();
-    let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let _ = stream.write_all(response.as_bytes());
 }
 
 fn realm_discovery_state(name: &str) -> JsonValue {
@@ -1327,7 +1443,7 @@ fn realm_discovery_state(name: &str) -> JsonValue {
         "discoverability": "public",
         "directory_services": ["ak:did_core:web:directory.test"],
         "name": name,
-        "summary": "Accepted through push announce against a mock Station",
+        "summary": "Previously indexed resource refreshed by a verified governance key",
         "member_count": 42,
     })
 }

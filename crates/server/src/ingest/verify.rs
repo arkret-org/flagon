@@ -36,7 +36,10 @@ use url::Url;
 
 use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::db::Db;
-use crate::did_resolver::{SharedDidResolver, did_method_allowed, did_method_prefix_for_did};
+use crate::did_resolver::{
+    SharedDidResolver, did_method_allowed, did_method_prefix_for_did,
+    verification_method_controller_core_id,
+};
 use crate::error::ApiErrorCode;
 use crate::ingest::DirectoryResourceKindDb;
 use crate::ingest::announce::DirectoryAnnounceIngest;
@@ -553,18 +556,25 @@ fn verify_jws_ed25519(
 fn enforce_governance_method_binding(
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
-    expected_controller_did: Option<&str>,
+    expected_controller_core_id: Option<&str>,
     verification_method: &str,
 ) -> Result<(), (ApiErrorCode, String)> {
     let did = verification_method
         .split_once('#')
         .map(|(did, _)| did)
         .unwrap_or(verification_method);
+    let controller =
+        verification_method_controller_core_id(verification_method).ok_or_else(|| {
+            (
+                ApiErrorCode::GovernanceKeyInvalid,
+                "verification_method has no valid registered DID controller".to_owned(),
+            )
+        })?;
     match resource_kind {
         DirectoryResourceKindDb::Organization
         | DirectoryResourceKindDb::Actor
         | DirectoryResourceKindDb::Applet => {
-            if did != resource_id {
+            if controller.as_str() != resource_id {
                 return Err((
                     ApiErrorCode::GovernanceKeyInvalid,
                     format!("verification_method DID `{did}` does not control `{resource_id}`"),
@@ -572,13 +582,13 @@ fn enforce_governance_method_binding(
             }
         }
         DirectoryResourceKindDb::Realm | DirectoryResourceKindDb::Handle => {
-            let Some(expected) = expected_controller_did else {
+            let Some(expected) = expected_controller_core_id else {
                 return Err((
                     ApiErrorCode::GovernanceKeyInvalid,
                     format!("no indexed governance controller for `{resource_id}`"),
                 ));
             };
-            if did != expected {
+            if controller.as_str() != expected {
                 return Err((
                     ApiErrorCode::GovernanceKeyInvalid,
                     format!(
@@ -1331,7 +1341,7 @@ mod tests {
             enforce_governance_method_binding(
                 DirectoryResourceKindDb::Realm,
                 "ak:realm:tea",
-                Some("did:web:principal.example"),
+                Some("ak:did_core:web:principal.example"),
                 "did:web:attacker.example#key-1",
             )
             .is_err()
@@ -1341,7 +1351,7 @@ mod tests {
             enforce_governance_method_binding(
                 DirectoryResourceKindDb::Realm,
                 "ak:realm:tea",
-                Some("did:web:principal.example"),
+                Some("ak:did_core:web:principal.example"),
                 "did:web:principal.example#key-1",
             )
             .is_ok()
@@ -1355,7 +1365,7 @@ mod tests {
 
     struct GovernanceSigner {
         signing_key: SigningKey,
-        issuer_did: String,
+        issuer_core_id: DidCoreId,
         verification_method: DidUrl,
     }
 
@@ -1369,7 +1379,8 @@ mod tests {
             DidUrl::new(format!("{issuer_did}#{multibase}")).expect("verification method");
         GovernanceSigner {
             signing_key,
-            issuer_did,
+            issuer_core_id: arkret_sdk::project_did_to_core_id(&Did::new(issuer_did).unwrap())
+                .unwrap(),
             verification_method,
         }
     }
@@ -1424,7 +1435,7 @@ mod tests {
         verify_governance_proof(
             body,
             DirectoryResourceKindDb::Realm,
-            Some(signer.issuer_did.as_str()),
+            Some(signer.issuer_core_id.as_str()),
             service_id,
             &resolver(),
             now,
@@ -1527,7 +1538,7 @@ mod tests {
         let (code, _) = verify_governance_proof(
             &body,
             DirectoryResourceKindDb::Realm,
-            Some("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"),
+            Some("ak:did_core:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"),
             DIRECTORY_SERVICE_ID,
             &resolver(),
             now,

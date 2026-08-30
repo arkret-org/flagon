@@ -7,6 +7,17 @@ use serde_json::Value as JsonValue;
 use teabay_contracts::DirectoryDiscoveryState;
 
 use crate::ingest::DirectoryResourceKindDb;
+use crate::middleware::http_sig::AuthenticatedHttpSignature;
+
+pub(super) fn transport_origin_matches_actor(
+    signature: &AuthenticatedHttpSignature,
+    actor: &arkret_sdk::ActorId,
+) -> bool {
+    let expected = actor.route_service_id();
+    signature.source_service_id.as_ref() == Some(expected)
+        && crate::did_resolver::verification_method_controller_core_id(&signature.key_id).as_ref()
+            == Some(expected)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DirectoryAnnounceIngest {
@@ -37,6 +48,9 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
 
     fn try_from(value: DirectoryAnnounceRequestBody) -> Result<Self, Self::Error> {
         let event = value.discovery_event;
+        // The signed author is the only origin carrier; the request cannot
+        // override its route with an independent Station identity.
+        let station_id = event.actor_id.route_service_id().clone();
         let (resource_kind, resource_id) = match event.kind.as_str() {
             "ak.realm.discovery" => (DirectoryResourceKindDb::Realm, event.realm_id.to_string()),
             "ak.organization.discovery" => (
@@ -68,7 +82,7 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             discovery_event: event,
             resource_kind,
             resource_id,
-            station_id: value.station_id,
+            station_id,
             discovery_state,
             source_refs: value.source_refs,
             as_of: value.as_of,

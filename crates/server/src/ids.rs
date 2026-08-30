@@ -1,6 +1,6 @@
 //! UUIDv7-prefixed identifiers used by teabay.
 //!
-//! `ak:announce:` is a registered protocol typed id. Other teabay-issued
+//! `ak:announce:` and `ak:subscription:` are registered protocol typed ids. Other teabay-issued
 //! ids are Directory-local references and deliberately stay outside the
 //! reserved `ak:` namespace.
 //!
@@ -30,9 +30,9 @@ impl IdClass {
     fn prefix(self) -> &'static str {
         match self {
             Self::Announce => "ak:announce:",
-            Self::Withdraw => "teabay:withdraw:",
+            Self::Withdraw => "withdrawal:",
             Self::Appeal => "teabay:appeal:",
-            Self::Subscription => "teabay:subscription:",
+            Self::Subscription => "ak:subscription:",
             Self::AuditAck => "teabay:audit_ack:",
         }
     }
@@ -82,6 +82,25 @@ mod tests {
     #[test]
     fn audit_ack_prefix_is_not_abbreviated() {
         assert!(new_id(IdClass::AuditAck).starts_with("teabay:audit_ack:"));
+    }
+
+    #[test]
+    fn subscription_ids_match_the_registered_sdk_wire_type() {
+        let id = new_id(IdClass::Subscription);
+        let typed = arkret_sdk::SubscriptionId::new(id.clone()).unwrap();
+        assert_eq!(typed.as_str(), id);
+        assert_eq!(parse(&id), Some(IdClass::Subscription));
+        let retired = id.replacen("ak:subscription:", "teabay:subscription:", 1);
+        assert!(arkret_sdk::SubscriptionId::new(retired.clone()).is_err());
+        assert!(parse(&retired).is_none());
+    }
+
+    #[test]
+    fn withdrawal_references_use_the_closed_public_dto_prefix() {
+        let reference = new_id(IdClass::Withdraw);
+        assert!(reference.starts_with("withdrawal:"));
+        assert_eq!(parse(&reference), Some(IdClass::Withdraw));
+        assert!(!reference.starts_with("ak:"));
     }
 
     #[test]
