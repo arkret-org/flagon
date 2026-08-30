@@ -334,7 +334,10 @@ mod tests {
 
     fn list_handles_body(requester_id: &Requester) -> DirectoryListHandlesForSubjectRequestBody {
         DirectoryListHandlesForSubjectRequestBody {
-            subject_id: DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
+            account_id: arkret_sdk::AccountId::new(
+                DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
+                DidCoreId::new("ak:did_core:web:station.example".to_owned()).unwrap(),
+            ),
             realm_id: Some(
                 RealmId::new("ak:realm:AY0Z0alJlPB4P2wAIOCSTs_yNX_lm1mM5r3mhhQuKIFb".to_owned())
                     .unwrap(),

@@ -27,12 +27,19 @@ fn subject_id() -> arkret_sdk::DidCoreId {
     arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap()
 }
 
+fn account_id() -> arkret_sdk::AccountId {
+    arkret_sdk::AccountId::new(
+        subject_id(),
+        arkret_sdk::DidCoreId::new("ak:did_core:web:station.example".to_owned()).unwrap(),
+    )
+}
+
 fn req(
     realm_id: Option<&str>,
     requester_id: Option<&str>,
 ) -> DirectoryListHandlesForSubjectRequestBody {
     DirectoryListHandlesForSubjectRequestBody {
-        subject_id: subject_id(),
+        account_id: account_id(),
         realm_id: realm_id.map(|r| arkret_sdk::RealmId::new(r.to_owned()).unwrap()),
         intent: None,
         requester_id: requester_id.map(|r| arkret_sdk::DidCoreId::new(r.to_owned()).unwrap()),
@@ -44,7 +51,17 @@ fn req(
     }
 }
 
-fn row(projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleRow {
+fn row(mut projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleRow {
+    if let Some(object) = projection.as_object_mut() {
+        object
+            .entry("issuer_id")
+            .or_insert_with(|| json!("ak:did_core:web:issuer_id.tea"));
+        if object.get("verified").and_then(serde_json::Value::as_bool) == Some(true) {
+            object
+                .entry("expires_at")
+                .or_insert_with(|| json!("2027-05-20T00:00:00.000Z"));
+        }
+    }
     SubjectHandleRow::for_test(
         projection,
         disc,
@@ -72,11 +89,11 @@ fn happy_path_single_active_claim() {
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
-        response.subject_id.as_str(),
+        response.account_id.principal_id.as_str(),
         "ak:did_core:web:alice.example"
     );
     assert_eq!(
-        response.claims[0].subject_id.as_ref().unwrap().as_str(),
+        response.claims[0].subject_account_id.principal_id.as_str(),
         "ak:did_core:web:alice.example"
     );
     assert_eq!(
@@ -111,7 +128,7 @@ fn subject_mismatch_claim_is_dropped() {
     assert_eq!(response.claims.len(), 1);
     for claim in &response.claims {
         assert_eq!(
-            claim.subject_id.as_ref().unwrap().as_str(),
+            claim.subject_account_id.principal_id.as_str(),
             "ak:did_core:web:alice.example",
             "every surviving claim's subject_id must equal response.subject_id"
         );
@@ -167,10 +184,7 @@ fn audience_out_of_scope_is_filtered() {
     let response = assemble_response(&body, rows, None, 0, 20, None).expect("ok");
 
     assert_eq!(response.claims.len(), 1);
-    assert_eq!(
-        response.claims[0].handle.as_ref().unwrap().canonical(),
-        "open:example.com"
-    );
+    assert_eq!(response.claims[0].handle.canonical(), "open:example.com");
 }
 
 /// Case 3b — audience match: when the pinned audience equals the requester_id,
@@ -240,11 +254,8 @@ fn issuer_or_domain_outside_policy_is_filtered() {
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
-        response.claims[0]
-            .issuer_id
-            .as_ref()
-            .map(arkret_sdk::DidCoreId::as_str),
-        Some("ak:did_core:web:issuer_id.tea")
+        response.claims[0].issuer_id.as_str(),
+        "ak:did_core:web:issuer_id.tea"
     );
 }
 
@@ -274,14 +285,8 @@ fn cursor_pagination_boundary() {
     assert_eq!(page1.claims.len(), 2);
     assert!(page1.has_more);
     assert!(page1.next_cursor.is_none());
-    assert_eq!(
-        page1.claims[0].handle.as_ref().unwrap().canonical(),
-        "a:example.com"
-    );
-    assert_eq!(
-        page1.claims[1].handle.as_ref().unwrap().canonical(),
-        "b:example.com"
-    );
+    assert_eq!(page1.claims[0].handle.canonical(), "a:example.com");
+    assert_eq!(page1.claims[1].handle.canonical(), "b:example.com");
 
     // The handler resolves the opaque cursor to offset 2 before invoking the
     // pure assembler.
@@ -290,10 +295,7 @@ fn cursor_pagination_boundary() {
     assert_eq!(page2.claims.len(), 1);
     assert!(!page2.has_more);
     assert!(page2.next_cursor.is_none());
-    assert_eq!(
-        page2.claims[0].handle.as_ref().unwrap().canonical(),
-        "c:example.com"
-    );
+    assert_eq!(page2.claims[0].handle.canonical(), "c:example.com");
 }
 
 /// A non-directory-visible (e.g. secret) row is dropped by the disclosure

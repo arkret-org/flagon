@@ -115,7 +115,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     // key obeys exactly the same rule as the forward claim subject_id. This
     // runs BEFORE rate-limit / latency padding because it is a structural
     // rejection, not a privacy-preserving miss.
-    if let Err(err) = validate_handle_claim_subject(&body.subject_id) {
+    if let Err(err) = validate_handle_claim_subject(&body.account_id.principal_id) {
         state
             .metrics()
             .record_query_outcome("list-handles-for-subject", "invalid_subject_kind");
@@ -128,7 +128,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     }
 
     // Anti-enumeration rate-limit keyed on the subject_id DID (DIR-TBY-3).
-    if !enforce_resolve_rate_limit(req, res, &state, body.subject_id.as_str()) {
+    if !enforce_resolve_rate_limit(req, res, &state, body.account_id.principal_id.as_str()) {
         state
             .metrics()
             .record_query_outcome("list-handles-for-subject", "rate_limited");
@@ -159,7 +159,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
         }
     };
     let cursor_context = CursorBindingContext::new(
-        body.subject_id.as_str(),
+        body.account_id.to_string(),
         None,
         state.service_core_id().clone(),
         filter_digest,
@@ -196,7 +196,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let requester_ip_hash = super::requester_ip_hash(&requester_ip);
     let privacy_key = format!(
         "subject_id={};intent={};realm={};req={};cursor={};limit={limit};iph={requester_ip_hash}",
-        body.subject_id.as_str(),
+        body.account_id,
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id
             .as_ref()
@@ -299,7 +299,9 @@ async fn build_response(
     }
 
     let (rows, scan_capped) =
-        match load_subject_handle_rows(state, body.subject_id.as_str(), body.as_of).await {
+        match load_subject_handle_rows(state, body.account_id.principal_id.as_str(), body.as_of)
+            .await
+        {
             Ok(result) => result,
             Err(_) => return ListOutcome::Error,
         };
@@ -384,7 +386,7 @@ pub fn assemble_response(
             continue;
         }
 
-        let Some(claim) = claim_from_projection(&row, body.subject_id.as_str()) else {
+        let Some(claim) = claim_from_projection(&row, &body.account_id) else {
             // subject_id mismatch / unparseable — fail-closed DROP (DIR-TBY-2).
             drop("subject_mismatch");
             continue;
@@ -398,8 +400,8 @@ pub fn assemble_response(
     // Stable order so the opaque cursor is deterministic: by canonical handle
     // string then by issuer_id.
     claims.sort_by(|a, b| {
-        let ah = a.handle.as_ref().map(Handle::canonical).unwrap_or_default();
-        let bh = b.handle.as_ref().map(Handle::canonical).unwrap_or_default();
+        let ah = a.handle.canonical();
+        let bh = b.handle.canonical();
         ah.cmp(bh).then_with(|| a.issuer_id.cmp(&b.issuer_id))
     });
 
@@ -417,7 +419,7 @@ pub fn assemble_response(
     let next_offset = cursor_offset + page.len();
     let has_more = next_offset < total;
     let response = DirectorySubjectHandleList {
-        subject_id: body.subject_id.clone(),
+        account_id: body.account_id.clone(),
         claims: page,
         primary_handle,
         as_of,
@@ -595,11 +597,13 @@ fn projection_subject(projection: &JsonValue) -> Option<&str> {
 /// `subject_id` to the request subject_id. Returns `None` (DROP) when the row's
 /// asserted subject_id does not byte-equal the request subject_id — this is the
 /// fail-closed path for the `claims[].subject_id == response.subject_id` invariant.
-fn claim_from_projection(row: &SubjectHandleRow, subject_id: &str) -> Option<HandleClaim> {
-    if projection_subject(&row.public_projection) != Some(subject_id) {
+fn claim_from_projection(
+    row: &SubjectHandleRow,
+    account_id: &arkret_sdk::AccountId,
+) -> Option<HandleClaim> {
+    if projection_subject(&row.public_projection) != Some(account_id.principal_id.as_str()) {
         return None;
     }
-    let subject_id = arkret_sdk::DidCoreId::new(subject_id.to_owned()).ok()?;
     // The handle string must come from the projection's canonical
     // `handle` field. The directory index key may use a dot-form
     // resource_id, so it is intentionally not a fallback.
@@ -607,7 +611,7 @@ fn claim_from_projection(row: &SubjectHandleRow, subject_id: &str) -> Option<Han
         .public_projection
         .get("handle")
         .and_then(JsonValue::as_str)
-        .and_then(|h| Handle::parse(h).ok());
+        .and_then(|h| Handle::parse(h).ok())?;
 
     let verified = row
         .public_projection
@@ -624,8 +628,8 @@ fn claim_from_projection(row: &SubjectHandleRow, subject_id: &str) -> Option<Han
         .get("issuer_id")
         .and_then(JsonValue::as_str)
     {
-        Some(raw) => Some(arkret_sdk::DidCoreId::new(raw.to_owned()).ok()?),
-        None => None,
+        Some(raw) => arkret_sdk::DidCoreId::new(raw.to_owned()).ok()?,
+        None => return None,
     };
 
     let claim_kind = row
@@ -648,19 +652,28 @@ fn claim_from_projection(row: &SubjectHandleRow, subject_id: &str) -> Option<Han
         schema: HandleClaim::SCHEMA.to_owned(),
         handle,
         handle_aliases: Vec::new(),
-        subject_id: Some(subject_id),
+        subject_account_id: account_id.clone(),
         issuer_id,
         vouching_id: None,
-        binding_state: verified.then_some(arkret_sdk::HandleBindingState::Verified),
+        binding_state: if verified {
+            arkret_sdk::HandleBindingState::Verified
+        } else {
+            arkret_sdk::HandleBindingState::Pending
+        },
         claim_kind,
         visibility: None,
         audience: None,
         challenge: None,
         claim_scope: Default::default(),
-        member_delivery_binding: None,
         claims: Vec::new(),
         created_at,
-        expires_at: None,
+        expires_at: row
+            .public_projection
+            .get("expires_at")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .ok()?,
         verified_at: None,
         source_refs: Vec::new(),
         proofs: Vec::new(),
@@ -683,14 +696,9 @@ fn parse_handle_claim_kind(value: &str) -> Option<arkret_sdk::HandleClaimKind> {
 fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
     claims
         .iter()
-        .find(|c| {
-            matches!(
-                c.binding_state,
-                Some(arkret_sdk::HandleBindingState::Verified)
-            ) && c.handle.is_some()
-        })
-        .or_else(|| claims.iter().find(|c| c.handle.is_some()))
-        .and_then(|c| c.handle.clone())
+        .find(|c| c.binding_state == arkret_sdk::HandleBindingState::Verified)
+        .or_else(|| claims.first())
+        .map(|c| c.handle.clone())
 }
 
 /// Load a Realm's domain-scoped `handle_issuer_policy` from its cached
@@ -859,6 +867,13 @@ mod tests {
         )
     }
 
+    fn account_id() -> arkret_sdk::AccountId {
+        arkret_sdk::AccountId::new(
+            arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
+            arkret_sdk::DidCoreId::new("ak:did_core:web:station.example".to_owned()).unwrap(),
+        )
+    }
+
     #[test]
     fn projection_subject_accepts_only_canonical_subject() {
         assert_eq!(
@@ -880,22 +895,18 @@ mod tests {
     #[test]
     fn claim_from_projection_binds_request_subject() {
         let row = handle_row(
-            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true,"created_at":"2026-05-20T00:00:00.000Z"}),
+            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","issuer_id":"ak:did_core:web:issuer.example","verified":true,"created_at":"2026-05-20T00:00:00.000Z","expires_at":"2026-05-21T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
-        let claim =
-            claim_from_projection(&row, "ak:did_core:web:alice.example").expect("claim built");
+        let claim = claim_from_projection(&row, &account_id()).expect("claim built");
         assert_eq!(
-            claim.subject_id.as_ref().unwrap().as_str(),
+            claim.subject_account_id.principal_id.as_str(),
             "ak:did_core:web:alice.example"
         );
-        assert_eq!(
-            claim.handle.as_ref().unwrap().canonical(),
-            "alice:example.com"
-        );
+        assert_eq!(claim.handle.canonical(), "alice:example.com");
         assert!(matches!(
             claim.binding_state,
-            Some(arkret_sdk::HandleBindingState::Verified)
+            arkret_sdk::HandleBindingState::Verified
         ));
     }
 
@@ -907,7 +918,7 @@ mod tests {
             json!({"subject_id":"ak:did_core:web:eve.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00.000Z"}),
             DiscoverabilityDb::Public,
         );
-        assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
+        assert!(claim_from_projection(&row, &account_id()).is_none());
     }
 
     #[test]
@@ -920,13 +931,13 @@ mod tests {
             json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
             DiscoverabilityDb::Public,
         );
-        assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
+        assert!(claim_from_projection(&row, &account_id()).is_none());
         // A non-canonical spelling (no milliseconds) is rejected the same way.
         let row = handle_row(
             json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
             DiscoverabilityDb::Public,
         );
-        assert!(claim_from_projection(&row, "ak:did_core:web:alice.example").is_none());
+        assert!(claim_from_projection(&row, &account_id()).is_none());
     }
 
     #[test]
@@ -967,8 +978,7 @@ mod tests {
     #[test]
     fn audience_filter_passes_unpinned_and_matching() {
         let body = DirectoryListHandlesForSubjectRequestBody {
-            subject_id: arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned())
-                .unwrap(),
+            account_id: account_id(),
             realm_id: None,
             intent: None,
             requester_id: Some(
@@ -998,30 +1008,28 @@ mod tests {
     fn primary_handle_prefers_verified() {
         let verified = HandleClaim {
             schema: HandleClaim::SCHEMA.to_owned(),
-            handle: Some(Handle::parse("zed:example.com").unwrap()),
+            handle: Handle::parse("zed:example.com").unwrap(),
             handle_aliases: Vec::new(),
-            subject_id: Some(
-                arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap(),
-            ),
-            issuer_id: None,
+            subject_account_id: account_id(),
+            issuer_id: arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned())
+                .unwrap(),
             vouching_id: None,
-            binding_state: Some(arkret_sdk::HandleBindingState::Verified),
+            binding_state: arkret_sdk::HandleBindingState::Verified,
             claim_kind: None,
             visibility: None,
             audience: None,
             challenge: None,
             claim_scope: Default::default(),
-            member_delivery_binding: None,
             claims: Vec::new(),
             created_at: Utc::now(),
-            expires_at: None,
+            expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
             verified_at: None,
             source_refs: Vec::new(),
             proofs: Vec::new(),
         };
         let unverified = HandleClaim {
-            binding_state: None,
-            handle: Some(Handle::parse("aaa:example.com").unwrap()),
+            binding_state: arkret_sdk::HandleBindingState::Pending,
+            handle: Handle::parse("aaa:example.com").unwrap(),
             ..verified.clone()
         };
         let claims = vec![unverified, verified];

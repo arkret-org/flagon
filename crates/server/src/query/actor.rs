@@ -175,7 +175,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
                     user_search_outcome_from_envelope(envelope_from_row(scored.row)).map(
                         |mut outcome| {
                             if !did_authorized {
-                                outcome.principal_id = None;
+                                outcome.account_id = None;
                             }
                             outcome
                         },

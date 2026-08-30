@@ -389,6 +389,7 @@ enum ResolveOutcome {
 #[derive(Debug, Queryable, Clone)]
 struct HandleRow {
     resource_id: String,
+    station_id: String,
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
@@ -412,6 +413,7 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
         .filter(r::stale.eq(false))
         .select((
             r::resource_id,
+            r::station_id,
             r::public_projection,
             r::discoverability,
             r::as_of,
@@ -610,6 +612,7 @@ fn evaluate_handle_disclosure(
         let envelope = envelope_from_projection(
             projection,
             row.resource_id,
+            row.station_id,
             row.discoverability,
             row.as_of,
             row.source_refs,
@@ -643,6 +646,7 @@ fn evaluate_handle_disclosure(
     let envelope = envelope_from_projection(
         row.public_projection,
         row.resource_id,
+        row.station_id,
         row.discoverability,
         row.as_of,
         row.source_refs,
@@ -734,6 +738,7 @@ fn is_service_core_id(service_id: &str) -> bool {
 fn envelope_from_projection(
     public_projection: JsonValue,
     resource_id: String,
+    station_id: String,
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
@@ -755,6 +760,7 @@ fn envelope_from_projection(
         .unwrap_or(JsonValue::Null);
     let mut payload = json!({
         "principal_id": principal_id,
+        "station_id": station_id,
         "handle": resource_id,
         "verified": public_projection.get("verified").and_then(JsonValue::as_bool).unwrap_or(false),
         "claims": claims,
@@ -799,6 +805,13 @@ fn handle_resolution_from_envelope(
         .to_owned();
     let principal_id = DidCoreId::new(principal_id_raw)
         .map_err(|error| format!("handle projection principal_id is invalid: {error}"))?;
+    let station_id_raw = payload
+        .get("station_id")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| "handle projection station_id is missing".to_owned())?
+        .to_owned();
+    let station_id = DidCoreId::new(station_id_raw)
+        .map_err(|error| format!("handle projection station_id is invalid: {error}"))?;
     let handle = payload
         .get("handle")
         .and_then(JsonValue::as_str)
@@ -815,41 +828,19 @@ fn handle_resolution_from_envelope(
         .map(serde_json::from_value)
         .transpose()
         .map_err(|error| format!("handle projection claims are invalid: {error}"))?;
-    let audience = payload
-        .get("audience")
-        .and_then(JsonValue::as_str)
-        .map(str::to_owned);
-    let member_delivery_binding = payload
-        .get("member_delivery_binding")
-        .filter(|value| !value.is_null())
+    let expires_at = payload
+        .get("expires_at")
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| {
-            format!("handle projection member_delivery_binding is invalid: {error}")
-        })?;
-    let handle_claim = payload
-        .get("handle_claim")
-        .filter(|value| !value.is_null())
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|error| format!("handle projection handle_claim is invalid: {error}"))?;
+        .map_err(|error| format!("handle projection expires_at is invalid: {error}"))?;
     Ok(DirectoryHandleResolutionOutcome {
-        subject_id: principal_id.clone(),
-        principal_id,
+        account_id: arkret_sdk::AccountId::new(principal_id, station_id),
         handle,
         verified,
         claims,
-        audience,
-        member_delivery_binding,
-        handle_claim,
-        as_of: Some(envelope.as_of),
         source_refs: envelope.source_refs,
-        policy_revision: Some(envelope.policy_revision),
-        stale: envelope.stale,
-        divergent: envelope.divergent,
-        via_services: Vec::new(),
+        expires_at,
     })
 }
 
@@ -864,6 +855,7 @@ mod tests {
     fn dummy_row(public_projection: JsonValue) -> HandleRow {
         HandleRow {
             resource_id: "alice:example.com".to_string(),
+            station_id: "ak:did_core:web:station.test".to_string(),
             public_projection,
             discoverability: DiscoverabilityDb::Public,
             as_of: Utc.timestamp_opt(0, 0).unwrap(),
