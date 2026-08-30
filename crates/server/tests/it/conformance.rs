@@ -42,11 +42,12 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     let postgres_tag =
         std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
     let container = postgres::Postgres::default()
+        .with_password("1amTester!")
         .with_tag(postgres_tag)
         .start()
         .await?;
     let database_url = format!(
-        "postgres://postgres:postgres@{}:{}/postgres",
+        "postgres://postgres:1amTester!@{}:{}/postgres",
         container.get_host().await?,
         container.get_host_port_ipv4(5432).await?
     );
@@ -716,7 +717,7 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
     db: &server::Db,
     service: &Service,
 ) -> anyhow::Result<()> {
-    let source_ref = "ak:event:ASWGTju1AH5ri82iFC0b-lZTclyFRuOI8TagaYiq5ZD2";
+    let policy_ref = "ak:event:ASWGTju1AH5ri82iFC0b-lZTclyFRuOI8TagaYiq5ZD2";
     let realm_id = "ak:realm:ATH75ame6bMfYpXtcoLOVb7FKmgpWVniZZqVBz1dUdQa";
     let signing_key = SigningKey::from_bytes(&[7; 32]);
     let mock = FixtureStation::new(&signing_key);
@@ -732,7 +733,7 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
 
     let request = json!({
         "discovery_event": discovery_event,
-        "source_refs": [source_ref],
+        "source_refs": [discovery_event["event_id"], policy_ref],
         "as_of": canonical::format_timestamp_canonical(Utc::now()),
         "ttl_seconds": 3600,
     });
@@ -759,6 +760,23 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
         "{rejection}"
     );
     assert_resolve_realm_status(service, realm_id, StatusCode::NOT_FOUND, json!({})).await?;
+    #[derive(diesel::QueryableByName)]
+    struct ResourceCount {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        count: i64,
+    }
+    let mut conn = db.get().await?;
+    let count: ResourceCount = diesel::sql_query(
+        "SELECT count(*) AS count FROM directory_resources WHERE resource_id = $1",
+    )
+    .bind::<Text, _>(realm_id)
+    .get_result(&mut conn)
+    .await?;
+    assert_eq!(
+        count.count, 0,
+        "rejected first ingest leaves no indexed row"
+    );
+    drop(conn);
 
     seed_previously_indexed_realm(db, realm_id, &station_id).await?;
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
@@ -800,7 +818,10 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realm_preview"]["realm_id"], realm_id);
     assert_eq!(body["realm_preview"]["member_count_bucket"], "11-50");
-    assert_eq!(body["realm_preview"]["source_refs"][0], source_ref);
+    assert_eq!(
+        body["realm_preview"]["source_refs"][0],
+        discovery_event["event_id"]
+    );
     assert!(
         body.get("join_candidates")
             .is_none_or(|candidates| { candidates.as_array().is_some_and(Vec::is_empty) }),
@@ -914,7 +935,7 @@ async fn assert_three_path_takedown_strand(
         )
         .json(&json!({
             "discovery_event": discovery_event,
-            "source_refs": [destroy_source_ref],
+            "source_refs": [discovery_event["event_id"], destroy_source_ref],
             "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "ttl_seconds": 3600,
         }))
@@ -985,7 +1006,7 @@ async fn assert_three_path_takedown_strand(
         )
         .json(&json!({
             "discovery_event": discovery_event,
-            "source_refs": [withdraw_source_ref],
+            "source_refs": [discovery_event["event_id"], withdraw_source_ref],
             "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "ttl_seconds": 3600,
         }))

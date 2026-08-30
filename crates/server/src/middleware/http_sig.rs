@@ -17,6 +17,10 @@
 //! Content-Digest: sha-256=:BASE64STANDARD:
 //! ```
 //!
+//! Announce additionally requires a covered `source-service-id` header. Its
+//! handler binds that verified value and the signing service to the signed
+//! discovery Event author's route; an unsigned header is never an origin.
+//!
 //! ## Pluggable key source
 //!
 //! Pubkey resolution is via the [`HttpSigKeyDirectory`] trait. Production

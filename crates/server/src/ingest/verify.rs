@@ -350,14 +350,6 @@ pub(crate) fn verify_discovery_event_proofs(
                 format!("discovery Event proof binding is invalid: {error}"),
             )
         })?;
-    let canonical_bytes = arkret_signatures::EventProofBuilder::new()
-        .envelope_bytes(event)
-        .map_err(|error| {
-            (
-                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                format!("discovery Event proof transcript is invalid: {error}"),
-            )
-        })?;
     let mut producer_count = 0usize;
     for proof in event
         .proofs
@@ -376,9 +368,20 @@ pub(crate) fn verify_discovery_event_proofs(
             .as_str()
             .split_once('#')
             .map_or(proof.verification_method.as_str(), |(did, _)| did);
+        // Event identity/digest bindings were checked above. The signature
+        // covers the producer proof binding object, including the complete
+        // ActorId and proof metadata, never the raw Event bytes alone.
+        let binding_bytes = proof
+            .canonical_binding_bytes(&event.actor_id)
+            .map_err(|error| {
+                (
+                    ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                    format!("discovery Event proof transcript is invalid: {error}"),
+                )
+            })?;
         resolver
             .verify_detached_jws_with_authority(
-                &canonical_bytes,
+                &binding_bytes,
                 &proof.jws,
                 proof.verification_method.as_str(),
                 issuer_id,
@@ -1383,6 +1386,104 @@ mod tests {
                 .unwrap(),
             verification_method,
         }
+    }
+
+    #[tokio::test]
+    async fn discovery_event_verifies_producer_binding_and_rejects_metadata_or_station_tampering() {
+        let signer = test_signer();
+        let mut event = arkret_wire::test_support::raw_event(
+            "ak.actor.discovery",
+            arkret_wire::ScopeRef::Realm {
+                realm_id: arkret_wire::RealmId::new(REALM_ID).unwrap(),
+            },
+            signer.issuer_core_id.clone(),
+            DidCoreId::new("ak:did_core:web:station.example").unwrap(),
+            1,
+            arkret_wire::Hlc::new("01970e589d21-0001-a13f9c2e").unwrap(),
+            json!({"resource_id": signer.issuer_core_id, "value": {"discoverability": "public"}}),
+        )
+        .unwrap();
+        event
+            .refresh_content_bound_identity_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+            .unwrap();
+        let mut proof = arkret_wire::ProducerEventProof {
+            kind: "detached_jws".to_owned(),
+            verification_method: signer.verification_method.clone(),
+            event_digest: Hash::new(
+                event
+                    .event_digest_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+                    .unwrap(),
+            )
+            .unwrap(),
+            signer_resolution_evidence_ref: None,
+            signer_resolution_evidence_digest: None,
+            created_at: event.created_at,
+            domain: None,
+            audience: None,
+            proof_purpose: None,
+            jws: String::new(),
+        };
+        proof.jws = sign_jws_ed25519(
+            &proof.canonical_binding_bytes(&event.actor_id).unwrap(),
+            &signer.signing_key,
+        )
+        .unwrap();
+        event.proofs = vec![proof.clone().into()];
+        let resolver = resolver();
+        let verify = |candidate: &arkret_wire::Event| {
+            verify_discovery_event_proofs(
+                candidate,
+                DirectoryResourceKindDb::Actor,
+                signer.issuer_core_id.as_str(),
+                None,
+                &resolver,
+            )
+        };
+        verify(&event).expect("the actual discovery verifier accepts SDK producer bindings");
+
+        let mut changed_metadata = event.clone();
+        let mut changed_proof = proof.clone();
+        changed_proof.created_at += Duration::seconds(1);
+        changed_metadata.proofs = vec![changed_proof.into()];
+        assert!(
+            verify(&changed_metadata).is_err(),
+            "proof metadata is cryptographically bound"
+        );
+
+        let mut changed_station = event.clone();
+        changed_station.actor_id = arkret_wire::ActorId::account(arkret_wire::AccountId::new(
+            signer.issuer_core_id.clone(),
+            DidCoreId::new("ak:did_core:web:foreign.example").unwrap(),
+        ));
+        changed_station
+            .refresh_content_bound_identity_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+            .unwrap();
+        let mut changed_proof = proof.clone();
+        changed_proof.event_digest = Hash::new(
+            changed_station
+                .event_digest_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+                .unwrap(),
+        )
+        .unwrap();
+        changed_station.proofs = vec![changed_proof.into()];
+        assert!(
+            verify(&changed_station).is_err(),
+            "same principal on another Station needs a new signature"
+        );
+
+        let mut raw_signed = event.clone();
+        proof.jws = sign_jws_ed25519(
+            &arkret_signatures::EventProofBuilder::new()
+                .envelope_bytes(&event)
+                .unwrap(),
+            &signer.signing_key,
+        )
+        .unwrap();
+        raw_signed.proofs = vec![proof.into()];
+        assert!(
+            verify(&raw_signed).is_err(),
+            "legacy raw-envelope signatures are not accepted"
+        );
     }
 
     fn resolver() -> SharedDidResolver {

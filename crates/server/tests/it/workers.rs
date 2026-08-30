@@ -28,11 +28,12 @@ async fn boot_postgres() -> anyhow::Result<(
     let postgres_tag =
         std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
     let container = postgres::Postgres::default()
+        .with_password("1amTester!")
         .with_tag(postgres_tag)
         .start()
         .await?;
     let database_url = format!(
-        "postgres://postgres:postgres@{}:{}/postgres",
+        "postgres://postgres:1amTester!@{}:{}/postgres",
         container.get_host().await?,
         container.get_host_port_ipv4(5432).await?
     );
