@@ -502,7 +502,7 @@ mod tests {
             "payload_digest",
             "issuer",
             "operation_id",
-            "subject_id",
+            "account_id",
             "verification_method",
             "created_at",
             "audience",
@@ -510,6 +510,10 @@ mod tests {
         ];
         expected_list.sort_unstable();
         assert_eq!(keys(&list_transcript), expected_list);
+        assert_eq!(
+            list_transcript["account_id"],
+            serde_json::to_value(&list_body.account_id).unwrap()
+        );
 
         // `resolve_organization` has no originator wire field: no `issuer`.
         let mut expected_org = vec![
