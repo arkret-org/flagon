@@ -40,7 +40,7 @@ This rule is especially important for:
 - invite-only or secret realms
 - restricted organizations
 - actor and handle lookups scoped to a realm
-- member delivery binding disclosure
+- handle-to-account disclosure
 
 ## Latency Equalization
 

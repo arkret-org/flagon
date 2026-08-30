@@ -23,11 +23,7 @@ INSERT INTO directory_resources (
     -- The §3 discovery event kind for the
     -- Realm security boundary is `ak.realm.discovery`.
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
-    -- Spec sync 0a5ab85 / governance/join-policy §5.1.3:
-    -- Realms publish `delivery_binding_policy.allowed_recipient_services` and
-    -- (when narrowing) `allowed_binding_sources`. `trusted_audiences` is the
-    -- audience-binding allow-list `resolve_handle(intent=member_add)` consults.
-    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10","delivery_binding_policy":{"allowed_recipient_services":["ak:did_core:web:principal.test"],"allowed_binding_sources":["join_policy","organization_policy"],"trusted_audiences":["ak:did_core:web:tea-org.example"]}}'::jsonb,
+    '{"name":"Tea Research","summary":"Public teabay conformance realm","member_count_bucket":"1-10"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-realm-tea'],
@@ -178,10 +174,7 @@ INSERT INTO directory_resources (
     'alice:example.com',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.handle.discovery","discoverability":"public"}'::jsonb,
-    -- Spec sync 0a5ab85 / handle-claim.schema.json §3.7: a verified handle
-    -- carries `member_delivery_binding.recipient_id` + binding_source
-    -- so `resolve_handle(intent=member_add)` can run the Realm policy filter.
-    '{"handle":"alice:example.com","subject_id":"ak:did_core:web:alice.example","verified":true,"member_delivery_binding":{"recipient_id":"ak:did_core:web:principal.test","binding_source":"join_policy"}}'::jsonb,
+    '{"handle":"alice:example.com","subject_id":"ak:did_core:web:alice.example","verified":true}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-handle-alice'],

@@ -12,8 +12,8 @@
 //!
 //! The subject_id is supplied by the caller, so this endpoint does NOT leak the
 //! existence of an unknown DID — but it CAN leak which handles a subject_id
-//! holds, so we apply the same disclosure-policy + issuer_id-trust + audience +
-//! intent filtering that `resolve_handle` uses, plus the same anti-enumeration
+//! holds, so we apply disclosure-policy + issuer_id-trust + audience + intent
+//! filtering, plus the same anti-enumeration
 //! latency floor + deterministic jitter + 50ms stochastic resolve jitter
 //! (DIR-TBY-3). An over-broad query that filters every claim collapses to an
 //! empty `claims` array rather than disclosing the existence of restricted
@@ -847,7 +847,7 @@ fn audience_compatible(
     let realm = body.realm_id.as_ref().map(|r| r.as_str());
     if requester_id.is_none() && realm.is_none() {
         // Request carries no audience context — do not filter audience-pinned
-        // claims here (resolve_handle applies the stronger member_add gate).
+        // claims here; a later audience-aware request can decide disclosure.
         return true;
     }
     Some(claim_audience) == requester_id || Some(claim_audience) == realm

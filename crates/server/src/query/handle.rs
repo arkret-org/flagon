@@ -1,12 +1,8 @@
 //! Handle resolution. Spec §9 (`ak.find.directory.read.resolve_handle.v1`).
 //!
-//! Spec sync 0a5ab85 / governance/join-policy §5.1.3:
-//! `ak.find.directory.read.resolve_handle.v1` MUST gate `intent=member_add | invite`
-//! requests on the target **Realm**'s `delivery_binding_policy`
-//! (`allowed_recipient_services`, `allowed_binding_sources`) and on the
-//! Realm's audience-binding list. Unauthorized requesters MUST NOT receive
-//! the underlying subject_id / service DID — they collapse to `not_found` with
-//! the same response shape and latency tier as a genuine miss (§10).
+//! Handle resolution returns the canonical account identity. The account's
+//! `station_id` is the routing authority; the directory does not synthesize or
+//! disclose a separate durable delivery binding.
 //!
 //! §9.0.1: `proofs[]` carries the per-object-family requester_id proof bound to
 //! `ak.directory_resolve_handle_request_proof.v1`. A signature minted under any
@@ -39,21 +35,16 @@ struct ResolveHandleRequestView {
     pub expected_principal_id: Option<DidCoreId>,
     pub proof_challenge: Option<String>,
     pub claim_presentations: Vec<arkret_sdk::DirectoryRestrictedClaimPresentation>,
-    /// Why the handle is being resolved. Spec 0a5ab85:
-    /// gates audience binding on the response claim and selects the
-    /// Realm `delivery_binding_policy` (`allowed_recipient_services`)
-    /// filter when `intent ∈ {member_add, invite}`.
+    /// Why the handle is being resolved. Retained in the signed request and
+    /// privacy key even though routing now comes from the resolved AccountId.
     pub intent: Option<String>,
-    /// Stable Arkret identity of the requester. Used to scope audience-bearing
-    /// claims so that the verifier can enforce `audience == self` and to
-    /// authorize disclosure of Realm-restricted bindings.
+    /// Stable Arkret identity of the requester. Used to verify signed requests
+    /// and authorize restricted handle disclosure.
     pub requester_id: Option<DidCoreId>,
     /// Explicit audience the verifier expects on the claim (typically a
     /// target Realm DID or inviter service DID).
     pub audience: Option<String>,
-    /// Target Realm ID for `intent=member_add | invite`. When present we
-    /// load the Realm `delivery_binding_policy` baseline and filter
-    /// candidate bindings against `allowed_recipient_services`.
+    /// Optional target Realm carried by the request context.
     pub realm_id: Option<RealmId>,
 }
 
@@ -198,7 +189,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
                 Ok(Some(row)) => row,
                 _ => return ResolveOutcome::NotFound,
             };
-            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None)
+            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default())
         },
     )
     .await;
@@ -324,12 +315,7 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 None => return ResolveOutcome::NotFound,
             };
 
-            let policy = match member_add_policy_for(&state, &body).await {
-                Ok(policy) => policy,
-                Err(_) => return ResolveOutcome::NotFound,
-            };
-
-            evaluate_handle_disclosure(row, &body, &verified_claims, policy.as_ref())
+            evaluate_handle_disclosure(row, &body, &verified_claims)
         },
     )
     .await;
@@ -346,10 +332,9 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
                 Err(message) => ApiErrorCode::InternalError.render(res, message),
             }
         }
-        // `not_found` covers genuine miss, unauthorized requester_id, and "all
-        // candidates filtered out" — these MUST be indistinguishable on the
-        // wire so the directory does not leak the existence of the handle
-        // or the recipient service identity.
+        // `not_found` covers genuine misses and unauthorized requesters. These
+        // MUST be indistinguishable on the wire so the directory does not leak
+        // the existence of a restricted handle.
         ResolveOutcome::NotFound => {
             state
                 .metrics()
@@ -433,142 +418,14 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
     }
 }
 
-// ---- Realm delivery-binding policy --------------------------------------
-
-/// Baseline projection of a Realm's `delivery_binding_policy` as cached in
-/// the directory's `public_projection`. Mirrors the schema in
-/// governance/join-policy.md §5.1.3.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct RealmDeliveryBindingPolicy {
-    /// `allowed_recipient_services`: closed set of recipient station
-    /// DIDs that may appear in a Realm-bound delivery_binding. Empty rejects
-    /// every recipient service; the exact singleton `["*"]` explicitly
-    /// removes only this allow-list restriction.
-    pub allowed_recipient_services: Vec<String>,
-    /// `allowed_binding_sources`: optional sub-filter on the binding_source
-    /// enum. Empty = caller does not enforce a binding_source filter here.
-    pub allowed_binding_sources: Vec<String>,
-    /// Trusted audience DIDs (Realm + delegated service DIDs) authorized to
-    /// invoke `intent=member_add | invite`. Empty = treat the Realm's
-    /// `allowed_discoverers` list as the audience-binding source (§9
-    /// fallback so existing fixtures keep working).
-    pub trusted_audiences: Vec<String>,
-    /// Raw `public_projection` so we can fall back on `allowed_discoverers`
-    /// without a second DB round-trip.
-    pub raw_projection: JsonValue,
-}
-
-async fn member_add_policy_for(
-    state: &AppState,
-    body: &ResolveHandleRequestView,
-) -> anyhow::Result<Option<RealmDeliveryBindingPolicy>> {
-    if !is_member_add_intent(body.intent.as_deref()) {
-        return Ok(None);
-    }
-    let Some(realm_id) = body.realm_id.as_ref() else {
-        return Ok(None);
-    };
-    load_realm_policy(state, realm_id.as_str()).await.map(Some)
-}
-
-fn is_member_add_intent(intent: Option<&str>) -> bool {
-    matches!(intent, Some("member_add") | Some("invite"))
-}
-
-async fn load_realm_policy(
-    state: &AppState,
-    realm_id: &str,
-) -> anyhow::Result<RealmDeliveryBindingPolicy> {
-    use crate::schema::directory_resources::dsl as r;
-    let mut conn = state.db().get().await?;
-    let projection: Option<(JsonValue, DiscoverabilityDb)> = r::directory_resources
-        .filter(r::resource_kind.eq(DirectoryResourceKindDb::Realm))
-        .filter(r::resource_id.eq(realm_id))
-        .select((r::public_projection, r::discoverability))
-        .first(&mut *conn)
-        .await
-        .optional()?;
-    let Some((projection, discoverability)) = projection else {
-        return Ok(RealmDeliveryBindingPolicy::default());
-    };
-    if !discoverability.is_directory_visible() {
-        // Hidden / withdrawn Realm — collapse to default-deny policy.
-        return Ok(RealmDeliveryBindingPolicy::default());
-    }
-    Ok(RealmDeliveryBindingPolicy::from_projection(projection))
-}
-
-impl RealmDeliveryBindingPolicy {
-    /// Extract the `delivery_binding_policy` baseline from a Realm's
-    /// `public_projection`.
-    pub(crate) fn from_projection(projection: JsonValue) -> Self {
-        let nested = projection
-            .get("delivery_binding_policy")
-            .or_else(|| projection.pointer("/payload/delivery_binding_policy"));
-        let allowed_recipient_services =
-            string_array_at(nested.and_then(|v| v.get("allowed_recipient_services")));
-        let allowed_binding_sources =
-            string_array_at(nested.and_then(|v| v.get("allowed_binding_sources")));
-        let trusted_audiences = string_array_at(nested.and_then(|v| v.get("trusted_audiences")));
-        Self {
-            allowed_recipient_services,
-            allowed_binding_sources,
-            trusted_audiences,
-            raw_projection: projection,
-        }
-    }
-
-    /// True iff the requester_id is in the audience-binding allow-list, either
-    /// via `trusted_audiences` (preferred) or `allowed_discoverers`
-    /// fallback shared with `resolve_realm`.
-    fn audience_authorized(
-        &self,
-        requester_id: Option<&str>,
-        verified_claims: &VerifiedRestrictedClaims,
-    ) -> bool {
-        if self.trusted_audiences.is_empty()
-            && !crate::filter::discoverers::has_allowed_discoverers(&self.raw_projection)
-        {
-            // No audience constraint declared — fall through to the default
-            // discoverability gate the row itself carries.
-            return true;
-        }
-        if let Some(requester_id) = requester_id
-            && self.trusted_audiences.iter().any(|aud| aud == requester_id)
-        {
-            return true;
-        }
-        // Reuse the `allowed_discoverers` shape when the Realm does not
-        // declare explicit trusted audiences.
-        crate::filter::discoverers::matches_allowed_discoverers(
-            &self.raw_projection,
-            requester_id,
-            verified_claims,
-        )
-    }
-}
-
-fn string_array_at(value: Option<&JsonValue>) -> Vec<String> {
-    value
-        .and_then(JsonValue::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(JsonValue::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 // ---- Disclosure decision -------------------------------------------------
 
-/// Pure decision over `(row, request, policy)`. Extracted so unit tests can
-/// exercise the policy without a Postgres dependency.
+/// Pure disclosure decision extracted so unit tests can exercise the privacy
+/// policy without a Postgres dependency.
 fn evaluate_handle_disclosure(
     row: HandleRow,
     body: &ResolveHandleRequestView,
     verified_claims: &VerifiedRestrictedClaims,
-    policy: Option<&RealmDeliveryBindingPolicy>,
 ) -> ResolveOutcome {
     if body.expected_principal_id.as_ref().is_some_and(|expected| {
         row.public_projection
@@ -593,39 +450,6 @@ fn evaluate_handle_disclosure(
                 .map(|realm_id| realm_id.as_str().to_owned())
         });
 
-    // Member-add path: audience-bind on the Realm, filter candidate bindings.
-    if let Some(policy) = policy {
-        if !policy.audience_authorized(
-            body.requester_id.as_ref().map(DidCoreId::as_str),
-            verified_claims,
-        ) {
-            // Unauthorized requester_id: collapse to not_found so the
-            // directory does not disclose subject_id / member_delivery_binding.
-            return ResolveOutcome::NotFound;
-        }
-        let filtered = filter_projection_against_policy(row.public_projection.clone(), policy);
-        let Some(projection) = filtered else {
-            // The member_delivery_binding was pruned — same not_found
-            // shape so the requester_id cannot enumerate the Realm's policy.
-            return ResolveOutcome::NotFound;
-        };
-        let envelope = envelope_from_projection(
-            projection,
-            row.resource_id,
-            row.station_id,
-            row.discoverability,
-            row.as_of,
-            row.source_refs,
-            row.policy_revision,
-            row.stale,
-            row.divergent,
-            row.via_services,
-            row.expires_at,
-            audience,
-        );
-        return ResolveOutcome::Found(envelope);
-    }
-
     if matches!(row.discoverability, DiscoverabilityDb::Restricted)
         && !matches_allowed_discoverers(
             &row.public_projection,
@@ -642,7 +466,6 @@ fn evaluate_handle_disclosure(
         return ResolveOutcome::NotFound;
     }
 
-    // Non-member-add path.
     let envelope = envelope_from_projection(
         row.public_projection,
         row.resource_id,
@@ -658,80 +481,6 @@ fn evaluate_handle_disclosure(
         audience,
     );
     ResolveOutcome::Found(envelope)
-}
-
-/// Apply Realm `allowed_recipient_services` (and, when declared,
-/// `allowed_binding_sources`) to the handle's public projection. Returns
-/// `None` when the member_delivery_binding was pruned — signaling the resolver
-/// should emit `not_found` rather than disclose the bare subject_id.
-fn filter_projection_against_policy(
-    mut projection: JsonValue,
-    policy: &RealmDeliveryBindingPolicy,
-) -> Option<JsonValue> {
-    let allow_recipient = &policy.allowed_recipient_services;
-    let allow_sources = &policy.allowed_binding_sources;
-    let unrestricted_recipient = matches!(allow_recipient.as_slice(), [value] if value == "*");
-    let unrestricted_source = allow_sources.is_empty();
-
-    // Track whether the projection ever declared a binding-candidate field
-    // BEFORE any pruning. If it did and we drop them all, the resolver MUST
-    // emit `not_found` rather than a stripped envelope so the requester_id
-    // cannot tell whether the handle exists.
-    let had_member_binding = projection.get("member_delivery_binding").is_some();
-    let had_any_candidate_field = had_member_binding;
-
-    let mut kept_any_candidate = false;
-
-    // `member_delivery_binding` (member-delivery-binding-candidate §3.7).
-    if had_member_binding {
-        let binding_ok = projection
-            .get("member_delivery_binding")
-            .and_then(JsonValue::as_object)
-            .map(|hint| binding_passes(hint, policy, unrestricted_recipient, unrestricted_source))
-            .unwrap_or(false);
-        if binding_ok {
-            kept_any_candidate = true;
-        } else if let Some(obj) = projection.as_object_mut() {
-            obj.remove("member_delivery_binding");
-        }
-    }
-
-    if had_any_candidate_field && !kept_any_candidate {
-        return None;
-    }
-    Some(projection)
-}
-
-fn binding_passes(
-    obj: &serde_json::Map<String, JsonValue>,
-    policy: &RealmDeliveryBindingPolicy,
-    unrestricted_recipient: bool,
-    unrestricted_source: bool,
-) -> bool {
-    let recipient_ok = match obj.get("recipient_id").and_then(JsonValue::as_str) {
-        // Recipient routing policy binds the stable service core identity.
-        // A DID or URL in this business field is dropped as if absent.
-        Some(service_id) => {
-            is_service_core_id(service_id) && {
-                unrestricted_recipient
-                    || policy
-                        .allowed_recipient_services
-                        .iter()
-                        .any(|allowed| allowed == service_id)
-            }
-        }
-        None => false,
-    };
-    let source_ok = match obj.get("binding_source").and_then(JsonValue::as_str) {
-        Some(src) => unrestricted_source || policy.allowed_binding_sources.iter().any(|a| a == src),
-        None => unrestricted_source, /* No binding_source declared — only allowed when policy is
-                                      * open. */
-    };
-    recipient_ok && source_ok
-}
-
-fn is_service_core_id(service_id: &str) -> bool {
-    arkret_sdk::DidCoreId::new(service_id.to_owned()).is_ok()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -767,16 +516,9 @@ fn envelope_from_projection(
         "discoverability": discoverability.as_pg(),
         "expires_at": expires_at,
     });
-    // Carry the post-filter binding fields forward so downstream builders
-    // see exactly the Realm-policy-approved subset.
-    for key in ["member_delivery_binding"] {
-        if let Some(value) = public_projection.get(key) {
-            payload[key] = value.clone();
-        }
-    }
-    // Spec 0a5ab85: when the resolver knows the audience, MUST emit an
-    // `audience`-bound payload alongside the claim so verifiers can enforce
-    // `audience == self` before accepting it for delivery_binding builds.
+    // Preserve the signed request's audience context for internal policy
+    // consumers. Account routing itself is represented by principal_id plus
+    // station_id and never by a separate durable delivery binding.
     if let Some(audience) = audience {
         payload["audience"] = JsonValue::String(audience);
     }
@@ -846,8 +588,6 @@ fn handle_resolution_from_envelope(
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
-
     use chrono::TimeZone;
 
     use super::*;
@@ -868,7 +608,7 @@ mod tests {
         }
     }
 
-    fn member_add_request(realm_id: &str, requester_id: &str) -> ResolveHandleRequestView {
+    fn request(requester_id: &str) -> ResolveHandleRequestView {
         ResolveHandleRequestView {
             handle: "alice:example.com".to_string(),
             expected_principal_id: None,
@@ -877,21 +617,10 @@ mod tests {
             intent: Some("member_add".to_string()),
             requester_id: Some(DidCoreId::new(requester_id).unwrap()),
             audience: None,
-            realm_id: Some(RealmId::new(realm_id).unwrap()),
+            realm_id: Some(
+                RealmId::new("ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq").unwrap(),
+            ),
         }
-    }
-
-    fn realm_policy(
-        allowed_recipient_services: &[&str],
-        trusted_audiences: &[&str],
-    ) -> RealmDeliveryBindingPolicy {
-        let projection = json!({
-            "delivery_binding_policy": {
-                "allowed_recipient_services": allowed_recipient_services,
-                "trusted_audiences": trusted_audiences,
-            },
-        });
-        RealmDeliveryBindingPolicy::from_projection(projection)
     }
 
     #[test]
@@ -929,81 +658,15 @@ mod tests {
     }
 
     #[test]
-    fn intent_member_add_is_recognized() {
-        assert!(is_member_add_intent(Some("member_add")));
-        assert!(is_member_add_intent(Some("invite")));
-        assert!(!is_member_add_intent(Some("dm")));
-        assert!(!is_member_add_intent(None));
-    }
-
-    #[test]
-    fn policy_from_projection_reads_nested_shape() {
-        let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "delivery_binding_policy": {
-                "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
-                "allowed_binding_sources": ["join_policy"],
-                "trusted_audiences": ["ak:did_core:web:tea-org.example"],
-            },
-        }));
-        assert_eq!(
-            policy.allowed_recipient_services,
-            vec!["ak:did_core:web:principal.tea".to_string()]
-        );
-        assert_eq!(
-            policy.allowed_binding_sources,
-            vec!["join_policy".to_string()]
-        );
-        assert_eq!(
-            policy.trusted_audiences,
-            vec!["ak:did_core:web:tea-org.example".to_string()]
-        );
-    }
-
-    /// `resolve_handle_filters_recipient_service`: handle exists but the
-    /// only recipient service is outside the Realm's allow-list ⇒ resolver
-    /// MUST emit `not_found`, not a stripped envelope.
-    #[test]
-    fn resolve_handle_filters_recipient_service() {
-        let row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.other",
-                "binding_source": "join_policy",
-            },
-        }));
-        let body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
-        let policy = realm_policy(
-            &["ak:did_core:web:principal.tea"],
-            &["ak:did_core:web:tea-org.example"],
-        );
-
-        let outcome = evaluate_handle_disclosure(
-            row,
-            &body,
-            &VerifiedRestrictedClaims::default(),
-            Some(&policy),
-        );
-        assert!(matches!(outcome, ResolveOutcome::NotFound));
-    }
-
-    #[test]
     fn expected_principal_id_must_match_resolved_principal() {
         let row = dummy_row(json!({
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
         }));
-        let mut body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
+        let mut body = request("ak:did_core:web:tea-org.example");
         body.expected_principal_id = Some(DidCoreId::new("ak:did_core:web:bob.example").unwrap());
 
-        let outcome =
-            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None);
+        let outcome = evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default());
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
@@ -1013,291 +676,35 @@ mod tests {
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
         }));
-        let mut body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
+        let mut body = request("ak:did_core:web:tea-org.example");
         body.expected_principal_id = Some(DidCoreId::new("ak:did_core:web:alice.example").unwrap());
 
-        let outcome =
-            evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default(), None);
+        let outcome = evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default());
         assert!(matches!(outcome, ResolveOutcome::Found(_)));
     }
 
-    /// When a member_delivery_binding passes policy the resolver MUST surface
-    /// that single-source binding.
     #[test]
-    fn resolve_handle_keeps_allowed_member_delivery_binding() {
+    fn resolution_returns_principal_and_station_as_account_id() {
         let row = dummy_row(json!({
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.tea",
-                "binding_source": "join_policy"
-            }
         }));
-        let body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
-        let policy = realm_policy(
-            &["ak:did_core:web:principal.tea"],
-            &["ak:did_core:web:tea-org.example"],
-        );
+        let body = request("ak:did_core:web:tea-org.example");
 
-        let outcome = evaluate_handle_disclosure(
-            row,
-            &body,
-            &VerifiedRestrictedClaims::default(),
-            Some(&policy),
-        );
-        let envelope = match outcome {
-            ResolveOutcome::Found(envelope) => envelope,
-            ResolveOutcome::NotFound => panic!("expected Found, got NotFound"),
-        };
-        let binding = envelope
-            .payload
-            .get("member_delivery_binding")
-            .and_then(JsonValue::as_object)
-            .expect("member_delivery_binding surface");
+        let envelope =
+            match evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default()) {
+                ResolveOutcome::Found(envelope) => envelope,
+                ResolveOutcome::NotFound => panic!("expected public handle resolution"),
+            };
+        let outcome = handle_resolution_from_envelope(envelope).unwrap();
         assert_eq!(
-            binding.get("recipient_id").and_then(JsonValue::as_str),
-            Some("ak:did_core:web:principal.tea")
+            outcome.account_id.principal_id.as_str(),
+            "ak:did_core:web:alice.example"
         );
-    }
-
-    /// `resolve_handle_unauthorized_requester_returns_not_found`: requester_id
-    /// not in `trusted_audiences` MUST see the same not_found shape as a
-    /// genuine miss so the directory does not enumerate audience members.
-    #[test]
-    fn resolve_handle_unauthorized_requester_returns_not_found() {
-        let row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.tea",
-                "binding_source": "join_policy",
-            },
-        }));
-        let body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:eve.example",
-        );
-        let policy = realm_policy(
-            &["ak:did_core:web:principal.tea"],
-            &["ak:did_core:web:tea-org.example"],
-        );
-
-        let outcome = evaluate_handle_disclosure(
-            row,
-            &body,
-            &VerifiedRestrictedClaims::default(),
-            Some(&policy),
-        );
-        assert!(matches!(outcome, ResolveOutcome::NotFound));
-    }
-
-    /// Empty `allowed_recipient_services` rejects every recipient service.
-    #[test]
-    fn empty_allowed_recipient_services_fails_closed() {
-        let row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.anywhere",
-                "binding_source": "join_policy",
-            },
-        }));
-        let body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
-        let policy = realm_policy(&[], &["ak:did_core:web:tea-org.example"]);
-
-        let outcome = evaluate_handle_disclosure(
-            row,
-            &body,
-            &VerifiedRestrictedClaims::default(),
-            Some(&policy),
-        );
-        assert!(matches!(outcome, ResolveOutcome::NotFound));
-    }
-
-    /// The exact singleton `["*"]` explicitly removes the recipient-service
-    /// allow-list restriction while leaving all other policy checks active.
-    #[test]
-    fn wildcard_allowed_recipient_services_is_unrestricted() {
-        let row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.anywhere",
-                "binding_source": "join_policy",
-            },
-        }));
-        let body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
-        let policy = realm_policy(&["*"], &["ak:did_core:web:tea-org.example"]);
-
-        let outcome = evaluate_handle_disclosure(
-            row,
-            &body,
-            &VerifiedRestrictedClaims::default(),
-            Some(&policy),
-        );
-        let envelope = match outcome {
-            ResolveOutcome::Found(envelope) => envelope,
-            ResolveOutcome::NotFound => panic!("expected Found, got NotFound"),
-        };
         assert_eq!(
-            envelope
-                .payload
-                .get("member_delivery_binding")
-                .and_then(JsonValue::as_object)
-                .and_then(|binding| binding.get("recipient_id"))
-                .and_then(JsonValue::as_str),
-            Some("ak:did_core:web:principal.anywhere")
+            outcome.account_id.station_id.as_str(),
+            "ak:did_core:web:station.test"
         );
-    }
-
-    /// `timing_consistency_smoke`: the three policy-decision branches MUST
-    /// share a comparable wall-clock cost. We measure the synchronous
-    /// `evaluate_handle_disclosure` core (the async caller adds a separate
-    /// constant latency floor on top) and assert spread is small.
-    #[test]
-    fn timing_consistency_smoke() {
-        let policy = realm_policy(
-            &["ak:did_core:web:principal.tea"],
-            &["ak:did_core:web:tea-org.example"],
-        );
-        let allowed_row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.tea",
-                "binding_source": "join_policy",
-            },
-        }));
-        let filtered_row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.other",
-                "binding_source": "join_policy",
-            },
-        }));
-
-        let warmup = 256;
-        let iters = 4096;
-
-        let found_body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
-        let unauthorized_body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:eve.example",
-        );
-        let filtered_body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
-
-        // Warm caches / branch predictor.
-        for _ in 0..warmup {
-            let _ = evaluate_handle_disclosure(
-                allowed_row.clone(),
-                &found_body,
-                &VerifiedRestrictedClaims::default(),
-                Some(&policy),
-            );
-            let _ = evaluate_handle_disclosure(
-                allowed_row.clone(),
-                &unauthorized_body,
-                &VerifiedRestrictedClaims::default(),
-                Some(&policy),
-            );
-            let _ = evaluate_handle_disclosure(
-                filtered_row.clone(),
-                &filtered_body,
-                &VerifiedRestrictedClaims::default(),
-                Some(&policy),
-            );
-        }
-
-        let measure = |body: &ResolveHandleRequestView, row: &HandleRow| -> Duration {
-            let start = Instant::now();
-            for _ in 0..iters {
-                let _ = evaluate_handle_disclosure(
-                    row.clone(),
-                    body,
-                    &VerifiedRestrictedClaims::default(),
-                    Some(&policy),
-                );
-            }
-            start.elapsed()
-        };
-
-        let found_elapsed = measure(&found_body, &allowed_row);
-        let not_found_elapsed = measure(&unauthorized_body, &allowed_row);
-        let filtered_elapsed = measure(&filtered_body, &filtered_row);
-
-        let min = found_elapsed.min(not_found_elapsed).min(filtered_elapsed);
-        let max = found_elapsed.max(not_found_elapsed).max(filtered_elapsed);
-        // The pure decision is dominated by JSON cloning. We only assert
-        // the spread is within an order of magnitude — anything larger
-        // would indicate a data-dependent fast-path leaking the branch.
-        // The async `pad_to_budget` floor + jitter then absorbs the
-        // residual nanosecond-scale jitter on the wire.
-        assert!(
-            max <= min * 10 + Duration::from_millis(2),
-            "timing skew too large: found={found_elapsed:?} not_found={not_found_elapsed:?} filtered={filtered_elapsed:?}"
-        );
-    }
-
-    #[test]
-    fn audience_authorization_accepts_trusted_audiences() {
-        let policy = realm_policy(&[], &["ak:did_core:web:tea-org.example"]);
-        assert!(policy.audience_authorized(
-            Some("ak:did_core:web:tea-org.example"),
-            &VerifiedRestrictedClaims::default()
-        ));
-        assert!(!policy.audience_authorized(
-            Some("ak:did_core:web:eve.example"),
-            &VerifiedRestrictedClaims::default()
-        ));
-    }
-
-    #[test]
-    fn audience_authorization_falls_back_to_allowed_discoverers() {
-        let issuer_id =
-            arkret_sdk::DidCoreId::new("ak:did_core:web:issuer_id.example".to_owned()).unwrap();
-        let org = arkret_sdk::DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap();
-        let requester_id =
-            arkret_sdk::DidCoreId::new("ak:did_core:web:alice.example".to_owned()).unwrap();
-        let claim = crate::filter::discoverers::organization_membership_claim(
-            "claim-1",
-            requester_id.clone(),
-            issuer_id.clone(),
-            org.clone(),
-            vec!["member".to_owned()],
-        );
-        let verified_claims = VerifiedRestrictedClaims::for_test(vec![claim]);
-        let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "allowed_discoverers": [{
-                "type": "claim",
-                "claim_kind": "organization_membership",
-                "issuer_id": issuer_id.as_str(),
-                "organization_id": org.as_str(),
-            }],
-        }));
-        assert!(policy.audience_authorized(Some(requester_id.as_str()), &verified_claims));
-        assert!(!policy.audience_authorized(
-            Some("ak:did_core:web:bob.example"),
-            &VerifiedRestrictedClaims::default()
-        ));
     }
 
     #[test]
@@ -1337,54 +744,40 @@ mod tests {
             realm_id: None,
         };
 
-        let outcome = evaluate_handle_disclosure(row, &body, &verified_claims, None);
+        let outcome = evaluate_handle_disclosure(row, &body, &verified_claims);
         assert!(matches!(outcome, ResolveOutcome::Found(_)));
     }
 
     #[test]
-    fn policy_with_no_audience_constraint_lets_everyone_through() {
-        // No `trusted_audiences`, no `allowed_discoverers` ⇒ resolver
-        // SHOULD treat the Realm as unrestricted (per §9 default for
-        // Public/Listed Realms).
-        let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "delivery_binding_policy": {
-                "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
-            },
+    fn restricted_handle_rejects_unverified_requester() {
+        let mut row = dummy_row(json!({
+            "subject_id": "ak:did_core:web:alice.example",
+            "verified": true,
+            "allowed_discoverers": [{
+                "type": "did",
+                "did": "ak:did_core:web:trusted.example",
+            }],
         }));
-        assert!(policy.audience_authorized(
-            Some("ak:did_core:web:anybody.example"),
-            &VerifiedRestrictedClaims::default()
-        ));
+        row.discoverability = DiscoverabilityDb::Restricted;
+        let body = request("ak:did_core:web:eve.example");
+
+        let outcome = evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default());
+        assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
     #[test]
-    fn binding_source_filter_prunes_disallowed_source() {
-        let row = dummy_row(json!({
-            "subject_id": "ak:did_core:web:alice.example",
-            "verified": true,
-            "member_delivery_binding": {
-                "recipient_id": "ak:did_core:web:principal.tea",
-                "binding_source": "explicit",
-            }
-        }));
-        let policy = RealmDeliveryBindingPolicy::from_projection(json!({
-            "delivery_binding_policy": {
-                "allowed_recipient_services": ["ak:did_core:web:principal.tea"],
-                "allowed_binding_sources": ["join_policy"],
-                "trusted_audiences": ["ak:did_core:web:tea-org.example"],
-            },
-        }));
-        let body = member_add_request(
-            "ak:realm:ASrEhTMQSRXph9wD98UfShBx6MNM7ISQiBIDT0Ayiozq",
-            "ak:did_core:web:tea-org.example",
-        );
+    fn invite_only_and_secret_handles_remain_hidden() {
+        for discoverability in [DiscoverabilityDb::InviteOnly, DiscoverabilityDb::Secret] {
+            let mut row = dummy_row(json!({
+                "subject_id": "ak:did_core:web:alice.example",
+                "verified": true,
+            }));
+            row.discoverability = discoverability;
+            let body = request("ak:did_core:web:trusted.example");
 
-        let outcome = evaluate_handle_disclosure(
-            row,
-            &body,
-            &VerifiedRestrictedClaims::default(),
-            Some(&policy),
-        );
-        assert!(matches!(outcome, ResolveOutcome::NotFound));
+            let outcome =
+                evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default());
+            assert!(matches!(outcome, ResolveOutcome::NotFound));
+        }
     }
 }
