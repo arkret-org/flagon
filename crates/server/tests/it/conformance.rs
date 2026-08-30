@@ -138,7 +138,7 @@ async fn install_restricted_realm_claim_selector(
     diesel::sql_query(
         "UPDATE directory_resources \
          SET public_projection = jsonb_set(public_projection, '{allowed_discoverers}', $1::jsonb, true) \
-         WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak.realm:restricted'",
+         WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt'",
     )
     .bind::<Jsonb, _>(discoverers)
     .execute(&mut conn)
@@ -204,18 +204,19 @@ async fn assert_describe_advertises_core(service: &Service) -> anyhow::Result<()
 
 async fn assert_search_realms_finds_seeded_realm(service: &Service) -> anyhow::Result<()> {
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            true,
+        )
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert!(
-        body["realms"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|result| result["realm_id"] == "ak:realm:tea")
-    );
+    assert!(body["realms"].as_array().unwrap().iter().any(
+        |result| result["realm_id"] == "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu"
+    ));
     Ok(())
 }
 
@@ -230,6 +231,11 @@ async fn assert_official_badge_is_verified_relationship_driven(
 ) -> anyhow::Result<()> {
     async fn resolve_owning_orgs(service: &Service, realm_id: &str) -> Vec<String> {
         let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
+            .add_header(
+                "Arkret-Operation",
+                arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+                true,
+            )
             .json(&json!({ "realm_id": realm_id }))
             .send(service)
             .await;
@@ -246,7 +252,11 @@ async fn assert_official_badge_is_verified_relationship_driven(
     }
 
     // (1) active owner relationship ⇒ verified owning organization surfaces.
-    let verified = resolve_owning_orgs(service, "ak:realm:org-verified").await;
+    let verified = resolve_owning_orgs(
+        service,
+        "ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C",
+    )
+    .await;
     assert_eq!(
         verified,
         vec!["ak:did_core:web:tea-org.example".to_owned()],
@@ -254,14 +264,22 @@ async fn assert_official_badge_is_verified_relationship_driven(
     );
 
     // (2) declared-only org hint (no statement) ⇒ no verified owning org.
-    let declared_only = resolve_owning_orgs(service, "ak:realm:org-declared-only").await;
+    let declared_only = resolve_owning_orgs(
+        service,
+        "ak:realm:Ab7H4uKENRIBMz-0WnjlHdtN9c-vVHQwqtKu6O3MOfYa",
+    )
+    .await;
     assert!(
         declared_only.is_empty(),
         "declared owning_organization_ids / organization_principal_id hint MUST NOT yield a verified badge"
     );
 
     // (3) relationship mismatch: sponsor is NOT owner/governance ⇒ no owning org.
-    let sponsor_only = resolve_owning_orgs(service, "ak:realm:tea").await;
+    let sponsor_only = resolve_owning_orgs(
+        service,
+        "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu",
+    )
+    .await;
     assert!(
         sponsor_only.is_empty(),
         "sponsor relationship MUST NOT be usable as a verified owner/governance badge"
@@ -272,12 +290,16 @@ async fn assert_official_badge_is_verified_relationship_driven(
         let mut conn = db.get().await?;
         diesel::sql_query(
             "DELETE FROM verified_realm_organizations \
-             WHERE realm_id = 'ak.realm:org-verified'",
+             WHERE realm_id = 'ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C'",
         )
         .execute(&mut conn)
         .await?;
     }
-    let after_revoke = resolve_owning_orgs(service, "ak:realm:org-verified").await;
+    let after_revoke = resolve_owning_orgs(
+        service,
+        "ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C",
+    )
+    .await;
     assert!(
         after_revoke.is_empty(),
         "revoking the ak.realm.organization statement MUST remove the verified badge"
@@ -291,14 +313,18 @@ async fn assert_official_badge_is_verified_relationship_driven(
                (realm_id, organization_principal_id, relationship, control_scopes, statement_id, \
                 statement_issued_at, not_before, expires_at, realm_frontier_digest, stale, \
                 verified_at, source_announce_id) \
-             VALUES ('ak.realm:org-verified', 'ak:did_core:web:tea-org.example', 'owner', \
+             VALUES ('ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C', 'ak:did_core:web:tea-org.example', 'owner', \
                      ARRAY['official_badge'], 'org-stmt-expired', now() - interval '2 hours', \
                      NULL, now() - interval '1 hour', NULL, false, now(), 'ak.announce:expired')",
         )
         .execute(&mut conn)
         .await?;
     }
-    let after_expiry = resolve_owning_orgs(service, "ak:realm:org-verified").await;
+    let after_expiry = resolve_owning_orgs(
+        service,
+        "ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C",
+    )
+    .await;
     assert!(
         after_expiry.is_empty(),
         "expired ak.realm.organization statement MUST NOT surface a verified badge"
@@ -309,6 +335,11 @@ async fn assert_official_badge_is_verified_relationship_driven(
 
 async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyhow::Result<()> {
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            true,
+        )
         .json(&json!({ "query": "tea", "limit": 1 }))
         .send(service)
         .await;
@@ -327,9 +358,9 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
             .is_some_and(|refs| !refs.is_empty())
     );
     assert!(
-        first["join_candidates"]
-            .as_array()
-            .is_some_and(Vec::is_empty)
+        first
+            .get("join_candidates")
+            .is_none_or(|candidates| { candidates.as_array().is_some_and(Vec::is_empty) })
     );
     let cursor = body["next_cursor"]
         .as_str()
@@ -337,6 +368,11 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     assert!(cursor.starts_with("ak:cursor:"));
 
     let mut cross_filter = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            true,
+        )
         .json(&json!({ "query": "other", "limit": 1, "cursor": cursor }))
         .send(service)
         .await;
@@ -351,6 +387,11 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            true,
+        )
         .json(&json!({ "query": "tea", "limit": 1, "cursor": cursor }))
         .send(service)
         .await;
@@ -359,6 +400,11 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     assert_eq!(body["realms"].as_array().unwrap().len(), 1);
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            true,
+        )
         .json(&json!({ "cursor": "not-base64" }))
         .send(service)
         .await;
@@ -372,12 +418,23 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         "https://arkret.org/problems/param_invalid"
     );
 
-    assert_resolve_realm_status(service, "ak:realm:tea", StatusCode::OK, json!({})).await?;
-    assert_resolve_realm_status(service, "ak:realm:secret", StatusCode::NOT_FOUND, json!({}))
-        .await?;
     assert_resolve_realm_status(
         service,
-        "ak:realm:restricted",
+        "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu",
+        StatusCode::OK,
+        json!({}),
+    )
+    .await?;
+    assert_resolve_realm_status(
+        service,
+        "ak:realm:AbIyba6ZVhEj1TBUAIooJ17_OctiUGV4uhJIVViNysT0",
+        StatusCode::NOT_FOUND,
+        json!({}),
+    )
+    .await?;
+    assert_resolve_realm_status(
+        service,
+        "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt",
         StatusCode::NOT_FOUND,
         json!({}),
     )
@@ -423,7 +480,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
 
     assert_resolve_realm_status(
         service,
-        "ak:realm:restricted",
+        "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt",
         StatusCode::NOT_FOUND,
         json!({
             "requester_id": subject_id.as_str(),
@@ -434,7 +491,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     .await?;
     assert_resolve_realm_status(
         service,
-        "ak:realm:restricted",
+        "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt",
         StatusCode::OK,
         json!({
             "requester_id": subject_id.as_str(),
@@ -445,6 +502,11 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     .await?;
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-realms")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
+            true,
+        )
         .json(&json!({
             "query": "Restricted",
             "requester_id": subject_id.as_str(),
@@ -456,15 +518,16 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert!(
-        body["realms"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|result| result["realm_id"] == "ak:realm:restricted")
-    );
+    assert!(body["realms"].as_array().unwrap().iter().any(
+        |result| result["realm_id"] == "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt"
+    ));
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-organizations")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS_V1,
+            true,
+        )
         .json(&json!({ "query": "tea", "limit": 10 }))
         .send(service)
         .await;
@@ -476,6 +539,11 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-organization")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
+            true,
+        )
         .json(&json!({ "organization_principal_id": "ak:did_core:web:tea-org.example" }))
         .send(service)
         .await;
@@ -487,6 +555,11 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-actors")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ACTORS_V1,
+            true,
+        )
         .json(&json!({ "query": "alice", "limit": 10 }))
         .send(service)
         .await;
@@ -498,34 +571,45 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-users")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_USERS_V1,
+            true,
+        )
         .json(&json!({
             "query": "alice",
-            "requester_id": "ak:did_core:web:alice.example",
-            "realm_id": "ak:realm:tea",
+            "realm_id": "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu",
             "limit": 10
         }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(
-        body["users"][0]["actor_id"],
-        "ak:did_core:web:alice.example"
-    );
+    assert_eq!(body["users"][0]["display_name"], "Alice Tea");
+    assert!(body["users"][0].get("account_id").is_none());
+    assert!(body["users"][0].get("actor_id").is_none());
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
+            true,
+        )
         .json(&json!({ "handle": "alice:example.com" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
-    let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["principal_id"], "ak:did_core:web:alice.example");
-    assert!(body.get("as_of").is_some());
-    assert!(
-        body["source_refs"]
-            .as_array()
-            .is_some_and(|refs| !refs.is_empty())
+    // Handle resolution is the closed SDK outcome, not a directory result
+    // envelope. Its identity is the complete principal/Station account pair.
+    let outcome: arkret_sdk::DirectoryHandleResolutionOutcome = res.take_json().await?;
+    assert_eq!(
+        outcome.account_id,
+        arkret_sdk::AccountId::new(
+            DidCoreId::new("ak:did_core:web:alice.example".to_owned())?,
+            DidCoreId::new("ak:did_core:web:principal.test".to_owned())?,
+        )
     );
+    assert!(!outcome.source_refs.is_empty());
     Ok(())
 }
 
@@ -539,11 +623,18 @@ async fn assert_resolve_realm_status(
     if let (Some(target), Some(source)) = (body.as_object_mut(), extra.as_object()) {
         target.extend(source.clone());
     }
-    let res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
+    let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            true,
+        )
         .json(&body)
         .send(service)
         .await;
-    assert_eq!(res.status_code.unwrap_or(StatusCode::OK), expected);
+    let status = res.status_code.unwrap_or(StatusCode::OK);
+    let response_body = res.take_string().await.unwrap_or_default();
+    assert_eq!(status, expected, "resolve {realm_id}: {response_body}");
     Ok(())
 }
 
@@ -565,10 +656,15 @@ async fn assert_push_announce_uses_mock_station(service: &Service) -> anyhow::Re
     )?;
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
+            true,
+        )
         .json(&json!({
             "discovery_event": discovery_event,
             "source_refs": [source_ref],
-            "as_of": Utc::now(),
+            "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "station_id": station_id,
             "ttl_seconds": 3600,
         }))
@@ -587,18 +683,22 @@ async fn assert_push_announce_uses_mock_station(service: &Service) -> anyhow::Re
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            true,
+        )
         .json(&json!({ "realm_id": realm_id }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["realm_id"], realm_id);
-    assert_eq!(body["member_count_bucket"], "11-50");
-    assert_eq!(body["source_refs"][0], source_ref);
+    assert_eq!(body["realm_preview"]["realm_id"], realm_id);
+    assert_eq!(body["realm_preview"]["member_count_bucket"], "11-50");
+    assert_eq!(body["realm_preview"]["source_refs"][0], source_ref);
     assert!(
-        body["join_candidates"]
-            .as_array()
-            .is_some_and(Vec::is_empty),
+        body.get("join_candidates")
+            .is_none_or(|candidates| { candidates.as_array().is_some_and(Vec::is_empty) }),
         "a station core id without a verified resolution carrier must not become a routing candidate"
     );
     Ok(())
@@ -607,11 +707,16 @@ async fn assert_push_announce_uses_mock_station(service: &Service) -> anyhow::Re
 async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::Result<()> {
     let secret = URL_SAFE_NO_PAD.encode([1_u8; 16]);
     let mut res = TestClient::post("http://local/_arkret/find/directory/push/register")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER_V1,
+            true,
+        )
         .json(&json!({
             "subscriber_principal_id": "ak:did_core:web:subscriber.example",
             "resource_filter": {
                 "resource_kinds": ["realm"],
-                "resource_ids": ["ak:realm:pushed"]
+                "resource_ids": ["ak:realm:AV02Q8ck_fhF2AFzJL5GSjGwga7vDJOSzYwX-rgNR2UP"]
             },
             "webhook_url": "http://127.0.0.1:9/teabay-conformance-webhook",
             "secret": secret
@@ -641,18 +746,23 @@ async fn assert_freshness_flags_are_exposed(
         diesel::sql_query(
             "UPDATE directory_resources \
              SET stale = true \
-             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak.realm:tea'",
+             WHERE resource_kind = 'realm'::resource_kind AND resource_id = 'ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu'",
         )
         .execute(&mut conn)
         .await?;
     }
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
-        .json(&json!({ "realm_id": "ak:realm:tea" }))
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            true,
+        )
+        .json(&json!({ "realm_id": "ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu" }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["stale"], true);
+    assert_eq!(body["realm_preview"]["stale"], true);
     Ok(())
 }
 
@@ -671,7 +781,7 @@ async fn assert_three_path_takedown_strand(
     // indexed Realm into a tombstone projection.
     let mut destroyed_state = realm_discovery_state("Destroyable Tea");
     destroyed_state["terminal_state"] = JsonValue::String("destroyed".to_owned());
-    destroyed_state["as_of_destroyed"] = json!(Utc::now());
+    destroyed_state["as_of_destroyed"] = json!(canonical::format_timestamp_canonical(Utc::now()));
     let destroy_source_ref = "ak:event:ARELvWOpF6BRrks3DlbQy-9XIE6aAQQumDQp7fA4ApeM";
     let destroy_mock = MockStation::spawn(destroy_source_ref)?;
     let destroy_station_id = destroy_mock.station_id()?;
@@ -683,10 +793,15 @@ async fn assert_three_path_takedown_strand(
         &destroy_station_id,
     )?;
     let res = TestClient::post("http://local/_arkret/find/directory/announce")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
+            true,
+        )
         .json(&json!({
             "discovery_event": discovery_event,
             "source_refs": [destroy_source_ref],
-            "as_of": Utc::now(),
+            "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "station_id": destroy_station_id,
             "ttl_seconds": 3600,
         }))
@@ -695,13 +810,35 @@ async fn assert_three_path_takedown_strand(
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            true,
+        )
         .json(&json!({ "realm_id": destroyed_realm_id }))
         .send(service)
         .await;
     assert_eq!(res.status_code.unwrap_or(StatusCode::OK), StatusCode::OK);
     let body: JsonValue = res.take_json().await?;
-    assert_eq!(body["title"], "[erased]");
-    assert_eq!(body["tombstone"]["kind"], "realm_destroyed");
+    assert_eq!(body["realm_preview"]["title"], "[erased]");
+    assert_eq!(body["realm_preview"]["summary"], "[erased]");
+    // The public RealmPreview is closed and does not expose the private
+    // tombstone object. Verify its persisted destruction marker directly.
+    #[derive(diesel::QueryableByName)]
+    struct DestroyedRealmRow {
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        destroyed: bool,
+    }
+    let mut conn = db.get().await?;
+    let destroyed: DestroyedRealmRow = diesel::sql_query(
+        "SELECT realm_destroyed_at IS NOT NULL AS destroyed FROM directory_resources \
+         WHERE resource_kind = 'realm'::resource_kind AND resource_id = $1",
+    )
+    .bind::<Text, _>(destroyed_realm_id)
+    .get_result(&mut conn)
+    .await?;
+    assert!(destroyed.destroyed);
+    drop(conn);
 
     // Path 2: resource-initiated withdraw stores a verifiable governance
     // proof receipt and blinds subsequent resolves.
@@ -716,10 +853,15 @@ async fn assert_three_path_takedown_strand(
         &withdraw_station_id,
     )?;
     let res = TestClient::post("http://local/_arkret/find/directory/announce")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_ANNOUNCE_V1,
+            true,
+        )
         .json(&json!({
             "discovery_event": discovery_event,
             "source_refs": [withdraw_source_ref],
-            "as_of": Utc::now(),
+            "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "station_id": withdraw_station_id,
             "ttl_seconds": 3600,
         }))
@@ -734,6 +876,11 @@ async fn assert_three_path_takedown_strand(
         "conformance resource withdraw",
     )?;
     let mut res = TestClient::post("http://local/_arkret/find/directory/withdraw")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_COMMAND_WITHDRAW_V1,
+            true,
+        )
         .json(&withdraw_body)
         .send(service)
         .await;
@@ -746,6 +893,11 @@ async fn assert_three_path_takedown_strand(
     );
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            true,
+        )
         .json(&json!({ "realm_id": withdrawn_realm_id }))
         .send(service)
         .await;
@@ -788,7 +940,7 @@ async fn assert_three_path_takedown_strand(
                 "name": "Operator Takedown Target"
             },
             "discoverability": "listed",
-            "as_of": Utc::now(),
+            "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "source_refs": ["admin:takedown-target"],
             "policy_revision": "admin-takedown-r1",
             "effective_ttl_seconds": 3600,
@@ -814,6 +966,11 @@ async fn assert_three_path_takedown_strand(
     let operator_withdraw_id = body["withdraw_id"].as_str().expect("withdraw_id");
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-organization")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
+            true,
+        )
         .json(&json!({ "organization_principal_id": operator_resource_id }))
         .send(service)
         .await;
@@ -930,7 +1087,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
                 "summary": "Inserted through the admin data manager"
             },
             "discoverability": "listed",
-            "as_of": Utc::now(),
+            "as_of": canonical::format_timestamp_canonical(Utc::now()),
             "source_refs": ["admin:test"],
             "policy_revision": "admin-r1",
             "effective_ttl_seconds": 3600,
@@ -944,6 +1101,11 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert_eq!(body["item"]["policy_revision"], "admin-r1");
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-organizations")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_ORGANIZATIONS_V1,
+            true,
+        )
         .json(&json!({ "query": "Admin Managed", "limit": 10 }))
         .send(service)
         .await;
@@ -977,6 +1139,11 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     );
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
+        .add_header(
+            "Arkret-Operation",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
+            true,
+        )
         .json(&json!({ "handle": "alice:example.com" }))
         .send(service)
         .await;
@@ -1239,7 +1406,10 @@ fn signed_restricted_claim_presentation(
     claim: DirectoryPresentedClaim,
 ) -> anyhow::Result<DirectoryRestrictedClaimPresentation> {
     let audience_id = DidCoreId::new(audience_id.to_owned())?;
-    let created_at = Utc::now();
+    // The SDK serializes this wire timestamp at millisecond precision; sign
+    // exactly the value the receiver will deserialize, not hidden nanoseconds.
+    let created_at = chrono::DateTime::from_timestamp_millis(Utc::now().timestamp_millis())
+        .expect("current time is representable");
     let expires_at = Some(created_at + ChronoDuration::minutes(5));
     let payload = DirectoryRestrictedClaimPresentationSigningPayload {
         kind: DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND,

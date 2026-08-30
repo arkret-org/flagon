@@ -4,8 +4,8 @@
 -- `verified_realm_organizations` index (the SDK verifier output is exercised
 -- by the unit tests in `ingest::organization_statement`). They drive the
 -- directory-side acceptance cases:
---   * `ak:realm:org-verified`  — active owner w/ official_badge ⇒ badge shown.
---   * `ak:realm:tea`           — active sponsor relationship (NOT owner /
+--   * `ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C`  — active owner w/ official_badge ⇒ badge shown.
+--   * `ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu`           — active sponsor relationship (NOT owner /
 --                                governance) ⇒ no official owning organization.
 INSERT INTO verified_realm_organizations (
     realm_id,
@@ -22,7 +22,7 @@ INSERT INTO verified_realm_organizations (
     source_announce_id
 ) VALUES
 (
-    'ak.realm:org-verified',
+    'ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C',
     'ak:did_core:web:tea-org.example',
     'owner',
     ARRAY['official_badge', 'realm_admin'],
@@ -38,7 +38,7 @@ INSERT INTO verified_realm_organizations (
 (
     -- Sponsor is NOT an owning / governance relationship: it MUST NOT yield an
     -- official owning organization even though it carries official_badge scope.
-    'ak.realm:tea',
+    'ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu',
     'ak:did_core:web:tea-org.example',
     'sponsor',
     ARRAY['official_badge'],

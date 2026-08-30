@@ -20,7 +20,7 @@ INSERT INTO directory_resources (
 ) VALUES
 (
     'realm'::resource_kind,
-    'ak.realm:tea',
+    'ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu',
     'ak:did_core:web:principal.test',
     -- The §3 discovery event kind for the
     -- Realm security boundary is `ak.realm.discovery`.
@@ -42,7 +42,7 @@ INSERT INTO directory_resources (
 ),
 (
     'realm'::resource_kind,
-    'ak.realm:tea-lab',
+    'ak:realm:AXTjQEEWfJqbu4JjuRyeC3eqsfRIkm1nZzEH8Lm06pKj',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"listed"}'::jsonb,
     '{"name":"Tea Protocol Lab","summary":"Second public conformance realm","member_count_bucket":"11-50"}'::jsonb,
@@ -62,7 +62,7 @@ INSERT INTO directory_resources (
 ),
 (
     'realm'::resource_kind,
-    'ak.realm:restricted',
+    'ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"restricted"}'::jsonb,
     '{"name":"Restricted Tea","summary":"Gated conformance realm","allowed_discoverers":[{"requester_id":"ak:did_core:web:alice.example"}]}'::jsonb,
@@ -82,7 +82,7 @@ INSERT INTO directory_resources (
 ),
 (
     'realm'::resource_kind,
-    'ak.realm:secret',
+    'ak:realm:AbIyba6ZVhEj1TBUAIooJ17_OctiUGV4uhJIVViNysT0',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"secret"}'::jsonb,
     '{"name":"Secret Tea","summary":"Must collapse to not_found"}'::jsonb,
@@ -106,7 +106,7 @@ INSERT INTO directory_resources (
     -- NOT surface an official verified `owning_organization_ids` set (declared-only
     -- ⇒ no badge).
     'realm'::resource_kind,
-    'ak.realm:org-declared-only',
+    'ak:realm:Ab7H4uKENRIBMz-0WnjlHdtN9c-vVHQwqtKu6O3MOfYa',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Declared Org Realm","summary":"Declares an org hint but has no verified statement","organization_principal_id":"ak:did_core:web:tea-org.example","owning_organization_ids":["ak:did_core:web:tea-org.example"]}'::jsonb,
@@ -129,7 +129,7 @@ INSERT INTO directory_resources (
     -- verified_realm_organizations.sql). It MUST surface the verified org as an
     -- official `owning_organization_ids` member.
     'realm'::resource_kind,
-    'ak.realm:org-verified',
+    'ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.realm.discovery","discoverability":"public"}'::jsonb,
     '{"name":"Verified Org Realm","summary":"Has an active ak.realm.organization owner statement"}'::jsonb,
@@ -172,7 +172,7 @@ INSERT INTO directory_resources (
     'ak:did_core:web:alice.example',
     'ak:did_core:web:principal.test',
     '{"kind":"ak.actor.discovery","discoverability":"public"}'::jsonb,
-    '{"handle":"alice:example.com","display_name":"Alice Tea","realm_ids":["ak:realm:tea"],"organization_principal_id":"ak:did_core:web:tea-org.example"}'::jsonb,
+    '{"handle":"alice:example.com","display_name":"Alice Tea","realm_ids":["ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu"],"organization_principal_id":"ak:did_core:web:tea-org.example"}'::jsonb,
     'public'::discoverability,
     now(),
     ARRAY['evt-actor-alice'],
