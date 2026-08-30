@@ -18,7 +18,7 @@ clients can reason about how recently the directory observed source truth.
 - `stale`: true after revalidation remains overdue past the configured grace.
 - `divergent`: reserved persisted flag. No outbound peer comparison runs until
   verified service-resolution carriers are implemented.
-- `via_services`: stable Principal Server core service ids. They are business
+- `via_services`: stable Station core service ids. They are business
   identities, not URL authorities; a caller must obtain and verify a current
   resolution carrier before follow-up protocol work.
 

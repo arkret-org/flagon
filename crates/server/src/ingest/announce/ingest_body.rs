@@ -16,12 +16,12 @@ pub struct DirectoryAnnounceIngest {
     pub resource_kind: DirectoryResourceKindDb,
     #[serde(skip_serializing)]
     pub resource_id: String,
-    /// Stable service core id of the Principal Server that owns the resource's
+    /// Stable service core id of the Station that owns the resource's
     /// truth source (`discovery-directory.md` §8.3). This is **not** a
     /// resolvable DID: mapping it to a current `did` / URL requires a
     /// verified `ServiceResolutionRecord`, and the spec forbids handing this
     /// value to a DID resolver.
-    pub principal_server_id: DidCoreId,
+    pub station_id: DidCoreId,
     #[serde(skip_serializing)]
     pub discovery_state: DirectoryDiscoveryState,
     pub source_refs: Vec<String>,
@@ -68,7 +68,7 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
             discovery_event: event,
             resource_kind,
             resource_id,
-            principal_server_id: value.principal_server_id,
+            station_id: value.station_id,
             discovery_state,
             source_refs: value.source_refs,
             as_of: value.as_of,

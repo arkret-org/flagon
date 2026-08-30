@@ -4,7 +4,7 @@ Reference Arkret v1 **Directory Service** implementation.
 
 teabay is the *discovery entry layer* of the Arkret protocol stack: it accepts
 signed `ak.{realm,organization,actor,applet,handle}.discovery` state from
-resource Principal Servers, indexes the public-metadata projection, and
+resource Stations, indexes the public-metadata projection, and
 serves authorized search / resolve queries — all while enforcing the
 spec's anti-enumeration filter.
 
@@ -177,7 +177,7 @@ scripts/local-artifacts.sh
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
 behavior, `ak.find.directory.push.command.register.v1`, signed push announce against a mock
-Principal Server, freshness flags, and takedown audit through the admin operator
+Station, freshness flags, and takedown audit through the admin operator
 surface.
 
 ## Architecture
@@ -214,7 +214,7 @@ client / SDK  ──────▶   |  Salvo router              |
                            │   announce /   │
                            │    webhook     │
                           ▼                ▼
-                  resource Principal Server (soland / other)
+                  resource Station (soland / other)
 ```
 
 ## Project layout
@@ -243,7 +243,7 @@ checks across the whole fleet (see T8.3 for the cross-service shape).
 `TEABAY_REQUIRE_HTTP_SIG=true` is the production ingest default. Provision
 ingest signer keys before accepting traffic:
 
-1. For each resource Principal Server that may call
+1. For each resource Station that may call
    `/_arkret/find/directory/{announce,withdraw,push/register}`, obtain the Ed25519
    verifying key that corresponds to the HTTP Message Signature `keyid`.
 2. Encode the raw 32-byte verifying key with unpadded base64url. Standard
@@ -256,7 +256,7 @@ ingest signer keys before accepting traffic:
    configured key id. Unknown, missing, malformed, or mismatched keys are
    rejected by the ingest middleware before handler-level verification.
 
-Rotate keys by adding the new `keyid=key` pair, rolling Principal Servers to
+Rotate keys by adding the new `keyid=key` pair, rolling Stations to
 sign with the new key id, then removing the old pair after replay windows have
 expired.
 
@@ -290,7 +290,7 @@ Operator takedowns store a service-signed detached JWS receipt and require
 - [ ] `TEABAY_DEVELOPMENT_MODE=false` (or unset in production builds)
 - [ ] TLS enabled at the reverse proxy (teabay itself serves plaintext HTTP)
 - [ ] CSP header configured at the reverse proxy
-- [ ] CORS limited to the allowed origins for principal-server / sodmin callers
+- [ ] CORS limited to the allowed origins for station / sodmin callers
 - [ ] Secret env vars injected by the deployment platform, not committed `.env` files
 - [ ] Receipt signing key provisioned (`TEABAY_RECEIPT_SIGNING_KEY_B64`)
 - [ ] Log redaction enabled (default outside dev mode)

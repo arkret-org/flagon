@@ -9,8 +9,8 @@
 //!    governance key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_services` is a core-id list containing
 //!    *this* directory's stable service id.
-//! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Principal Server
-//!    to confirm `source_refs[0]` is resolvable.
+//! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Station to
+//!    confirm `source_refs[0]` is resolvable.
 //! 5. Accept policy — local accept_policy (open / allowlist / operator_review) decision.
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
@@ -50,7 +50,7 @@ pub struct VerifyOutcome {
     /// Effective `discoverability` parsed from discovery_state.
     pub discoverability: super::DiscoverabilityDb,
     /// Stable service core ids explicitly supplied by the verified state, or
-    /// `principal_server_id` itself as a fallback.
+    /// `station_id` itself as a fallback.
     pub via_services: Vec<DidCoreId>,
     /// Effective `policy_revision` from the verified discovery state.
     pub policy_revision: String,
@@ -94,13 +94,13 @@ impl<'a> VerifyContext<'a> {
         // the announce envelope carries a *stable identity core*, not a
         // resolvable DID: `discovery-directory.md` §8.3 types the
         // Organization / Actor / Applet `resource_id` and
-        // `principal_server_id` as `did_core_id`. We push this check
+        // `station_id` as `did_core_id`. We push this check
         // through the SDK `DidCoreId::new` parser so the teabay directory and
         // the rest of the Arkret stack share one normative parser.
         // Non-conforming inputs short-circuit with a structured rejection
         // BEFORE any signature / accept-policy work, which keeps audit logs
         // clean and rules out a DID smuggled into a stable-identity slot
-        // at the ingest boundary. `principal_server_id` needs no check
+        // at the ingest boundary. `station_id` needs no check
         // here: it is already a parsed `DidCoreId` on the ingest body.
         if matches!(
             req.resource_kind,
@@ -209,7 +209,7 @@ impl<'a> VerifyContext<'a> {
 
         // --- Derive outcome from verified state. ---------------------------
         let discoverability = read_discoverability(&req.discovery_state)?;
-        let via_services = derive_via_services(&req.discovery_state, &req.principal_server_id);
+        let via_services = derive_via_services(&req.discovery_state, &req.station_id);
         // The request does not echo a free-form revision.  The verified source
         // frontier is the revision carrier; Realm producers include the
         // effective policy-bundle Event in this frontier.
@@ -296,7 +296,7 @@ impl<'a> VerifyContext<'a> {
         ) {
             return Ok(None);
         }
-        let indexed = indexed_principal_server(self.db, req.resource_kind, &req.resource_id)
+        let indexed = indexed_station(self.db, req.resource_kind, &req.resource_id)
             .await
             .map_err(|error| {
                 (
@@ -304,13 +304,13 @@ impl<'a> VerifyContext<'a> {
                     format!("governance controller lookup: {error}"),
                 )
             })?;
-        let expected = indexed.unwrap_or_else(|| req.principal_server_id.as_str().to_owned());
-        if expected != req.principal_server_id.as_str() {
+        let expected = indexed.unwrap_or_else(|| req.station_id.as_str().to_owned());
+        if expected != req.station_id.as_str() {
             return Err((
                 ApiErrorCode::GovernanceKeyInvalid,
                 format!(
-                    "principal_server_id `{}` does not match indexed governance controller `{expected}`",
-                    req.principal_server_id
+                    "station_id `{}` does not match indexed governance controller `{expected}`",
+                    req.station_id
                 ),
             ));
         }
@@ -591,7 +591,7 @@ fn enforce_governance_method_binding(
     Ok(())
 }
 
-pub(crate) async fn indexed_principal_server(
+pub(crate) async fn indexed_station(
     db: &Db,
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
@@ -601,7 +601,7 @@ pub(crate) async fn indexed_principal_server(
     let row = dsl::directory_resources
         .filter(dsl::resource_kind.eq(resource_kind))
         .filter(dsl::resource_id.eq(resource_id))
-        .select(dsl::principal_server_id)
+        .select(dsl::station_id)
         .first::<DidCoreId>(&mut *conn)
         .await
         .optional()?;
@@ -640,25 +640,24 @@ async fn verify_first_source_ref_resolves(
             )
         })?
         .clone();
-    // `discovery-directory.md` §8.3: `principal_server_id` is a stable
+    // `discovery-directory.md` §8.3: `station_id` is a stable
     // `did_core_id`. The Directory MUST map it to the peer's current `did`
     // / URL through a **verified `ServiceResolutionRecord`** before pulling,
     // and MUST NOT hand the core id to a DID resolver. teabay has no peer
     // service-resolution carrier yet, so this is the single choke point where
     // that evidence has to arrive; until it does, first ingest fails closed
     // rather than guessing a resolvable DID out of a stable identity core.
-    let principal_server_did =
-        peer_principal_server_did(&req.principal_server_id).map_err(|reason| {
-            (
-                ApiErrorCode::SourceRefsUnverifiable,
-                format!(
-                    "cannot verify source_refs for principal server `{}`: {reason}",
-                    req.principal_server_id
-                ),
-            )
-        })?;
+    let station_did = peer_station_did(&req.station_id).map_err(|reason| {
+        (
+            ApiErrorCode::SourceRefsUnverifiable,
+            format!(
+                "cannot verify source_refs for Station `{}`: {reason}",
+                req.station_id
+            ),
+        )
+    })?;
     // DID-P0-C02: this function used to build TWO reqwest clients. The first
-    // existed only to be handed to `resolve_principal_server_endpoint`, which
+    // existed only to be handed to `resolve_station_endpoint`, which
     // passed it to `fetch_did_document_json`, which ignored it (the parameter
     // was literally named `_http`) and built a third client of its own. It is
     // gone. The second client further down survives and is deliberately NOT
@@ -670,19 +669,14 @@ async fn verify_first_source_ref_resolves(
     // DID-P0-C02: the endpoint is an accepted five-tuple (service DID, service
     // kind, trust domain, endpoint digest, source ref), not a cached URL, and
     // the URL below is derived from the *pinned* DID document every time.
-    let accepted = resolve_principal_server_endpoint(
-        config,
-        resolver,
-        &principal_server_did,
-        source_ref.as_str(),
-    )
-    .await
-    .map_err(|e| {
-        (
-            ApiErrorCode::SourceRefsUnverifiable,
-            format!("principal_server_id did not resolve to events endpoint: {e}"),
-        )
-    })?;
+    let accepted = resolve_station_endpoint(config, resolver, &station_did, source_ref.as_str())
+        .await
+        .map_err(|e| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                format!("station_id did not resolve to events endpoint: {e}"),
+            )
+        })?;
     tracing::debug!(
         service_did = %accepted.service_did,
         service_kind = accepted.service_kind,
@@ -691,7 +685,7 @@ async fn verify_first_source_ref_resolves(
         document_digest = %accepted.document_digest,
         acceptance_digest = %accepted.acceptance_digest,
         source_ref = %accepted.source_ref,
-        "accepted principal server endpoint"
+        "accepted Station endpoint"
     );
     let url = endpoint_child(&accepted.endpoint, &format!("events/{source_ref}")).map_err(|e| {
         (
@@ -754,7 +748,7 @@ async fn verify_first_source_ref_resolves(
     Ok(())
 }
 
-/// An accepted principal-server service endpoint.
+/// An accepted station service endpoint.
 ///
 /// # DID-P0-C02 — an endpoint acceptance is a tuple, never a cached URL
 ///
@@ -792,7 +786,7 @@ async fn verify_first_source_ref_resolves(
 /// endpoint teabay uses without the binding being invalidated first.
 ///
 /// `source_ref` is bound per use rather than per acceptance on purpose: one
-/// principal server anchors many resources, so folding a single source ref into
+/// Station anchors many resources, so folding a single source ref into
 /// the *stored* acceptance would either pin the acceptance to the first
 /// announce that established it or defeat reuse entirely. What matters for the
 /// security property is that a source ref can only ever be fetched from an
@@ -815,9 +809,9 @@ pub(crate) struct AcceptedServiceEndpoint {
 }
 
 /// The only service kind teabay follows for source-ref anchors.
-pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
+pub(crate) const ARKRET_STATION: &str = "ArkretStation";
 
-/// Resolve `principal_server_id` to its `ArkretPrincipalServer` service
+/// Resolve `station_id` to its `ArkretStation` service
 /// endpoint, fetching the DID Document **at most once per accepted binding**.
 ///
 /// # DID-P0-C02 — the double network access, and where each check went
@@ -837,13 +831,13 @@ pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
 /// | method in `TEABAY_ACCEPTED_DID_METHODS` | `principal_did_method_allowed` + the chain's `ResolverPolicy` | unchanged, both still run |
 /// | document validation (content type, 64 KiB cap, `did:webvh` log chain + witness) | resolver | resolver |
 /// | SSRF / egress control on the fetch | `resolve_url_for_egress` inside the raw fetch | the shared chain's client: `https_only` + the shared guarded DNS resolver, both frozen from the startup config |
-/// | `document.id == principal_server_did` | compared on the raw JSON here | still compared here, now against the resolved document |
-/// | `service[].type == "ArkretPrincipalServer"` | raw JSON | `DidDocument::raw_properties["service"]`, which preserves the wire document verbatim |
+/// | `document.id == station_did` | compared on the raw JSON here | still compared here, now against the resolved document |
+/// | `service[].type == "ArkretStation"` | raw JSON | `DidDocument::raw_properties["service"]`, which preserves the wire document verbatim |
 /// | relative `serviceEndpoint` resolution | `service_endpoint_url` | unchanged |
 ///
 /// On top of that merge, DID-P0-C02 adds the acceptance: the resolved document
 /// is filed as a `DidBindingPurpose::PrincipalServiceEndpoint` binding, so a
-/// second first-ingest naming the same principal server performs **zero**
+/// second first-ingest naming the same Station performs **zero**
 /// network calls.
 ///
 /// The development-mode loopback branch is untouched in meaning: a loopback
@@ -852,15 +846,15 @@ pub(crate) const ARKRET_PRINCIPAL_SERVER: &str = "ArkretPrincipalServer";
 /// raw fetch, then runs the same `id` / `service` checks on that JSON. It
 /// deliberately does **not** write a binding — a development bypass must not
 /// seed trust that outlives the request.
-pub(crate) async fn resolve_principal_server_endpoint(
+pub(crate) async fn resolve_station_endpoint(
     config: &AppConfig,
     resolver: &SharedDidResolver,
-    principal_server_did: &Did,
+    station_did: &Did,
     source_ref: &str,
 ) -> anyhow::Result<AcceptedServiceEndpoint> {
-    let did = principal_server_did.clone();
-    let principal_server_did = did.as_str();
-    if !principal_did_method_allowed(config, principal_server_did) {
+    let did = station_did.clone();
+    let station_did = did.as_str();
+    if !principal_did_method_allowed(config, station_did) {
         anyhow::bail!("DID method is outside TEABAY_ACCEPTED_DID_METHODS");
     }
 
@@ -871,7 +865,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
             .set_scheme("http")
             .map_err(|_| anyhow::anyhow!("failed to rewrite loopback DID URL to HTTP"))?;
         let document = fetch_did_document_json(doc_url.clone(), config.development_mode).await?;
-        if document.get("id").and_then(JsonValue::as_str) != Some(principal_server_did) {
+        if document.get("id").and_then(JsonValue::as_str) != Some(station_did) {
             anyhow::bail!("DID document id does not match requested DID");
         }
         let services = document
@@ -879,7 +873,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
             .and_then(JsonValue::as_array)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
-        let endpoint = principal_server_endpoint(&services, &doc_url, config.development_mode)?;
+        let endpoint = station_endpoint(&services, &doc_url, config.development_mode)?;
         let document_digest = json_digest(&document)?;
         return accepted_service_endpoint(
             bindings.trust_domain().clone(),
@@ -899,7 +893,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
     let accepted = resolver
         .accepted_or_resolved(&did, DidBindingPurpose::PrincipalServiceEndpoint, None, now)
         .map_err(|e| anyhow::anyhow!("DID document did not validate: {e}"))?;
-    if accepted.document().id.as_str() != principal_server_did {
+    if accepted.document().id.as_str() != station_did {
         anyhow::bail!("DID document id does not match requested DID");
     }
 
@@ -910,7 +904,7 @@ pub(crate) async fn resolve_principal_server_endpoint(
         .and_then(JsonValue::as_array)
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("DID document has no service array"))?;
-    let endpoint = principal_server_endpoint(&services, &doc_url, config.development_mode)?;
+    let endpoint = station_endpoint(&services, &doc_url, config.development_mode)?;
     let document_digest = document_canonical_digest(accepted.document())
         .map_err(|e| anyhow::anyhow!("pinned document digest failed: {e}"))?;
     accepted_service_endpoint(
@@ -922,24 +916,24 @@ pub(crate) async fn resolve_principal_server_endpoint(
     )
 }
 
-/// Pick the `ArkretPrincipalServer` endpoint out of a wire `service` array.
+/// Pick the `ArkretStation` endpoint out of a wire `service` array.
 ///
 /// DID Document order is the owner-controlled priority order for multiple
-/// Principal Server services; teabay keeps that deterministic convention.
-fn principal_server_endpoint(
+/// Station services; teabay keeps that deterministic convention.
+fn station_endpoint(
     services: &[JsonValue],
     doc_url: &Url,
     development_mode: bool,
 ) -> anyhow::Result<Url> {
     let service = services
         .iter()
-        .find(|service| service_kind_matches(service, ARKRET_PRINCIPAL_SERVER))
-        .ok_or_else(|| anyhow::anyhow!("DID document has no ArkretPrincipalServer service"))?;
+        .find(|service| service_kind_matches(service, ARKRET_STATION))
+        .ok_or_else(|| anyhow::anyhow!("DID document has no ArkretStation service"))?;
     let endpoint = service
         .get("serviceEndpoint")
         .and_then(JsonValue::as_str)
         .filter(|endpoint| !endpoint.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("ArkretPrincipalServer serviceEndpoint is missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("ArkretStation serviceEndpoint is missing"))?;
     service_endpoint_url(doc_url, endpoint, development_mode)
 }
 
@@ -962,7 +956,7 @@ fn accepted_service_endpoint(
     let endpoint_digest = json_digest(&serde_json::json!({
         "kind": "teabay.accepted_service_endpoint.v1",
         "service_did": service_did.as_str(),
-        "service_kind": ARKRET_PRINCIPAL_SERVER,
+        "service_kind": ARKRET_STATION,
         "trust_domain": trust_domain.as_str(),
         "endpoint": endpoint.as_str(),
     }))?;
@@ -974,7 +968,7 @@ fn accepted_service_endpoint(
     }))?;
     Ok(AcceptedServiceEndpoint {
         service_did,
-        service_kind: ARKRET_PRINCIPAL_SERVER,
+        service_kind: ARKRET_STATION,
         trust_domain,
         endpoint,
         endpoint_digest,
@@ -1027,13 +1021,13 @@ fn did_document_url(did: &Did) -> anyhow::Result<Url> {
     let url = match did.method() {
         "web" => DidWebResolver::document_url(did)?,
         "webvh" => DidWebvhResolver::document_url(did)?,
-        other => anyhow::bail!("unsupported Principal Server DID method did:{other}"),
+        other => anyhow::bail!("unsupported Station DID method did:{other}"),
     };
     Url::parse(&url).map_err(|e| anyhow::anyhow!("invalid DID document URL `{url}`: {e}"))
 }
 
 /// Raw DID Document fetch. Used **only** by the development-mode loopback
-/// branch of [`resolve_principal_server_endpoint`]; the production branch goes
+/// branch of [`resolve_station_endpoint`]; the production branch goes
 /// through the shared resolver chain instead.
 ///
 /// The dead `_http: &Client` parameter is gone. It was never read: the body
@@ -1170,10 +1164,7 @@ fn read_discoverability(
     super::DiscoverabilityDb::from_pg(s).map_err(|e| (ApiErrorCode::SchemaViolation, e.to_string()))
 }
 
-fn derive_via_services(
-    discovery_state: &JsonValue,
-    principal_server_id: &DidCoreId,
-) -> Vec<DidCoreId> {
+fn derive_via_services(discovery_state: &JsonValue, station_id: &DidCoreId) -> Vec<DidCoreId> {
     if let Some(arr) = discovery_state
         .get("via_services")
         .and_then(JsonValue::as_array)
@@ -1195,13 +1186,13 @@ fn derive_via_services(
             return services;
         }
     }
-    // The announce already carries the Principal Server as a stable service
+    // The announce already carries the Station as a stable service
     // core id, so the fallback is the value itself — no projection, and
     // certainly no reconstruction of a resolvable DID.
-    vec![principal_server_id.clone()]
+    vec![station_id.clone()]
 }
 
-/// Map a peer Principal Server's stable service core id to the resolvable
+/// Map a peer Station's stable service core id to the resolvable
 /// `Did` the source-ref anchor fetch needs.
 ///
 /// `discovery-directory.md` §8.3 permits exactly one route: a **verified
@@ -1214,10 +1205,10 @@ fn derive_via_services(
 /// cross-directory divergence detection unimplementable — so this fails
 /// closed. Wiring a verified carrier here is the single change that
 /// re-enables first-ingest source-ref verification.
-fn peer_principal_server_did(principal_server_id: &DidCoreId) -> Result<Did, String> {
-    let _ = principal_server_id;
+fn peer_station_did(station_id: &DidCoreId) -> Result<Did, String> {
+    let _ = station_id;
     Err(
-        "peer Principal Server core ids have no configured verified service-resolution          carrier, so the current DID cannot be established;          `discovery-directory.md` §8.3 forbids resolving the core id directly"
+        "peer Station core ids have no configured verified service-resolution          carrier, so the current DID cannot be established;          `discovery-directory.md` §8.3 forbids resolving the core id directly"
             .to_owned(),
     )
 }

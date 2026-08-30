@@ -17,7 +17,7 @@ adapt to your local toolchain.
 ## Scope
 
 teabay is the reference Arkret Directory Service. Keep changes focused on this
-repository and preserve the Directory Service boundary: source Principal Servers
+repository and preserve the Directory Service boundary: source Stations
 remain authoritative for identity, authorization, membership, and source event
 state.
 

@@ -31,7 +31,7 @@
 //! | --- | --- | --- |
 //! | [`DidBindingPurpose::DirectoryIngest`] | `ingest::verify` governance proof | repeat announce / withdraw |
 //! | [`DidBindingPurpose::DirectoryIssuer`] | mirrored from a `DirectoryIngest` acceptance | `filter::discoverers` restricted claims, `query::target` invite / preview tokens |
-//! | [`DidBindingPurpose::PrincipalServiceEndpoint`] | `ingest::verify::resolve_principal_server_endpoint` | first-ingest source-ref anchor fetch |
+//! | [`DidBindingPurpose::PrincipalServiceEndpoint`] | `ingest::verify::resolve_station_endpoint` | first-ingest source-ref anchor fetch |
 //!
 //! A `DirectoryIngest` acceptance never authorizes an invite token on its own
 //! and vice versa: the store key carries the purpose, so the lookups cannot

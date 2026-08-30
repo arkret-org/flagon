@@ -1,7 +1,7 @@
 INSERT INTO directory_resources (
     resource_kind,
     resource_id,
-    principal_server_id,
+    station_id,
     discovery_state,
     public_projection,
     discoverability,

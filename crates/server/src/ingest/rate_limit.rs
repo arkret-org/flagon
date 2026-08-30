@@ -10,7 +10,7 @@ pub fn enforce_ingest_rate_limit(
     res: &mut Response,
     state: &AppState,
     resource_id: &str,
-    principal_server_id: Option<&str>,
+    station_id: Option<&str>,
 ) -> bool {
     let max = state.config().rate_limit_per_resource_per_min;
     // Resolve the client IP through the shared trusted-proxy logic so the
@@ -18,10 +18,10 @@ pub fn enforce_ingest_rate_limit(
     // than on the proxy's address.
     let ip = resolve_client_ip(req, state);
     let mut checks = vec![format!("resource:{resource_id}"), format!("ip:{ip}")];
-    if let Some(principal_server_id) = principal_server_id
-        && !principal_server_id.trim().is_empty()
+    if let Some(station_id) = station_id
+        && !station_id.trim().is_empty()
     {
-        checks.push(format!("principal-server:{}", principal_server_id.trim()));
+        checks.push(format!("station:{}", station_id.trim()));
     }
 
     for key in checks {

@@ -78,7 +78,7 @@ struct NewAuditRow<'a> {
     resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
     resource_id: Option<&'a str>,
     /// DID that initiated the audited operation — the resource's
-    /// `principal_server_id`, the directory's own `service_id`, or an
+    /// `station_id`, the directory's own `service_id`, or an
     /// operator DID depending on the path. This is NOT a spec Realm `Actor`
     /// object; it is the initiating principal. For credential-vs-claim
     /// Credential and unverified byline metadata live in their dedicated fields.

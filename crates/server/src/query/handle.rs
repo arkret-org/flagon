@@ -438,7 +438,7 @@ async fn load_handle_row(state: &AppState, handle: &str) -> anyhow::Result<Optio
 /// governance/join-policy.md §5.1.3.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RealmDeliveryBindingPolicy {
-    /// `allowed_recipient_services`: closed set of recipient principal-server
+    /// `allowed_recipient_services`: closed set of recipient station
     /// DIDs that may appear in a Realm-bound delivery_binding. Empty rejects
     /// every recipient service; the exact singleton `["*"]` explicitly
     /// removes only this allow-list restriction.

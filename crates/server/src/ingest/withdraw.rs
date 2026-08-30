@@ -159,7 +159,7 @@ pub(crate) async fn governance_controller_for_withdraw(
     ) {
         return Ok(None);
     }
-    verify::indexed_principal_server(state.db(), resource_kind, resource_id)
+    verify::indexed_station(state.db(), resource_kind, resource_id)
         .await
         .map_err(|error| {
             (

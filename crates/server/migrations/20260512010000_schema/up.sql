@@ -76,7 +76,7 @@ $$;
 CREATE TABLE directory_resources (
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    principal_server_id TEXT           NOT NULL,
+    station_id TEXT           NOT NULL,
     discovery_state   JSONB             NOT NULL,
     public_projection JSONB             NOT NULL,
     discoverability   discoverability   NOT NULL,
@@ -134,7 +134,7 @@ CREATE TABLE ingest_announces (
     announce_id       TEXT              PRIMARY KEY,
     resource_kind     resource_kind     NOT NULL,
     resource_id       TEXT              NOT NULL,
-    principal_server_id TEXT           NOT NULL,
+    station_id TEXT           NOT NULL,
     ingest_mode       ingest_mode       NOT NULL,
     discovery_state   JSONB             NOT NULL,
     source_refs       TEXT[]            NOT NULL,
@@ -457,7 +457,7 @@ CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
 -- Identity core/full split — stable-identity shape audit.
 --
 -- `discovery-directory.md` §8.3 types the Organization / Actor / Applet
--- `resource_id` and the `principal_server_id` as `did_core_id`, not
+-- `resource_id` and the `station_id` as `did_core_id`, not
 -- as resolvable DIDs. Both columns therefore carry the stable core form
 -- `ak:did_core:<method>:<core>` (lowercase ASCII method, non-empty
 -- whitespace-free core). These diagnostic CHECK constraints mirror the SDK
@@ -478,8 +478,8 @@ ALTER TABLE directory_resources
         );
 
 ALTER TABLE directory_resources
-    ADD CONSTRAINT directory_resources_principal_server_id_core_shape_chk
-        CHECK (principal_server_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
+    ADD CONSTRAINT directory_resources_station_id_core_shape_chk
+        CHECK (station_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 -- Mirror on ingest_announces so the announce ledger and the
 -- projected table agree on stable-identity shape.
@@ -491,14 +491,14 @@ ALTER TABLE ingest_announces
         );
 
 ALTER TABLE ingest_announces
-    ADD CONSTRAINT ingest_announces_principal_server_id_core_shape_chk
-        CHECK (principal_server_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
+    ADD CONSTRAINT ingest_announces_station_id_core_shape_chk
+        CHECK (station_id ~ '^ak:did_core:[a-z0-9]+:[^[:space:]]+$');
 
 COMMENT ON CONSTRAINT directory_resources_resource_id_core_shape_chk
     ON directory_resources IS
     'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 
-COMMENT ON CONSTRAINT directory_resources_principal_server_id_core_shape_chk
+COMMENT ON CONSTRAINT directory_resources_station_id_core_shape_chk
     ON directory_resources IS
     'Stable identity core syntax: ^ak:did_core:[a-z0-9]+:[^\s]+$. Application layer enforces first.';
 

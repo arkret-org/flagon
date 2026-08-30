@@ -67,7 +67,7 @@ impl Tab {
 pub struct ResourceEditorForm {
     pub resource_kind: String,
     pub resource_id: String,
-    pub principal_server_id: String,
+    pub station_id: String,
     pub discoverability: String,
     pub as_of: String,
     pub source_refs: String,
@@ -86,7 +86,7 @@ impl Default for ResourceEditorForm {
         Self {
             resource_kind: "realm".to_string(),
             resource_id: String::new(),
-            principal_server_id: String::new(),
+            station_id: String::new(),
             discoverability: "public".to_string(),
             as_of: String::new(),
             source_refs: "[\n  \"admin:manual\"\n]".to_string(),
@@ -115,7 +115,7 @@ impl ResourceEditorForm {
         Self {
             resource_kind: item.resource_kind.clone(),
             resource_id: item.resource_id.clone(),
-            principal_server_id: item.principal_server_id.to_string(),
+            station_id: item.station_id.to_string(),
             discoverability: item.discoverability.clone(),
             as_of: item.as_of.clone(),
             source_refs: pretty_string_array(&item.source_refs),
@@ -142,8 +142,8 @@ impl ResourceEditorForm {
             return Err("resource_id is required".to_string());
         }
 
-        let principal_server_id = DidCoreId::new(self.principal_server_id.trim())
-            .map_err(|_| "principal_server_id must be a stable Arkret core id".to_string())?;
+        let station_id = DidCoreId::new(self.station_id.trim())
+            .map_err(|_| "station_id must be a stable Arkret core id".to_string())?;
 
         if self.resource_kind.parse::<DirectoryResourceKind>().is_err() {
             return Err("resource_kind is invalid".to_string());
@@ -161,7 +161,7 @@ impl ResourceEditorForm {
             resource_kind: serde_json::from_value(JsonValue::String(self.resource_kind.clone()))
                 .map_err(|error| format!("invalid resource_kind: {error}"))?,
             resource_id,
-            principal_server_id,
+            station_id,
             discoverability: serde_json::from_value(JsonValue::String(
                 self.discoverability.clone(),
             ))

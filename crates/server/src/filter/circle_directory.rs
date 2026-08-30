@@ -5,8 +5,8 @@
 //! services:
 //!
 //! * the `directory_visibility=realm_members` preview whitelist, which is only servable to a caller
-//!   proven to be an active parent-Realm member. That authority is the Principal Server's — soland
-//!   gates it in `routing/circles.rs::circle_directory_visible_to_actor`;
+//!   proven to be an active parent-Realm member. That authority is the Station's — soland gates it
+//!   in `routing/circles.rs::circle_directory_visible_to_actor`;
 //! * the fixed locked stub every other caller receives. The directory has no Realm-membership
 //!   authority and serves an index built for unauthenticated callers, so this is the only Circle
 //!   projection teabay may produce.

@@ -30,7 +30,7 @@ pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
 // resource pointers (`recovery-policy.schema.json` /
 // `recovery-receipt.schema.json`) are NOT indexed by teabay. The
 // directory's role is realm/organization/actor/handle/applet discovery
-// only; recovery state lives at the principal server (soland) and
+// only; recovery state lives at the Station (soland) and
 // recovery policy bindings travel through coauth, never through the
 // directory's public projection. This Diesel adapter therefore intentionally
 // does NOT carry a `Recovery` variant — adding one would expand the

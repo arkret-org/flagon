@@ -137,7 +137,7 @@ pub struct OperatorTakedownOutcome {
 pub struct DirectoryAdminResourceUpsertRequestBody {
     pub resource_kind: DirectoryResourceKind,
     pub resource_id: String,
-    pub principal_server_id: DidCoreId,
+    pub station_id: DidCoreId,
     pub discoverability: Discoverability,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,
@@ -188,7 +188,7 @@ pub struct ResourceList {
 pub struct ResourceItem {
     pub resource_kind: String,
     pub resource_id: String,
-    pub principal_server_id: DidCoreId,
+    pub station_id: DidCoreId,
     pub discovery_state: DirectoryDiscoveryState,
     pub public_projection: DirectoryPublicProjection,
     pub discoverability: String,

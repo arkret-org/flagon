@@ -198,7 +198,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   (omitted when false). Callers that ignore it remain compatible — the
   semantics only matter on the federation replay path.
 - New tombstone webhook payload shape: `{ tombstone: { kind, reason,
-  revoked_at }, resource_kind, resource_id, principal_server_did }`
+  revoked_at }, resource_kind, resource_id, station_did }`
   delivered with `x-arkret-webhook-event: reachability_tombstone`.
 
 #### Internal markers

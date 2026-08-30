@@ -275,7 +275,7 @@ impl SharedDidResolver {
     ///
     /// This used to call a *deferred-evidence* SDK variant so that
     /// `DidBindingDirectory::service_endpoint_digest` could fold the published
-    /// `ArkretPrincipalServer` endpoint set into the binding's evidence. §5.2
+    /// `ArkretStation` endpoint set into the binding's evidence. §5.2
     /// closed the evidence receipt to `{method, document_digest,
     /// method_proofs}`, so that member has nowhere to live — deliberately, since
     /// "the caller supplies the evidence" is the shape the spec judges
@@ -904,7 +904,7 @@ mod tests {
             "service".to_owned(),
             serde_json::json!([{
                 "id": format!("{did}#ps"),
-                "type": crate::ingest::verify::ARKRET_PRINCIPAL_SERVER,
+                "type": crate::ingest::verify::ARKRET_STATION,
                 "serviceEndpoint": "https://principal.example/",
             }]),
         );

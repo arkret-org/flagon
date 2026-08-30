@@ -135,13 +135,13 @@ subscribe handler runs.
 
 Provisioning strand:
 
-1. Generate or select the Principal Server's Ed25519 signing key outside the
+1. Generate or select the Station's Ed25519 signing key outside the
    teabay repository.
 2. Export the matching raw 32-byte verifying key.
 3. Base64url-encode it without padding.
 4. Add `keyid=encoded_key` to `TEABAY_HTTP_SIG_PUBKEYS`.
 5. Restart teabay.
-6. Confirm the Principal Server signs ingest requests with the same `keyid`.
+6. Confirm the Station signs ingest requests with the same `keyid`.
 
 ### 1.0 Secret Backend Decision
 
@@ -277,7 +277,7 @@ captured now that handle-homograph wire-level checks are mandatory.
 1. Promote the standby Postgres to primary (PITR or sync replication
    catch-up). All teabay app pods restart with the promoted DSN.
 2. Re-point the public base URL / DNS at the promoted node so announcing
-   Principal Servers and webhook subscribers reach the new primary.
+   Stations and webhook subscribers reach the new primary.
 3. Search cursors are stateless — clients reconnect with no extra work.
    Cursors minted by the old primary are refused with
    `cursor_integrity_invalid` and clients restart from the first page.

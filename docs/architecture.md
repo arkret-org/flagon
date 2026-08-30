@@ -1,11 +1,11 @@
 # Architecture
 
 teabay is the discovery entry layer for Arkret Directory Service traffic. It
-accepts signed discovery state from resource Principal Servers, indexes the
+accepts signed discovery state from resource Stations, indexes the
 public projection, and serves search and resolve endpoints with the directory
 result envelope required by the protocol.
 
-teabay is not the source of truth for a resource. The source Principal Server
+teabay is not the source of truth for a resource. The source Station
 remains authoritative for identity, membership, authorization, and event state.
 
 ## Runtime Shape

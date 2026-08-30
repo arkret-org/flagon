@@ -53,7 +53,7 @@ Enforcement points (all in `crates/server/src/`):
   avoiding list-length enumeration.
 - `ingest/announce.rs` calls the preview-aware rejector on
   `discovery_state` and the full serialized request envelope (catching
-  smuggling via top-level `resource_id` / `principal_server_id` /
+  smuggling via top-level `resource_id` / `station_id` /
   `supersedes_announce_id`).
 - `ingest/subscribe.rs` still calls the hard rejector on
   `resource_filter`.
@@ -98,7 +98,7 @@ accepted.
 
 `TEABAY_HTTP_SIG_PUBKEYS` must contain only trusted raw Ed25519 verifying keys
 encoded as `keyid=BASE64URL32` pairs. The `keyid` must match the HTTP Message
-Signature `keyid` sent by the Principal Server.
+Signature `keyid` sent by the Station.
 
 `TEABAY_ADMIN_TOKEN` is fail-closed for `/_teabay/admin/*`: unset, empty,
 missing, or mismatched bearer tokens are rejected as unauthenticated. The

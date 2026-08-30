@@ -44,7 +44,7 @@ teabay rejects the following request shapes at the verify layer with an
 2. An announce envelope with a Circle typed id outside a recognized Circle
    directory preview-entry `circle_id` / `id` field.
 3. A subscribe request whose `resource_filter` would match across circle
-   boundaries unless the subscriber is the resource's own Principal Server.
+   boundaries unless the subscriber is the resource's own Station.
 4. Any `actor.resolve` whose `audience` claim is from a circle the
    resource is `unlisted` in.
 The reject is fail-closed: no row data is returned, no existence signal

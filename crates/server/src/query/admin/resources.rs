@@ -50,7 +50,7 @@ struct ResourceDeleteQuery {
 struct ResourceAdminRow {
     resource_kind: DirectoryResourceKindDb,
     resource_id: String,
-    principal_server_id: DidCoreId,
+    station_id: DidCoreId,
     discovery_state: JsonValue,
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
@@ -68,7 +68,7 @@ struct ResourceAdminRow {
 
 #[derive(Debug)]
 struct ResourceDeleteAudit {
-    principal_server_id: DidCoreId,
+    station_id: DidCoreId,
     policy_revision: String,
     via_services: Vec<DidCoreId>,
     last_announce_id: Option<String>,
@@ -118,7 +118,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
         ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
-    let principal_server_id = body.principal_server_id.clone();
+    let station_id = body.station_id.clone();
     let policy_revision = body.policy_revision.trim();
     if policy_revision.is_empty() {
         ApiErrorCode::ParamMissing.render(res, "policy_revision is required");
@@ -142,7 +142,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     let via_services = {
         let services = body.via_services.clone();
         if services.is_empty() {
-            vec![principal_server_id]
+            vec![station_id]
         } else {
             services
         }
@@ -189,7 +189,7 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
                 Some(&body.resource_id),
                 Some(state.config().service_id.as_str()),
                 json!({
-                    "principal_server_id": body.principal_server_id.as_str(),
+                    "station_id": body.station_id.as_str(),
                     "discoverability": discoverability.as_pg(),
                     "policy_revision": policy_revision,
                     "effective_ttl_seconds": effective_ttl,
@@ -248,7 +248,7 @@ pub async fn resource_delete(req: &mut Request, depot: &mut Depot, res: &mut Res
                 Some(resource_id),
                 Some(state.config().service_id.as_str()),
                 json!({
-                    "principal_server_id": detail.principal_server_id,
+                    "station_id": detail.station_id,
                     "policy_revision": detail.policy_revision,
                     "via_services": detail.via_services,
                     "last_announce_id": detail.last_announce_id,
@@ -307,7 +307,7 @@ async fn load_resources(
                 .select((
                     r::resource_kind,
                     r::resource_id,
-                    r::principal_server_id,
+                    r::station_id,
                     r::discovery_state,
                     r::public_projection,
                     r::discoverability,
@@ -351,7 +351,7 @@ async fn upsert_managed_resource(
         .values((
             r::resource_kind.eq(resource_kind),
             r::resource_id.eq(body.resource_id.trim()),
-            r::principal_server_id.eq(&body.principal_server_id),
+            r::station_id.eq(&body.station_id),
             r::discovery_state.eq(&discovery_state),
             r::public_projection.eq(&public_projection),
             r::discoverability.eq(discoverability),
@@ -369,7 +369,7 @@ async fn upsert_managed_resource(
         .on_conflict((r::resource_kind, r::resource_id))
         .do_update()
         .set((
-            r::principal_server_id.eq(&body.principal_server_id),
+            r::station_id.eq(&body.station_id),
             r::discovery_state.eq(&discovery_state),
             r::public_projection.eq(&public_projection),
             r::discoverability.eq(discoverability),
@@ -404,7 +404,7 @@ async fn load_resource(
         .select((
             r::resource_kind,
             r::resource_id,
-            r::principal_server_id,
+            r::station_id,
             r::discovery_state,
             r::public_projection,
             r::discoverability,
@@ -438,7 +438,7 @@ async fn delete_managed_resource(
                 .filter(r::resource_kind.eq(resource_kind))
                 .filter(r::resource_id.eq(resource_id))
                 .select((
-                    r::principal_server_id,
+                    r::station_id,
                     r::policy_revision,
                     r::via_services,
                     r::last_announce_id,
@@ -447,8 +447,7 @@ async fn delete_managed_resource(
                 .await
                 .optional()?;
 
-            let Some((principal_server_id, policy_revision, via_services, last_announce_id)) =
-                existing
+            let Some((station_id, policy_revision, via_services, last_announce_id)) = existing
             else {
                 return Ok(None);
             };
@@ -462,7 +461,7 @@ async fn delete_managed_resource(
             .await?;
 
             Ok(Some(ResourceDeleteAudit {
-                principal_server_id,
+                station_id,
                 policy_revision,
                 via_services,
                 last_announce_id,
@@ -545,7 +544,7 @@ impl From<ResourceAdminRow> for ResourceItem {
         Self {
             resource_kind: row.resource_kind.as_pg().to_owned(),
             resource_id: row.resource_id,
-            principal_server_id: row.principal_server_id,
+            station_id: row.station_id,
             discovery_state: DirectoryDiscoveryState::from_json(row.discovery_state),
             public_projection: DirectoryPublicProjection::from_json(row.public_projection),
             discoverability: row.discoverability.as_pg().to_owned(),

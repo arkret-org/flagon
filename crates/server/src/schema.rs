@@ -36,7 +36,7 @@ diesel::table! {
     directory_resources (resource_kind, resource_id) {
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        principal_server_id -> Text,
+        station_id -> Text,
         discovery_state -> Jsonb,
         public_projection -> Jsonb,
         discoverability -> Discoverability,
@@ -72,7 +72,7 @@ diesel::table! {
         announce_id -> Text,
         resource_kind -> ResourceKind,
         resource_id -> Text,
-        principal_server_id -> Text,
+        station_id -> Text,
         ingest_mode -> IngestMode,
         discovery_state -> Jsonb,
         source_refs -> Array<Text>,
