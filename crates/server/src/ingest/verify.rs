@@ -1256,7 +1256,6 @@ async fn previously_withdrawn(
 mod tests {
     use arkret_sdk::{DidUrl, DirectoryGovernanceProofPurpose, Hash};
     use arkret_signatures::jws::sign_jws_ed25519;
-    use arkret_wire::ServiceOperationId;
     use chrono::Duration;
     use ed25519_dalek::SigningKey;
     use serde_json::json;

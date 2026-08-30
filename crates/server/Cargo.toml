@@ -12,51 +12,56 @@ keywords = ["arkret", "directory", "discovery", "salvo", "diesel"]
 categories = ["network-programming", "web-programming::http-server"]
 authors.workspace = true
 
-[lints]
-workspace = true
+[package.metadata.cargo-machete]
+# Enables Diesel SQL traits for identifier types re-exported through arkret-sdk.
+ignored = ["arkret-identifiers"]
 
 [dependencies]
-anyhow = {workspace = true}
-async-trait = {workspace = true}
-base64 = {workspace = true}
-bs58 = {workspace = true}
-chrono = {workspace = true}
-arkret-canonical = {workspace = true}
-arkret-sdk = {workspace = true}
-arkret-egress-reqwest = {workspace = true}
-arkret-identity = {workspace = true}
-arkret-identifiers = {workspace = true,features = ["diesel"]}
-arkret-models-collaboration = {workspace = true}
-arkret-models-identity = {workspace = true}
-arkret-policy = {workspace = true}
-arkret-rate-limit = {workspace = true}
-arkret-schema = {workspace = true}
-arkret-server = {workspace = true}
-arkret-signatures = {workspace = true}
-arkret-wire = {workspace = true}
-deadpool = {workspace = true}
-diesel = {workspace = true}
-diesel-async = {workspace = true}
-diesel_migrations = {workspace = true}
-dotenvy = {workspace = true}
-ed25519-dalek = {workspace = true}
-hmac = {workspace = true}
-rand = {workspace = true}
-reqwest = {workspace = true}
-salvo = {workspace = true}
-serde = {workspace = true}
-serde_json = {workspace = true}
-serde_norway = {workspace = true}
-sha2 = {workspace = true}
-teabay-contracts = {workspace = true}
-tokio = {workspace = true}
-tracing = {workspace = true}
-tracing-subscriber = {workspace = true}
-url = {workspace = true}
+arkret-canonical.workspace = true
+arkret-egress-reqwest.workspace = true
+arkret-identifiers = { workspace = true, features = ["diesel"] }
+arkret-identity.workspace = true
+arkret-models-collaboration.workspace = true
+arkret-models-identity.workspace = true
+arkret-policy.workspace = true
+arkret-rate-limit.workspace = true
+arkret-schema.workspace = true
+arkret-sdk.workspace = true
+arkret-server.workspace = true
+arkret-signatures.workspace = true
+arkret-wire.workspace = true
+teabay-contracts.workspace = true
+
+anyhow.workspace = true
+base64.workspace = true
+bs58.workspace = true
+chrono.workspace = true
+deadpool.workspace = true
+diesel.workspace = true
+diesel-async.workspace = true
+diesel_migrations.workspace = true
+dotenvy.workspace = true
+ed25519-dalek.workspace = true
+hmac.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+salvo.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_norway.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
 
 [dev-dependencies]
-arkret-wire = {workspace = true,features = ["test-support"]}
-salvo = {workspace = true,features = ["test"]}
-teabay-testing = {workspace = true}
-testcontainers-modules = {workspace = true}
-tokio = {workspace = true,features = ["test-util"]}
+arkret-wire = { workspace = true, features = ["test-support"] }
+teabay-testing.workspace = true
+
+salvo = { workspace = true, features = ["test"] }
+testcontainers-modules.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

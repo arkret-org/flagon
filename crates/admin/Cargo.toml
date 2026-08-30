@@ -5,14 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[dependencies]
+teabay-contracts.workspace = true
+
+chrono.workspace = true
+dioxus.workspace = true
+dioxus-free-icons.workspace = true
+gloo-net.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true
-
-[dependencies]
-chrono = {workspace = true}
-dioxus = {workspace = true}
-dioxus-free-icons = {workspace = true}
-gloo-net = {workspace = true}
-serde = {workspace = true}
-serde_json = {workspace = true}
-teabay-contracts = {workspace = true}

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/server", "crates/admin", "crates/contracts", "crates/testing"]
+members = ["crates/admin", "crates/contracts", "crates/server", "crates/testing"]
 default-members = ["crates/server"]
 
 [workspace.package]
@@ -23,45 +23,45 @@ todo = "deny"
 unimplemented = "deny"
 
 [workspace.dependencies]
+arkret-canonical = { version = "0.3.0", path = "../arkret-rust-sdk/crates/canonical", default-features = false }
+arkret-egress-reqwest = { version = "0.3.0", path = "../arkret-rust-sdk/crates/egress-reqwest", default-features = false }
+arkret-identifiers = { version = "0.3.0", path = "../arkret-rust-sdk/crates/identifiers", default-features = false }
+arkret-identity = { version = "0.3.0", path = "../arkret-rust-sdk/crates/identity", default-features = false }
+arkret-models-collaboration = { version = "0.3.0", path = "../arkret-rust-sdk/crates/models-collaboration", default-features = false }
+arkret-models-identity = { version = "0.3.0", path = "../arkret-rust-sdk/crates/models-identity", default-features = false }
+arkret-policy = { version = "0.3.0", path = "../arkret-rust-sdk/crates/policy", default-features = false }
+arkret-rate-limit = { version = "0.3.0", path = "../arkret-rust-sdk/crates/rate-limit", default-features = false }
+arkret-schema = { version = "0.3.0", path = "../arkret-rust-sdk/crates/schema", default-features = false, features = ["embedded-artifacts"] }
+arkret-sdk = { package = "arkret", version = "0.3.0", path = "../arkret-rust-sdk/crates/sdk", default-features = false, features = ["client"] }
+arkret-server = { version = "0.3.0", path = "../arkret-rust-sdk/crates/server", default-features = false }
+arkret-signatures = { version = "0.3.0", path = "../arkret-rust-sdk/crates/signatures", default-features = false }
+arkret-wire = { version = "0.3.0", path = "../arkret-rust-sdk/crates/wire", default-features = false }
+teabay-contracts = { version = "0.3.0", path = "crates/contracts" }
+teabay-testing = { version = "0.3.0", path = "crates/testing" }
+
 anyhow = "1.0.102"
-async-trait = "0.1.89"
 base64 = "0.22.1"
 bs58 = "0.5.1"
-chrono = {version = "0.4.45",features = ["serde"]}
-arkret-sdk = {package = "arkret",version = "0.3.0",path = "../arkret-rust-sdk/crates/sdk",default-features = false,features = ["client"]}
-arkret-canonical = {version = "0.3.0",path = "../arkret-rust-sdk/crates/canonical",default-features = false}
-arkret-egress-reqwest = {version = "0.3.0",path = "../arkret-rust-sdk/crates/egress-reqwest",default-features = false}
-arkret-identity = {version = "0.3.0",path = "../arkret-rust-sdk/crates/identity",default-features = false}
-arkret-identifiers = {version = "0.3.0",path = "../arkret-rust-sdk/crates/identifiers",default-features = false}
-arkret-models-collaboration = {version = "0.3.0",path = "../arkret-rust-sdk/crates/models-collaboration",default-features = false}
-arkret-models-identity = {version = "0.3.0",path = "../arkret-rust-sdk/crates/models-identity",default-features = false}
-arkret-policy = {version = "0.3.0",path = "../arkret-rust-sdk/crates/policy",default-features = false}
-arkret-rate-limit = {version = "0.3.0",path = "../arkret-rust-sdk/crates/rate-limit",default-features = false}
-arkret-schema = {version = "0.3.0",path = "../arkret-rust-sdk/crates/schema",default-features = false,features = ["embedded-artifacts"]}
-arkret-server = {version = "0.3.0",path = "../arkret-rust-sdk/crates/server",default-features = false}
-arkret-signatures = {version = "0.3.0",path = "../arkret-rust-sdk/crates/signatures",default-features = false}
-arkret-wire = {version = "0.3.0",path = "../arkret-rust-sdk/crates/wire",default-features = false}
-deadpool = {version = "0.13",features = ["rt_tokio_1"]}
-diesel = {version = "2.3.10",features = ["postgres", "r2d2", "serde_json", "chrono", "pq-src"]}
-diesel-async = {version = "0.9",features = ["postgres", "deadpool", "async-connection-wrapper"]}
-diesel_migrations = {version = "2.3.2",features = ["postgres"]}
-dioxus = {version = "0.7.9",default-features = false,features = ["minimal", "asset", "web"]}
-dioxus-free-icons = {version = "0.10.0",features = ["lucide"]}
+chrono = { version = "0.4.45", features = ["serde"] }
+deadpool = { version = "0.13", features = ["rt_tokio_1"] }
+diesel = { version = "2.3.10", features = ["chrono", "postgres", "pq-src", "r2d2", "serde_json"] }
+diesel-async = { version = "0.9", features = ["async-connection-wrapper", "deadpool", "postgres"] }
+diesel_migrations = { version = "2.3.2", features = ["postgres"] }
+dioxus = { version = "0.7.9", default-features = false, features = ["asset", "minimal", "web"] }
+dioxus-free-icons = { version = "0.10.0", features = ["lucide"] }
 dotenvy = "0.15.7"
 ed25519-dalek = "2.2.0"
 gloo-net = "0.7.0"
 hmac = "0.13.0"
 rand = "0.9.4"
-reqwest = {version = "0.13.4",default-features = false,features = ["json", "rustls"]}
-salvo = {version = "=0.96.0",default-features = false,features = ["fix-http1-request-uri", "server", "server-handle", "http1", "http2", "matched-path", "rfc9457", "affix-state", "cors", "oapi"]}
-serde = {version = "1.0.228",features = ["derive"]}
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+salvo = { version = "=0.96.0", default-features = false, features = ["affix-state", "cors", "fix-http1-request-uri", "http1", "http2", "matched-path", "oapi", "rfc9457", "server", "server-handle"] }
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 serde_norway = "0.9"
 sha2 = "0.11.0"
-teabay-contracts = {version = "0.3.0",path = "crates/contracts"}
-teabay-testing = {version = "0.3.0",path = "crates/testing"}
-testcontainers-modules = {version = "0.15.0",features = ["blocking", "postgres"]}
-tokio = {version = "1.52.3",features = ["macros", "rt-multi-thread", "signal", "sync", "time"]}
+testcontainers-modules = { version = "0.15.0", features = ["blocking", "postgres"] }
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1.44"
-tracing-subscriber = {version = "0.3.23",features = ["env-filter"]}
-url = {version = "2.5.8",features = ["serde"]}
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = { version = "2.5.8", features = ["serde"] }

@@ -958,14 +958,16 @@ impl PostgresPcdStore {
     ) -> Result<OutcomeWrite, PcdError> {
         self.record_phase_outcome(
             now,
-            request.device_credential_digest,
-            &request.batch_id,
-            request.request_digest,
-            request.key_epoch,
-            request.lease_owner,
-            lease_version,
-            outcome,
-            Phase::Blind,
+            PhaseOutcomeRequest {
+                device: request.device_credential_digest,
+                batch_id: &request.batch_id,
+                request_digest: request.request_digest,
+                key_epoch: request.key_epoch,
+                lease_owner: request.lease_owner,
+                lease_version,
+                outcome,
+                phase: Phase::Blind,
+            },
         )
         .await
     }
@@ -1068,14 +1070,16 @@ impl PostgresPcdStore {
     ) -> Result<OutcomeWrite, PcdError> {
         self.record_phase_outcome(
             now,
-            request.device_credential_digest,
-            &request.batch_id,
-            request.request_digest,
-            request.key_epoch,
-            request.lease_owner,
-            lease_version,
-            outcome,
-            Phase::Match,
+            PhaseOutcomeRequest {
+                device: request.device_credential_digest,
+                batch_id: &request.batch_id,
+                request_digest: request.request_digest,
+                key_epoch: request.key_epoch,
+                lease_owner: request.lease_owner,
+                lease_version,
+                outcome,
+                phase: Phase::Match,
+            },
         )
         .await
     }
@@ -1138,27 +1142,20 @@ impl PostgresPcdStore {
     async fn record_phase_outcome(
         &self,
         now: DateTime<Utc>,
-        device: DeviceCredentialDigest,
-        batch_id: &PcdBatchId,
-        request_digest: PcdRequestDigest,
-        key_epoch: u64,
-        lease_owner: [u8; 32],
-        lease_version: u64,
-        outcome: OpaqueExactBucketBytes,
-        phase: Phase,
+        request: PhaseOutcomeRequest<'_>,
     ) -> Result<OutcomeWrite, PcdError> {
         let mut conn = self.db.get().await.map_err(storage)?;
-        let batch_id = batch_id.clone();
+        let batch_id = request.batch_id.clone();
         conn.transaction::<_, PcdError, _>(async move |conn| {
-            lock_device(conn, device).await?;
-            let row = load_batch(conn, &device, &batch_id)
+            lock_device(conn, request.device).await?;
+            let row = load_batch(conn, &request.device, &batch_id)
                 .await?
                 .ok_or(PcdReject::BatchUnavailable)?;
             let batch = row.into_record()?;
             if now >= batch.expires_at {
                 return Err(PcdReject::BatchUnavailable.into());
             }
-            if batch.pinned_key_epoch != key_epoch {
+            if batch.pinned_key_epoch != request.key_epoch {
                 return Err(PcdReject::PinnedEpochMismatch.into());
             }
             let (
@@ -1171,7 +1168,7 @@ impl PostgresPcdStore {
                 outcome_column,
                 owner_column,
                 version_column,
-            ) = match phase {
+            ) = match request.phase {
                 Phase::Blind => (
                     Some(batch.blind_request_digest),
                     batch.blind_outcome,
@@ -1196,18 +1193,20 @@ impl PostgresPcdStore {
                 ),
             };
             match stored_digest {
-                Some(digest) if digest == request_digest => {}
+                Some(digest) if digest == request.request_digest => {}
                 Some(_) => return Err(PcdReject::DuplicateConflict.into()),
                 None => return Err(PcdReject::BatchUnavailable.into()),
             }
-            if stored_owner != Some(lease_owner) || stored_version != Some(lease_version) {
+            if stored_owner != Some(request.lease_owner)
+                || stored_version != Some(request.lease_version)
+            {
                 return Err(PcdReject::LeaseLost.into());
             }
             if lease_expires_at.is_none_or(|expires| now >= expires) {
                 return Err(PcdReject::LeaseLost.into());
             }
             if let Some(existing) = stored_outcome {
-                return if existing == outcome {
+                return if existing == request.outcome {
                     Ok(OutcomeWrite::ExactRetry)
                 } else {
                     Err(PcdReject::OutcomeConflict.into())
@@ -1220,12 +1219,12 @@ impl PostgresPcdStore {
                    AND {version_column} = $5 AND {outcome_column} IS NULL"
             );
             let updated = diesel::sql_query(statement)
-                .bind::<Bytea, _>(device.as_bytes())
+                .bind::<Bytea, _>(request.device.as_bytes())
                 .bind::<Text, _>(batch_id.as_str())
-                .bind::<Bytea, _>(request_digest.as_bytes())
-                .bind::<Bytea, _>(lease_owner)
-                .bind::<BigInt, _>(i64::try_from(lease_version).map_err(storage)?)
-                .bind::<Bytea, _>(outcome.as_bytes())
+                .bind::<Bytea, _>(request.request_digest.as_bytes())
+                .bind::<Bytea, _>(request.lease_owner)
+                .bind::<BigInt, _>(i64::try_from(request.lease_version).map_err(storage)?)
+                .bind::<Bytea, _>(request.outcome.as_bytes())
                 .execute(conn)
                 .await
                 .map_err(storage)?;
@@ -1242,6 +1241,17 @@ impl PostgresPcdStore {
 enum Phase {
     Blind,
     Match,
+}
+
+struct PhaseOutcomeRequest<'a> {
+    device: DeviceCredentialDigest,
+    batch_id: &'a PcdBatchId,
+    request_digest: PcdRequestDigest,
+    key_epoch: u64,
+    lease_owner: [u8; 32],
+    lease_version: u64,
+    outcome: OpaqueExactBucketBytes,
+    phase: Phase,
 }
 
 fn validate_key_epoch_shape(key_epoch: u64) -> Result<(), PcdError> {
