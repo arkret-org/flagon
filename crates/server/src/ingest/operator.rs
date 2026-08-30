@@ -102,7 +102,9 @@ pub async fn operator_takedown(req: &mut Request, depot: &mut Depot, res: &mut R
         AuditEventKind::OperatorTakedown,
         Some(resource_kind),
         Some(&body.resource_id),
-        Some(operator),
+        // An admin credential does not establish a global principal. Keep
+        // the unverified byline solely in asserted_operator_localpart.
+        None,
         json!({
             "withdraw_id": withdraw_id,
             "reason": body.reason,

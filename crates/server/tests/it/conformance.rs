@@ -1044,7 +1044,7 @@ async fn assert_three_path_takedown_strand(
     assert!(
         body["withdrawal_ref"]
             .as_str()
-            .is_some_and(|id| id.starts_with("teabay:withdraw:"))
+            .is_some_and(|id| id.starts_with("withdrawal:"))
     );
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-realm")
@@ -1084,31 +1084,52 @@ async fn assert_three_path_takedown_strand(
     // Path 3: operator takedown signs a service receipt over the full
     // takedown statement and removes the indexed row.
     let operator_resource_id = "ak:did_core:web:takedown-operator.example";
-    let mut res = TestClient::post("http://local/_teabay/admin/resources")
-        .add_header("authorization", "Bearer cotest-admin", true)
-        .json(&json!({
-            "resource_kind": "organization",
-            "resource_id": operator_resource_id,
-            "station_id": "ak:did_core:web:directory.test",
-            "public_projection": {
-                "organization_principal_id": operator_resource_id,
-                "name": "Operator Takedown Target"
-            },
-            "discoverability": "listed",
-            "as_of": canonical::format_timestamp_canonical(Utc::now()),
-            "source_refs": ["admin:takedown-target"],
-            "policy_revision": "admin-takedown-r1",
-            "effective_ttl_seconds": 3600,
-            "via_services": ["ak:did_core:web:directory.test"]
-        }))
-        .send(service)
-        .await;
-    assert_eq!(
-        res.status_code.unwrap_or(StatusCode::OK),
-        StatusCode::OK,
-        "{}",
-        res.take_string().await.unwrap_or_default()
-    );
+    // Both INSERT and ON CONFLICT UPDATE must advance durable freshness.
+    for _ in 0..2 {
+        let mut res = TestClient::post("http://local/_teabay/admin/resources")
+            .add_header("authorization", "Bearer cotest-admin", true)
+            .json(&json!({
+                "resource_kind": "organization",
+                "resource_id": operator_resource_id,
+                "station_id": "ak:did_core:web:directory.test",
+                "public_projection": {
+                    "organization_principal_id": operator_resource_id,
+                    "name": "Operator Takedown Target"
+                },
+                "discoverability": "listed",
+                "as_of": canonical::format_timestamp_canonical(Utc::now()),
+                "source_refs": ["admin:takedown-target"],
+                "policy_revision": "admin-takedown-r1",
+                "effective_ttl_seconds": 3600,
+                "via_services": ["ak:did_core:web:directory.test"]
+            }))
+            .send(service)
+            .await;
+        assert_eq!(
+            res.status_code.unwrap_or(StatusCode::OK),
+            StatusCode::OK,
+            "{}",
+            res.take_string().await.unwrap_or_default()
+        );
+        #[derive(diesel::QueryableByName)]
+        struct FreshnessRow {
+            #[diesel(sql_type = diesel::sql_types::Bool)]
+            fresh: bool,
+        }
+        let mut conn = db.get().await?;
+        let row: FreshnessRow = diesel::sql_query(
+            "SELECT last_refreshed_at = indexed_at AND \
+         expires_at = last_refreshed_at + effective_ttl_seconds * interval '1 second' \
+         AND expires_at > now() AS fresh FROM directory_resources WHERE resource_id = $1",
+        )
+        .bind::<Text, _>(operator_resource_id)
+        .get_result(&mut conn)
+        .await?;
+        assert!(
+            row.fresh,
+            "admin writes retain the same durable freshness invariant as accepted announces"
+        );
+    }
 
     let mut res = TestClient::post("http://local/_teabay/admin/takedown")
         .add_header("authorization", "Bearer cotest-admin", true)
@@ -1330,7 +1351,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
     assert!(
         body["withdraw_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("teabay:withdraw:"))
+            .is_some_and(|id| id.starts_with("withdrawal:"))
     );
 
     let res = TestClient::post("http://local/_arkret/find/directory/resolve-handle")
@@ -1430,7 +1451,12 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .unwrap()
             .iter()
             .any(|event| event["kind"] == "operator_takedown"
-                && event["detail"]["withdraw_id"].as_str().is_some())
+                && event["detail"]["withdraw_id"].as_str().is_some()
+                && event["actor_id"].is_null()
+                && event["authenticated_credential_id"] == "admin:static-bearer"
+                && event["asserted_operator_localpart"] == "cotest"
+                && event["authentication_method"] == "static_bearer"),
+        "operator audit must separate authenticated credential from an unverified byline: {body}"
     );
     Ok(())
 }

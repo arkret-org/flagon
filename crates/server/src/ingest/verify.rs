@@ -1216,12 +1216,12 @@ fn derive_via_services(discovery_state: &JsonValue, station_id: &DidCoreId) -> V
 ///
 /// teabay has no peer service-resolution store yet — the same gap that made
 /// cross-directory divergence detection unimplementable — so this fails
-/// closed. Wiring a verified carrier here is the single change that
-/// re-enables first-ingest source-ref verification.
+/// closed. A future carrier implementation must also use the registered
+/// Directory public-read profile, never the private self Event read path.
 fn peer_station_did(station_id: &DidCoreId) -> Result<Did, String> {
     let _ = station_id;
     Err(
-        "peer Station core ids have no configured verified service-resolution          carrier, so the current DID cannot be established;          `discovery-directory.md` §8.3 forbids resolving the core id directly"
+        "peer Station core ids have no configured verified service-resolution carrier, so the current DID cannot be established; `discovery-directory.md` §8.3 forbids resolving the core id directly"
             .to_owned(),
     )
 }

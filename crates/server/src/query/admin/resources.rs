@@ -365,6 +365,8 @@ async fn upsert_managed_resource(
             r::divergent.eq(body.divergent),
             r::via_services.eq(&via_services),
             r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
+            r::last_refreshed_at.eq(indexed_at),
+            r::expires_at.eq(next_revalidation_after),
         ))
         .on_conflict((r::resource_kind, r::resource_id))
         .do_update()
@@ -383,6 +385,8 @@ async fn upsert_managed_resource(
             r::divergent.eq(body.divergent),
             r::via_services.eq(&via_services),
             r::last_announce_id.eq(trimmed_option(body.last_announce_id.as_deref())),
+            r::last_refreshed_at.eq(indexed_at),
+            r::expires_at.eq(next_revalidation_after),
         ))
         .execute(&mut *conn)
         .await?;
