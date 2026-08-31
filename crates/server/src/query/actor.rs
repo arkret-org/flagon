@@ -8,8 +8,9 @@
 //! used for audience gating here.
 
 use arkret_sdk::{
-    ActorPreview, DidCoreId, DirectoryActorSearchOutcome, DirectorySearchActorsRequestBody,
-    DirectorySearchUsersRequestBody, DirectoryUserSearchOutcome, UserSearchOutcome,
+    ActorId, ActorPreview, DidCoreId, DirectoryActorSearchOutcome,
+    DirectorySearchActorsRequestBody, DirectorySearchUsersRequestBody, DirectoryUserSearchOutcome,
+    UserSearchOutcome,
 };
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -92,7 +93,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
             }
             let actor_previews = match rows
                 .into_iter()
-                .map(|row| actor_preview_from_envelope(envelope_from_row(row)))
+                .map(actor_preview_from_row)
                 .collect::<Result<Vec<_>, _>>()
             {
                 Ok(actor_previews) => actor_previews,
@@ -207,6 +208,7 @@ pub async fn search_users(req: &mut Request, depot: &mut Depot, res: &mut Respon
 #[derive(Debug, Queryable)]
 struct ActorRow {
     resource_id: String,
+    station_id: String,
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
@@ -231,6 +233,7 @@ async fn run_actor_search(
         .limit(limit.max(500))
         .select((
             r::resource_id,
+            r::station_id,
             r::public_projection,
             r::discoverability,
             r::as_of,
@@ -276,6 +279,7 @@ async fn run_user_search(
         .limit(500)
         .select((
             r::resource_id,
+            r::station_id,
             r::public_projection,
             r::discoverability,
             r::as_of,
@@ -306,7 +310,6 @@ async fn run_user_search(
 fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
-        obj.insert("actor_id".into(), JsonValue::String(row.resource_id));
         obj.insert(
             "discoverability".into(),
             JsonValue::String(row.discoverability.as_pg().to_string()),
@@ -321,6 +324,29 @@ fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
         row.divergent,
         row.via_services,
     )
+}
+
+fn actor_preview_from_row(row: ActorRow) -> Result<ActorPreview, String> {
+    // public_projection is derived from the verified discovery Event's value;
+    // station_id is persisted from that Event author's route. Neither the
+    // principal index nor this directory's own Station can invent an Actor.
+    let actor: ActorId = serde_json::from_value(
+        row.public_projection
+            .get("actor_id")
+            .cloned()
+            .ok_or_else(|| "indexed actor projection lacks its signed full ActorId".to_owned())?,
+    )
+    .map_err(|error| format!("indexed actor projection has an invalid ActorId: {error}"))?;
+    let principal = DidCoreId::new(row.resource_id.clone())
+        .map_err(|error| format!("indexed actor principal is invalid: {error}"))?;
+    let station = DidCoreId::new(row.station_id.clone())
+        .map_err(|error| format!("indexed actor Station is invalid: {error}"))?;
+    if actor.signing_principal_id() != &principal || actor.route_service_id() != &station {
+        return Err(
+            "indexed actor projection does not bind its accepted principal and Station".to_owned(),
+        );
+    }
+    actor_preview_from_envelope(envelope_from_row(row))
 }
 
 fn actor_preview_from_envelope(envelope: ResultEnvelope) -> Result<ActorPreview, String> {
@@ -373,4 +399,70 @@ fn actor_lists_realm(projection: &JsonValue, realm_id: &str) -> bool {
                 .any(|key| obj.get(*key).and_then(JsonValue::as_str) == Some(realm_id)),
             _ => false,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use arkret_sdk::AccountId;
+    use serde_json::json;
+
+    use super::*;
+
+    fn indexed_actor(actor: &ActorId) -> ActorRow {
+        ActorRow {
+            resource_id: actor.signing_principal_id().to_string(),
+            station_id: actor.route_service_id().to_string(),
+            public_projection: json!({"actor_id": actor, "display_name": "Fixture Actor"}),
+            discoverability: DiscoverabilityDb::Public,
+            as_of: "2026-08-31T00:00:00.000Z".parse().unwrap(),
+            source_refs: Vec::new(),
+            policy_revision: "fixture".to_owned(),
+            stale: false,
+            divergent: false,
+            via_services: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn actor_preview_preserves_signed_station_and_rejects_missing_or_mismatched_carriers() {
+        let principal = DidCoreId::new("ak:did_core:web:actor.example").unwrap();
+        let mut actor_ids = std::collections::BTreeSet::new();
+        for station in [
+            "ak:did_core:web:station-a.example",
+            "ak:did_core:web:station-b.example",
+        ] {
+            let actor = ActorId::account(AccountId::new(
+                principal.clone(),
+                DidCoreId::new(station).unwrap(),
+            ));
+            let preview = actor_preview_from_row(indexed_actor(&actor)).unwrap();
+            assert_eq!(preview.actor_id, actor);
+            actor_ids.insert(preview.actor_id);
+
+            let mut wrong_station = indexed_actor(&actor);
+            wrong_station.station_id = "ak:did_core:web:unrelated.example".to_owned();
+            assert!(actor_preview_from_row(wrong_station).is_err());
+            let mut wrong_principal = indexed_actor(&actor);
+            wrong_principal.resource_id = "ak:did_core:web:other.example".to_owned();
+            assert!(actor_preview_from_row(wrong_principal).is_err());
+            let mut missing = indexed_actor(&actor);
+            missing
+                .public_projection
+                .as_object_mut()
+                .unwrap()
+                .remove("actor_id");
+            assert!(actor_preview_from_row(missing).is_err());
+            let mut scalar = indexed_actor(&actor);
+            scalar.public_projection["actor_id"] = json!(principal);
+            assert!(actor_preview_from_row(scalar).is_err());
+        }
+        assert_eq!(actor_ids.len(), 2);
+        let service = ActorId::service(principal);
+        assert_eq!(
+            actor_preview_from_row(indexed_actor(&service))
+                .unwrap()
+                .actor_id,
+            service
+        );
+    }
 }

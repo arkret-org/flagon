@@ -605,7 +605,10 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
         body["actors"][0]["actor_id"],
-        "ak:did_core:web:alice.example"
+        json!(arkret_sdk::ActorId::account(arkret_sdk::AccountId::new(
+            DidCoreId::new("ak:did_core:web:alice.example")?,
+            DidCoreId::new("ak:did_core:web:principal.test")?,
+        )))
     );
 
     let mut res = TestClient::post("http://local/_arkret/find/directory/search-users")
