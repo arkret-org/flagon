@@ -145,10 +145,12 @@ Provisioning strand:
 
 ### 1.0 Secret Backend Decision
 
-Store secrets outside source control. For 1.0, teabay intentionally supports
-environment-variable secret injection only. A Vault, AWS Secrets Manager, or
-other runtime secret-provider adapter is out of scope for 1.0 and should be
-handled by the deployment platform before process start.
+Store secrets outside source control. General teabay secrets use deployment-time
+environment injection. Private Contact Discovery additionally requires
+deployment-platform/KMS sidecar file projections so key epochs can be retained
+across a bounded rotation window without placing private scalars in environment
+variables or PostgreSQL. Teabay does not call a vendor-specific secret API; the
+deployment platform owns projection permissions, renewal, and file lifetime.
 
 ### Admin Token Enforcement
 
@@ -188,6 +190,69 @@ The hard maximum TTL accepted by the server is 30 days.
 | `TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN` | `60` | Per-resource query budget. |
 | `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN` | `600` | Per-client query request budget. `0` disables this guard. |
 | `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN` | `120` | Per-resource exact resolve budget. `0` disables this guard. |
+
+### Private Contact Discovery activation
+
+Private Contact Discovery is disabled by default. Teabay advertises its
+operation bundle and closed `private_contact_discovery` configuration only after
+startup has verified the described VOPRF key against custody, validated the
+complete derived index, and atomically committed that epoch/index in PostgreSQL.
+Any missing or inconsistent input fails startup; setting only the enable flag
+does not publish the capability.
+
+| Variable | Default | Purpose |
+| --- | ---: | --- |
+| `TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED` | `false` | Must be exactly `true` together with every input below. |
+| `TEABAY_PCD_CONFIG_FILE` | none | Closed SDK `PrivateContactDiscovery` JSON advertised by Describe. |
+| `TEABAY_PCD_CUSTODY_KEY_REF` | none | Exact `kms://...` reference bound to the described public key. |
+| `TEABAY_PCD_KMS_MANIFEST_FILE` | none | KMS/secret-sidecar custody manifest containing the current and retained rotation keys. |
+| `TEABAY_PCD_INDEX_MANIFEST_FILE` | none | Complete derived-prefix index for the described epoch. |
+| `TEABAY_PCD_DEVICE_AUTHENTICATION_KEY_FILE` | none | Base64url, unpadded 32-byte HMAC key used for device-scoped bearer verification. |
+| `TEABAY_PCD_KEY_ACTIVATED_AT` | none | RFC 3339 activation timestamp; must not be in the future. |
+| `TEABAY_PCD_EVALUATION_LEASE_SECONDS` | `30` | Durable evaluation lease, bounded by the advertised completion TTL. |
+| `TEABAY_PCD_GARBAGE_COLLECTION_INTERVAL_SECONDS` | `60` | PCD batch/quota/snapshot/retired-epoch collection interval. |
+
+The custody manifest is closed JSON. Relative key files resolve beside the
+manifest and must be read-only, memory-backed secret projections:
+
+```json
+{
+  "keys": [
+    {
+      "custody_key_ref": "kms://directory/pcd/epoch/14",
+      "private_key_file": "epoch-14.key"
+    }
+  ]
+}
+```
+
+Each projected key file contains canonical unpadded base64url for one 32-byte
+Ristretto255 VOPRF scalar. Keep every key epoch still referenced by an unexpired
+batch in the custody manifest during rotation. Teabay zeroes its temporary load
+buffers; the deployment platform remains responsible for the projected file.
+
+The index manifest is also closed JSON. It stores only 16-byte derived prefixes,
+never raw connection identifiers:
+
+```json
+{
+  "key_epoch": 14,
+  "generation": "2026-08-31T00:00:00Z",
+  "entries": [
+    { "derived_prefix": "BASE64URL_OF_16_BYTES" }
+  ]
+}
+```
+
+When `handoff_stubs_mode` is `always`, every entry must also carry its typed
+`handoff_stub`; mode `never` forbids that field. The manifest epoch must equal
+the Describe configuration epoch and prefixes must be unique.
+
+PCD clients authenticate with
+`Authorization: Bearer pcd1.<opaque-device-id>.<base64url-hmac>`, where the HMAC
+is SHA-256 over the ASCII bytes of `pcd1.<opaque-device-id>` using the projected
+device authentication key. The opaque device id is the stable quota identity;
+do not log either the bearer or that id at the reverse proxy.
 
 ## Reverse Proxy
 

@@ -261,8 +261,20 @@ diesel::table! {
         key_epoch -> Int8,
         public_key -> Bytea,
         custody_key_ref -> Text,
+        index_generation -> Text,
+        index_digest -> Bytea,
+        index_entry_count -> Int4,
+        index_ready_at -> Timestamptz,
         activated_at -> Timestamptz,
         retired_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    pcd_index_entries (key_epoch, derived_prefix) {
+        key_epoch -> Int8,
+        derived_prefix -> Bytea,
+        handoff_stub -> Nullable<Jsonb>,
     }
 }
 
@@ -309,6 +321,7 @@ diesel::table! {
 diesel::joinable!(pcd_batches -> pcd_key_epochs (pinned_key_epoch));
 diesel::joinable!(pcd_batches -> pcd_config_snapshots (pinned_config_digest));
 diesel::joinable!(pcd_config_snapshots -> pcd_key_epochs (key_epoch));
+diesel::joinable!(pcd_index_entries -> pcd_key_epochs (key_epoch));
 
 diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
@@ -325,6 +338,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     pending_takedown_webhooks,
     verified_realm_organizations,
     pcd_key_epochs,
+    pcd_index_entries,
     pcd_config_snapshots,
     pcd_quota_windows,
     pcd_batches,

@@ -13,6 +13,7 @@ use crate::db::Db;
 use crate::did_binding::DidBindingDirectory;
 use crate::did_resolver::SharedDidResolver;
 use crate::observability::Metrics;
+use crate::pcd::PrivateContactDiscoveryService;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -36,6 +37,7 @@ struct Inner {
     rate_limiter: RateLimiter,
     announce_replay_cache: AnnounceReplayCache,
     metrics: Metrics,
+    private_contact_discovery: Option<Arc<PrivateContactDiscoveryService>>,
 }
 
 impl AppState {
@@ -50,6 +52,29 @@ impl AppState {
     /// resolver that cannot be built is a configuration error, and
     /// configuration errors belong at boot.
     pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
+        if config.private_contact_discovery.is_some() {
+            anyhow::bail!(
+                "PCD configuration requires custody/index bootstrap before AppState construction"
+            );
+        }
+        Self::new_with_private_contact_discovery(config, db, None)
+    }
+
+    pub fn new_with_private_contact_discovery(
+        config: AppConfig,
+        db: Db,
+        private_contact_discovery: Option<PrivateContactDiscoveryService>,
+    ) -> anyhow::Result<Self> {
+        if config.private_contact_discovery.is_some() != private_contact_discovery.is_some() {
+            anyhow::bail!("PCD configuration/runtime activation state mismatch");
+        }
+        if let (Some(runtime), Some(service)) = (
+            config.private_contact_discovery.as_ref(),
+            private_contact_discovery.as_ref(),
+        ) && &runtime.describe != service.configuration()
+        {
+            anyhow::bail!("PCD runtime does not match the advertised configuration");
+        }
         let service_core_id = config.service_id.clone();
         // Built before the resolver so the DID counters land on the same
         // `Metrics` instance `/metrics` renders.
@@ -75,6 +100,7 @@ impl AppState {
                 rate_limiter: RateLimiter::default(),
                 announce_replay_cache: AnnounceReplayCache::default(),
                 metrics,
+                private_contact_discovery: private_contact_discovery.map(Arc::new),
             }),
         })
     }
@@ -119,6 +145,10 @@ impl AppState {
 
     pub fn metrics(&self) -> &Metrics {
         &self.inner.metrics
+    }
+
+    pub fn private_contact_discovery(&self) -> Option<&PrivateContactDiscoveryService> {
+        self.inner.private_contact_discovery.as_deref()
     }
 
     pub fn check_rate_limit(&self, key: impl Into<String>, max_requests: u32) -> RateLimitOutcome {

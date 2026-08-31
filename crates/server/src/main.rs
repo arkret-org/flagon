@@ -1,6 +1,7 @@
 use salvo::prelude::*;
 use server::ingest::freshness_worker::{DEFAULT_FRESHNESS_TICK, FreshnessWorker};
 use server::workers::expiry::ExpiryWorker;
+use server::workers::private_contact_discovery::PrivateContactDiscoveryGarbageCollector;
 use server::workers::takedown_notifier::TakedownNotifier;
 use server::{AppConfig, AppState, Db, metrics_service, service};
 use tokio::signal;
@@ -29,8 +30,28 @@ async fn run() -> anyhow::Result<()> {
     // the multi-threaded tokio runtime.
     let db = Db::connect_with(&config.database_url, &config.db_pool)?;
     db.run_migrations(&config.database_url).await?;
+    let private_contact_discovery = match config.private_contact_discovery.as_ref() {
+        Some(runtime) => {
+            Some(server::pcd::PrivateContactDiscoveryService::bootstrap(runtime, &db).await?)
+        }
+        None => None,
+    };
     // Fails closed at boot if the shared DID resolver chain cannot be built.
-    let state = AppState::new(config.clone(), db)?;
+    let state = AppState::new_with_private_contact_discovery(
+        config.clone(),
+        db,
+        private_contact_discovery,
+    )?;
+    if let (Some(service), Some(runtime)) = (
+        state.private_contact_discovery().cloned(),
+        config.private_contact_discovery.as_ref(),
+    ) {
+        let _pcd_garbage_collector = PrivateContactDiscoveryGarbageCollector::new(
+            service,
+            runtime.garbage_collection_interval,
+        )
+        .spawn();
+    }
 
     // P2E.5 follow-up — freshness sweep marks `stale=true` for rows
     // whose announce-driven `expires_at` plus revalidation grace lapsed.

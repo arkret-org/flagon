@@ -28,6 +28,7 @@ arkret-egress-reqwest = { version = "0.3.0", path = "../arkret-rust-sdk/crates/e
 arkret-identifiers = { version = "0.3.0", path = "../arkret-rust-sdk/crates/identifiers", default-features = false }
 arkret-identity = { version = "0.3.0", path = "../arkret-rust-sdk/crates/identity", default-features = false }
 arkret-models-collaboration = { version = "0.3.0", path = "../arkret-rust-sdk/crates/models-collaboration", default-features = false }
+arkret-models-discovery = { version = "0.3.0", path = "../arkret-rust-sdk/crates/models-discovery", default-features = false, features = ["openapi"] }
 arkret-models-identity = { version = "0.3.0", path = "../arkret-rust-sdk/crates/models-identity", default-features = false }
 arkret-policy = { version = "0.3.0", path = "../arkret-rust-sdk/crates/policy", default-features = false }
 arkret-rate-limit = { version = "0.3.0", path = "../arkret-rust-sdk/crates/rate-limit", default-features = false }
@@ -65,3 +66,4 @@ tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal",
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = { version = "2.5.8", features = ["serde"] }
+voprf = { version = "0.6.0-pre.1", features = ["std"] }

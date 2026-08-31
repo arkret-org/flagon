@@ -1,10 +1,10 @@
-//! PostgreSQL contracts for the deliberately unreachable PCD durable core.
+//! PostgreSQL contracts for the PCD durable state machine.
 
 use chrono::{DateTime, Duration, Utc};
 use diesel::QueryableByName;
 use diesel::sql_types::BigInt;
 use diesel_async::RunQueryDsl;
-use server::pcd_dark::{
+use server::pcd_state::{
     BlindAdmissionRequest, DeviceCredentialDigest, MatchAdmissionRequest, OpaqueExactBucketBytes,
     OutcomeWrite, PcdAdmission, PcdBatchId, PcdError, PcdOperationalLimits, PcdReject,
     PcdRequestDigest, PostgresPcdStore,

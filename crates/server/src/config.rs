@@ -12,10 +12,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arkret_sdk::{
-    Did, DidCoreId, DirectoryResourceKind, ResolutionCommitment, project_did_to_core_id,
+    Did, DidCoreId, DirectoryResourceKind, PrivateContactDiscovery, ResolutionCommitment,
+    project_did_to_core_id,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{DateTime, Utc};
 use ed25519_dalek::SigningKey;
 use serde::{Deserialize, Serialize};
 
@@ -220,6 +222,22 @@ pub struct AppConfig {
     /// When unset, the rate-limiter trusts `req.remote_addr()` only.
     /// Env: `TEABAY_TRUSTED_PROXY` (comma-separated IPs).
     pub trusted_proxy: Option<Vec<IpAddr>>,
+    /// Fully closed optional PCD runtime. Presence means the startup bootstrap
+    /// must verify custody and atomically activate the epoch/index before the
+    /// HTTP listener is created.
+    pub private_contact_discovery: Option<PrivateContactDiscoveryRuntimeConfig>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PrivateContactDiscoveryRuntimeConfig {
+    pub describe: PrivateContactDiscovery,
+    pub custody_key_ref: String,
+    pub custody_manifest_path: PathBuf,
+    pub index_manifest_path: PathBuf,
+    pub device_authentication_key_path: PathBuf,
+    pub key_activated_at: DateTime<Utc>,
+    pub evaluation_lease_seconds: u32,
+    pub garbage_collection_interval: Duration,
 }
 
 /// Pool sizing knobs for the diesel + deadpool PostgreSQL connection pool.
@@ -512,6 +530,7 @@ impl AppConfig {
 
         // P5 — trusted proxy allowlist for the rate-limiter.
         let trusted_proxy = parse_trusted_proxy(std::env::var("TEABAY_TRUSTED_PROXY").ok())?;
+        let private_contact_discovery = private_contact_discovery_runtime_config()?;
 
         // Operator-configurable subset of the §8.3 resource-kind enum this
         // directory accepts for ingest. Unset ⇒ full enum. Each token MUST be
@@ -574,6 +593,7 @@ impl AppConfig {
             expiry_interval,
             takedown_notifier_interval,
             trusted_proxy,
+            private_contact_discovery,
         })
     }
 
@@ -591,6 +611,95 @@ impl AppConfig {
     ) -> DidResolverKeyDirectory {
         DidResolverKeyDirectory::new(self.http_sig_pubkeys.clone(), resolver)
     }
+}
+
+fn private_contact_discovery_runtime_config()
+-> anyhow::Result<Option<PrivateContactDiscoveryRuntimeConfig>> {
+    let enabled = read_bool("TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED", false)?;
+    let config_path = std::env::var("TEABAY_PCD_CONFIG_FILE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from);
+    let Some(config_path) = config_path else {
+        if enabled {
+            anyhow::bail!(
+                "TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED=true requires TEABAY_PCD_CONFIG_FILE"
+            );
+        }
+        return Ok(None);
+    };
+    if !enabled {
+        anyhow::bail!(
+            "TEABAY_PCD_CONFIG_FILE requires TEABAY_PRIVATE_CONTACT_DISCOVERY_ENABLED=true"
+        );
+    }
+
+    let config_bytes = std::fs::read(&config_path).map_err(|error| {
+        anyhow::anyhow!(
+            "failed to read TEABAY_PCD_CONFIG_FILE {}: {error}",
+            config_path.display()
+        )
+    })?;
+    let describe: PrivateContactDiscovery =
+        serde_json::from_slice(&config_bytes).map_err(|error| {
+            anyhow::anyhow!(
+                "TEABAY_PCD_CONFIG_FILE {} is not a closed PCD configuration: {error}",
+                config_path.display()
+            )
+        })?;
+    describe
+        .validate()
+        .map_err(|error| anyhow::anyhow!("invalid TEABAY_PCD_CONFIG_FILE: {error}"))?;
+
+    let custody_key_ref = required_non_empty_env("TEABAY_PCD_CUSTODY_KEY_REF")?;
+    if !custody_key_ref.starts_with("kms://") || custody_key_ref.len() > 512 {
+        anyhow::bail!("TEABAY_PCD_CUSTODY_KEY_REF must be a 1..=512 byte kms:// reference");
+    }
+    let custody_manifest_path = required_path_env("TEABAY_PCD_KMS_MANIFEST_FILE")?;
+    let index_manifest_path = required_path_env("TEABAY_PCD_INDEX_MANIFEST_FILE")?;
+    let device_authentication_key_path =
+        required_path_env("TEABAY_PCD_DEVICE_AUTHENTICATION_KEY_FILE")?;
+    let activated_at = required_non_empty_env("TEABAY_PCD_KEY_ACTIVATED_AT")?;
+    let key_activated_at = DateTime::parse_from_rfc3339(&activated_at)
+        .map_err(|error| anyhow::anyhow!("invalid TEABAY_PCD_KEY_ACTIVATED_AT: {error}"))?
+        .with_timezone(&Utc);
+    if key_activated_at > Utc::now() {
+        anyhow::bail!("TEABAY_PCD_KEY_ACTIVATED_AT must not be in the future");
+    }
+    let evaluation_lease_seconds =
+        u32::try_from(read_u64("TEABAY_PCD_EVALUATION_LEASE_SECONDS", 30)?)
+            .map_err(|_| anyhow::anyhow!("TEABAY_PCD_EVALUATION_LEASE_SECONDS exceeds u32"))?;
+    if evaluation_lease_seconds == 0
+        || evaluation_lease_seconds > describe.batch_completion_ttl_seconds
+    {
+        anyhow::bail!(
+            "TEABAY_PCD_EVALUATION_LEASE_SECONDS must be in 1..=batch_completion_ttl_seconds"
+        );
+    }
+    let garbage_collection_interval_seconds =
+        read_u64("TEABAY_PCD_GARBAGE_COLLECTION_INTERVAL_SECONDS", 60)?;
+    if garbage_collection_interval_seconds == 0 {
+        anyhow::bail!("TEABAY_PCD_GARBAGE_COLLECTION_INTERVAL_SECONDS must be > 0");
+    }
+
+    Ok(Some(PrivateContactDiscoveryRuntimeConfig {
+        describe,
+        custody_key_ref,
+        custody_manifest_path,
+        index_manifest_path,
+        device_authentication_key_path,
+        key_activated_at,
+        evaluation_lease_seconds,
+        garbage_collection_interval: Duration::from_secs(garbage_collection_interval_seconds),
+    }))
+}
+
+fn required_path_env(name: &str) -> anyhow::Result<PathBuf> {
+    let path = PathBuf::from(required_non_empty_env(name)?);
+    if !path.is_file() {
+        anyhow::bail!("{name}={} is not a readable file", path.display());
+    }
+    Ok(path)
 }
 
 /// Parse `TEABAY_HTTP_SIG_PUBKEYS` into a `keyid → VerifyingKey`

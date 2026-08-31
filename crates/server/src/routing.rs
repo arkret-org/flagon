@@ -3,11 +3,15 @@
 
 use std::sync::Arc;
 
+use arkret_models_discovery::{
+    DirectoryPrivateContactDiscoveryOutcome, DirectoryPrivateContactDiscoveryRequestBody,
+    DirectoryRealmSearchOutcome, PsiPaddedProblem,
+};
 use diesel_async::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
-use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiResponse};
+use salvo::oapi::{OpenApi, Operation, PathItem, PathItemType, Response as OapiResponse, ToSchema};
 use salvo::prelude::*;
 use serde_json::json;
 
@@ -174,6 +178,10 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
         .push(
             Router::with_path("list-handles-for-subject")
                 .post(query::handles_for_subject::list_handles_for_subject),
+        )
+        .push(
+            Router::with_path("private-contact-discovery")
+                .post(crate::pcd::private_contact_discovery),
         );
 
     // Ingest face — §8. Transport hardened by RFC 9421 HTTP Message
@@ -234,7 +242,12 @@ async fn operation_selector_middleware(
         ctrl.skip_rest();
         return;
     };
-    if !query::describe::supports_http_operation(selected)
+    let private_contact_discovery_active = depot
+        .get_typed::<AppState>()
+        .ok()
+        .and_then(AppState::private_contact_discovery)
+        .is_some();
+    if !query::describe::supports_http_operation(selected, private_contact_discovery_active)
         || !selected.matches_http_request(req.method().as_str(), req.uri().path())
     {
         ApiErrorCode::UnsupportedOperationVersion.render(
@@ -534,8 +547,32 @@ pub fn openapi(router: &Router) -> serde_json::Value {
         .add_extension("x-arkret-service-kind", json!("directory_service"))
         .add_extension("x-arkret-artifact-first", json!(true))
         .merge_router(router);
+    register_teabay_schemas(&mut doc);
     register_teabay_operations(&mut doc);
     product_openapi_document(&doc)
+}
+
+fn register_teabay_schemas(doc: &mut OpenApi) {
+    for (name, schema) in [
+        (
+            "DirectoryRealmSearchOutcome",
+            DirectoryRealmSearchOutcome::to_schema(&mut doc.components),
+        ),
+        (
+            "DirectoryPrivateContactDiscoveryRequestBody",
+            DirectoryPrivateContactDiscoveryRequestBody::to_schema(&mut doc.components),
+        ),
+        (
+            "DirectoryPrivateContactDiscoveryOutcome",
+            DirectoryPrivateContactDiscoveryOutcome::to_schema(&mut doc.components),
+        ),
+        (
+            "PsiPaddedProblem",
+            PsiPaddedProblem::to_schema(&mut doc.components),
+        ),
+    ] {
+        doc.components.schemas.insert(name, schema);
+    }
 }
 
 fn product_openapi_document(product_doc: &OpenApi) -> serde_json::Value {
@@ -651,7 +688,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/describe",
             PathItemType::Get,
-            "ak.server.read.describe",
+            "ak.server.read.describe.v1",
             "directory",
             "Describe Directory Service Role",
             "Expose the role-local Directory Service capability document.",
@@ -659,7 +696,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/describe",
             PathItemType::Get,
-            "ak.find.directory.read.describe",
+            "ak.find.directory.read.describe.v1",
             "directory",
             "Describe Directory Service",
             "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
@@ -667,7 +704,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-realms",
             PathItemType::Post,
-            "ak.find.directory.read.search_realms",
+            "ak.find.directory.read.search_realms.v1",
             "query",
             "Search Realms",
             "Return listed/public Realm directory results using the §9.1 result envelope.",
@@ -675,7 +712,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-realm",
             PathItemType::Post,
-            "ak.find.directory.read.resolve_realm",
+            "ak.find.directory.read.resolve_realm.v1",
             "query",
             "Resolve Realm",
             "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
@@ -688,7 +725,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // resolved object. Realm resolution delegates to resolve_realm.
             "/_arkret/find/directory/resolve-target",
             PathItemType::Post,
-            "ak.find.directory.read.resolve_target",
+            "ak.find.directory.read.resolve_target.v1",
             "query",
             "Resolve Target",
             "Resolve a client-agnostic shareable object address (Realm / Strand / Message) to a \
@@ -699,7 +736,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-organizations",
             PathItemType::Post,
-            "ak.find.directory.read.search_organizations",
+            "ak.find.directory.read.search_organizations.v1",
             "query",
             "Search Organizations",
             "Return public/listed Organization directory results.",
@@ -707,7 +744,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-organization",
             PathItemType::Post,
-            "ak.find.directory.read.resolve_organization",
+            "ak.find.directory.read.resolve_organization.v1",
             "query",
             "Resolve Organization",
             "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
@@ -715,7 +752,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-actors",
             PathItemType::Post,
-            "ak.find.directory.read.search_actors",
+            "ak.find.directory.read.search_actors.v1",
             "query",
             "Search Actors",
             "Return public Actor discovery records.",
@@ -723,7 +760,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-users",
             PathItemType::Post,
-            "ak.find.directory.read.search_users",
+            "ak.find.directory.read.search_users.v1",
             "query",
             "Search Users",
             "Realm-gated user search using indexed membership hints.",
@@ -731,7 +768,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-handle",
             PathItemType::Post,
-            "ak.find.directory.read.resolve_handle",
+            "ak.find.directory.read.resolve_handle.v1",
             "query",
             "Resolve Handle",
             "Resolve handle discovery resources with the Directory result envelope.",
@@ -751,7 +788,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
             "/_arkret/find/directory/list-handles-for-subject",
             PathItemType::Post,
-            "ak.find.directory.read.list_handles_for_subject",
+            "ak.find.directory.read.list_handles_for_subject.v1",
             "query",
             "List Handles For Subject",
             "Resolve a known holder/principal DID to its currently-visible handle claims \
@@ -759,9 +796,17 @@ fn register_teabay_operations(doc: &mut OpenApi) {
              subjects (ak:actor:/ak:account:/service DID) with failed_precondition.",
         ),
         (
+            "/_arkret/find/directory/private-contact-discovery",
+            PathItemType::Post,
+            "ak.find.directory.read.private_contact_discovery.v1",
+            "query",
+            "Private Contact Discovery",
+            "Run one fixed-cardinality RFC 9497 modeVOPRF blind or match phase with an exact padded response bucket.",
+        ),
+        (
             "/_arkret/find/directory/announce",
             PathItemType::Post,
-            "ak.find.directory.command.announce",
+            "ak.find.directory.command.announce.v1",
             "ingest",
             "Announce Discovery State",
             "Push-mode ingest for signed ak.{kind}.discovery state.",
@@ -769,7 +814,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/withdraw",
             PathItemType::Post,
-            "ak.find.directory.command.withdraw",
+            "ak.find.directory.command.withdraw.v1",
             "ingest",
             "Withdraw Discovery State",
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
@@ -777,7 +822,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/push/register",
             PathItemType::Post,
-            "ak.find.directory.push.command.register",
+            "ak.find.directory.push.command.register.v1",
             "ingest",
             "Subscribe To Directory Updates",
             "Register an HMAC-signed webhook subscription for accepted ingest updates.",

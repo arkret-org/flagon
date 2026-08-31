@@ -314,6 +314,7 @@ dependencies = [
  "diesel",
  "getrandom 0.2.17",
  "getrandom 0.4.2",
+ "salvo-oapi",
  "serde",
  "thiserror 2.0.18",
  "url",
@@ -363,6 +364,7 @@ dependencies = [
 name = "arkret-locale"
 version = "0.3.0"
 dependencies = [
+ "salvo-oapi",
  "serde",
 ]
 
@@ -411,6 +413,7 @@ dependencies = [
  "arkret-wire",
  "chrono",
  "curve25519-dalek",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -426,6 +429,7 @@ dependencies = [
  "arkret-locale",
  "arkret-wire",
  "chrono",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -559,6 +563,7 @@ dependencies = [
  "idna",
  "precis-profiles",
  "regex",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -5507,6 +5512,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-identity",
  "arkret-models-collaboration",
+ "arkret-models-discovery",
  "arkret-models-identity",
  "arkret-policy",
  "arkret-rate-limit",
@@ -5538,6 +5544,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "voprf",
 ]
 
 [[package]]
@@ -6659,6 +6666,7 @@ dependencies = [
  "elliptic-curve",
  "generic-array 1.4.2",
  "rand_core 0.9.5",
+ "serde",
  "sha2 0.10.9",
  "subtle",
  "zeroize",

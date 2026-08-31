@@ -1,23 +1,17 @@
-//! Durable private-contact-discovery state machine kept deliberately dark.
+//! Durable private-contact-discovery state machine.
 //!
-//! This module has no router, configuration, `AppState`, ServiceDescribe, or
-//! operation-bundle integration.  It exists solely to close the durable
-//! admission semantics before a complete current-v1 VOPRF implementation is
-//! ready to expose the canonical endpoint. Outcome storage is deliberately
-//! opaque: this module checks only exact current-v1 bucket length, not typed
-//! outcome semantics, JCS, or padding contents. It must not be wired to
-//! production without the existing closed request/outcome SDK validators. This
-//! state machine does validate and durably pin the complete SDK config (public
-//! key, buckets, handoff mode, delay, quota, TTL, and related policy).
-//! Custody references are persisted, but this repository has no KMS activation
-//! verifier; verified custody activation remains an explicit enablement blocker.
+//! Outcome storage remains byte-oriented because exact retries must reproduce
+//! the original entity body. The production caller in `crate::pcd` constructs,
+//! pads, validates, and canonically encodes the closed SDK outcome before these
+//! bytes can enter the store. This module owns the transaction, quota, lease,
+//! pinned epoch/config, derived-index, restart, and rotation invariants.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use arkret_sdk::PrivateContactDiscovery;
+use arkret_sdk::{InviteConsentHandoffStub, PrivateContactDiscovery};
 use chrono::{DateTime, Duration, Utc};
-use diesel::sql_types::{BigInt, Bytea, Integer, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Bytea, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::{OptionalExtension, QueryableByName};
 use diesel_async::{AsyncConnection, RunQueryDsl};
 use sha2::{Digest, Sha256};
@@ -168,7 +162,7 @@ impl PcdConfigSnapshot {
         &self.config
     }
 
-    fn validated(config: &PrivateContactDiscovery) -> Result<Self, PcdError> {
+    pub(crate) fn validated(config: &PrivateContactDiscovery) -> Result<Self, PcdError> {
         config
             .validate()
             .map_err(|_| PcdReject::InvalidConfiguration)?;
@@ -295,6 +289,18 @@ pub struct GarbageCollectionStats {
     pub expired_quota_windows: u64,
     pub unreferenced_config_snapshots: u64,
     pub retired_key_epochs: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PcdIndexEntry {
+    pub derived_prefix: [u8; 16],
+    pub handoff_stub: Option<InviteConsentHandoffStub>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PcdIndexMatch {
+    pub hit: bool,
+    pub handoff_stub: Option<InviteConsentHandoffStub>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -708,8 +714,8 @@ impl PostgresPcdStore {
         let mut conn = self.db.get().await.map_err(storage)?;
         let inserted = diesel::sql_query(
             "INSERT INTO pcd_key_epochs \
-             (key_epoch, public_key, custody_key_ref, activated_at) \
-             VALUES ($1, $2, $3, $4) ON CONFLICT (key_epoch) DO NOTHING",
+             (key_epoch, public_key, custody_key_ref, activated_at, index_ready_at) \
+             VALUES ($1, $2, $3, $4, $4) ON CONFLICT (key_epoch) DO NOTHING",
         )
         .bind::<BigInt, _>(key_epoch)
         .bind::<Bytea, _>(public_key)
@@ -731,13 +737,192 @@ impl PostgresPcdStore {
         .map_err(storage)?;
         if existing.public_key == public_key
             && existing.custody_key_ref == custody_key_ref
-            && existing.activated_at == activated_at
+            && existing.activated_at.timestamp_micros() == activated_at.timestamp_micros()
             && existing.retired_at.is_none()
         {
             Ok(())
         } else {
             Err(PcdReject::DuplicateConflict.into())
         }
+    }
+
+    /// Atomically install a custody-verified epoch and its complete derived
+    /// contact index. The row becomes visible to blind admission only when the
+    /// transaction containing every index entry commits.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn activate_key_epoch(
+        &self,
+        key_epoch: u64,
+        public_key: [u8; 32],
+        custody_key_ref: &str,
+        index_generation: &str,
+        index_digest: [u8; 32],
+        index_entries: &[PcdIndexEntry],
+        activated_at: DateTime<Utc>,
+    ) -> Result<(), PcdError> {
+        if custody_key_ref.is_empty()
+            || custody_key_ref.len() > 512
+            || index_generation.is_empty()
+            || index_generation.len() > 256
+        {
+            return Err(PcdReject::InvalidConfiguration.into());
+        }
+        let key_epoch = i64::try_from(key_epoch).map_err(|_| PcdReject::EpochUnavailable)?;
+        let entry_count =
+            i32::try_from(index_entries.len()).map_err(|_| PcdReject::InvalidConfiguration)?;
+        let expected_entries = index_entries
+            .iter()
+            .map(|entry| (entry.derived_prefix, entry.handoff_stub.as_ref()))
+            .collect::<HashMap<_, _>>();
+        if expected_entries.len() != index_entries.len() {
+            return Err(PcdReject::InvalidConfiguration.into());
+        }
+        let mut conn = self.db.get().await.map_err(storage)?;
+        conn.transaction::<_, PcdError, _>(async move |conn| {
+            let inserted = diesel::sql_query(
+                "INSERT INTO pcd_key_epochs \
+                 (key_epoch, public_key, custody_key_ref, index_generation, index_digest, \
+                  index_entry_count, index_ready_at, activated_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $7) \
+                 ON CONFLICT (key_epoch) DO NOTHING",
+            )
+            .bind::<BigInt, _>(key_epoch)
+            .bind::<Bytea, _>(public_key)
+            .bind::<Text, _>(custody_key_ref)
+            .bind::<Text, _>(index_generation)
+            .bind::<Bytea, _>(index_digest)
+            .bind::<Integer, _>(entry_count)
+            .bind::<Timestamptz, _>(activated_at)
+            .execute(conn)
+            .await
+            .map_err(storage)?;
+
+            if inserted == 0 {
+                let existing = diesel::sql_query(
+                    "SELECT public_key, custody_key_ref, index_generation, index_digest, \
+                            index_entry_count, index_ready_at, activated_at, retired_at \
+                     FROM pcd_key_epochs WHERE key_epoch = $1 FOR UPDATE",
+                )
+                .bind::<BigInt, _>(key_epoch)
+                .get_result::<ActivatedEpochIdentityRow>(conn)
+                .await
+                .map_err(storage)?;
+                if existing.public_key != public_key
+                    || existing.custody_key_ref != custody_key_ref
+                    || existing.index_generation != index_generation
+                    || existing.index_digest != index_digest
+                    || existing.index_entry_count != entry_count
+                    || existing.index_ready_at.timestamp_micros() != activated_at.timestamp_micros()
+                    || existing.activated_at.timestamp_micros() != activated_at.timestamp_micros()
+                    || existing.retired_at.is_some()
+                {
+                    return Err(PcdReject::DuplicateConflict.into());
+                }
+                let persisted_entries = diesel::sql_query(
+                    "SELECT derived_prefix, handoff_stub FROM pcd_index_entries \
+                     WHERE key_epoch = $1",
+                )
+                .bind::<BigInt, _>(key_epoch)
+                .load::<PersistedIndexEntryRow>(conn)
+                .await
+                .map_err(storage)?;
+                if persisted_entries.len() != index_entries.len() {
+                    return Err(PcdReject::DuplicateConflict.into());
+                }
+                for persisted in persisted_entries {
+                    let derived_prefix: [u8; 16] = persisted
+                        .derived_prefix
+                        .try_into()
+                        .map_err(|_| storage("persisted PCD index prefix has invalid length"))?;
+                    let handoff_stub = persisted
+                        .handoff_stub
+                        .map(serde_json::from_value)
+                        .transpose()
+                        .map_err(storage)?;
+                    if expected_entries.get(&derived_prefix).copied() != Some(handoff_stub.as_ref())
+                    {
+                        return Err(PcdReject::DuplicateConflict.into());
+                    }
+                }
+            } else {
+                for entry in index_entries {
+                    let handoff_stub = entry
+                        .handoff_stub
+                        .as_ref()
+                        .map(serde_json::to_value)
+                        .transpose()
+                        .map_err(storage)?;
+                    diesel::sql_query(
+                        "INSERT INTO pcd_index_entries (key_epoch, derived_prefix, handoff_stub) \
+                         VALUES ($1, $2, $3)",
+                    )
+                    .bind::<BigInt, _>(key_epoch)
+                    .bind::<Bytea, _>(entry.derived_prefix)
+                    .bind::<Nullable<Jsonb>, _>(handoff_stub)
+                    .execute(conn)
+                    .await
+                    .map_err(storage)?;
+                }
+            }
+            diesel::sql_query(
+                "UPDATE pcd_key_epochs SET retired_at = $2 \
+                 WHERE key_epoch <> $1 AND retired_at IS NULL",
+            )
+            .bind::<BigInt, _>(key_epoch)
+            .bind::<Timestamptz, _>(activated_at)
+            .execute(conn)
+            .await
+            .map_err(storage)?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn match_index(
+        &self,
+        key_epoch: u64,
+        derived_prefixes: &[[u8; 16]],
+    ) -> Result<Vec<PcdIndexMatch>, PcdError> {
+        let key_epoch = i64::try_from(key_epoch).map_err(|_| PcdReject::EpochUnavailable)?;
+        let values = derived_prefixes
+            .iter()
+            .map(|prefix| prefix.to_vec())
+            .collect::<Vec<_>>();
+        let mut conn = self.db.get().await.map_err(storage)?;
+        let rows = diesel::sql_query(
+            "SELECT input.ordinality::bigint AS ordinality, entry.derived_prefix IS NOT NULL AS hit, \
+                    entry.handoff_stub \
+             FROM unnest($2::bytea[]) WITH ORDINALITY AS input(derived_prefix, ordinality) \
+             LEFT JOIN pcd_index_entries AS entry \
+               ON entry.key_epoch = $1 AND entry.derived_prefix = input.derived_prefix \
+             ORDER BY input.ordinality",
+        )
+        .bind::<BigInt, _>(key_epoch)
+        .bind::<Array<Bytea>, _>(values)
+        .load::<IndexMatchRow>(&mut conn)
+        .await
+        .map_err(storage)?;
+        if rows.len() != derived_prefixes.len()
+            || rows
+                .iter()
+                .enumerate()
+                .any(|(index, row)| row.ordinality != i64::try_from(index + 1).unwrap_or(-1))
+        {
+            return Err(storage("PCD index query lost request cardinality/order"));
+        }
+        rows.into_iter()
+            .map(|row| {
+                let handoff_stub = row
+                    .handoff_stub
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(storage)?;
+                Ok(PcdIndexMatch {
+                    hit: row.hit,
+                    handoff_stub,
+                })
+            })
+            .collect()
     }
 
     /// Retire an epoch while holding the exclusive counterpart of admission's
@@ -844,6 +1029,7 @@ impl PostgresPcdStore {
             let epoch = diesel::sql_query(
                 "SELECT key_epoch FROM pcd_key_epochs \
                  WHERE key_epoch = $1 AND activated_at <= $2 \
+                   AND index_ready_at <= $2 \
                    AND (retired_at IS NULL OR retired_at > $2) \
                    AND public_key = $3 FOR SHARE",
             )
@@ -1463,6 +1649,44 @@ struct EpochIdentityRow {
     activated_at: DateTime<Utc>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     retired_at: Option<DateTime<Utc>>,
+}
+
+#[derive(QueryableByName)]
+struct ActivatedEpochIdentityRow {
+    #[diesel(sql_type = Bytea)]
+    public_key: Vec<u8>,
+    #[diesel(sql_type = Text)]
+    custody_key_ref: String,
+    #[diesel(sql_type = Text)]
+    index_generation: String,
+    #[diesel(sql_type = Bytea)]
+    index_digest: Vec<u8>,
+    #[diesel(sql_type = Integer)]
+    index_entry_count: i32,
+    #[diesel(sql_type = Timestamptz)]
+    index_ready_at: DateTime<Utc>,
+    #[diesel(sql_type = Timestamptz)]
+    activated_at: DateTime<Utc>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    retired_at: Option<DateTime<Utc>>,
+}
+
+#[derive(QueryableByName)]
+struct IndexMatchRow {
+    #[diesel(sql_type = BigInt)]
+    ordinality: i64,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    hit: bool,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    handoff_stub: Option<serde_json::Value>,
+}
+
+#[derive(QueryableByName)]
+struct PersistedIndexEntryRow {
+    #[diesel(sql_type = Bytea)]
+    derived_prefix: Vec<u8>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    handoff_stub: Option<serde_json::Value>,
 }
 
 #[derive(QueryableByName)]
@@ -2181,27 +2405,5 @@ mod tests {
             quota_retry_after_seconds(now(), now() + Duration::seconds(301)),
             600
         );
-    }
-
-    #[test]
-    fn dark_core_has_no_product_integration_points() {
-        for (label, source) in [
-            ("router/openapi", include_str!("routing.rs")),
-            ("configuration", include_str!("config.rs")),
-            ("app state", include_str!("state.rs")),
-            ("product entrypoint", include_str!("main.rs")),
-        ] {
-            for forbidden in [
-                "pcd_dark",
-                "private_contact_discovery",
-                "private-contact-discovery",
-                "ak.operation_bundle.directory_service.private_contact_discovery.v1",
-            ] {
-                assert!(
-                    !source.contains(forbidden),
-                    "{label} exposed dark PCD token {forbidden}"
-                );
-            }
-        }
     }
 }

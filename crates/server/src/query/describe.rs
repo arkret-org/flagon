@@ -28,12 +28,24 @@ pub(crate) const SUPPORTED_OPERATION_BUNDLES: &[&str] = &[
     "ak.operation_bundle.directory_service.describe.v1",
     "ak.operation_bundle.directory_service.http_core.v1",
 ];
+const PRIVATE_CONTACT_DISCOVERY_OPERATION_BUNDLE: &str =
+    "ak.operation_bundle.directory_service.private_contact_discovery.v1";
 
-pub(crate) fn supports_http_operation(operation: arkret_wire::ServiceOperationId) -> bool {
-    SUPPORTED_OPERATION_BUNDLES.iter().any(|bundle_id| {
-        arkret_wire::operation_bundle_descriptor(bundle_id)
-            .is_some_and(|bundle| bundle.contains(operation, arkret_wire::BindingKind::HttpJson))
-    })
+pub(crate) fn supports_http_operation(
+    operation: arkret_wire::ServiceOperationId,
+    private_contact_discovery_active: bool,
+) -> bool {
+    SUPPORTED_OPERATION_BUNDLES
+        .iter()
+        .copied()
+        .chain(
+            private_contact_discovery_active.then_some(PRIVATE_CONTACT_DISCOVERY_OPERATION_BUNDLE),
+        )
+        .any(|bundle_id| {
+            arkret_wire::operation_bundle_descriptor(bundle_id).is_some_and(|bundle| {
+                bundle.contains(operation, arkret_wire::BindingKind::HttpJson)
+            })
+        })
 }
 
 #[handler]
@@ -73,7 +85,13 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     let supported_profiles = Vec::new();
     let supported_operation_bundles = SUPPORTED_OPERATION_BUNDLES
         .iter()
-        .map(|bundle| (*bundle).to_owned())
+        .copied()
+        .chain(
+            cfg.private_contact_discovery
+                .is_some()
+                .then_some(PRIVATE_CONTACT_DISCOVERY_OPERATION_BUNDLE),
+        )
+        .map(str::to_owned)
         .collect();
     let transport_bindings = vec![TransportBinding::HttpJson {
         base_url: cfg.public_base_url.clone(),
@@ -104,6 +122,15 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             "development_static_bearer": cfg.development_mode && cfg.admin_token.is_some(),
         }),
     );
+    if cfg.private_contact_discovery.is_some() {
+        auth_metadata.extra.insert(
+            "x_teabay_private_contact_discovery".to_owned(),
+            json!({
+                "kind": "device_scoped_hmac_bearer",
+                "required": true,
+            }),
+        );
+    }
 
     let limits = ServerLimits {
         extensions: BTreeMap::from([
@@ -213,7 +240,10 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             cfg.rate_limit_per_resource_per_min,
         )),
         rate_limit_policy_id: None,
-        private_contact_discovery: None,
+        private_contact_discovery: cfg
+            .private_contact_discovery
+            .as_ref()
+            .map(|runtime| runtime.describe.clone()),
         resource_kinds: all_directory_resource_kinds(),
         restricted_query_proof: Some(true),
         ingest_modes: cfg.ingest_modes.iter().map(directory_ingest_mode).collect(),
@@ -309,10 +339,13 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use arkret_sdk::{Did, DidCoreId, ResolutionCommitment};
+    use arkret_sdk::{
+        AntiEnumerationDelay, AntiEnumerationDelayDistribution, Did, DidCoreId,
+        PrivateContactDiscovery, PrivateContactDiscoveryHandoffStubsMode, ResolutionCommitment,
+    };
 
     use super::*;
-    use crate::config::{AcceptPolicyKind, IngestModeAdvert};
+    use crate::config::{AcceptPolicyKind, IngestModeAdvert, PrivateContactDiscoveryRuntimeConfig};
 
     fn cfg(development_mode: bool) -> AppConfig {
         AppConfig {
@@ -356,6 +389,37 @@ mod tests {
             expiry_interval: Some(Duration::from_secs(1800)),
             takedown_notifier_interval: Some(Duration::from_secs(60)),
             trusted_proxy: None,
+            private_contact_discovery: None,
+        }
+    }
+
+    fn pcd_runtime() -> PrivateContactDiscoveryRuntimeConfig {
+        let pcd_describe = PrivateContactDiscovery::new(
+            "yAPizGsF_BUGRUm1kgZZykp3ssym8E9rNXAJM1R2rU4",
+            14,
+            8,
+            PrivateContactDiscoveryHandoffStubsMode::Never,
+            4096,
+            4096,
+            3_600,
+            1,
+            86_400,
+            AntiEnumerationDelay {
+                minimum_ms: 100,
+                jitter_ms: 50,
+                distribution: AntiEnumerationDelayDistribution::Uniform,
+            },
+        );
+        pcd_describe.validate().expect("valid PCD configuration");
+        PrivateContactDiscoveryRuntimeConfig {
+            describe: pcd_describe,
+            custody_key_ref: "kms://teabay/pcd/epoch/14".to_owned(),
+            custody_manifest_path: "custody.json".into(),
+            index_manifest_path: "index.json".into(),
+            device_authentication_key_path: "device-authentication.key".into(),
+            key_activated_at: chrono::Utc::now(),
+            evaluation_lease_seconds: 30,
+            garbage_collection_interval: Duration::from_secs(60),
         }
     }
 
@@ -631,10 +695,10 @@ mod tests {
         }
     }
 
-    /// Teabay withdrew its non-conforming legacy PCD surface. Describe must
-    /// not advertise the profile, bundle, or closed configuration.
+    /// PCD remains absent until startup has fully activated its custody key
+    /// and derived index and has installed the runtime into AppState.
     #[test]
-    fn describe_does_not_advertise_withdrawn_pcd() {
+    fn describe_omits_pcd_without_an_activated_runtime() {
         let value = build_describe_response_value(&cfg(false)).expect("describe builds");
         let supported = value["supported_profiles"].as_array().unwrap();
         assert!(
@@ -659,5 +723,31 @@ mod tests {
                     == "ak.operation_bundle.directory_service.private_contact_discovery.v1")
         );
         assert!(value.get("private_contact_discovery").is_none());
+    }
+
+    #[test]
+    fn describe_advertises_only_the_activated_closed_pcd_configuration() {
+        let mut config = cfg(false);
+        let runtime = pcd_runtime();
+        config.private_contact_discovery = Some(runtime.clone());
+
+        let value = build_describe_response_value(&config).expect("describe builds");
+
+        assert!(
+            value["supported_operation_bundles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|bundle| bundle
+                    == "ak.operation_bundle.directory_service.private_contact_discovery.v1")
+        );
+        assert_eq!(
+            value["private_contact_discovery"],
+            serde_json::to_value(&runtime.describe).unwrap()
+        );
+        assert_eq!(
+            value["auth_metadata"]["x_teabay_private_contact_discovery"]["kind"],
+            "device_scoped_hmac_bearer"
+        );
     }
 }

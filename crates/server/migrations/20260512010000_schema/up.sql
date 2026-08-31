@@ -513,19 +513,33 @@ CREATE TABLE IF NOT EXISTS http_signature_replays (
 CREATE INDEX IF NOT EXISTS http_signature_replays_expires_at_idx
     ON http_signature_replays (expires_at);
 
--- Private-contact-discovery durable dark core. These tables are intentionally
--- not connected to any HTTP route, ServiceDescribe claim, feature flag, or
--- background worker. They retain only authenticated credential/request digests,
--- opaque exact-bucket outcome bytes, canonical config snapshots, and custody
--- references; no raw connection identifiers or VOPRF private key material are
+-- Private-contact-discovery durable state. These tables retain only
+-- authenticated credential/request digests, exact-bucket outcome bytes,
+-- canonical config snapshots, custody references, and 16-byte evaluated index
+-- prefixes; no raw connection identifiers or VOPRF private key material are
 -- stored.
 CREATE TABLE pcd_key_epochs (
     key_epoch          BIGINT      PRIMARY KEY CHECK (key_epoch >= 0),
     public_key         BYTEA       NOT NULL CHECK (octet_length(public_key) = 32),
     custody_key_ref    TEXT        NOT NULL CHECK (length(custody_key_ref) BETWEEN 1 AND 512),
+    index_generation   TEXT        NOT NULL DEFAULT 'empty'
+        CHECK (length(index_generation) BETWEEN 1 AND 256),
+    index_digest       BYTEA       NOT NULL DEFAULT decode(repeat('00', 32), 'hex')
+        CHECK (octet_length(index_digest) = 32),
+    index_entry_count  INTEGER     NOT NULL DEFAULT 0 CHECK (index_entry_count >= 0),
+    index_ready_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     activated_at       TIMESTAMPTZ NOT NULL,
     retired_at         TIMESTAMPTZ,
+    CHECK (index_ready_at >= activated_at),
     CHECK (retired_at IS NULL OR retired_at >= activated_at)
+);
+
+CREATE TABLE pcd_index_entries (
+    key_epoch       BIGINT NOT NULL
+        REFERENCES pcd_key_epochs (key_epoch) ON DELETE CASCADE,
+    derived_prefix BYTEA  NOT NULL CHECK (octet_length(derived_prefix) = 16),
+    handoff_stub   JSONB,
+    PRIMARY KEY (key_epoch, derived_prefix)
 );
 
 CREATE TABLE pcd_config_snapshots (

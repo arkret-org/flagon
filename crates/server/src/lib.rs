@@ -19,8 +19,8 @@ pub mod ingest;
 pub mod kinds;
 pub mod middleware;
 pub mod observability;
-#[doc(hidden)]
-pub mod pcd_dark;
+pub mod pcd;
+pub mod pcd_state;
 pub mod query;
 pub mod routing;
 pub mod schema;
