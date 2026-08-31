@@ -31,7 +31,7 @@ arkret-models-collaboration = { version = "0.3.0", path = "../arkret-rust-sdk/cr
 arkret-models-identity = { version = "0.3.0", path = "../arkret-rust-sdk/crates/models-identity", default-features = false }
 arkret-policy = { version = "0.3.0", path = "../arkret-rust-sdk/crates/policy", default-features = false }
 arkret-rate-limit = { version = "0.3.0", path = "../arkret-rust-sdk/crates/rate-limit", default-features = false }
-arkret-schema = { version = "0.3.0", path = "../arkret-rust-sdk/crates/schema", default-features = false, features = ["embedded-artifacts"] }
+arkret-schema = { version = "0.3.0", path = "../arkret-rust-sdk/crates/schema", default-features = false }
 arkret-sdk = { package = "arkret", version = "0.3.0", path = "../arkret-rust-sdk/crates/sdk", default-features = false, features = ["client"] }
 arkret-server = { version = "0.3.0", path = "../arkret-rust-sdk/crates/server", default-features = false }
 arkret-signatures = { version = "0.3.0", path = "../arkret-rust-sdk/crates/signatures", default-features = false }

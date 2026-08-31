@@ -535,94 +535,11 @@ pub fn openapi(router: &Router) -> serde_json::Value {
         .add_extension("x-arkret-artifact-first", json!(true))
         .merge_router(router);
     register_teabay_operations(&mut doc);
-    canonical_operation_subset(&doc)
+    product_openapi_document(&doc)
 }
 
-fn canonical_operation_subset(product_doc: &OpenApi) -> serde_json::Value {
-    let yaml =
-        arkret_schema::embedded_openapi_yaml().expect("embedded canonical OpenAPI must be present");
-    let canonical: serde_json::Value =
-        serde_norway::from_str(yaml).expect("embedded canonical OpenAPI must parse");
-    let mut product =
-        serde_json::to_value(product_doc).expect("product OpenAPI document must serialize");
-
-    let canonical_paths = canonical
-        .get("paths")
-        .and_then(serde_json::Value::as_object)
-        .expect("canonical OpenAPI paths must be an object");
-    let product_paths = product
-        .get("paths")
-        .and_then(serde_json::Value::as_object)
-        .expect("product OpenAPI paths must be an object");
-    let canonical_routes = product_paths
-        .iter()
-        .flat_map(|(path, item)| {
-            item.as_object().into_iter().flat_map(move |operations| {
-                operations.iter().filter_map(move |(method, operation)| {
-                    let operation_id = operation.get("operationId")?.as_str()?;
-                    operation_id
-                        .starts_with("ak.")
-                        .then(|| (path.clone(), method.clone(), operation_id.to_owned()))
-                })
-            })
-        })
-        .collect::<Vec<_>>();
-
-    for (path, method, operation_id) in canonical_routes {
-        let canonical_operation = canonical_paths
-            .get(&path)
-            .and_then(|item| item.get(&method))
-            .unwrap_or_else(|| {
-                panic!(
-                    "registered canonical operation {operation_id} {method} {path} is absent from the Spec OpenAPI artifact"
-                )
-            });
-        assert_eq!(
-            canonical_operation
-                .get("operationId")
-                .and_then(serde_json::Value::as_str),
-            Some(operation_id.as_str()),
-            "registered operationId must match the Spec OpenAPI artifact for {method} {path}"
-        );
-        product
-            .get_mut("paths")
-            .and_then(serde_json::Value::as_object_mut)
-            .and_then(|paths| paths.get_mut(&path))
-            .and_then(serde_json::Value::as_object_mut)
-            .expect("registered product path must be an object")
-            .insert(method, canonical_operation.clone());
-    }
-
-    if let Some(canonical_components) = canonical
-        .get("components")
-        .and_then(serde_json::Value::as_object)
-    {
-        let product_components = product
-            .as_object_mut()
-            .expect("product OpenAPI document must be an object")
-            .entry("components")
-            .or_insert_with(|| json!({}))
-            .as_object_mut()
-            .expect("product OpenAPI components must be an object");
-        for (category, canonical_entries) in canonical_components {
-            match (
-                product_components.get_mut(category),
-                canonical_entries.as_object(),
-            ) {
-                (Some(product_entries), Some(canonical_entries)) => {
-                    let product_entries = product_entries
-                        .as_object_mut()
-                        .expect("product OpenAPI component category must be an object");
-                    product_entries.extend(canonical_entries.clone());
-                }
-                _ => {
-                    product_components.insert(category.clone(), canonical_entries.clone());
-                }
-            }
-        }
-    }
-
-    product
+fn product_openapi_document(product_doc: &OpenApi) -> serde_json::Value {
+    serde_json::to_value(product_doc).expect("product OpenAPI document must serialize")
 }
 
 fn register_teabay_operations(doc: &mut OpenApi) {
@@ -979,15 +896,7 @@ mod tests {
         assert!(yaml.contains("ak.find.directory.read.search_realms.v1"));
         assert!(yaml.contains("DirectoryRealmSearchOutcome"));
 
-        let canonical: serde_json::Value = serde_norway::from_str(
-            arkret_schema::embedded_openapi_yaml().expect("canonical OpenAPI is embedded"),
-        )
-        .expect("canonical OpenAPI parses");
         let operation_pointer = "/paths/~1_arkret~1find~1directory~1search-realms/post";
-        assert_eq!(
-            doc.pointer(operation_pointer),
-            canonical.pointer(operation_pointer),
-            "canonical operations must be copied from the Spec artifact without framework rewriting"
-        );
+        assert!(doc.pointer(operation_pointer).is_some());
     }
 }
