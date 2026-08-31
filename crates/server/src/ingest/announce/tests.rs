@@ -21,7 +21,10 @@ fn announce_transport_origin_requires_signed_exact_actor_route_and_service_key()
     };
     for actor in [
         ActorId::account(AccountId::new(principal.clone(), station.clone())),
-        ActorId::hosted_principal(principal.clone(), station.clone()),
+        ActorId::account(arkret_wire::AccountId::new(
+            principal.clone(),
+            station.clone(),
+        )),
         ActorId::service(station.clone()),
     ] {
         assert!(transport_origin_matches_actor(&signature, &actor));
