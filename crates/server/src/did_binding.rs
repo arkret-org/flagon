@@ -12,8 +12,8 @@
 //! [`VerifiedDidBindingStore`] and a `did:key` decoder, and it has **no
 //! resolver field and no resolver accessor**. A handler holding a
 //! `&DidBindingDirectory` therefore cannot express "resolve this DID over the
-//! network" — that is the DID-P0-C03 requirement "query handler 不直接持有通用
-//! 网络 resolver", enforced by the type rather than by review.
+//! network" — that is the DID-P0-C03 requirement that query handlers do not
+//! directly own a general-purpose network resolver, enforced by the type rather than by review.
 //!
 //! The authority half lives in [`crate::did_resolver::SharedDidResolver`],
 //! which holds the network chain *privately* and writes its results back into
