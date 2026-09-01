@@ -1,13 +1,14 @@
 //! PostgreSQL contracts for the PCD durable state machine.
 
+use arkret_sdk::BatchId;
 use chrono::{DateTime, Duration, Utc};
 use diesel::QueryableByName;
 use diesel::sql_types::BigInt;
 use diesel_async::RunQueryDsl;
 use server::pcd_state::{
     BlindAdmissionRequest, DeviceCredentialDigest, MatchAdmissionRequest, OpaqueExactBucketBytes,
-    OutcomeWrite, PcdAdmission, PcdBatchId, PcdError, PcdOperationalLimits, PcdReject,
-    PcdRequestDigest, PostgresPcdStore,
+    OutcomeWrite, PcdAdmission, PcdError, PcdOperationalLimits, PcdReject, PcdRequestDigest,
+    PostgresPcdStore,
 };
 use testcontainers_modules::postgres;
 use testcontainers_modules::testcontainers::ImageExt;
@@ -90,8 +91,8 @@ fn now() -> DateTime<Utc> {
     "2026-08-29T00:00:00Z".parse().expect("timestamp")
 }
 
-fn batch_id(index: u8) -> PcdBatchId {
-    PcdBatchId::parse(format!("ak:batch:0196429a-0000-7000-8000-{index:012x}")).expect("batch id")
+fn batch_id(index: u8) -> BatchId {
+    BatchId::new(format!("ak:batch:0196429a-0000-7000-8000-{index:012x}")).expect("batch id")
 }
 
 fn padded(label: &[u8]) -> OpaqueExactBucketBytes {

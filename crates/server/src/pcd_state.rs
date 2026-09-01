@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use arkret_sdk::{InviteConsentHandoffStub, PrivateContactDiscovery};
+use arkret_sdk::{BatchId, InviteConsentHandoffStub, PrivateContactDiscovery};
 use chrono::{DateTime, Duration, Utc};
 use diesel::sql_types::{Array, BigInt, Bytea, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::{OptionalExtension, QueryableByName};
@@ -69,35 +69,6 @@ impl PcdLimits {
                 .evaluation_lease_seconds
                 .min(config.batch_completion_ttl_seconds),
         })
-    }
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct PcdBatchId(String);
-
-impl PcdBatchId {
-    pub fn parse(value: impl Into<String>) -> Result<Self, PcdError> {
-        let value = value.into();
-        let Some(uuid) = value.strip_prefix("ak:batch:") else {
-            return Err(PcdReject::InvalidBatchId.into());
-        };
-        let bytes = uuid.as_bytes();
-        let hyphens = [8, 13, 18, 23];
-        let lexical = bytes.len() == 36
-            && bytes.iter().enumerate().all(|(index, byte)| {
-                hyphens.contains(&index) == (*byte == b'-')
-                    && (hyphens.contains(&index) || byte.is_ascii_hexdigit())
-            })
-            && bytes[14] == b'7'
-            && matches!(bytes[19], b'8' | b'9' | b'a' | b'b');
-        if !lexical || uuid.bytes().any(|byte| byte.is_ascii_uppercase()) {
-            return Err(PcdReject::InvalidBatchId.into());
-        }
-        Ok(Self(value))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
     }
 }
 
@@ -239,7 +210,7 @@ impl OpaqueExactBucketBytes {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlindAdmissionRequest {
     pub device_credential_digest: DeviceCredentialDigest,
-    pub batch_id: PcdBatchId,
+    pub batch_id: BatchId,
     pub request_digest: PcdRequestDigest,
     pub key_epoch: u64,
     pub item_count: u16,
@@ -249,7 +220,7 @@ pub struct BlindAdmissionRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MatchAdmissionRequest {
     pub device_credential_digest: DeviceCredentialDigest,
-    pub batch_id: PcdBatchId,
+    pub batch_id: BatchId,
     pub request_digest: PcdRequestDigest,
     pub key_epoch: u64,
     pub item_count: u16,
@@ -306,7 +277,6 @@ pub struct PcdIndexMatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PcdReject {
     InvalidConfiguration,
-    InvalidBatchId,
     FixedBatchCardinality,
     QuotaExhausted { retry_after_seconds: u64 },
     DuplicateConflict,
@@ -385,7 +355,7 @@ pub struct ModelPcdStore {
     epochs: HashMap<u64, KeyEpochState>,
     config_snapshots: HashMap<PcdConfigDigest, PcdConfigSnapshot>,
     quotas: HashMap<DeviceCredentialDigest, QuotaWindow>,
-    batches: HashMap<(DeviceCredentialDigest, PcdBatchId), BatchRecord>,
+    batches: HashMap<(DeviceCredentialDigest, BatchId), BatchRecord>,
 }
 
 impl ModelPcdStore {
@@ -1431,7 +1401,7 @@ enum Phase {
 
 struct PhaseOutcomeRequest<'a> {
     device: DeviceCredentialDigest,
-    batch_id: &'a PcdBatchId,
+    batch_id: &'a BatchId,
     request_digest: PcdRequestDigest,
     key_epoch: u64,
     lease_owner: [u8; 32],
@@ -1824,7 +1794,7 @@ fn bytes32(value: Vec<u8>) -> Result<[u8; 32], PcdError> {
 async fn load_batch(
     conn: &mut diesel_async::AsyncPgConnection,
     device: &DeviceCredentialDigest,
-    batch_id: &PcdBatchId,
+    batch_id: &BatchId,
 ) -> Result<Option<BatchRow>, PcdError> {
     diesel::sql_query(
         "SELECT blind_request_digest, match_request_digest, pinned_key_epoch, \
@@ -1908,7 +1878,7 @@ mod tests {
     fn blind(device: u8, batch: u8, digest: u8) -> BlindAdmissionRequest {
         BlindAdmissionRequest {
             device_credential_digest: DeviceCredentialDigest::new([device; 32]),
-            batch_id: PcdBatchId::parse(format!("ak:batch:0196429a-0000-7000-8000-{batch:012x}"))
+            batch_id: BatchId::new(format!("ak:batch:0196429a-0000-7000-8000-{batch:012x}"))
                 .expect("batch id"),
             request_digest: PcdRequestDigest::from_closed_body_sha256([digest; 32]),
             key_epoch: 14,

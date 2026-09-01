@@ -31,8 +31,8 @@ use crate::Db;
 use crate::config::PrivateContactDiscoveryRuntimeConfig;
 use crate::pcd_state::{
     BlindAdmissionRequest, DeviceCredentialDigest, MatchAdmissionRequest, OpaqueExactBucketBytes,
-    PcdAdmission, PcdBatchId, PcdConfigSnapshot, PcdError, PcdIndexEntry, PcdOperationalLimits,
-    PcdReject, PcdRequestDigest, PostgresPcdStore,
+    PcdAdmission, PcdConfigSnapshot, PcdError, PcdIndexEntry, PcdOperationalLimits, PcdReject,
+    PcdRequestDigest, PostgresPcdStore,
 };
 use crate::state::AppState;
 
@@ -211,7 +211,7 @@ impl PrivateContactDiscoveryService {
             .map_err(|error| PcdError::Storage(error.to_string()))?;
         let request_digest =
             PcdRequestDigest::from_closed_body_sha256(Sha256::digest(&request_bytes).into());
-        let batch_id = PcdBatchId::parse(request.batch_id().as_str().to_owned())?;
+        let batch_id = request.batch_id().clone();
         let item_count = u16::try_from(request.item_count())
             .map_err(|_| PcdError::Rejected(PcdReject::FixedBatchCardinality))?;
         let lease_owner = random_lease_owner();
@@ -436,7 +436,6 @@ impl PrivateContactDiscoveryService {
                 None,
             )?,
             PcdReject::InvalidConfiguration
-            | PcdReject::InvalidBatchId
             | PcdReject::FixedBatchCardinality
             | PcdReject::PinnedEpochMismatch
             | PcdReject::BlindOutcomePending
