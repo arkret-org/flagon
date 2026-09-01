@@ -17,6 +17,10 @@
 //!   5. cursor pagination boundary.
 
 use arkret_models_identity::primary_handle::{HandleIssuerAuthorityClass, HandleIssuerPolicyEntry};
+use arkret_models_identity::{
+    HANDLE_CLAIM_PROOF_DOMAIN, HANDLE_CLAIM_STATUS_DOMAIN, HandleClaim, HandleClaimCore,
+    HandleClaimStatus, HandleClaimVariant, HandleVisibility,
+};
 use arkret_sdk::DirectoryListHandlesForSubjectRequestBody;
 use chrono::{TimeZone, Utc};
 use serde_json::json;
@@ -51,19 +55,105 @@ fn req(
     }
 }
 
-fn row(mut projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleRow {
-    if let Some(object) = projection.as_object_mut() {
-        object
-            .entry("issuer_id")
-            .or_insert_with(|| json!("ak:did_core:web:issuer_id.tea"));
-        if object.get("verified").and_then(serde_json::Value::as_bool) == Some(true) {
-            object
-                .entry("expires_at")
-                .or_insert_with(|| json!("2027-05-20T00:00:00.000Z"));
-        }
+fn placeholder_proof(
+    purpose: arkret_sdk::PayloadProofPurpose,
+    domain: &str,
+    created_at: chrono::DateTime<Utc>,
+    audience: Option<&str>,
+) -> arkret_sdk::PayloadProof {
+    arkret_sdk::PayloadProof {
+        kind: "detached_jws".to_owned(),
+        verification_method: arkret_sdk::DidUrl::new(
+            "did:web:issuer_id.tea#assertion-1".to_owned(),
+        )
+        .unwrap(),
+        payload_digest: arkret_sdk::Hash::new(format!("sha256:{}", "0".repeat(64))).unwrap(),
+        created_at,
+        domain: Some(domain.to_owned()),
+        audience: audience.map(|value| arkret_sdk::Audience::Single(value.to_owned())),
+        proof_purpose: Some(purpose),
+        jws: "header..signature".to_owned(),
     }
+}
+
+fn row(projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleRow {
+    let subject = projection["subject_id"].as_str().unwrap();
+    let handle = projection["handle"].as_str().unwrap();
+    let issuer = projection["issuer_id"]
+        .as_str()
+        .unwrap_or("ak:did_core:web:issuer_id.tea");
+    let audience = projection["audience"].as_str();
+    let issued_at =
+        chrono::DateTime::parse_from_rfc3339(projection["created_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+    let expires_at = chrono::DateTime::parse_from_rfc3339(
+        projection["expires_at"]
+            .as_str()
+            .unwrap_or("2027-05-20T00:00:00.000Z"),
+    )
+    .unwrap()
+    .with_timezone(&Utc);
+    let as_of = issued_at + chrono::Duration::minutes(1);
+    let mut core = HandleClaimCore {
+        schema: HandleClaimCore::SCHEMA.to_owned(),
+        handle: arkret_sdk::Handle::parse(handle).unwrap(),
+        handle_aliases: Vec::new(),
+        subject_account_id: arkret_sdk::AccountId::new(
+            arkret_sdk::DidCoreId::new(subject.to_owned()).unwrap(),
+            account_id().station_id,
+        ),
+        issuer_id: arkret_sdk::DidCoreId::new(issuer.to_owned()).unwrap(),
+        claim: HandleClaimVariant::HandleBinding,
+        visibility: if audience.is_some() {
+            HandleVisibility::Restricted
+        } else {
+            HandleVisibility::Public
+        },
+        audience: audience.map(str::to_owned),
+        issued_at,
+        expires_at: Some(expires_at),
+        source_refs: Vec::new(),
+        proofs: [
+            placeholder_proof(
+                arkret_sdk::PayloadProofPurpose::IssuerAttestation,
+                HANDLE_CLAIM_PROOF_DOMAIN,
+                issued_at,
+                audience,
+            ),
+            placeholder_proof(
+                arkret_sdk::PayloadProofPurpose::HolderAcceptance,
+                HANDLE_CLAIM_PROOF_DOMAIN,
+                issued_at,
+                audience,
+            ),
+        ],
+    };
+    let claim_digest = core.claim_digest().unwrap();
+    for proof in &mut core.proofs {
+        proof.payload_digest = claim_digest.clone();
+    }
+    let mut claim = HandleClaim {
+        schema: HandleClaim::SCHEMA.to_owned(),
+        claim: core,
+        claim_digest,
+        status: HandleClaimStatus::Verified,
+        as_of,
+        verifier_id: arkret_sdk::DidCoreId::new(issuer.to_owned()).unwrap(),
+        verified_at: Some(as_of),
+        revocation: None,
+        revocation_digest: None,
+        fresh_until: as_of + chrono::Duration::minutes(5),
+        status_proof: placeholder_proof(
+            arkret_sdk::PayloadProofPurpose::StatusAttestation,
+            HANDLE_CLAIM_STATUS_DOMAIN,
+            as_of,
+            audience,
+        ),
+    };
+    claim.status_proof.payload_digest = claim.status_digest().unwrap();
     SubjectHandleRow::for_test(
-        projection,
+        serde_json::to_value(claim).unwrap(),
         disc,
         Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
     )
@@ -93,7 +183,11 @@ fn happy_path_single_active_claim() {
         "ak:did_core:web:alice.example"
     );
     assert_eq!(
-        response.claims[0].subject_account_id.principal_id.as_str(),
+        response.claims[0]
+            .claim
+            .subject_account_id
+            .principal_id
+            .as_str(),
         "ak:did_core:web:alice.example"
     );
     assert_eq!(
@@ -128,7 +222,7 @@ fn subject_mismatch_claim_is_dropped() {
     assert_eq!(response.claims.len(), 1);
     for claim in &response.claims {
         assert_eq!(
-            claim.subject_account_id.principal_id.as_str(),
+            claim.claim.subject_account_id.principal_id.as_str(),
             "ak:did_core:web:alice.example",
             "every surviving claim's subject_id must equal response.subject_id"
         );
@@ -184,7 +278,10 @@ fn audience_out_of_scope_is_filtered() {
     let response = assemble_response(&body, rows, None, 0, 20, None).expect("ok");
 
     assert_eq!(response.claims.len(), 1);
-    assert_eq!(response.claims[0].handle.canonical(), "open:example.com");
+    assert_eq!(
+        response.claims[0].claim.handle.canonical(),
+        "open:example.com"
+    );
 }
 
 /// Case 3b — audience match: when the pinned audience equals the requester_id,
@@ -254,7 +351,7 @@ fn issuer_or_domain_outside_policy_is_filtered() {
 
     assert_eq!(response.claims.len(), 1);
     assert_eq!(
-        response.claims[0].issuer_id.as_str(),
+        response.claims[0].claim.issuer_id.as_str(),
         "ak:did_core:web:issuer_id.tea"
     );
 }
@@ -285,8 +382,8 @@ fn cursor_pagination_boundary() {
     assert_eq!(page1.claims.len(), 2);
     assert!(page1.has_more);
     assert!(page1.next_cursor.is_none());
-    assert_eq!(page1.claims[0].handle.canonical(), "a:example.com");
-    assert_eq!(page1.claims[1].handle.canonical(), "b:example.com");
+    assert_eq!(page1.claims[0].claim.handle.canonical(), "a:example.com");
+    assert_eq!(page1.claims[1].claim.handle.canonical(), "b:example.com");
 
     // The handler resolves the opaque cursor to offset 2 before invoking the
     // pure assembler.
@@ -295,7 +392,7 @@ fn cursor_pagination_boundary() {
     assert_eq!(page2.claims.len(), 1);
     assert!(!page2.has_more);
     assert!(page2.next_cursor.is_none());
-    assert_eq!(page2.claims[0].handle.canonical(), "c:example.com");
+    assert_eq!(page2.claims[0].claim.handle.canonical(), "c:example.com");
 }
 
 /// A non-directory-visible (e.g. secret) row is dropped by the disclosure

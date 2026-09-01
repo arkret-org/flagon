@@ -1491,7 +1491,7 @@ fn realm_discovery_state(name: &str) -> JsonValue {
     json!({
         "kind": "ak.realm.discovery",
         "discoverability": "public",
-        "directory_services": ["ak:did_core:web:directory.test"],
+        "directory_ids": ["ak:did_core:web:directory.test"],
         "name": name,
         "summary": "Previously indexed resource refreshed by a verified governance key",
         "member_count": 42,

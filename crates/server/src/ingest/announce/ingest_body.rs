@@ -35,6 +35,8 @@ pub struct DirectoryAnnounceIngest {
     pub station_id: DidCoreId,
     #[serde(skip_serializing)]
     pub discovery_state: DirectoryDiscoveryState,
+    #[serde(skip_serializing)]
+    pub source_ref_access: arkret_models_collaboration::history_key::DirectorySourceRefAccess,
     pub source_refs: Vec<String>,
     pub as_of: DateTime<Utc>,
     #[serde(default)]
@@ -65,9 +67,18 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
                     })?
                     .to_owned(),
             ),
-            "ak.actor.discovery" => (DirectoryResourceKindDb::Actor, event_resource_id(&event)?),
-            "ak.applet.discovery" => (DirectoryResourceKindDb::Applet, event_resource_id(&event)?),
-            "ak.handle.discovery" => (DirectoryResourceKindDb::Handle, event_resource_id(&event)?),
+            "ak.actor.discovery" => (
+                DirectoryResourceKindDb::Actor,
+                event_resource_id(&event, DirectoryResourceKindDb::Actor)?,
+            ),
+            "ak.applet.discovery" => (
+                DirectoryResourceKindDb::Applet,
+                event_resource_id(&event, DirectoryResourceKindDb::Applet)?,
+            ),
+            "ak.handle.discovery" => (
+                DirectoryResourceKindDb::Handle,
+                event_resource_id(&event, DirectoryResourceKindDb::Handle)?,
+            ),
             _ => return Err("unsupported discovery_event kind".to_owned()),
         };
         let discovery_state = DirectoryDiscoveryState::from_json_object(
@@ -78,13 +89,31 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
                 .ok_or_else(|| "discovery_event.payload.value is required".to_owned())?,
             "discovery_event.payload.value",
         )?;
+        value
+            .source_ref_access
+            .validate()
+            .map_err(|error| error.to_string())?;
+        if value.source_ref_access.discovery_event_id.as_str() != event.event_id.as_str()
+            || value.source_ref_access.as_of != value.as_of
+            || value.source_ref_access.source_id != station_id
+            || value.source_ref_access.realm_id != event.realm_id
+        {
+            return Err("source_ref_access does not bind the exact announce".to_owned());
+        }
+        let source_refs = value
+            .source_ref_access
+            .source_refs
+            .iter()
+            .map(ToString::to_string)
+            .collect();
         Ok(Self {
             discovery_event: event,
             resource_kind,
             resource_id,
             station_id,
             discovery_state,
-            source_refs: value.source_refs,
+            source_ref_access: value.source_ref_access,
+            source_refs,
             as_of: value.as_of,
             ttl_seconds: value
                 .ttl_seconds
@@ -96,11 +125,34 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
     }
 }
 
-fn event_resource_id(event: &arkret_wire::Event) -> Result<String, String> {
-    event
+fn event_resource_id(
+    event: &arkret_wire::Event,
+    kind: DirectoryResourceKindDb,
+) -> Result<String, String> {
+    let value = event
         .payload
         .get("resource_id")
-        .and_then(JsonValue::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| "discovery_event requires payload.resource_id".to_owned())
+        .ok_or_else(|| "discovery_event requires payload.resource_id".to_owned())?;
+    match kind {
+        DirectoryResourceKindDb::Actor => {
+            let actor: arkret_sdk::ActorId = serde_json::from_value(value.clone())
+                .map_err(|error| format!("actor discovery resource_id must be ActorId: {error}"))?;
+            arkret_canonical::canonical_json_string(&actor)
+                .map_err(|error| format!("canonical actor resource_id: {error}"))
+        }
+        DirectoryResourceKindDb::Applet => value
+            .as_str()
+            .ok_or_else(|| "applet discovery resource_id must be AppletId".to_owned())
+            .and_then(|raw| {
+                arkret_sdk::AppletId::new(raw.to_owned())
+                    .map(|id| id.to_string())
+                    .map_err(|error| format!("applet discovery resource_id: {error}"))
+            }),
+        DirectoryResourceKindDb::Handle => value
+            .as_str()
+            .filter(|raw| raw.contains(':') && !raw.starts_with('@'))
+            .map(str::to_owned)
+            .ok_or_else(|| "handle discovery resource_id must be canonical handle".to_owned()),
+        _ => Err("resource kind does not use payload.resource_id".to_owned()),
+    }
 }

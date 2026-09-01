@@ -519,7 +519,7 @@ fn normalized_discovery_state(
         JsonValue::String(body.policy_revision.trim().to_string()),
     );
     object.insert(
-        "directory_services".to_string(),
+        "directory_ids".to_string(),
         JsonValue::Array(
             via_services
                 .iter()

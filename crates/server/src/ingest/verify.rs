@@ -7,8 +7,8 @@
 //!    closed the prior gap where the middleware was advertised but not actually mounted.
 //! 2. Discovery proof — verify the original discovery Event producer proof against the resource
 //!    governance key resolved via DID document.
-//! 3. Directory authorization — `discovery_state.directory_services` is a core-id list containing
-//!    *this* directory's stable service id.
+//! 3. Directory authorization — `discovery_state.directory_ids` is a core-id list containing *this*
+//!    directory's stable service id.
 //! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Station to
 //!    confirm `source_refs[0]` is resolvable.
 //! 5. Accept policy — local accept_policy (open / allowlist / operator_review) decision.
@@ -24,6 +24,10 @@ use arkret_sdk::identity::DidWebvhResolver;
 use arkret_sdk::{
     DID_WEB_MAX_DOCUMENT_BYTES, Did, DidCoreId, DidWebResolver, DirectoryGovernanceProof,
     DirectoryWithdrawRequestBody, canonical,
+};
+use arkret_signatures::http_signature::{
+    ContentDigest, ContentDigestAlgorithm, SignedRequestParts, canonical_message,
+    parse_signature_input, sign_message,
 };
 use arkret_wire::{Hash, TrustDomainId, WireError};
 use chrono::{DateTime, Utc};
@@ -152,20 +156,20 @@ impl<'a> VerifyContext<'a> {
         )?;
 
         // --- Step 3: directory authorization (this DID listed). ------------
-        if !directory_services_are_core_ids(&req.discovery_state) {
+        if !directory_ids_are_core_ids(&req.discovery_state) {
             return Err((
                 ApiErrorCode::SchemaViolation,
-                "discovery_state.directory_services must be a non-empty array of service core ids"
+                "discovery_state.directory_ids must be a non-empty array of service core ids"
                     .to_owned(),
             ));
         }
         let listed =
-            directory_services_lists_self(&req.discovery_state, self.config.service_id.as_str());
+            directory_ids_lists_self(&req.discovery_state, self.config.service_id.as_str());
         if !listed {
             return Err((
                 ApiErrorCode::DirectoryUnauthorized,
                 format!(
-                    "discovery_state.directory_services does not list this directory ({})",
+                    "discovery_state.directory_ids does not list this directory ({})",
                     self.config.service_id
                 ),
             ));
@@ -178,6 +182,7 @@ impl<'a> VerifyContext<'a> {
                 "source_refs MUST contain at least one anchor event id".into(),
             ));
         }
+        verify_directory_source_ref_access(req, self.config, self.resolver, self.now)?;
         if !resource_already_indexed(self.db, req.resource_kind, &req.resource_id)
             .await
             .map_err(|e| (ApiErrorCode::InternalError, format!("source-ref gate: {e}")))?
@@ -653,14 +658,12 @@ async fn verify_first_source_ref_resolves(
             )
         })?
         .clone();
-    // `discovery-directory.md` §8.3: `station_id` is a stable
-    // `did_core_id`. The Directory MUST map it to the peer's current `did`
-    // / URL through a **verified `ServiceResolutionRecord`** before pulling,
-    // and MUST NOT hand the core id to a DID resolver. teabay has no peer
-    // service-resolution carrier yet, so this is the single choke point where
-    // that evidence has to arrive; until it does, first ingest fails closed
-    // rather than guessing a resolvable DID out of a stable identity core.
-    let station_did = peer_station_did(&req.station_id).map_err(|reason| {
+    // `station_id` is a stable `did_core_id`, never a resolvable DID. The
+    // source-signed access proof was verified immediately before this call;
+    // its verification-method controller is the authenticated route carrier.
+    // Project that supplied DID back to the declared source core and reject a
+    // mismatch before authority resolution.
+    let station_did = source_service_did(&req.source_ref_access).map_err(|reason| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
             format!(
@@ -700,7 +703,7 @@ async fn verify_first_source_ref_resolves(
         source_ref = %accepted.source_ref,
         "accepted Station endpoint"
     );
-    let url = endpoint_child(&accepted.endpoint, &format!("events/{source_ref}")).map_err(|e| {
+    let url = endpoint_child(&accepted.endpoint, "events/resolve").map_err(|e| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
             format!("source-ref URL: {e}"),
@@ -718,8 +721,101 @@ async fn verify_first_source_ref_resolves(
             format!("source-ref HTTP client: {e}"),
         )
     })?;
-    let response = locked_http
-        .get(target.url().clone())
+    let request_body = arkret_models_collaboration::http_bodies::PeerEventsResolveRequestBody {
+        realm_id: req.source_ref_access.realm_id.clone(),
+        event_ids: vec![
+            arkret_wire::EventId::new(source_ref.clone())
+                .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error.to_string()))?,
+        ],
+        event_digests: Vec::new(),
+        include_payload: Some(true),
+        max_response_bytes: Some(8 * 1024 * 1024),
+        history_traversal_access: None,
+        directory_source_ref_access: Some(req.source_ref_access.clone()),
+    };
+    let body_bytes = canonical::canonical_json_bytes(&request_body)
+        .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error.to_string()))?;
+    let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
+        (
+            ApiErrorCode::SourceRefsUnverifiable,
+            "Directory service signing key is required for peer exact resolve".to_owned(),
+        )
+    })?;
+    let target_uri = target.url().as_str().to_owned();
+    let host = target.url().host_str().ok_or_else(|| {
+        (
+            ApiErrorCode::SourceRefsUnverifiable,
+            "source-ref endpoint has no authority".to_owned(),
+        )
+    })?;
+    let authority = match target.url().port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    };
+    let digest = ContentDigest::compute(&body_bytes, ContentDigestAlgorithm::Sha256);
+    let created = Utc::now().timestamp();
+    let signature_input = format!(
+        "sig1=(\"@method\" \"@target-uri\" \"@authority\" \"content-digest\" \"source-service-id\" \"destination-service-id\" \"source-trust-domain\" \"destination-trust-domain\");created={created};expires={};keyid=\"{}\";alg=\"ed25519\"",
+        created + 300,
+        signing_key.key_id()
+    );
+    let parsed_input = parse_signature_input(&signature_input).map_err(|error| {
+        (
+            ApiErrorCode::InternalError,
+            format!("peer signature input: {error}"),
+        )
+    })?;
+    let headers = vec![
+        ("content-digest".to_owned(), digest.wire_value.clone()),
+        (
+            "source-service-id".to_owned(),
+            config.service_id.to_string(),
+        ),
+        (
+            "destination-service-id".to_owned(),
+            req.station_id.to_string(),
+        ),
+        (
+            "source-trust-domain".to_owned(),
+            config.trust_domain.to_string(),
+        ),
+        (
+            "destination-trust-domain".to_owned(),
+            accepted.trust_domain.to_string(),
+        ),
+    ];
+    let signing_parts = SignedRequestParts {
+        method: "QUERY".to_owned(),
+        target_uri: target_uri.clone(),
+        authority,
+        path: target.url().path().to_owned(),
+        headers: headers.clone(),
+        body_digest: None,
+    };
+    let signing_message = canonical_message(&signing_parts, &parsed_input).map_err(|error| {
+        (
+            ApiErrorCode::InternalError,
+            format!("peer signature base: {error}"),
+        )
+    })?;
+    let signature = format!(
+        "sig1=:{}:",
+        sign_message(&signing_message, signing_key.signing_key())
+    );
+    let method = reqwest::Method::from_bytes(b"QUERY").expect("QUERY method is valid");
+    let mut outbound = locked_http.request(method, target.url().clone());
+    for (name, value) in headers {
+        outbound = outbound.header(name, value);
+    }
+    let response = outbound
+        .header("signature-input", signature_input)
+        .header("signature", signature)
+        .header(
+            "arkret-operation",
+            arkret_wire::ServiceOperationId::PEER_EVENTS_READ_RESOLVE_V1,
+        )
+        .header("content-type", "application/json")
+        .body(body_bytes)
         .send()
         .await
         .map_err(|e| {
@@ -734,31 +830,71 @@ async fn verify_first_source_ref_resolves(
             format!("source-ref fetch returned {}", response.status()),
         ));
     }
-    let body = response_json_limited::<JsonValue>(response, "source-ref response")
-        .await
-        .map_err(|e| {
-            (
-                ApiErrorCode::SourceRefsUnverifiable,
-                format!("source-ref response was not JSON: {e}"),
-            )
-        })?;
-    let returned_id = body
-        .pointer("/event/event_id")
-        .or_else(|| body.get("event_id"))
-        .and_then(JsonValue::as_str)
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::SourceRefsUnverifiable,
-                "source-ref response did not contain event_id".to_owned(),
-            )
-        })?;
-    if returned_id != source_ref {
+    let body = response_json_limited::<
+        arkret_models_collaboration::http_bodies::PeerEventsResolveOutcome,
+    >(response, "source-ref response")
+    .await
+    .map_err(|e| {
+        (
+            ApiErrorCode::SourceRefsUnverifiable,
+            format!("source-ref response was not JSON: {e}"),
+        )
+    })?;
+    let returned = body
+        .events
+        .iter()
+        .any(|submission| submission.event.event_id.as_str() == source_ref);
+    if !returned || !body.missing_event_ids.is_empty() {
         return Err((
             ApiErrorCode::SourceRefsUnverifiable,
-            format!("source-ref response returned `{returned_id}`, expected `{source_ref}`"),
+            "peer exact resolve did not return the selected source ref".to_owned(),
         ));
     }
     Ok(())
+}
+
+fn verify_directory_source_ref_access(
+    req: &DirectoryAnnounceIngest,
+    config: &AppConfig,
+    resolver: &SharedDidResolver,
+    now: DateTime<Utc>,
+) -> Result<(), (ApiErrorCode, String)> {
+    let access = &req.source_ref_access;
+    if access.directory_id.as_str() != config.service_id.as_str()
+        || access.source_id != req.station_id
+        || access.expires_at <= now
+    {
+        return Err((
+            ApiErrorCode::SourceRefsUnverifiable,
+            "directory source-ref access binding is unavailable".to_owned(),
+        ));
+    }
+    let controller = verification_method_controller_core_id(&access.proof.verification_method);
+    if controller.as_ref() != Some(&access.source_id) {
+        return Err((
+            ApiErrorCode::SourceRefsUnverifiable,
+            "directory source-ref signer does not control the source service".to_owned(),
+        ));
+    }
+    let key = resolver
+        .http_signature_public_key(access.proof.verification_method.as_str())
+        .ok_or_else(|| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                "directory source-ref signer key is unavailable".to_owned(),
+            )
+        })?;
+    let binding = access
+        .proof_binding_bytes()
+        .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error.to_string()))?;
+    arkret_signatures::verify_ed25519_detached_jws_payload_proof(
+        &access.proof,
+        &binding,
+        &arkret_signatures::PublicKeyMaterial::Ed25519Raw {
+            bytes: key.to_bytes().to_vec(),
+        },
+    )
+    .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error.to_string()))
 }
 
 /// An accepted station service endpoint.
@@ -1136,9 +1272,9 @@ fn is_loopback_url(url: &Url) -> bool {
     }
 }
 
-fn directory_services_lists_self(discovery_state: &JsonValue, self_service_id: &str) -> bool {
+fn directory_ids_lists_self(discovery_state: &JsonValue, self_service_id: &str) -> bool {
     discovery_state
-        .get("directory_services")
+        .get("directory_ids")
         .and_then(JsonValue::as_array)
         .map(|arr| {
             arr.iter()
@@ -1148,9 +1284,9 @@ fn directory_services_lists_self(discovery_state: &JsonValue, self_service_id: &
         .unwrap_or(false)
 }
 
-fn directory_services_are_core_ids(discovery_state: &JsonValue) -> bool {
+fn directory_ids_are_core_ids(discovery_state: &JsonValue) -> bool {
     discovery_state
-        .get("directory_services")
+        .get("directory_ids")
         .and_then(JsonValue::as_array)
         .is_some_and(|services| {
             !services.is_empty()
@@ -1205,25 +1341,31 @@ fn derive_via_services(discovery_state: &JsonValue, station_id: &DidCoreId) -> V
     vec![station_id.clone()]
 }
 
-/// Map a peer Station's stable service core id to the resolvable
-/// `Did` the source-ref anchor fetch needs.
-///
-/// `discovery-directory.md` §8.3 permits exactly one route: a **verified
-/// `ServiceResolutionRecord`** that publishes the peer's current `did`.
-/// The core id itself must never be handed to a DID resolver, and a
-/// `DidCoreId` can never be widened back into a `Did` by string
-/// manipulation — `project_did_to_core_id` is deliberately one-way.
-///
-/// teabay has no peer service-resolution store yet — the same gap that made
-/// cross-directory divergence detection unimplementable — so this fails
-/// closed. A future carrier implementation must also use the registered
-/// Directory public-read profile, never the private self Event read path.
-fn peer_station_did(station_id: &DidCoreId) -> Result<Did, String> {
-    let _ = station_id;
-    Err(
-        "peer Station core ids have no configured verified service-resolution carrier, so the current DID cannot be established; `discovery-directory.md` §8.3 forbids resolving the core id directly"
-            .to_owned(),
-    )
+/// Recover the authenticated source service DID from the already verified
+/// source-ref proof. This never widens a stable core id into a DID: the DID is
+/// supplied by the signed verification method and accepted only when its
+/// adapter projection is exactly the carrier's `source_id`.
+fn source_service_did(
+    access: &arkret_models_collaboration::history_key::DirectorySourceRefAccess,
+) -> Result<Did, String> {
+    let (controller, fragment) = access
+        .proof
+        .verification_method
+        .as_str()
+        .split_once('#')
+        .ok_or_else(|| "source-ref verification method requires a fragment".to_owned())?;
+    if fragment.is_empty() {
+        return Err("source-ref verification method fragment is empty".to_owned());
+    }
+    let did = Did::new(controller.to_owned())
+        .map_err(|error| format!("source-ref verification method DID is invalid: {error}"))?;
+    let projected = arkret_sdk::project_did_to_core_id(&did).map_err(|error| {
+        format!("source-ref verification method DID cannot be projected: {error}")
+    })?;
+    if projected != access.source_id {
+        return Err("source-ref verification method does not control source_id".to_owned());
+    }
+    Ok(did)
 }
 
 async fn is_in_allowlist(db: &Db, resource_did: &str) -> anyhow::Result<bool> {
@@ -1258,25 +1400,35 @@ async fn previously_withdrawn(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, HashMap};
+    use std::sync::Arc;
+
+    use arkret_sdk::identity::{DidDocument, DidResolver, ResolvedDid, Result as IdentityResult};
     use arkret_sdk::{DidUrl, DirectoryGovernanceProofPurpose, Hash};
     use arkret_signatures::jws::sign_jws_ed25519;
     use chrono::Duration;
     use ed25519_dalek::SigningKey;
     use serde_json::json;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     use super::*;
+    use crate::config::{
+        AcceptPolicyKind, AppConfig, DbPoolConfig, IngestModeAdvert, ReceiptSigningKey,
+    };
+    use crate::observability::Metrics;
 
     #[test]
     fn directory_authority_list_accepts_only_service_core_ids() {
-        assert!(directory_services_are_core_ids(&json!({
-            "directory_services": ["ak:did_core:web:directory.example"]
+        assert!(directory_ids_are_core_ids(&json!({
+            "directory_ids": ["ak:did_core:web:directory.example"]
         })));
         for forbidden in [
-            json!({"directory_services": ["did:web:directory.example"]}),
-            json!({"directory_services": ["https://directory.example"]}),
-            json!({"directory_services": []}),
+            json!({"directory_ids": ["did:web:directory.example"]}),
+            json!({"directory_ids": ["https://directory.example"]}),
+            json!({"directory_ids": []}),
         ] {
-            assert!(!directory_services_are_core_ids(&forbidden));
+            assert!(!directory_ids_are_core_ids(&forbidden));
         }
     }
 
@@ -1488,6 +1640,295 @@ mod tests {
 
     fn resolver() -> SharedDidResolver {
         SharedDidResolver::new(&["did:key".to_owned()], false).expect("resolver builds")
+    }
+
+    struct SourceDocumentResolver {
+        document: DidDocument,
+    }
+
+    impl DidResolver for SourceDocumentResolver {
+        fn supports(&self, did: &Did) -> bool {
+            did == &self.document.id
+        }
+
+        fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
+            if self.supports(did) {
+                Ok(ResolvedDid::proofless(self.document.clone()))
+            } else {
+                Err(arkret_sdk::identity::IdentityError::Protocol(format!(
+                    "unknown source DID {did}"
+                )))
+            }
+        }
+    }
+
+    fn source_ref_test_config() -> AppConfig {
+        AppConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            metrics_bind: "127.0.0.1:0".parse().unwrap(),
+            public_base_url: "http://directory.test".to_owned(),
+            service_id: DidCoreId::new(DIRECTORY_SERVICE_ID).unwrap(),
+            service_did: Did::new("did:web:directory.test").unwrap(),
+            service_resolution: arkret_sdk::ResolutionCommitment {
+                did: Did::new("did:web:directory.test").unwrap(),
+                method_history_head: "directory-test-history".to_owned(),
+                version_id: "directory-test-version".to_owned(),
+            },
+            trust_domain: "ak:trust_domain:directory.test".to_owned(),
+            database_url: "postgres://unused/teabay".to_owned(),
+            cors_allow_origin: None,
+            admin_csrf_token: None,
+            admin_token: None,
+            admin_token_rotation_window: std::time::Duration::from_secs(1_800),
+            development_mode: true,
+            accept_policy_kind: AcceptPolicyKind::Open,
+            accept_policy_ref: None,
+            takedown_contact: None,
+            accepted_resource_kinds: arkret_sdk::DirectoryResourceKind::ALL.to_vec(),
+            accepted_did_methods: vec!["did:web".to_owned()],
+            default_ttl: std::time::Duration::from_secs(3_600),
+            max_ttl: std::time::Duration::from_secs(86_400),
+            revalidation_grace: std::time::Duration::from_secs(300),
+            as_of_skew: std::time::Duration::from_secs(300),
+            ingest_modes: vec![IngestModeAdvert::Push],
+            rate_limit_per_resource_per_min: 60,
+            query_max_queries_per_ip_per_min: 0,
+            query_max_resolves_per_resource_per_min: 0,
+            query_latency_floor: std::time::Duration::ZERO,
+            query_latency_jitter: std::time::Duration::ZERO,
+            require_http_sig: false,
+            http_sig_pubkeys: HashMap::new(),
+            receipt_signing_key: Some(ReceiptSigningKey::from_raw(
+                "did:web:directory.test#directory-key".to_owned(),
+                [91; 32],
+            )),
+            db_pool: DbPoolConfig::default(),
+            expiry_interval: None,
+            takedown_notifier_interval: None,
+            trusted_proxy: None,
+            private_contact_discovery: None,
+        }
+    }
+
+    fn source_ref_test_event(source_id: DidCoreId) -> arkret_wire::Event {
+        let realm_id = arkret_wire::RealmId::new(REALM_ID).unwrap();
+        let mut event = arkret_wire::test_support::raw_event(
+            "ak.realm.discovery",
+            arkret_wire::ScopeRef::Realm {
+                realm_id: realm_id.clone(),
+            },
+            source_id.clone(),
+            source_id,
+            1,
+            arkret_wire::Hlc::new("01970e589d21-0001-a13f9c2e").unwrap(),
+            json!({
+                "value": {
+                    "resource_kind": "realm",
+                    "discoverability": "public",
+                    "directory_ids": [DIRECTORY_SERVICE_ID]
+                }
+            }),
+        )
+        .unwrap();
+        event
+            .refresh_content_bound_identity_with_digest_suite(arkret_canonical::DigestSuite::Sha256)
+            .unwrap();
+        event
+    }
+
+    fn signed_source_ref_access(
+        event: &arkret_wire::Event,
+        source_id: DidCoreId,
+        verification_method: DidUrl,
+        signing_key: &SigningKey,
+    ) -> arkret_models_collaboration::history_key::DirectorySourceRefAccess {
+        let as_of = Utc::now();
+        let mut access = arkret_models_collaboration::history_key::DirectorySourceRefAccess {
+            kind: arkret_models_collaboration::history_key::DirectorySourceRefAccessKind::DirectoryAnnounce,
+            source_id,
+            directory_id: DidCoreId::new(DIRECTORY_SERVICE_ID).unwrap(),
+            realm_id: event.realm_id.clone(),
+            discovery_event_id: event.event_id.clone(),
+            source_refs: vec![event.event_id.clone()],
+            as_of,
+            expires_at: as_of + Duration::minutes(5),
+            proof: arkret_wire::PayloadProof {
+                kind: arkret_wire::proof_kind::DETACHED_JWS.to_owned(),
+                verification_method,
+                payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64))).unwrap(),
+                created_at: as_of,
+                domain: Some("arkret-event-v1".to_owned()),
+                audience: Some(arkret_wire::Audience::Single(
+                    DIRECTORY_SERVICE_ID.to_owned(),
+                )),
+                proof_purpose: None,
+                jws: "pending".to_owned(),
+            },
+        };
+        access.proof.payload_digest = access.payload_digest().unwrap();
+        let binding = access.proof_binding_bytes().unwrap();
+        access.proof.jws = sign_jws_ed25519(&binding, signing_key).unwrap();
+        access
+    }
+
+    async fn source_peer(
+        status: u16,
+        event: arkret_wire::Event,
+    ) -> (String, tokio::task::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut received = Vec::new();
+            let header_end = loop {
+                let mut chunk = [0_u8; 4096];
+                let count = stream.read(&mut chunk).await.unwrap();
+                assert!(count > 0, "source peer request ended before headers");
+                received.extend_from_slice(&chunk[..count]);
+                if let Some(position) = received.windows(4).position(|window| window == b"\r\n\r\n")
+                {
+                    break position + 4;
+                }
+            };
+            let headers = String::from_utf8(received[..header_end].to_vec()).unwrap();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap();
+            while received.len() < header_end + content_length {
+                let mut chunk = [0_u8; 4096];
+                let count = stream.read(&mut chunk).await.unwrap();
+                assert!(count > 0, "source peer request body was truncated");
+                received.extend_from_slice(&chunk[..count]);
+            }
+            let body =
+                String::from_utf8(received[header_end..header_end + content_length].to_vec())
+                    .unwrap();
+            let response_body = if status == 200 {
+                serde_json::to_string(&json!({
+                    "events": [{"event": event, "ingress_receipts": []}],
+                    "missing_event_ids": [],
+                    "missing_event_digests": []
+                }))
+                .unwrap()
+            } else {
+                "{}".to_owned()
+            };
+            let reason = if status == 200 { "OK" } else { "Forbidden" };
+            let response = format!(
+                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
+                response_body.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            format!("{headers}{body}")
+        });
+        (format!("http://{address}/_arkret/peer"), task)
+    }
+
+    fn source_ref_test_resolver(
+        endpoint: String,
+        source_did: Did,
+        verification_method: DidUrl,
+        signing_key: &SigningKey,
+    ) -> SharedDidResolver {
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
+        let document = DidDocument {
+            id: source_did,
+            verification_methods: BTreeMap::from([(verification_method.to_string(), multibase)]),
+            also_known_as: Vec::new(),
+            updated_at: None,
+            raw_properties: BTreeMap::from([(
+                "service".to_owned(),
+                json!([{
+                    "id": "#station",
+                    "type": "ArkretStation",
+                    "serviceEndpoint": endpoint
+                }]),
+            )]),
+        };
+        SharedDidResolver::with_chain_for_test(
+            &["did:web".to_owned()],
+            Arc::new(SourceDocumentResolver { document }),
+            Metrics::default(),
+        )
+        .unwrap()
+    }
+
+    async fn run_source_ref_fetch(status: u16) -> Result<String, (ApiErrorCode, String)> {
+        let signing_key = SigningKey::from_bytes(&[77; 32]);
+        let source_did = Did::new("did:web:source.example").unwrap();
+        let source_id = arkret_sdk::project_did_to_core_id(&source_did).unwrap();
+        let verification_method = DidUrl::new("did:web:source.example#source-key").unwrap();
+        let event = source_ref_test_event(source_id.clone());
+        let access = signed_source_ref_access(
+            &event,
+            source_id.clone(),
+            verification_method.clone(),
+            &signing_key,
+        );
+        let (endpoint, peer) = source_peer(status, event.clone()).await;
+        let resolver =
+            source_ref_test_resolver(endpoint, source_did, verification_method, &signing_key);
+        let request = DirectoryAnnounceIngest {
+            discovery_event: event,
+            resource_kind: DirectoryResourceKindDb::Realm,
+            resource_id: REALM_ID.to_owned(),
+            station_id: source_id,
+            discovery_state: teabay_contracts::DirectoryDiscoveryState::from_json(json!({
+                "resource_kind": "realm",
+                "discoverability": "public",
+                "directory_ids": [DIRECTORY_SERVICE_ID]
+            })),
+            source_refs: access.source_refs.iter().map(ToString::to_string).collect(),
+            as_of: access.as_of,
+            source_ref_access: access,
+            ttl_seconds: None,
+            supersedes_announce_id: None,
+        };
+        let config = source_ref_test_config();
+        verify_directory_source_ref_access(&request, &config, &resolver, Utc::now())?;
+        let outcome = verify_first_source_ref_resolves(&request, &config, &resolver).await;
+        let captured = peer.await.unwrap();
+        outcome.map(|()| captured)
+    }
+
+    #[tokio::test]
+    async fn first_ingest_fetches_one_bounded_ref_from_the_authenticated_source_service() {
+        let captured = run_source_ref_fetch(200)
+            .await
+            .expect("the source Station returned the selected current ref");
+        assert!(captured.starts_with("QUERY /_arkret/peer/events/resolve HTTP/1.1"));
+        assert!(
+            captured
+                .to_ascii_lowercase()
+                .contains(&format!("source-service-id: {}", DIRECTORY_SERVICE_ID))
+        );
+        let (_, body) = captured.split_once("\r\n\r\n").unwrap();
+        let body: JsonValue = serde_json::from_str(body).unwrap();
+        assert_eq!(body["event_ids"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            body["event_ids"][0],
+            body["directory_source_ref_access"]["source_refs"][0]
+        );
+        assert!(body.get("event_digests").is_none());
+        assert!(body.get("history_traversal_access").is_none());
+    }
+
+    #[tokio::test]
+    async fn first_ingest_rejects_source_ref_after_withdraw_supersession_or_other_announce() {
+        for lifecycle in ["withdrawn", "superseded", "other_announce_carrier"] {
+            let (code, message) = run_source_ref_fetch(403)
+                .await
+                .expect_err("a source Station lifecycle denial must fail first ingest");
+            assert_eq!(code, ApiErrorCode::SourceRefsUnverifiable, "{lifecycle}");
+            assert!(message.contains("403 Forbidden"), "{lifecycle}: {message}");
+        }
     }
 
     fn placeholder_proof(

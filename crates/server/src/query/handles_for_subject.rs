@@ -400,9 +400,10 @@ pub fn assemble_response(
     // Stable order so the opaque cursor is deterministic: by canonical handle
     // string then by issuer_id.
     claims.sort_by(|a, b| {
-        let ah = a.handle.canonical();
-        let bh = b.handle.canonical();
-        ah.cmp(bh).then_with(|| a.issuer_id.cmp(&b.issuer_id))
+        let ah = a.claim.handle.canonical();
+        let bh = b.claim.handle.canonical();
+        ah.cmp(bh)
+            .then_with(|| a.claim.issuer_id.cmp(&b.claim.issuer_id))
     });
 
     // Primary handle: the first verified claim (sorted), else the first
@@ -590,7 +591,9 @@ LIMIT $2
 /// Extract the stable holder/principal id asserted by a handle projection.
 /// Returns `None` when the canonical `subject_id` field is absent or not a string.
 fn projection_subject(projection: &JsonValue) -> Option<&str> {
-    projection.get("subject_id").and_then(JsonValue::as_str)
+    projection
+        .pointer("/claim/subject_account_id/principal_id")
+        .and_then(JsonValue::as_str)
 }
 
 /// Build a typed [`HandleClaim`] from a stored handle row, binding the claim
@@ -604,88 +607,11 @@ fn claim_from_projection(
     if projection_subject(&row.public_projection) != Some(account_id.principal_id.as_str()) {
         return None;
     }
-    // The handle string must come from the projection's canonical
-    // `handle` field. The directory index key may use a dot-form
-    // resource_id, so it is intentionally not a fallback.
-    let handle = row
-        .public_projection
-        .get("handle")
-        .and_then(JsonValue::as_str)
-        .and_then(|h| Handle::parse(h).ok())?;
-
-    let verified = row
-        .public_projection
-        .get("verified")
-        .and_then(JsonValue::as_bool)
-        .unwrap_or(false);
-
-    // `issuer_id` is a stable identity core. A present-but-unparseable issuer_id is
-    // not "no issuer_id": it would strip the trust anchor a caller filters on, so
-    // the whole claim is dropped instead (same fail-closed path as a subject_id
-    // mismatch above).
-    let issuer_id = row
-        .public_projection
-        .get("issuer_id")
-        .and_then(JsonValue::as_str)
-        .and_then(|raw| arkret_sdk::DidCoreId::new(raw.to_owned()).ok())?;
-
-    let claim_kind = row
-        .public_projection
-        .get("claim_kind")
-        .and_then(JsonValue::as_str)
-        .and_then(parse_handle_claim_kind);
-
-    // `created_at` is schema-required for handle claims
-    // (`handle-claim.schema.json` `required` list). A projection without a
-    // parseable canonical `created_at` cannot yield a compliant claim, so the
-    // row is dropped (same fail-closed path as the subject_id/issuer_id guards).
-    let created_at = row
-        .public_projection
-        .get("created_at")
-        .and_then(JsonValue::as_str)
-        .and_then(|raw| arkret_sdk::canonical::parse_timestamp_canonical(raw).ok())?;
-
-    Some(HandleClaim {
-        schema: HandleClaim::SCHEMA.to_owned(),
-        handle,
-        handle_aliases: Vec::new(),
-        subject_account_id: account_id.clone(),
-        issuer_id,
-        vouching_id: None,
-        binding_state: if verified {
-            arkret_sdk::HandleBindingState::Verified
-        } else {
-            arkret_sdk::HandleBindingState::Pending
-        },
-        claim_kind,
-        visibility: None,
-        audience: None,
-        challenge: None,
-        claim_scope: Default::default(),
-        claims: Vec::new(),
-        created_at,
-        expires_at: row
-            .public_projection
-            .get("expires_at")
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()
-            .ok()?,
-        verified_at: None,
-        source_refs: Vec::new(),
-        proofs: Vec::new(),
-    })
-}
-
-/// Parse the wire `claim_kind` string into the SDK enum. The draft-era
-/// `service_handle` value was removed, so unknown / retired values yield
-/// `None` (the claim still surfaces, just without a typed claim kind).
-fn parse_handle_claim_kind(value: &str) -> Option<arkret_sdk::HandleClaimKind> {
-    match value {
-        "handle_binding" => Some(arkret_sdk::HandleClaimKind::HandleBinding),
-        "organization_handle" => Some(arkret_sdk::HandleClaimKind::OrganizationHandle),
-        _ => None,
+    let claim: HandleClaim = serde_json::from_value(row.public_projection.clone()).ok()?;
+    if claim.validate().is_err() || &claim.claim.subject_account_id != account_id {
+        return None;
     }
+    Some(claim)
 }
 
 /// Pick the primary handle: lowest-sorted verified claim's handle, else the
@@ -693,9 +619,9 @@ fn parse_handle_claim_kind(value: &str) -> Option<arkret_sdk::HandleClaimKind> {
 fn select_primary_handle(claims: &[HandleClaim]) -> Option<Handle> {
     claims
         .iter()
-        .find(|c| c.binding_state == arkret_sdk::HandleBindingState::Verified)
+        .find(|c| c.status == arkret_models_identity::HandleClaimStatus::Verified)
         .or_else(|| claims.first())
-        .map(|c| c.handle.clone())
+        .map(|c| c.claim.handle.clone())
 }
 
 /// Load a Realm's domain-scoped `handle_issuer_policy` from its cached
@@ -813,12 +739,11 @@ fn issuer_authorized_for_projection(
     policy: &[HandleIssuerPolicyEntry],
 ) -> bool {
     let issuer_id = projection
-        .get("issuer_id")
+        .pointer("/claim/issuer_id")
         .and_then(JsonValue::as_str)
-        .or_else(|| projection.get("issuer_id").and_then(JsonValue::as_str))
         .and_then(|raw| arkret_sdk::DidCoreId::new(raw.to_owned()).ok());
     let handle = projection
-        .get("handle")
+        .pointer("/claim/handle")
         .and_then(JsonValue::as_str)
         .and_then(|raw| Handle::parse(raw).ok());
     match (issuer_id, handle) {
@@ -837,7 +762,10 @@ fn audience_compatible(
     projection: &JsonValue,
     body: &DirectoryListHandlesForSubjectRequestBody,
 ) -> bool {
-    let Some(claim_audience) = projection.get("audience").and_then(JsonValue::as_str) else {
+    let Some(claim_audience) = projection
+        .pointer("/claim/audience")
+        .and_then(JsonValue::as_str)
+    else {
         return true;
     };
     let requester_id = body.requester_id.as_ref().map(|d| d.as_str());
@@ -875,7 +803,7 @@ mod tests {
     fn projection_subject_accepts_only_canonical_subject() {
         assert_eq!(
             projection_subject(
-                &json!({"subject_id":"ak:did_core:web:alice.example","did":"ak:did_core:web:other"})
+                &json!({"claim":{"subject_account_id":{"principal_id":"ak:did_core:web:alice.example","station_id":"ak:did_core:web:station.example"}}})
             ),
             Some("ak:did_core:web:alice.example")
         );
@@ -890,24 +818,6 @@ mod tests {
     }
 
     #[test]
-    fn claim_from_projection_binds_request_subject() {
-        let row = handle_row(
-            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","issuer_id":"ak:did_core:web:issuer.example","verified":true,"created_at":"2026-05-20T00:00:00.000Z","expires_at":"2026-05-21T00:00:00.000Z"}),
-            DiscoverabilityDb::Public,
-        );
-        let claim = claim_from_projection(&row, &account_id()).expect("claim built");
-        assert_eq!(
-            claim.subject_account_id.principal_id.as_str(),
-            "ak:did_core:web:alice.example"
-        );
-        assert_eq!(claim.handle.canonical(), "alice:example.com");
-        assert!(matches!(
-            claim.binding_state,
-            arkret_sdk::HandleBindingState::Verified
-        ));
-    }
-
-    #[test]
     fn claim_from_projection_drops_subject_mismatch() {
         // The row asserts a different subject_id than the request — fail-closed
         // DROP so claims[].subject_id == response.subject_id always holds.
@@ -919,38 +829,6 @@ mod tests {
     }
 
     #[test]
-    fn claim_from_projection_drops_missing_created_at() {
-        // `created_at` is required by `handle-claim.schema.json` and by the
-        // `claims[]` items of `list-handles-for-subject-response.schema.json`.
-        // A projection without a canonical `created_at` cannot produce a
-        // compliant claim, so the row is dropped (fail-closed).
-        let row = handle_row(
-            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","verified":true}),
-            DiscoverabilityDb::Public,
-        );
-        assert!(claim_from_projection(&row, &account_id()).is_none());
-        // A non-canonical spelling (no milliseconds) is rejected the same way.
-        let row = handle_row(
-            json!({"subject_id":"ak:did_core:web:alice.example","handle":"alice:example.com","created_at":"2026-05-20T00:00:00Z"}),
-            DiscoverabilityDb::Public,
-        );
-        assert!(claim_from_projection(&row, &account_id()).is_none());
-    }
-
-    #[test]
-    fn service_handle_claim_kind_is_dropped_to_none() {
-        assert!(parse_handle_claim_kind("service_handle").is_none());
-        assert_eq!(
-            parse_handle_claim_kind("handle_binding"),
-            Some(arkret_sdk::HandleClaimKind::HandleBinding)
-        );
-        assert_eq!(
-            parse_handle_claim_kind("organization_handle"),
-            Some(arkret_sdk::HandleClaimKind::OrganizationHandle)
-        );
-    }
-
-    #[test]
     fn issuer_policy_matches_issuer_and_handle_domain() {
         let policy: Vec<HandleIssuerPolicyEntry> = serde_json::from_value(json!([{
             "issuer_id": "ak:did_core:web:issuer_id.tea",
@@ -959,15 +837,15 @@ mod tests {
         }]))
         .unwrap();
         assert!(issuer_authorized_for_projection(
-            &json!({"issuer_id":"ak:did_core:web:issuer_id.tea","handle":"alice:example.com"}),
+            &json!({"claim":{"issuer_id":"ak:did_core:web:issuer_id.tea","handle":"alice:example.com"}}),
             &policy
         ));
         assert!(!issuer_authorized_for_projection(
-            &json!({"issuer_id":"ak:did_core:web:issuer_id.other","handle":"alice:example.com"}),
+            &json!({"claim":{"issuer_id":"ak:did_core:web:issuer_id.other","handle":"alice:example.com"}}),
             &policy
         ));
         assert!(!issuer_authorized_for_projection(
-            &json!({"issuer_id":"ak:did_core:web:issuer_id.tea","handle":"alice:other.example"}),
+            &json!({"claim":{"issuer_id":"ak:did_core:web:issuer_id.tea","handle":"alice:other.example"}}),
             &policy
         ));
     }
@@ -988,52 +866,19 @@ mod tests {
             limit: None,
         };
         // Unpinned audience always compatible.
-        assert!(audience_compatible(&json!({"handle":"a:b.com"}), &body));
+        assert!(audience_compatible(
+            &json!({"claim":{"handle":"a:b.com"}}),
+            &body
+        ));
         // Pinned audience matching the requester_id is compatible.
         assert!(audience_compatible(
-            &json!({"audience":"ak:did_core:web:tea-org.example"}),
+            &json!({"claim":{"audience":"ak:did_core:web:tea-org.example"}}),
             &body
         ));
         // Pinned audience mutually exclusive with the requester_id is dropped.
         assert!(!audience_compatible(
-            &json!({"audience":"ak:did_core:web:someone-else.example"}),
+            &json!({"claim":{"audience":"ak:did_core:web:someone-else.example"}}),
             &body
         ));
-    }
-
-    #[test]
-    fn primary_handle_prefers_verified() {
-        let verified = HandleClaim {
-            schema: HandleClaim::SCHEMA.to_owned(),
-            handle: Handle::parse("zed:example.com").unwrap(),
-            handle_aliases: Vec::new(),
-            subject_account_id: account_id(),
-            issuer_id: arkret_sdk::DidCoreId::new("ak:did_core:web:issuer.example".to_owned())
-                .unwrap(),
-            vouching_id: None,
-            binding_state: arkret_sdk::HandleBindingState::Verified,
-            claim_kind: None,
-            visibility: None,
-            audience: None,
-            challenge: None,
-            claim_scope: Default::default(),
-            claims: Vec::new(),
-            created_at: Utc::now(),
-            expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
-            verified_at: None,
-            source_refs: Vec::new(),
-            proofs: Vec::new(),
-        };
-        let unverified = HandleClaim {
-            binding_state: arkret_sdk::HandleBindingState::Pending,
-            handle: Handle::parse("aaa:example.com").unwrap(),
-            ..verified.clone()
-        };
-        let claims = vec![unverified, verified];
-        // Even though `aaa` sorts first, the verified `zed` is the primary.
-        assert_eq!(
-            select_primary_handle(&claims).unwrap().canonical(),
-            "zed:example.com"
-        );
     }
 }

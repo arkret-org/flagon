@@ -226,7 +226,7 @@ mod tests {
         let value = json!({
             "kind": "ak.realm.discovery",
             "discoverability": "public",
-            "directory_services": ["ak:did_core:web:directory.test"],
+            "directory_ids": ["ak:did_core:web:directory.test"],
             "member_count_bucket": "11-50",
         });
         assert!(reject_circle_payload(&value).is_ok());
@@ -391,7 +391,7 @@ mod tests {
     fn property_random_circle_injection_is_always_caught() {
         let bases = [
             json!({"kind": "ak.realm.discovery"}),
-            json!({"kind": "ak.realm.discovery", "directory_services": []}),
+            json!({"kind": "ak.realm.discovery", "directory_ids": []}),
             json!({"nested": {"a": {"b": {"c": 1}}}}),
             json!({"list": [1, 2, {"deep": "ok"}]}),
         ];
@@ -451,7 +451,7 @@ mod tests {
     fn property_clean_realm_payloads_are_accepted() {
         let payloads = [
             json!({"kind": "ak.realm.discovery", "discoverability": "public"}),
-            json!({"kind": "ak.realm.discovery", "directory_services": ["ak:did_core:web:d.test"], "policy_revision": "r-42"}),
+            json!({"kind": "ak.realm.discovery", "directory_ids": ["ak:did_core:web:d.test"], "policy_revision": "r-42"}),
             json!({"kind": "ak.realm.discovery", "as_of": "2026-05-26T00:00:00Z"}),
             json!({"kind": "ak.actor.discovery", "handle": "did:web:alice"}),
             // member_count_bucket is allowed — the bucket grid is the

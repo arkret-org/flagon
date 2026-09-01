@@ -96,7 +96,7 @@ pub(crate) fn derive_public_projection(
     // function does is normative and load-bearing:
     //   * `validate_handle_claim_ingest` enforces the HC-TBY-1/2 wire scope (retired
     //     `claim_type`/`class`, non-principal handle-claim subjects).
-    //   * the `proof` / `directory_services` / `official_organizations` fields are stripped so
+    //   * the `proof` / `directory_ids` / `official_organizations` fields are stripped so
     //     governance internals and the forbidden §4.5 `official_organizations` field never enter
     //     the index or search SQL.
     //   * `normalize_member_count_projection` enforces the §3 member-count disclosure rules
@@ -143,7 +143,7 @@ pub(crate) fn derive_public_projection(
     let mut clone = discovery_state.as_value().clone();
     if let Some(obj) = clone.as_object_mut() {
         obj.remove("proof");
-        obj.remove("directory_services");
+        obj.remove("directory_ids");
         // `official_organizations` is a forbidden directory-projection field
         // (spec §4.5). Strip it so it never enters the index or search SQL;
         // organization scoping uses the canonical `organization_principal_id`.

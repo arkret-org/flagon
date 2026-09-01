@@ -390,6 +390,7 @@ dependencies = [
  "chrono-tz",
  "hmac 0.13.0",
  "regex",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -408,6 +409,7 @@ dependencies = [
  "chrono",
  "hex",
  "regex",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -418,6 +420,7 @@ name = "arkret-models-discovery"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
+ "arkret-models-collaboration",
  "arkret-models-identity",
  "arkret-wire",
  "chrono",
