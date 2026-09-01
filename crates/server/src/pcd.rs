@@ -19,7 +19,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
-use rand::Rng as _;
+use rand::RngExt as _;
 use salvo::http::{HeaderValue, StatusCode, header};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -536,7 +536,8 @@ impl PrivateContactDiscoveryCustody {
             .collect::<Result<Vec<_>, _>>()?;
         let evaluated = server
             .server
-            .batch_blind_evaluate(&mut rand::rng(), &blinded)
+            // voprf 0.6.0-pre.1 still implements the rand_core 0.9 traits.
+            .batch_blind_evaluate(&mut rand_09::rng(), &blinded)
             .map_err(|error| PcdError::Storage(error.to_string()))?;
         let evaluated_elements = evaluated
             .messages

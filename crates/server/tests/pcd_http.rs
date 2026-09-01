@@ -12,7 +12,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration as ChronoDuration, Utc};
 use hmac::{Hmac, KeyInit, Mac};
-use rand::Rng as _;
+use rand::RngExt as _;
 use salvo::Service;
 use salvo::http::StatusCode;
 use salvo::test::{ResponseExt, TestClient};
@@ -273,7 +273,7 @@ async fn pcd_http_closes_proof_padding_retry_quota_restart_and_rotation() -> any
     ];
     let mut blinded_elements = Vec::new();
     for input in inputs {
-        let blind = VoprfClient::<Ristretto255>::blind(input, &mut rand::rng())?;
+        let blind = VoprfClient::<Ristretto255>::blind(input, &mut rand_09::rng())?;
         blinded_elements.push(URL_SAFE_NO_PAD.encode(blind.message.serialize()));
     }
     let blind_body = json!({
