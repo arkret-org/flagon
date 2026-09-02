@@ -981,7 +981,7 @@ fn trim_realm_preview_for_policy(
         preview.avatar_blob_ref = None;
     }
     if !preview_policy_field_allowed(policy, "owning_organization_ids") {
-        preview.organization_principal_id = None;
+        preview.organization_id = None;
         preview.owning_organization_ids.clear();
     }
     if !preview_policy_field_allowed(policy, "join_rule") {

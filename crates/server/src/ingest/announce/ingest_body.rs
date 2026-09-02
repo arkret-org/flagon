@@ -59,11 +59,10 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
                 DirectoryResourceKindDb::Organization,
                 event
                     .payload
-                    .get("organization_principal_id")
+                    .get("organization_id")
                     .and_then(JsonValue::as_str)
                     .ok_or_else(|| {
-                        "organization discovery_event requires payload.organization_principal_id"
-                            .to_owned()
+                        "organization discovery_event requires payload.organization_id".to_owned()
                     })?
                     .to_owned(),
             ),

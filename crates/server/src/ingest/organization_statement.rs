@@ -1,7 +1,7 @@
 //! TBY-ORG-01/03 — ingest, verify, and lifecycle of `ak.realm.organization`
 //! relationship statements.
 //!
-//! The directory never trusts a bare `organization_principal_id` /
+//! The directory never trusts a bare `organization_id` /
 //! `owning_organization_ids` projection hint as an official organization
 //! relationship. An official badge, organization scoping, or
 //! directory-certifier relationship is only valid once it derives from an
@@ -14,7 +14,7 @@
 //! relationships carries the verified `ak.realm.organization` payloads under
 //! `discovery_state.organization_statements[]`. Each payload is verified
 //! independently and, on success, projected into the
-//! `verified_realm_organizations` index keyed by `(realm_id, organization_principal_id,
+//! `verified_realm_organizations` index keyed by `(realm_id, organization_id,
 //! relationship)` (the spec reducer cell subject_id).
 //!
 //! The delegation resolver is injected so the directory shares the exact
@@ -72,7 +72,7 @@ fn control_scope_as_str(scope: RealmOrganizationControlScope) -> &'static str {
 #[derive(Debug, Clone)]
 pub(crate) struct VerifiedStatement {
     pub realm_id: String,
-    pub organization_principal_id: DidCoreId,
+    pub organization_id: DidCoreId,
     pub relationship: &'static str,
     pub control_scopes: Vec<String>,
     pub statement_id: String,
@@ -153,7 +153,7 @@ pub(crate) fn verify_announced_statements(
 
         outcome.verified.push(VerifiedStatement {
             realm_id: payload.realm_id.as_str().to_owned(),
-            organization_principal_id: payload.organization_id.clone(),
+            organization_id: payload.organization_id.clone(),
             relationship: relationship_as_str(payload.relationship),
             control_scopes: payload
                 .control_scopes
@@ -179,9 +179,9 @@ pub(crate) fn verify_announced_statements(
 /// `verified_realm_organizations` index.
 ///
 /// Lifecycle (TBY-ORG-03):
-///   * an `active` statement upserts the `(realm_id, organization_principal_id, relationship)` row,
-///     but only when its `statement_issued_at` is at least as recent as the stored statement — a
-///     replayed older `active` statement can never overwrite a newer revocation;
+///   * an `active` statement upserts the `(realm_id, organization_id, relationship)` row, but only
+///     when its `statement_issued_at` is at least as recent as the stored statement — a replayed
+///     older `active` statement can never overwrite a newer revocation;
 ///   * a `revoked` statement removes the row (the badge disappears on the next directory refresh)
 ///     when it is at least as recent as the stored row.
 pub(crate) async fn persist_verified_statements(
@@ -201,7 +201,7 @@ pub(crate) async fn persist_verified_statements(
         // monotonic replay protection regardless of insert/revoke direction.
         let prior_issued_at: Option<DateTime<Utc>> = v::verified_realm_organizations
             .filter(v::realm_id.eq(&statement.realm_id))
-            .filter(v::organization_principal_id.eq(&statement.organization_principal_id))
+            .filter(v::organization_id.eq(&statement.organization_id))
             .filter(v::relationship.eq(statement.relationship))
             .select(v::statement_issued_at)
             .first::<DateTime<Utc>>(&mut *conn)
@@ -219,7 +219,7 @@ pub(crate) async fn persist_verified_statements(
             diesel::delete(
                 v::verified_realm_organizations
                     .filter(v::realm_id.eq(&statement.realm_id))
-                    .filter(v::organization_principal_id.eq(&statement.organization_principal_id))
+                    .filter(v::organization_id.eq(&statement.organization_id))
                     .filter(v::relationship.eq(statement.relationship)),
             )
             .execute(&mut *conn)
@@ -230,7 +230,7 @@ pub(crate) async fn persist_verified_statements(
         diesel::insert_into(v::verified_realm_organizations)
             .values((
                 v::realm_id.eq(&statement.realm_id),
-                v::organization_principal_id.eq(&statement.organization_principal_id),
+                v::organization_id.eq(&statement.organization_id),
                 v::relationship.eq(statement.relationship),
                 v::control_scopes.eq(&statement.control_scopes),
                 v::statement_id.eq(&statement.statement_id),
@@ -242,7 +242,7 @@ pub(crate) async fn persist_verified_statements(
                 v::verified_at.eq(Utc::now()),
                 v::source_announce_id.eq(Some(source_announce_id)),
             ))
-            .on_conflict((v::realm_id, v::organization_principal_id, v::relationship))
+            .on_conflict((v::realm_id, v::organization_id, v::relationship))
             .do_update()
             .set((
                 v::control_scopes.eq(&statement.control_scopes),
@@ -266,7 +266,7 @@ pub(crate) async fn persist_verified_statements(
 /// A verified relationship row as surfaced to the query layer (TBY-ORG-02).
 #[derive(Debug, Clone, Queryable)]
 pub(crate) struct VerifiedRelationshipRow {
-    pub organization_principal_id: DidCoreId,
+    pub organization_id: DidCoreId,
     pub relationship: String,
     pub control_scopes: Vec<String>,
     pub not_before: Option<DateTime<Utc>>,
@@ -307,7 +307,7 @@ pub(crate) async fn load_verified_relationships(
         .filter(v::stale.eq(false))
         .filter(v::expires_at.is_null().or(v::expires_at.gt(now)))
         .select((
-            v::organization_principal_id,
+            v::organization_id,
             v::relationship,
             v::control_scopes,
             v::not_before,
@@ -388,7 +388,7 @@ mod tests {
             "issued_at": "2026-06-25T00:00:00.000Z",
             "authorization": {
                 "issuer_id": ORG,
-                "issuer_role": "organization_principal_id",
+                "issuer_role": "organization",
                 "verification_method": format!("{ORG_DID}#k1"),
                 "signed_at": "2026-06-25T00:00:00.000Z",
                 "proof": "c2ln"
@@ -475,7 +475,7 @@ mod tests {
     #[test]
     fn effective_active_respects_validity_window() {
         let row = VerifiedRelationshipRow {
-            organization_principal_id: DidCoreId::new(ORG).unwrap(),
+            organization_id: DidCoreId::new(ORG).unwrap(),
             relationship: "owner".to_owned(),
             control_scopes: vec!["official_badge".to_owned()],
             not_before: None,

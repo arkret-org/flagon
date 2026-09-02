@@ -9,7 +9,7 @@
 --                                governance) ⇒ no official owning organization.
 INSERT INTO verified_realm_organizations (
     realm_id,
-    organization_principal_id,
+    organization_id,
     relationship,
     control_scopes,
     statement_id,

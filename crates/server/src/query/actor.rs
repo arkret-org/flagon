@@ -65,7 +65,7 @@ pub async fn search_actors(req: &mut Request, depot: &mut Depot, res: &mut Respo
             .as_ref()
             .map(arkret_sdk::RealmId::as_str)
             .unwrap_or_default(),
-        body.organization_principal_id
+        body.organization_id
             .as_ref()
             .map(arkret_sdk::DidCoreId::as_str)
             .unwrap_or_default(),

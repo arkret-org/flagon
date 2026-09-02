@@ -473,7 +473,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // TBY-ORG-01/03 — verify and project any `ak.realm.organization` relationship
     // statements the Realm announce carries. Only `active`, in-validity-window,
     // proof-bearing, scope-covering statements that pass the SDK verifier enter
-    // the verified index; a bare `organization_principal_id` / `owning_organization_ids`
+    // the verified index; a bare `organization_id` / `owning_organization_ids`
     // hint is NOT treated as an official relationship. Failures are audited but
     // never block the announce (the projection hint still lands).
     if matches!(body.resource_kind, DirectoryResourceKindDb::Realm) {

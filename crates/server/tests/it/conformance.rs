@@ -284,7 +284,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
     .await;
     assert!(
         declared_only.is_empty(),
-        "declared owning_organization_ids / organization_principal_id hint MUST NOT yield a verified badge"
+        "declared owning_organization_ids / organization_id hint MUST NOT yield a verified badge"
     );
 
     // (3) relationship mismatch: sponsor is NOT owner/governance ⇒ no owning org.
@@ -323,7 +323,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
         let mut conn = db.get().await?;
         diesel::sql_query(
             "INSERT INTO verified_realm_organizations \
-               (realm_id, organization_principal_id, relationship, control_scopes, statement_id, \
+               (realm_id, organization_id, relationship, control_scopes, statement_id, \
                 statement_issued_at, not_before, expires_at, realm_frontier_digest, stale, \
                 verified_at, source_announce_id) \
              VALUES ('ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C', 'ak:did_core:web:tea-org.example', 'owner', \
@@ -562,7 +562,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
-        body["organizations"][0]["organization_principal_id"],
+        body["organizations"][0]["organization_id"],
         "ak:did_core:web:tea-org.example"
     );
 
@@ -572,7 +572,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
             arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
             true,
         )
-        .json(&json!({ "organization_principal_id": "ak:did_core:web:tea-org.example" }))
+        .json(&json!({ "organization_id": "ak:did_core:web:tea-org.example" }))
         .send(service)
         .await;
     assert_eq!(
@@ -583,7 +583,7 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     );
     let body: JsonValue = res.take_json().await?;
     assert_eq!(
-        body["organization_preview"]["organization_principal_id"],
+        body["organization_preview"]["organization_id"],
         "ak:did_core:web:tea-org.example"
     );
 
@@ -842,7 +842,7 @@ async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::R
             true,
         )
         .json(&json!({
-            "subscriber_principal_id": "ak:did_core:web:subscriber.example",
+            "subscriber_id": "ak:did_core:web:subscriber.example",
             "resource_filter": {
                 "resource_kinds": ["realm"],
                 "resource_ids": ["ak:realm:AV02Q8ck_fhF2AFzJL5GSjGwga7vDJOSzYwX-rgNR2UP"]
@@ -1096,7 +1096,7 @@ async fn assert_three_path_takedown_strand(
                 "resource_id": operator_resource_id,
                 "station_id": "ak:did_core:web:directory.test",
                 "public_projection": {
-                    "organization_principal_id": operator_resource_id,
+                    "organization_id": operator_resource_id,
                     "name": "Operator Takedown Target"
                 },
                 "discoverability": "listed",
@@ -1160,7 +1160,7 @@ async fn assert_three_path_takedown_strand(
             arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_ORGANIZATION_V1,
             true,
         )
-        .json(&json!({ "organization_principal_id": operator_resource_id }))
+        .json(&json!({ "organization_id": operator_resource_id }))
         .send(service)
         .await;
     assert_eq!(
@@ -1286,7 +1286,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             "resource_id": managed_resource_id,
             "station_id": "ak:did_core:web:directory.test",
             "public_projection": {
-                "organization_principal_id": managed_resource_id,
+                "organization_id": managed_resource_id,
                 "name": "Admin Managed Directory Row",
                 "summary": "Inserted through the admin data manager"
             },
@@ -1330,7 +1330,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             .as_array()
             .unwrap()
             .iter()
-            .any(|result| result["organization_principal_id"] == managed_resource_id)
+            .any(|result| result["organization_id"] == managed_resource_id)
     );
 
     let mut res = TestClient::post("http://local/_teabay/admin/takedown")

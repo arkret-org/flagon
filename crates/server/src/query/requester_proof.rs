@@ -25,10 +25,9 @@
 //!
 //! # What the SDK helper already enforces
 //!
-//! `proof.kind` is the production detached-JWS kind, `domain` is absent,
-//! `proof_purpose` is absent (`governance_authorization` belongs to the §8.7.1
-//! write surface only), `audience` is present, single-valued and in
-//! `did_core_id` form, and `proof.payload_digest` byte-equals
+//! `proof.kind` is the production detached-JWS kind, generic `domain` and
+//! `proof_purpose` members are unrepresentable, `audience_id` is a required
+//! `did_core_id`, and `proof.payload_digest` byte-equals
 //! `SHA-256(JCS(request_without_proofs))`.
 //! The family helper also fails closed when the request carries `proofs[]` but
 //! omits the family's originator wire field.
@@ -36,7 +35,7 @@
 //! # What this module adds
 //!
 //! The two checks that need directory-local state — the 300-second freshness
-//! window, and that `audience` names *this* directory — plus the signer
+//! window, and that `audience_id` names *this* directory — plus the signer
 //! identity gate (`verification_method` MUST be controlled by the family's
 //! originator) and the JWS verification itself.
 //!
@@ -55,10 +54,11 @@
 
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
-    DidCoreId, DirectoryListHandlesForSubjectRequestBody, DirectoryResolveHandleRequestBody,
-    DirectoryResolveOrganizationRequestBody, DirectoryResolveTargetRequestBody,
+    DidCoreId, DirectoryListHandlesForSubjectRequestBody, DirectoryRequestProof,
+    DirectoryResolveHandleRequestBody, DirectoryResolveOrganizationRequestBody,
+    DirectoryResolveTargetRequestBody,
 };
-use arkret_wire::{Audience, PayloadProof, WireError};
+use arkret_wire::WireError;
 use chrono::{DateTime, Utc};
 
 use crate::did_binding::DidBindingDirectory;
@@ -77,11 +77,14 @@ pub const REQUESTER_PROOF_MAX_SKEW_SECONDS: i64 = 300;
 /// registered family, `resolve_agent_selector`, is not routed; its impl lands
 /// together with the route so the two cannot drift apart.
 pub trait DirectoryRequesterProofFamily {
-    fn requester_proofs(&self) -> &[PayloadProof];
+    fn requester_proofs(&self) -> &[DirectoryRequestProof];
 
     /// The family's canonical §9.0.1 binding object, as JCS bytes. Delegates to
     /// the SDK helper that owns this family's context and `binding_fields`.
-    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError>;
+    fn requester_proof_binding_bytes(
+        &self,
+        proof: &DirectoryRequestProof,
+    ) -> Result<Vec<u8>, WireError>;
 
     /// The family's originator wire field, whose value the binding object
     /// carries as the registry-defined `issuer`. `None` only for
@@ -92,11 +95,14 @@ pub trait DirectoryRequesterProofFamily {
 }
 
 impl DirectoryRequesterProofFamily for DirectoryResolveTargetRequestBody {
-    fn requester_proofs(&self) -> &[PayloadProof] {
+    fn requester_proofs(&self) -> &[DirectoryRequestProof] {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
+    fn requester_proof_binding_bytes(
+        &self,
+        proof: &DirectoryRequestProof,
+    ) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -106,11 +112,14 @@ impl DirectoryRequesterProofFamily for DirectoryResolveTargetRequestBody {
 }
 
 impl DirectoryRequesterProofFamily for DirectoryResolveOrganizationRequestBody {
-    fn requester_proofs(&self) -> &[PayloadProof] {
+    fn requester_proofs(&self) -> &[DirectoryRequestProof] {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
+    fn requester_proof_binding_bytes(
+        &self,
+        proof: &DirectoryRequestProof,
+    ) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -120,11 +129,14 @@ impl DirectoryRequesterProofFamily for DirectoryResolveOrganizationRequestBody {
 }
 
 impl DirectoryRequesterProofFamily for DirectoryResolveHandleRequestBody {
-    fn requester_proofs(&self) -> &[PayloadProof] {
+    fn requester_proofs(&self) -> &[DirectoryRequestProof] {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
+    fn requester_proof_binding_bytes(
+        &self,
+        proof: &DirectoryRequestProof,
+    ) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -134,11 +146,14 @@ impl DirectoryRequesterProofFamily for DirectoryResolveHandleRequestBody {
 }
 
 impl DirectoryRequesterProofFamily for DirectoryListHandlesForSubjectRequestBody {
-    fn requester_proofs(&self) -> &[PayloadProof] {
+    fn requester_proofs(&self) -> &[DirectoryRequestProof] {
         &self.proofs
     }
 
-    fn requester_proof_binding_bytes(&self, proof: &PayloadProof) -> Result<Vec<u8>, WireError> {
+    fn requester_proof_binding_bytes(
+        &self,
+        proof: &DirectoryRequestProof,
+    ) -> Result<Vec<u8>, WireError> {
         self.proof_binding_bytes(proof)
     }
 
@@ -169,7 +184,7 @@ pub fn verify_requester_proofs<T: DirectoryRequesterProofFamily + ?Sized>(
 
 fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
     request: &T,
-    proof: &PayloadProof,
+    proof: &DirectoryRequestProof,
     expected_audience: &str,
     bindings: &DidBindingDirectory,
     now: DateTime<Utc>,
@@ -185,21 +200,17 @@ fn verify_requester_proof<T: DirectoryRequesterProofFamily + ?Sized>(
         ));
     }
 
-    // §9.0.1: `audience` MUST be the target Directory `service_id` published by
-    // `ak.find.directory.read.describe.v1`, single valued and in `did_core_id`
-    // form. The SDK helper rejects a missing, multi-valued, or DID
-    // audience; only this directory knows whether the value names *it*.
+    // §9.0.1: `audience_id` MUST be the target Directory `service_id` published
+    // by `ak.find.directory.read.describe.v1`; only this directory knows
+    // whether the typed did_core_id value names *it*.
     // `config().service_id` is the projected core id this directory publishes,
     // which is the same value `filter::discoverers` compares §2 claim
     // presentations against.
-    match proof.audience.as_ref() {
-        Some(Audience::Single(audience)) if audience == expected_audience => {}
-        _ => {
-            return Err(
-                "directory requester_id proof audience must be this directory's service_id"
-                    .to_owned(),
-            );
-        }
+    if proof.audience_id.as_str() != expected_audience {
+        return Err(
+            "directory requester_id proof audience_id must be this directory's service_id"
+                .to_owned(),
+        );
     }
 
     // The family's own canonical transcript. Never assembled locally: a
@@ -305,15 +316,13 @@ mod tests {
         requester_id: &Requester,
         payload_digest: Hash,
         created_at: DateTime<Utc>,
-    ) -> PayloadProof {
-        PayloadProof {
+    ) -> DirectoryRequestProof {
+        DirectoryRequestProof {
             kind: arkret_wire::proof_kind::DETACHED_JWS.to_owned(),
             verification_method: requester_id.verification_method.clone(),
             payload_digest,
             created_at,
-            domain: None,
-            audience: Some(Audience::Single(DIRECTORY_AUDIENCE.to_owned())),
-            proof_purpose: None,
+            audience_id: DidCoreId::new(DIRECTORY_AUDIENCE).unwrap(),
             jws: "pending".to_owned(),
         }
     }
@@ -436,7 +445,7 @@ mod tests {
         .unwrap();
 
         let org_body = DirectoryResolveOrganizationRequestBody {
-            organization_principal_id: Some(
+            organization_id: Some(
                 DidCoreId::new("ak:did_core:web:acme.example".to_owned()).unwrap(),
             ),
             handle: None,
@@ -492,7 +501,7 @@ mod tests {
             "handle",
             "verification_method",
             "created_at",
-            "audience",
+            "audience_id",
             "context",
         ];
         expected_handle.sort_unstable();
@@ -505,7 +514,7 @@ mod tests {
             "account_id",
             "verification_method",
             "created_at",
-            "audience",
+            "audience_id",
             "context",
         ];
         expected_list.sort_unstable();
@@ -521,7 +530,7 @@ mod tests {
             "operation_id",
             "verification_method",
             "created_at",
-            "audience",
+            "audience_id",
             "context",
         ];
         expected_org.sort_unstable();
@@ -532,7 +541,7 @@ mod tests {
     ///
     /// The proof leaf submitted to `list_handles_for_subject` is correct in
     /// EVERY field the verifier can check independently: production kind, no
-    /// `domain`, no `proof_purpose`, single `audience` naming this directory,
+    /// generic `domain` / `proof_purpose`, typed `audience_id` naming this directory,
     /// fresh `created_at`, `payload_digest` byte-equal to
     /// `SHA-256(JCS(list_body_without_proofs))`, and a `verification_method`
     /// controlled by the request's own `requester_id`. The ONLY defect is that its
@@ -615,32 +624,27 @@ mod tests {
     }
 
     #[test]
-    fn proof_carrying_domain_or_proof_purpose_is_rejected() {
+    fn legacy_generic_proof_members_are_rejected_by_the_closed_leaf() {
         let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
-
-        let mut body = signed_resolve_handle(&requester_id, now);
-        body.proofs[0].domain = Some("example.com".to_owned());
-        verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
-            .expect_err("`domain` MUST be absent");
-
-        let mut body = signed_resolve_handle(&requester_id, now);
-        body.proofs[0].proof_purpose = Some(arkret_wire::PayloadProofPurpose::IssuerAttestation);
-        verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
-            .expect_err("`proof_purpose` MUST be absent");
-    }
-
-    #[test]
-    fn multi_valued_audience_is_rejected() {
-        let requester_id = test_requester(SIGNING_SEED);
-        let now = Utc::now();
-        let mut body = signed_resolve_handle(&requester_id, now);
-        body.proofs[0].audience = Some(Audience::Multiple(vec![
-            DIRECTORY_AUDIENCE.to_owned(),
-            "ak:did_core:web:other-directory.example".to_owned(),
-        ]));
-        verify_requester_proofs(&body, DIRECTORY_AUDIENCE, &bindings(), now)
-            .expect_err("audience MUST be the single target Directory service DID");
+        let body = signed_resolve_handle(&requester_id, now);
+        let canonical = serde_json::to_value(&body.proofs[0]).unwrap();
+        for (field, value) in [
+            ("domain", serde_json::json!("example.com")),
+            ("proof_purpose", serde_json::json!("issuer_attestation")),
+            (
+                "audience",
+                serde_json::json!([DIRECTORY_AUDIENCE, "ak:did_core:web:other.example"]),
+            ),
+        ] {
+            let mut legacy = canonical.clone();
+            legacy
+                .as_object_mut()
+                .unwrap()
+                .insert(field.to_owned(), value);
+            serde_json::from_value::<DirectoryRequestProof>(legacy)
+                .expect_err("generic proof member must not be a compatibility alias");
+        }
     }
 
     /// `issuer` in the transcript is the request's `requester_id`, so a proof

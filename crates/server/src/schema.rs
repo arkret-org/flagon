@@ -115,7 +115,7 @@ diesel::table! {
 diesel::table! {
     webhook_subscriptions (subscription_id) {
         subscription_id -> Text,
-        subscriber_principal_id -> Text,
+        subscriber_id -> Text,
         resource_filter -> Jsonb,
         webhook_url -> Text,
         secret -> Bytea,
@@ -240,9 +240,9 @@ diesel::table! {
     use diesel::sql_types::*;
 
     // Verified `ak.realm.organization` relationships.
-    verified_realm_organizations (realm_id, organization_principal_id, relationship) {
+    verified_realm_organizations (realm_id, organization_id, relationship) {
         realm_id -> Text,
-        organization_principal_id -> Text,
+        organization_id -> Text,
         relationship -> Text,
         control_scopes -> Array<Text>,
         statement_id -> Text,

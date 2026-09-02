@@ -262,9 +262,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         takedown_contact: cfg.takedown_contact.clone(),
         rate_limits: Some(directory_rate_limits),
         supported_reducer_profiles: Vec::new(),
-        frontier: Vec::new(),
-        snapshot_frontier: Vec::new(),
-        last_materialized_at: None,
     };
     describe_body
         .validate()
@@ -567,9 +564,6 @@ mod tests {
             takedown_contact: None,
             rate_limits: Some(BTreeMap::new()),
             supported_reducer_profiles: Vec::new(),
-            frontier: Vec::new(),
-            snapshot_frontier: Vec::new(),
-            last_materialized_at: None,
             extensions: Default::default(),
         };
         assert!(describe_body.validate().is_err());

@@ -85,8 +85,8 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         }
     };
 
-    let subscriber_principal_id = &body.subscriber_principal_id;
-    if !enforce_ingest_rate_limit(req, res, &state, subscriber_principal_id.as_str(), None) {
+    let subscriber_id = &body.subscriber_id;
+    if !enforce_ingest_rate_limit(req, res, &state, subscriber_id.as_str(), None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
@@ -122,7 +122,7 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
             crate::audit::AuditEventKind::IngestRejected,
             None,
             None,
-            Some(subscriber_principal_id.as_str()),
+            Some(subscriber_id.as_str()),
             json!({
                 "code": ApiErrorCode::SchemaViolation.wire_code(),
                 "reason": "circle_isolation_violation",
@@ -147,17 +147,9 @@ pub async fn subscribe(req: &mut Request, depot: &mut Depot, res: &mut Response)
         Some(Ok(secret)) => secret,
         Some(Err(error)) => {
             tracing::warn!(%error, "invalid supplied webhook secret; generated a replacement");
-            generate_secret(
-                subscription_id.as_str(),
-                subscriber_principal_id,
-                &body.webhook_url,
-            )
+            generate_secret(subscription_id.as_str(), subscriber_id, &body.webhook_url)
         }
-        None => generate_secret(
-            subscription_id.as_str(),
-            subscriber_principal_id,
-            &body.webhook_url,
-        ),
+        None => generate_secret(subscription_id.as_str(), subscriber_id, &body.webhook_url),
     };
 
     if let Err(error) = persist_subscription(
@@ -361,12 +353,12 @@ fn secret_from_wire(raw: &str) -> Result<Vec<u8>, String> {
 
 fn generate_secret(
     subscription_id: &str,
-    subscriber_principal_id: &arkret_sdk::DidCoreId,
+    subscriber_id: &arkret_sdk::DidCoreId,
     endpoint: &str,
 ) -> Vec<u8> {
     let mut h = Sha256::new();
     h.update(subscription_id.as_bytes());
-    h.update(subscriber_principal_id.as_str().as_bytes());
+    h.update(subscriber_id.as_str().as_bytes());
     h.update(endpoint.as_bytes());
     h.update(
         Utc::now()
@@ -390,7 +382,7 @@ async fn persist_subscription(
     diesel::insert_into(s::webhook_subscriptions)
         .values((
             s::subscription_id.eq(subscription_id),
-            s::subscriber_principal_id.eq(body.subscriber_principal_id.as_str()),
+            s::subscriber_id.eq(body.subscriber_id.as_str()),
             s::resource_filter.eq(resource_filter),
             s::webhook_url.eq(&body.webhook_url),
             s::secret.eq(secret),

@@ -121,7 +121,7 @@ CREATE INDEX directory_resources_search_vector_gin_idx
     ON directory_resources USING GIN (search_vector);
 
 CREATE INDEX directory_resources_realm_scope_org_idx
-    ON directory_resources ((public_projection->>'organization_principal_id'))
+    ON directory_resources ((public_projection->>'organization_id'))
     WHERE resource_kind = 'realm';
 
 CREATE INDEX directory_resources_realm_scope_parent_idx
@@ -183,7 +183,7 @@ CREATE INDEX withdrawals_active_takedown_idx
 
 CREATE TABLE webhook_subscriptions (
     subscription_id   TEXT              PRIMARY KEY,
-    subscriber_principal_id    TEXT              NOT NULL,
+    subscriber_id    TEXT              NOT NULL,
     resource_filter   JSONB             NOT NULL,
     webhook_url       TEXT              NOT NULL,
     secret            BYTEA             NOT NULL,
@@ -192,7 +192,7 @@ CREATE TABLE webhook_subscriptions (
 );
 
 CREATE INDEX webhook_subscriptions_subscriber_idx
-    ON webhook_subscriptions (subscriber_principal_id);
+    ON webhook_subscriptions (subscriber_id);
 
 -- ---- Object access and invite revocation --------------------------------
 
@@ -646,7 +646,7 @@ UPDATE directory_resources
 
 -- Verified `ak.realm.organization` relationship index.
 --
--- The directory MUST NOT treat a bare `organization_principal_id` /
+-- The directory MUST NOT treat a bare `organization_id` /
 -- `owning_organization_ids` projection hint as an official organization
 -- relationship. An official badge, organization scoping, or
 -- directory-certifier relationship is only valid when it derives from an
@@ -654,7 +654,7 @@ UPDATE directory_resources
 -- statement that passed the SDK verifier
 -- (`verify_realm_organization_statement`).
 --
--- Each verified statement is keyed by `(realm_id, organization_principal_id,
+-- Each verified statement is keyed by `(realm_id, organization_id,
 -- relationship)` — the spec reducer cell subject_id — so a newer statement for
 -- the same triple supersedes (or revokes) the prior one. `statement_issued_at`
 -- is the monotonic ordering key used to reject replayed older statements
@@ -662,7 +662,7 @@ UPDATE directory_resources
 
 CREATE TABLE verified_realm_organizations (
     realm_id            TEXT        NOT NULL,
-    organization_principal_id    TEXT        NOT NULL,
+    organization_id    TEXT        NOT NULL,
     relationship        TEXT        NOT NULL
         CHECK (relationship IN ('owner', 'governance', 'sponsor', 'directory_certifier')),
     -- Verified machine-readable endorsement scopes (e.g. `official_badge`,
@@ -686,7 +686,7 @@ CREATE TABLE verified_realm_organizations (
     stale               BOOLEAN     NOT NULL DEFAULT false,
     verified_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     source_announce_id  TEXT,
-    PRIMARY KEY (realm_id, organization_principal_id, relationship)
+    PRIMARY KEY (realm_id, organization_id, relationship)
 );
 
 CREATE INDEX verified_realm_organizations_realm_idx
@@ -694,7 +694,7 @@ CREATE INDEX verified_realm_organizations_realm_idx
     WHERE stale = false;
 
 CREATE INDEX verified_realm_organizations_org_idx
-    ON verified_realm_organizations (organization_principal_id)
+    ON verified_realm_organizations (organization_id)
     WHERE stale = false;
 
 CREATE INDEX verified_realm_organizations_expiry_idx

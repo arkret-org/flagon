@@ -35,7 +35,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Default)]
 struct SearchScope {
-    organization_principal_id: Option<DidCoreId>,
+    organization_id: Option<DidCoreId>,
     source_realm_id: Option<RealmId>,
 }
 
@@ -63,7 +63,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let limit = body.limit.unwrap_or(20).clamp(1, 200) as i64;
     let needle = body.query.unwrap_or_default();
     let scope = SearchScope {
-        organization_principal_id: body.organization_principal_id,
+        organization_id: body.organization_id,
         source_realm_id: body.source_realm_id,
     };
     let requester_id = body.requester_id;
@@ -76,7 +76,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
         "query": &needle,
-        "organization_principal_id": scope.organization_principal_id.as_ref(),
+        "organization_id": scope.organization_id.as_ref(),
         "source_realm_id": scope.source_realm_id.as_ref(),
     })) {
         Ok(digest) => digest,
@@ -118,7 +118,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     let privacy_key = format!(
         "q={needle};org={};source={};cursor={};limit={limit}",
         scope
-            .organization_principal_id
+            .organization_id
             .as_ref()
             .map(DidCoreId::as_str)
             .unwrap_or_default(),
@@ -507,10 +507,7 @@ async fn run_realm_search(
     let mut conn = state.db().get().await?;
 
     let needle = needle.trim();
-    let organization_principal_id = scope
-        .organization_principal_id
-        .as_ref()
-        .map(DidCoreId::as_str);
+    let organization_id = scope.organization_id.as_ref().map(DidCoreId::as_str);
     let source_realm_id = scope.source_realm_id.as_ref().map(RealmId::as_str);
     let cursor_score = cursor.map(|c| c.score);
     let cursor_indexed_at = cursor.map(|c| c.indexed_at);
@@ -518,7 +515,7 @@ async fn run_realm_search(
 
     let rows: Vec<RealmSqlRow> = diesel::sql_query(REALM_SEARCH_SQL)
         .bind::<Text, _>(needle)
-        .bind::<Nullable<Text>, _>(organization_principal_id)
+        .bind::<Nullable<Text>, _>(organization_id)
         .bind::<Nullable<Text>, _>(source_realm_id)
         .bind::<Nullable<Double>, _>(cursor_score)
         .bind::<Nullable<Timestamptz>, _>(cursor_indexed_at)
@@ -666,14 +663,14 @@ pub(crate) fn realm_preview_from_envelope(
         "realm_id".to_owned(),
         JsonValue::String(realm_id.to_owned()),
     );
-    // TBY-ORG-02 — `owning_organization_ids` / `organization_principal_id` carried by the
+    // TBY-ORG-02 — `owning_organization_ids` / `organization_id` carried by the
     // public projection are DECLARED hints only. They MUST NOT auto-populate the
     // verified-relationship surface of the preview; the official badge / verified
     // organization set is re-derived from the `verified_realm_organizations`
     // index by `apply_verified_organizations`. Drop the declared values here so a
     // realm with only declared hints surfaces an EMPTY verified set (no badge).
     object.remove("owning_organization_ids");
-    object.remove("organization_principal_id");
+    object.remove("organization_id");
     serde_json::from_value(value).map_err(|e| format!("realm preview is not SDK-compatible: {e}"))
 }
 
@@ -684,11 +681,11 @@ fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
 }
 
 /// TBY-ORG-02 — overwrite a Realm preview's verified-relationship surface
-/// (`owning_organization_ids` + the single `organization_principal_id` convenience field)
+/// (`owning_organization_ids` + the single `organization_id` convenience field)
 /// from the `verified_realm_organizations` index. Only `active`,
 /// in-validity-window, non-stale relationships whose verified `control_scopes`
 /// cover `official_badge` are surfaced as owning organizations, so a Realm that
-/// carries only a declared `owning_organization_ids` / `organization_principal_id` hint (or
+/// carries only a declared `owning_organization_ids` / `organization_id` hint (or
 /// a relationship that lacks the `official_badge` scope) shows NO official
 /// verified organization. `owner` and `governance` relationships are the
 /// ownership / governance surface; `sponsor` and `directory_certifier` are not
@@ -711,7 +708,7 @@ async fn apply_verified_organizations(
             // Fail closed: an index read error must not fabricate a badge.
             tracing::warn!(%realm_id, %error, "failed to load verified realm organizations");
             preview.owning_organization_ids.clear();
-            preview.organization_principal_id = None;
+            preview.organization_id = None;
             return;
         }
     };
@@ -727,15 +724,15 @@ async fn apply_verified_organizations(
         if !is_owning || !row.covers_scope("official_badge") {
             continue;
         }
-        if !owning.contains(&row.organization_principal_id) {
-            owning.push(row.organization_principal_id);
+        if !owning.contains(&row.organization_id) {
+            owning.push(row.organization_id);
         }
     }
 
-    // `organization_principal_id` is the single-org convenience mirror; only set it when
+    // `organization_id` is the single-org convenience mirror; only set it when
     // exactly one verified owning organization exists, never from a declared
     // hint.
-    preview.organization_principal_id = if owning.len() == 1 {
+    preview.organization_id = if owning.len() == 1 {
         <[DidCoreId]>::first(&owning).cloned()
     } else {
         None
@@ -877,7 +874,7 @@ WITH ranked AS (
           OR search_text % $1
           OR public_projection::text ILIKE ('%' || $1 || '%')
       )
-      -- TBY-ORG-02 — `organization_principal_id` here is the DECLARED announce hint, so
+      -- TBY-ORG-02 — `organization_id` here is the DECLARED announce hint, so
       -- this is a declared-hint filter (a cheap pre-filter / discovery aid). It
       -- is NOT a verified-relationship filter: each returned preview's
       -- `owning_organization_ids` is re-derived from the verified
@@ -886,7 +883,7 @@ WITH ranked AS (
       -- official relationship" (present in the preview's owning_organization_ids).
       AND (
           $2::text IS NULL
-          OR public_projection->>'organization_principal_id' = $2
+          OR public_projection->>'organization_id' = $2
           OR public_projection->>'organization' = $2
       )
       AND (

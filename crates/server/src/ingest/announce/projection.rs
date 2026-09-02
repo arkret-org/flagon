@@ -146,14 +146,14 @@ pub(crate) fn derive_public_projection(
         obj.remove("directory_ids");
         // `official_organizations` is a forbidden directory-projection field
         // (spec §4.5). Strip it so it never enters the index or search SQL;
-        // organization scoping uses the canonical `organization_principal_id`.
+        // organization scoping uses the canonical `organization_id`.
         obj.remove("official_organizations");
         // TBY-ORG-01/02 — the `ak.realm.organization` statements are verified
         // and projected into a separate `verified_realm_organizations` index;
         // they MUST NOT leak verbatim into the public projection (which is
         // served to unauthenticated callers and indexed for search).
         obj.remove("organization_statements");
-        // TBY-ORG-02 — `owning_organization_ids` / `organization_principal_id` that survive
+        // TBY-ORG-02 — `owning_organization_ids` / `organization_id` that survive
         // here are DECLARED hints only (realm.schema: "This field alone is not a
         // verified ownership/governance endorsement; directories MUST require an
         // active ak.realm.organization statement"). They are retained for

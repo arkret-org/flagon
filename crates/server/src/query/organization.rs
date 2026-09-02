@@ -198,7 +198,7 @@ fn org_cursor_from_row(row: &OrgRow) -> OrgCursor {
 
 // SAFETY: alsoKnownAs is holder-side reverse endorsement only — not used here for routing.
 // Spec sync 37ce729 (B-E) — identity-handles §6: `resolve_organization`
-// looks up rows by `organization_principal_id` (canonical key) or by a Directory
+// looks up rows by `organization_id` (canonical key) or by a Directory
 // `handle`. It MUST NOT consult any `alsoKnownAs` claim cached in
 // `public_projection` as an alternate key; that field is a holder-side
 // reverse endorsement and is not a Directory routing input.
@@ -220,15 +220,14 @@ pub async fn resolve_organization(req: &mut Request, depot: &mut Depot, res: &mu
         }
     };
     let key = body
-        .organization_principal_id
+        .organization_id
         .as_ref()
         .map(|did| did.as_str().to_owned())
         .or_else(|| body.handle.clone());
     let key = match key {
         Some(k) if !k.is_empty() => k,
         _ => {
-            ApiErrorCode::ParamMissing
-                .render(res, "organization_principal_id or handle is required");
+            ApiErrorCode::ParamMissing.render(res, "organization_id or handle is required");
             return;
         }
     };
@@ -491,10 +490,7 @@ async fn load_org_row(state: &AppState, key: &str) -> anyhow::Result<Option<OrgR
 fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
     let mut payload = row.public_projection;
     if let Some(obj) = payload.as_object_mut() {
-        obj.insert(
-            "organization_principal_id".into(),
-            JsonValue::String(row.resource_id),
-        );
+        obj.insert("organization_id".into(), JsonValue::String(row.resource_id));
         obj.insert(
             "discoverability".into(),
             JsonValue::String(row.discoverability.as_pg().to_string()),
@@ -523,11 +519,8 @@ fn organization_preview_from_envelope(
         .as_object()
         .ok_or_else(|| "organization projection must be an object".to_owned())?;
     Ok(OrganizationPreview {
-        organization_principal_id: organization_projection_field(
-            projection,
-            "organization_principal_id",
-        )?
-        .ok_or_else(|| "organization projection identity is missing".to_owned())?,
+        organization_id: organization_projection_field(projection, "organization_id")?
+            .ok_or_else(|| "organization projection identity is missing".to_owned())?,
         handle: organization_projection_field(projection, "handle")?,
         display_name: organization_projection_field(projection, "display_name")?,
         avatar_blob_ref: organization_projection_field(projection, "avatar_blob_ref")?,
@@ -598,7 +591,7 @@ mod tests {
         }))))
         .unwrap();
         assert_eq!(
-            preview.organization_principal_id.as_str(),
+            preview.organization_id.as_str(),
             "ak:did_core:web:tea-org.example"
         );
         assert_eq!(preview.display_name.as_deref(), Some("Tea Org"));
