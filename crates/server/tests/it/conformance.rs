@@ -1548,7 +1548,6 @@ fn signed_realm_discovery_event(
             .map_err(anyhow::Error::msg)?,
         event_digest,
         signer_resolution_evidence_ref: None,
-        signer_resolution_evidence_digest: None,
         created_at: event.created_at,
         domain: None,
         audience: None,

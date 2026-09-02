@@ -460,18 +460,20 @@ mod tests {
 
         assert_eq!(
             handle_transcript["context"],
-            JsonValue::from(arkret_wire::ProofContextId::DIRECTORY_RESOLVE_HANDLE_REQUEST_PROOF_V1)
+            JsonValue::from(
+                arkret_wire::DomainSeparationId::DIRECTORY_RESOLVE_HANDLE_REQUEST_PROOF_V1
+            )
         );
         assert_eq!(
             list_transcript["context"],
             JsonValue::from(
-                arkret_wire::ProofContextId::DIRECTORY_LIST_HANDLES_FOR_SUBJECT_REQUEST_PROOF_V1
+                arkret_wire::DomainSeparationId::DIRECTORY_LIST_HANDLES_FOR_SUBJECT_REQUEST_PROOF_V1
             )
         );
         assert_eq!(
             org_transcript["context"],
             JsonValue::from(
-                arkret_wire::ProofContextId::DIRECTORY_RESOLVE_ORGANIZATION_REQUEST_PROOF_V1
+                arkret_wire::DomainSeparationId::DIRECTORY_RESOLVE_ORGANIZATION_REQUEST_PROOF_V1
             )
         );
         assert_ne!(

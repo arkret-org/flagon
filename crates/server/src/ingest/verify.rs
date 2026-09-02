@@ -1569,7 +1569,6 @@ mod tests {
             )
             .unwrap(),
             signer_resolution_evidence_ref: None,
-            signer_resolution_evidence_digest: None,
             created_at: event.created_at,
             domain: None,
             audience: None,
@@ -2047,7 +2046,7 @@ mod tests {
             serde_json::from_slice(&body.proof_binding_bytes().expect("binding bytes"))
                 .expect("binding object");
         foreign["context"] = JsonValue::String(
-            arkret_wire::ProofContextId::DIRECTORY_RESOLVE_HANDLE_REQUEST_PROOF_V1.to_owned(),
+            arkret_wire::DomainSeparationId::DIRECTORY_RESOLVE_HANDLE_REQUEST_PROOF_V1.to_owned(),
         );
         let foreign_bytes = canonical::canonical_json_bytes(&foreign).expect("canonical bytes");
         body.governance_proof.jws =

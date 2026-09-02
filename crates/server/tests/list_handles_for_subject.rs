@@ -136,13 +136,11 @@ fn row(projection: serde_json::Value, disc: DiscoverabilityDb) -> SubjectHandleR
     let mut claim = HandleClaim {
         schema: HandleClaim::SCHEMA.to_owned(),
         claim: core,
-        claim_digest,
         status: HandleClaimStatus::Verified,
         as_of,
         verifier_id: arkret_sdk::DidCoreId::new(issuer.to_owned()).unwrap(),
         verified_at: Some(as_of),
         revocation: None,
-        revocation_digest: None,
         fresh_until: as_of + chrono::Duration::minutes(5),
         status_proof: placeholder_proof(
             arkret_sdk::PayloadProofPurpose::StatusAttestation,
