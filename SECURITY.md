@@ -69,7 +69,7 @@ uses only the spec whitelist; unauthorized preview uses a fixed
 
 - A blinded miss (`not_found`) MUST be indistinguishable in shape,
   HTTP status, and latency tier from a clean miss. See
-  `filter/enumeration.rs` (`pad_to_budget` + bucket grid).
+  `filter/enumeration.rs` (`pad_to_budget_observed` + bucket grid).
 - The bucket grid for `member_count_bucket` is the only directory
   surface that ever discloses membership cardinality. Implementations
   MUST emit one of the six normative bucket strings and MUST NOT add

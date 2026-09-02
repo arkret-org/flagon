@@ -352,7 +352,9 @@ mod tests {
     #[tokio::test]
     async fn signed_restricted_claim_presentation_authorizes_claim_selector() {
         let signing_key = SigningKey::from_bytes(&SIGNING_SEED);
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let issuer_did = arkret_sdk::Did::new(format!("did:key:{multibase}")).unwrap();
         let verification_method =
             arkret_wire::DidUrl::new(format!("{}#{multibase}", issuer_did.as_str())).unwrap();
@@ -444,11 +446,5 @@ mod tests {
             created_at,
             jws,
         }
-    }
-
-    fn did_key_multibase(signing_key: &SigningKey) -> String {
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-        format!("z{}", bs58::encode(bytes).into_string())
     }
 }

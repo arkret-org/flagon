@@ -277,23 +277,12 @@ where
     out
 }
 
-/// Pad a query/resolve route to a deterministic per-request latency tier.
+/// Pad a query/resolve route to a deterministic per-request latency tier, and
+/// report the chosen target to `observe_target` before waiting on it.
 ///
 /// The route + request key, rather than the hit/miss result, picks the jitter
 /// offset. This keeps repeated probes in the same visible latency tier while
 /// avoiding a single global response time that is too easy to fingerprint.
-pub async fn pad_to_budget<T, F>(
-    budget: LatencyBudget,
-    route: &'static str,
-    privacy_key: &str,
-    fut: F,
-) -> T
-where
-    F: std::future::Future<Output = T>,
-{
-    pad_to(budget.target_for(route, privacy_key), fut).await
-}
-
 pub async fn pad_to_budget_observed<T, F, O>(
     budget: LatencyBudget,
     route: &'static str,

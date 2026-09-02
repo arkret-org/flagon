@@ -58,9 +58,6 @@ jobs:
       - name: Coverage
         run: cargo tarpaulin --config tarpaulin.toml --fail-under 70
 
-      - name: Check shared fixtures
-        run: cargo check --manifest-path crates/testing/Cargo.toml
-
       - name: Check admin wasm
         run: cargo check --locked --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 

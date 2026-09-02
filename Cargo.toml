@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/admin", "crates/contracts", "crates/server", "crates/testing"]
+members = ["crates/admin", "crates/contracts", "crates/server"]
 default-members = ["crates/server"]
 
 [workspace.package]
@@ -38,11 +38,9 @@ arkret-server = { version = "0.3.0", path = "../arkret-rust-sdk/crates/server", 
 arkret-signatures = { version = "0.3.0", path = "../arkret-rust-sdk/crates/signatures", default-features = false }
 arkret-wire = { version = "0.3.0", path = "../arkret-rust-sdk/crates/wire", default-features = false }
 teabay-contracts = { version = "0.3.0", path = "crates/contracts" }
-teabay-testing = { version = "0.3.0", path = "crates/testing" }
 
 anyhow = "1.0.104"
 base64 = "0.23.1"
-bs58 = "0.5.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 deadpool = { version = "0.13", features = ["rt_tokio_1"] }
 diesel = { version = "2.3.12", features = ["chrono", "postgres", "pq-src", "r2d2", "serde_json"] }

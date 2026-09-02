@@ -16,7 +16,6 @@ pub mod error;
 pub mod filter;
 pub mod ids;
 pub mod ingest;
-pub mod kinds;
 pub mod middleware;
 pub mod observability;
 pub mod pcd;

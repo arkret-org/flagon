@@ -47,8 +47,7 @@
 //! the ingest-specific §8 code (400) for header-shape problems.
 
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use arkret_signatures::http_signature::{
     ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
@@ -169,20 +168,28 @@ impl HttpSigKeyDirectory for DidResolverKeyDirectory {
 
 /// Salvo middleware enforcing RFC 9421 HTTP Message Signatures on the
 /// hooped routes (i.e. teabay's ingest face). Construct via
-/// [`HttpSigMiddleware::new`] with a [`HttpSigKeyDirectory`] and mount
-/// via `Router::hoop`.
+/// [`HttpSigMiddleware::new_with_postgres_replay_store`] with a
+/// [`HttpSigKeyDirectory`] and mount via `Router::hoop`.
 pub struct HttpSigMiddleware {
     directory: Arc<dyn HttpSigKeyDirectory>,
-    /// Accepted signatures keyed by signer and signature bytes until their
-    /// effective `expires` window closes. Production routing wires this to
-    /// Postgres so multiple teabay replicas share the replay window; unit tests
-    /// use the in-memory implementation.
-    replay_store: Arc<dyn HttpSigReplayStore>,
-    /// When `false`, every request short-circuits the verifier and is
-    /// allowed through. Operators set this via `TEABAY_REQUIRE_HTTP_SIG`
-    /// (default `true`); the in-process conformance harness flips it to
-    /// `false` so its mock pushes don't have to carry signed envelopes.
-    enforced: bool,
+    enforcement: Enforcement,
+}
+
+/// Whether this instance verifies signatures, and where its replay window
+/// lives when it does.
+///
+/// The two are one decision, not two: a passthrough instance never reaches
+/// the verifier, so it owns no replay state at all. Operators pick the
+/// variant through `TEABAY_REQUIRE_HTTP_SIG` (default `true`); the
+/// in-process conformance harness sets it to `false` so its mock pushes
+/// don't have to carry signed envelopes.
+enum Enforcement {
+    /// Verify, and remember accepted signatures until their effective
+    /// `expires` window closes. Production routing wires this to Postgres so
+    /// multiple teabay replicas share one replay window.
+    Enforced(Arc<dyn HttpSigReplayStore>),
+    /// Let every request through unchanged.
+    Passthrough,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,13 +201,6 @@ pub struct AuthenticatedHttpSignature {
 }
 
 impl HttpSigMiddleware {
-    /// Build a middleware that rejects every ingest request that does
-    /// not produce a valid Ed25519 signature over the canonical RFC
-    /// 9421 signing string.
-    pub fn new(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
-        Self::new_with_replay_store(directory, Arc::new(InMemoryReplayStore::default()))
-    }
-
     /// Build a middleware backed by the shared Postgres replay table. If the
     /// table cannot be read/written at request time, verification fails closed.
     pub fn new_with_postgres_replay_store(directory: Arc<dyn HttpSigKeyDirectory>, db: Db) -> Self {
@@ -213,33 +213,20 @@ impl HttpSigMiddleware {
     ) -> Self {
         Self {
             directory,
-            replay_store,
-            enforced: true,
+            enforcement: Enforcement::Enforced(replay_store),
         }
     }
 
     /// Build a middleware that passes every request through unchanged.
-    /// Used by tests that exercise the verify chain without producing a
-    /// signed transport envelope. Not exposed to production
-    /// configurations — `AppConfig::require_http_sig=false` is what
-    /// flips this on at runtime.
+    /// Mounted by [`crate::routing`] whenever `AppConfig::require_http_sig`
+    /// is `false`, i.e. by the in-process conformance harness and dev-mode
+    /// runs that exercise the verify chain without producing a signed
+    /// transport envelope.
     pub fn passthrough(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
         Self {
             directory,
-            replay_store: Arc::new(InMemoryReplayStore::default()),
-            enforced: false,
+            enforcement: Enforcement::Passthrough,
         }
-    }
-
-    async fn remember_signature(
-        &self,
-        replay_key: ReplayKey,
-        expires_at: i64,
-        now: i64,
-    ) -> Result<bool, String> {
-        self.replay_store
-            .remember_signature(replay_key, expires_at, now)
-            .await
     }
 }
 
@@ -251,35 +238,6 @@ pub(crate) trait HttpSigReplayStore: Send + Sync + 'static {
         expires_at: i64,
         now: i64,
     ) -> Result<bool, String>;
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct InMemoryReplayStore {
-    seen_signatures: Mutex<HashMap<ReplayKey, i64>>,
-}
-
-#[async_trait]
-impl HttpSigReplayStore for InMemoryReplayStore {
-    async fn remember_signature(
-        &self,
-        replay_key: ReplayKey,
-        expires_at: i64,
-        now: i64,
-    ) -> Result<bool, String> {
-        let mut seen_signatures = self
-            .seen_signatures
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        seen_signatures.retain(|_, expires_at| *expires_at >= now);
-
-        Ok(match seen_signatures.entry(replay_key) {
-            Entry::Occupied(_) => false,
-            Entry::Vacant(entry) => {
-                entry.insert(expires_at);
-                true
-            }
-        })
-    }
 }
 
 pub(crate) struct PostgresReplayStore {
@@ -366,9 +324,9 @@ impl Handler for HttpSigMiddleware {
         res: &mut Response,
         ctrl: &mut FlowCtrl,
     ) {
-        if !self.enforced {
+        let Enforcement::Enforced(replay_store) = &self.enforcement else {
             return;
-        }
+        };
 
         // -- Phase 1: pull the canonical headers. -------------------------
         let Some(signature_input_raw) = read_header(req, SIGNATURE_INPUT_HEADER) else {
@@ -566,7 +524,7 @@ impl Handler for HttpSigMiddleware {
         let replay_expires_at = signature_input
             .expires
             .saturating_add(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
-        match self
+        match replay_store
             .remember_signature(replay_key, replay_expires_at, now)
             .await
         {
@@ -719,6 +677,56 @@ fn reject_signature_invalid(res: &mut Response, ctrl: &mut FlowCtrl, message: im
 }
 
 // ---------------------------------------------------------------------
+// Test-only replay window
+// ---------------------------------------------------------------------
+
+/// Process-local replay window. Only ever mounted by the unit tests below:
+/// a real deployment runs more than one teabay replica, so the window has to
+/// be the shared Postgres table ([`PostgresReplayStore`]) or replay
+/// protection is per-process and therefore no protection at all.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct InMemoryReplayStore {
+    seen_signatures: std::sync::Mutex<HashMap<ReplayKey, i64>>,
+}
+
+#[cfg(test)]
+#[async_trait]
+impl HttpSigReplayStore for InMemoryReplayStore {
+    async fn remember_signature(
+        &self,
+        replay_key: ReplayKey,
+        expires_at: i64,
+        now: i64,
+    ) -> Result<bool, String> {
+        use std::collections::hash_map::Entry;
+
+        let mut seen_signatures = self
+            .seen_signatures
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        seen_signatures.retain(|_, expires_at| *expires_at >= now);
+
+        Ok(match seen_signatures.entry(replay_key) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(expires_at);
+                true
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+impl HttpSigMiddleware {
+    /// Enforcing middleware over a process-local replay window.
+    /// Test-only — see [`InMemoryReplayStore`].
+    pub(crate) fn new(directory: Arc<dyn HttpSigKeyDirectory>) -> Self {
+        Self::new_with_replay_store(directory, Arc::new(InMemoryReplayStore::default()))
+    }
+}
+
+// ---------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------
 
@@ -757,12 +765,6 @@ mod tests {
         let mut dir = StaticKeyDirectory::new();
         dir.insert(TEST_KEY_ID, signing_key().verifying_key());
         Arc::new(dir)
-    }
-
-    fn did_key_multibase(signing_key: &SigningKey) -> String {
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-        format!("z{}", bs58::encode(bytes).into_string())
     }
 
     fn router(directory: Arc<dyn HttpSigKeyDirectory>) -> Router {
@@ -954,7 +956,9 @@ mod tests {
     #[tokio::test]
     async fn did_resolver_key_directory_resolves_did_key_keyid() {
         let signing_key = signing_key();
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let did = format!("did:key:{multibase}");
         let key_id = format!("{did}#{multibase}");
         let dir = DidResolverKeyDirectory::new(std::collections::HashMap::new(), test_resolver());
@@ -965,7 +969,9 @@ mod tests {
     #[tokio::test]
     async fn signed_request_passes_with_did_resolver_key_directory() {
         let signing_key = signing_key();
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let did = format!("did:key:{multibase}");
         let key_id = format!("{did}#{multibase}");
         let dir = DidResolverKeyDirectory::new(std::collections::HashMap::new(), test_resolver());

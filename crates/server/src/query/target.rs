@@ -1270,7 +1270,9 @@ mod tests {
         descriptor.set_realm_id(canonical_realm_id);
         descriptor.address_link_kind = AddressLinkKind::Invite;
         let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let issuer_id = format!("did:key:{multibase}");
         let verification_method = format!("{issuer_id}#{multibase}");
         let mut payload = json!({
@@ -1288,12 +1290,6 @@ mod tests {
             .unwrap()
             .insert("jws".to_owned(), json!(jws));
         payload.to_string()
-    }
-
-    fn did_key_multibase(signing_key: &SigningKey) -> String {
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-        format!("z{}", bs58::encode(bytes).into_string())
     }
 
     fn verify_address_token(
@@ -1379,7 +1375,9 @@ mod tests {
         descriptor.set_realm_id(&canonical);
         descriptor.address_link_kind = AddressLinkKind::Invite;
         let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let issuer_id = format!("did:key:{multibase}");
         let verification_method = format!("{issuer_id}#{multibase}");
         let mut payload = json!({

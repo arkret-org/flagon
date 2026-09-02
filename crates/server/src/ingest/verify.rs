@@ -2,9 +2,10 @@
 //!
 //! 1. Transport layer — HTTP Message Signature for push. We surface a hook here; the actual RFC
 //!    9421 HTTP signature check lives in [`crate::middleware::http_sig`] (mounted on the ingest
-//!    sub-router by [`crate::routing::directory_router`] via `.hoop(HttpSigMiddleware::new(...))`)
-//!    so the handler always sees an already-authenticated transport. TB-1 (this comment block)
-//!    closed the prior gap where the middleware was advertised but not actually mounted.
+//!    sub-router by [`crate::routing::directory_router`] via
+//!    `.hoop(HttpSigMiddleware::new_with_postgres_replay_store(...))`) so the handler always sees
+//!    an already-authenticated transport. TB-1 (this comment block) closed the prior gap where the
+//!    middleware was advertised but not actually mounted.
 //! 2. Discovery proof — verify the original discovery Event producer proof against the resource
 //!    governance key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_ids` is a core-id list containing *this*
@@ -1526,9 +1527,9 @@ mod tests {
 
     fn test_signer() -> GovernanceSigner {
         let signing_key = SigningKey::from_bytes(&SIGNING_SEED);
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-        let multibase = format!("z{}", bs58::encode(bytes).into_string());
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let issuer_did = format!("did:key:{multibase}");
         let verification_method =
             DidUrl::new(format!("{issuer_did}#{multibase}")).expect("verification method");

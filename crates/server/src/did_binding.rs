@@ -620,15 +620,11 @@ mod tests {
         .expect("directory builds")
     }
 
-    fn did_key_multibase(signing_key: &SigningKey) -> String {
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-        format!("z{}", bs58::encode(bytes).into_string())
-    }
-
     fn did_key_signer(seed: u8) -> (SigningKey, Did, DidUrl) {
         let signing_key = SigningKey::from_bytes(&[seed; 32]);
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let did = Did::new(format!("did:key:{multibase}")).expect("did");
         let verification_method =
             DidUrl::new(format!("{did}#{multibase}")).expect("verification method");

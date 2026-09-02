@@ -108,14 +108,21 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     Ok(())
 }
 
+const DIRECTORY_FIXTURE_SQL: &str = include_str!("fixtures/directory_resources.sql");
+
+/// TBY-ORG-04 — verified `ak.realm.organization` relationship fixtures. Seeded
+/// after [`DIRECTORY_FIXTURE_SQL`] (it references those realm rows).
+const VERIFIED_REALM_ORGANIZATIONS_FIXTURE_SQL: &str =
+    include_str!("fixtures/verified_realm_organizations.sql");
+
 async fn seed_directory_fixture(db: &server::Db) -> anyhow::Result<()> {
     let mut conn = db.get().await?;
-    diesel::sql_query(teabay_testing::DIRECTORY_FIXTURE_SQL)
+    diesel::sql_query(DIRECTORY_FIXTURE_SQL)
         .execute(&mut conn)
         .await?;
     // TBY-ORG-04 — verified relationship index rows reference the realm rows
     // seeded above, so they must be applied after the directory fixture.
-    diesel::sql_query(teabay_testing::VERIFIED_REALM_ORGANIZATIONS_FIXTURE_SQL)
+    diesel::sql_query(VERIFIED_REALM_ORGANIZATIONS_FIXTURE_SQL)
         .execute(&mut conn)
         .await?;
     Ok(())
@@ -459,7 +466,9 @@ async fn assert_query_surface_matrix(db: &server::Db, service: &Service) -> anyh
     .await?;
 
     let signing_key = SigningKey::from_bytes(&[41_u8; 32]);
-    let multibase = did_key_multibase(&signing_key);
+    let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+        signing_key.verifying_key().as_bytes(),
+    );
     // The signing identity is a resolvable `did:key` DID; the claim
     // identity it asserts is that DID's stable adapter projection.
     let issuer_did = Did::new(format!("did:key:{multibase}"))?;
@@ -1473,7 +1482,9 @@ struct FixtureStation {
 impl FixtureStation {
     fn new(signing_key: &SigningKey) -> Self {
         Self {
-            multibase: did_key_multibase(signing_key),
+            multibase: arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+                signing_key.verifying_key().as_bytes(),
+            ),
         }
     }
 
@@ -1600,12 +1611,6 @@ fn signed_restricted_claim_presentation(
         created_at,
         jws,
     })
-}
-
-fn did_key_multibase(signing_key: &SigningKey) -> String {
-    let mut bytes = vec![0xed, 0x01];
-    bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-    format!("z{}", bs58::encode(bytes).into_string())
 }
 
 /// §8.7.1: the signed transcript is the canonical binding object built by the

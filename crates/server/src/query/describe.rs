@@ -106,30 +106,39 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // ingest/admin descriptors ride in `x_teabay_*` extension keys
     // (`auth_metadata` is `additionalProperties: true`).
     let mut auth_metadata = AuthMetadata::minimal();
-    auth_metadata.extra.insert(
-        "x_teabay_ingest".to_owned(),
-        json!({
-            "kind": "rfc9421_http_message_signature",
-            "required": cfg.require_http_sig,
-            "algorithms": ["ed25519"],
-        }),
-    );
-    auth_metadata.extra.insert(
-        "x_teabay_admin".to_owned(),
-        json!({
-            "kind": "rotating_hmac",
-            "required": true,
-            "development_static_bearer": cfg.development_mode && cfg.admin_token.is_some(),
-        }),
-    );
-    if cfg.private_contact_discovery.is_some() {
-        auth_metadata.extra.insert(
-            "x_teabay_private_contact_discovery".to_owned(),
+    auth_metadata
+        .extra
+        .insert(
+            "x_teabay_ingest".to_owned(),
             json!({
-                "kind": "device_scoped_hmac_bearer",
-                "required": true,
+                "kind": "rfc9421_http_message_signature",
+                "required": cfg.require_http_sig,
+                "algorithms": ["ed25519"],
             }),
-        );
+        )
+        .expect("x_teabay_ingest is a valid extension key");
+    auth_metadata
+        .extra
+        .insert(
+            "x_teabay_admin".to_owned(),
+            json!({
+                "kind": "rotating_hmac",
+                "required": true,
+                "development_static_bearer": cfg.development_mode && cfg.admin_token.is_some(),
+            }),
+        )
+        .expect("x_teabay_admin is a valid extension key");
+    if cfg.private_contact_discovery.is_some() {
+        auth_metadata
+            .extra
+            .insert(
+                "x_teabay_private_contact_discovery".to_owned(),
+                json!({
+                    "kind": "device_scoped_hmac_bearer",
+                    "required": true,
+                }),
+            )
+            .expect("x_teabay_private_contact_discovery is a valid extension key");
     }
 
     let limits = ServerLimits {

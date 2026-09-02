@@ -78,7 +78,9 @@ fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
     descriptor.set_realm_id(canonical_realm_id);
     descriptor.address_link_kind = AddressLinkKind::Invite;
     let signing_key = SigningKey::from_bytes(&INVITE_SIGNING_SEED);
-    let multibase = did_key_multibase(&signing_key);
+    let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+        signing_key.verifying_key().as_bytes(),
+    );
     let issuer_id = format!("did:key:{multibase}");
     let verification_method = format!("{issuer_id}#{multibase}");
     let mut payload = json!({
@@ -96,12 +98,6 @@ fn mint_token(address: &ParsedAddress, canonical_realm_id: &str) -> String {
         .unwrap()
         .insert("jws".to_owned(), json!(jws));
     payload.to_string()
-}
-
-fn did_key_multibase(signing_key: &SigningKey) -> String {
-    let mut bytes = vec![0xed, 0x01];
-    bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-    format!("z{}", bs58::encode(bytes).into_string())
 }
 
 fn preview_policy(accepted_previous: Vec<JsonValue>) -> JsonValue {
@@ -131,7 +127,9 @@ fn mint_preview_token(
     descriptor.set_realm_id(canonical_realm_id);
     descriptor.address_link_kind = AddressLinkKind::Preview;
     let signing_key = SigningKey::from_bytes(&PREVIEW_SIGNING_SEED);
-    let multibase = did_key_multibase(&signing_key);
+    let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+        signing_key.verifying_key().as_bytes(),
+    );
     let issuer_id = format!("did:key:{multibase}");
     let verification_method = format!("{issuer_id}#{multibase}");
     let mut payload = json!({

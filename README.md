@@ -165,7 +165,6 @@ GitHub Actions runs the same checks expected locally:
 cargo +nightly fmt --all -- --check
 cargo check --all-targets
 cargo test
-cargo check --manifest-path crates/testing/Cargo.toml
 cargo check --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 TEABAY_RUN_DOCKER_TESTS=1 cargo test -p server --test it -- --nocapture
 cargo deny check

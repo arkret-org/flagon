@@ -283,12 +283,6 @@ mod tests {
         .expect("binding directory builds")
     }
 
-    fn did_key_multibase(signing_key: &SigningKey) -> String {
-        let mut bytes = vec![0xed, 0x01];
-        bytes.extend_from_slice(signing_key.verifying_key().as_bytes());
-        format!("z{}", bs58::encode(bytes).into_string())
-    }
-
     struct Requester {
         signing_key: SigningKey,
         core_id: DidCoreId,
@@ -297,7 +291,9 @@ mod tests {
 
     fn test_requester(seed: [u8; 32]) -> Requester {
         let signing_key = SigningKey::from_bytes(&seed);
-        let multibase = did_key_multibase(&signing_key);
+        let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+            signing_key.verifying_key().as_bytes(),
+        );
         let did = Did::new(format!("did:key:{multibase}")).unwrap();
         let verification_method = DidUrl::new(format!("{}#{multibase}", did.as_str())).unwrap();
         let core_id = arkret_sdk::project_did_to_core_id(&did).unwrap();
