@@ -930,7 +930,7 @@ fn build_realm_response(
         object_preview: None,
         join_rule: None,
         as_of: resolved.envelope.as_of,
-        source_refs: resolved.envelope.source_refs.clone(),
+        source_refs: super::parse_source_refs(resolved.envelope.source_refs.clone())?,
         join_candidates: resolved.join_candidates.clone(),
         policy_revision: NonEmptyString::new(resolved.envelope.policy_revision.clone())
             .map_err(str::to_owned)?,
@@ -962,7 +962,7 @@ fn build_preview_response(
         )?,
         join_rule: None,
         as_of: resolved.envelope.as_of,
-        source_refs: resolved.envelope.source_refs.clone(),
+        source_refs: super::parse_source_refs(resolved.envelope.source_refs.clone())?,
         join_candidates: Vec::new(),
         policy_revision: NonEmptyString::new(preview_policy_digest).map_err(str::to_owned)?,
     })
@@ -1029,7 +1029,11 @@ fn preview_object_for_address(
             let object_id = object_preview_id(parsed, target_kind)?;
             Ok(Some(ObjectPreview {
                 object_id,
-                object_kind: target_kind_name(target_kind).to_owned(),
+                object_kind: match target_kind {
+                    TargetKind::Strand => arkret_sdk::ObjectPreviewKind::Strand,
+                    TargetKind::Message => arkret_sdk::ObjectPreviewKind::Message,
+                    TargetKind::Realm => unreachable!("realm has no object preview"),
+                },
                 title: None,
                 summary: None,
                 as_of,
@@ -1062,14 +1066,6 @@ fn object_preview_id(
             .ok_or_else(|| "message target is missing message id".to_owned())
             .and_then(|id| MessageId::new(id).map_err(|error| error.to_string()))
             .map(ObjectPreviewId::Message),
-    }
-}
-
-fn target_kind_name(target_kind: TargetKind) -> &'static str {
-    match target_kind {
-        TargetKind::Realm => "realm",
-        TargetKind::Strand => "strand",
-        TargetKind::Message => "message",
     }
 }
 
@@ -1135,7 +1131,11 @@ async fn build_object_response(
         .map_err(|error| anyhow::anyhow!("invalid object preview source reference: {error}"))?;
     let object_preview = ObjectPreview {
         object_id,
-        object_kind: object_kind.to_owned(),
+        object_kind: match target_kind {
+            TargetKind::Strand => arkret_sdk::ObjectPreviewKind::Strand,
+            TargetKind::Message => arkret_sdk::ObjectPreviewKind::Message,
+            TargetKind::Realm => unreachable!("realm has no object preview"),
+        },
         title: row
             .public_projection
             .get("title")
@@ -1147,7 +1147,7 @@ async fn build_object_response(
             .and_then(JsonValue::as_str)
             .map(str::to_owned),
         as_of: row.as_of,
-        source_refs: object_source_refs,
+        source_refs: object_source_refs.clone(),
         policy_revision: policy_revision.clone(),
         stale: opt_bool(row.stale),
         divergent: opt_bool(row.divergent),
@@ -1159,7 +1159,7 @@ async fn build_object_response(
         object_preview: Some(object_preview),
         join_rule: None,
         as_of: row.as_of,
-        source_refs: row.source_refs,
+        source_refs: object_source_refs,
         join_candidates: Vec::new(),
         policy_revision: NonEmptyString::new(policy_revision)
             .map_err(|error| anyhow::anyhow!(error))?,

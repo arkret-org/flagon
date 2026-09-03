@@ -11,7 +11,8 @@
 //! same blinded `not_found` inside the latency budget.
 
 use arkret_sdk::{
-    DidCoreId, DirectoryHandleResolutionOutcome, DirectoryResolveHandleRequestBody, Handle, RealmId,
+    AccountId, DidCoreId, DirectoryHandleResolutionOutcome, DirectoryResolveHandleRequestBody,
+    Handle, RealmId,
 };
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -32,7 +33,7 @@ use crate::state::AppState;
 #[derive(Debug, Clone)]
 struct ResolveHandleRequestView {
     pub handle: String,
-    pub expected_principal_id: Option<DidCoreId>,
+    pub expected_account_id: Option<AccountId>,
     pub proof_challenge: Option<String>,
     pub claim_presentations: Vec<arkret_sdk::DirectoryRestrictedClaimPresentation>,
     /// Why the handle is being resolved. Retained in the signed request and
@@ -52,7 +53,7 @@ impl From<DirectoryResolveHandleRequestBody> for ResolveHandleRequestView {
     fn from(body: DirectoryResolveHandleRequestBody) -> Self {
         Self {
             handle: body.handle,
-            expected_principal_id: body.expected_principal_id,
+            expected_account_id: body.expected_account_id,
             proof_challenge: body.proof_challenge,
             claim_presentations: body.claim_presentations,
             intent: body.intent.map(|intent| intent.to_string()),
@@ -162,7 +163,7 @@ pub async fn private_handle_probe(req: &mut Request, depot: &mut Depot, res: &mu
 
     let body = ResolveHandleRequestView {
         handle: handle.clone(),
-        expected_principal_id: None,
+        expected_account_id: None,
         proof_challenge: None,
         claim_presentations: Vec::new(),
         intent: None,
@@ -270,9 +271,9 @@ pub async fn resolve_handle(req: &mut Request, depot: &mut Depot, res: &mut Resp
     let privacy_key = format!(
         "handle={};expected={};intent={};realm={};req={};aud={};claims={};proofs={};iph={}",
         body.handle,
-        body.expected_principal_id
+        body.expected_account_id
             .as_ref()
-            .map(DidCoreId::as_str)
+            .map(ToString::to_string)
             .unwrap_or_default(),
         body.intent.as_deref().unwrap_or_default(),
         body.realm_id
@@ -427,11 +428,12 @@ fn evaluate_handle_disclosure(
     body: &ResolveHandleRequestView,
     verified_claims: &VerifiedRestrictedClaims,
 ) -> ResolveOutcome {
-    if body.expected_principal_id.as_ref().is_some_and(|expected| {
+    if body.expected_account_id.as_ref().is_some_and(|expected| {
         row.public_projection
             .get("subject_id")
             .and_then(JsonValue::as_str)
-            != Some(expected.as_str())
+            != Some(expected.principal_id.as_str())
+            || row.station_id != expected.station_id.as_str()
     }) {
         return ResolveOutcome::NotFound;
     }
@@ -581,7 +583,7 @@ fn handle_resolution_from_envelope(
         handle,
         verified,
         claims,
-        source_refs: envelope.source_refs,
+        source_refs: super::parse_source_refs(envelope.source_refs)?,
         expires_at,
     })
 }
@@ -599,7 +601,7 @@ mod tests {
             public_projection,
             discoverability: DiscoverabilityDb::Public,
             as_of: Utc.timestamp_opt(0, 0).unwrap(),
-            source_refs: vec!["evt-handle-alice".to_string()],
+            source_refs: vec!["ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1".to_string()],
             policy_revision: "rev-handle-1".to_string(),
             stale: false,
             divergent: false,
@@ -611,7 +613,7 @@ mod tests {
     fn request(requester_id: &str) -> ResolveHandleRequestView {
         ResolveHandleRequestView {
             handle: "alice:example.com".to_string(),
-            expected_principal_id: None,
+            expected_account_id: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("member_add".to_string()),
@@ -658,26 +660,32 @@ mod tests {
     }
 
     #[test]
-    fn expected_principal_id_must_match_resolved_principal() {
+    fn expected_account_id_must_match_resolved_account() {
         let row = dummy_row(json!({
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
         }));
         let mut body = request("ak:did_core:web:tea-org.example");
-        body.expected_principal_id = Some(DidCoreId::new("ak:did_core:web:bob.example").unwrap());
+        body.expected_account_id = Some(AccountId::new(
+            DidCoreId::new("ak:did_core:web:bob.example").unwrap(),
+            DidCoreId::new("ak:did_core:web:station.test").unwrap(),
+        ));
 
         let outcome = evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default());
         assert!(matches!(outcome, ResolveOutcome::NotFound));
     }
 
     #[test]
-    fn matching_expected_principal_id_preserves_resolution() {
+    fn matching_expected_account_id_preserves_resolution() {
         let row = dummy_row(json!({
             "subject_id": "ak:did_core:web:alice.example",
             "verified": true,
         }));
         let mut body = request("ak:did_core:web:tea-org.example");
-        body.expected_principal_id = Some(DidCoreId::new("ak:did_core:web:alice.example").unwrap());
+        body.expected_account_id = Some(AccountId::new(
+            DidCoreId::new("ak:did_core:web:alice.example").unwrap(),
+            DidCoreId::new("ak:did_core:web:station.test").unwrap(),
+        ));
 
         let outcome = evaluate_handle_disclosure(row, &body, &VerifiedRestrictedClaims::default());
         assert!(matches!(outcome, ResolveOutcome::Found(_)));
@@ -735,7 +743,7 @@ mod tests {
         row.discoverability = DiscoverabilityDb::Restricted;
         let body = ResolveHandleRequestView {
             handle: "alice:example.com".to_owned(),
-            expected_principal_id: None,
+            expected_account_id: None,
             proof_challenge: None,
             claim_presentations: Vec::new(),
             intent: Some("lookup".to_owned()),

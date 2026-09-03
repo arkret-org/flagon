@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use arkret_sdk::{
-    AntiEnumerationDelay, AntiEnumerationDelayDistribution,
-    DirectoryPrivateContactDiscoveryOutcome, DirectoryPrivateContactDiscoveryRequestBody,
-    PrivateContactDiscovery, PrivateContactDiscoveryHandoffStubsMode, PsiPaddedProblem,
+    AntiEnumerationDelay, DirectoryPrivateContactDiscoveryOutcome,
+    DirectoryPrivateContactDiscoveryRequestBody, PrivateContactDiscovery,
+    PrivateContactDiscoveryHandoffStubsMode, PsiPaddedProblem,
 };
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -76,7 +76,6 @@ fn epoch_fixture(directory: &Path, epoch: u64, scalar_byte: u8) -> anyhow::Resul
         AntiEnumerationDelay {
             minimum_ms: 0,
             jitter_ms: 1,
-            distribution: AntiEnumerationDelayDistribution::Uniform,
         },
     );
     configuration.validate()?;

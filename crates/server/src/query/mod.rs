@@ -16,6 +16,16 @@ pub(crate) fn requester_ip_hash(requester_ip: &str) -> String {
     URL_SAFE_NO_PAD.encode(hasher.finalize())
 }
 
+pub(crate) fn parse_source_refs(
+    source_refs: impl IntoIterator<Item = String>,
+) -> Result<Vec<arkret_sdk::EventId>, String> {
+    source_refs
+        .into_iter()
+        .map(arkret_sdk::EventId::new)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("invalid directory source Event reference: {error}"))
+}
+
 pub(crate) fn render_cursor_error(
     response: &mut Response,
     error: arkret_server::CursorAuthorityError,

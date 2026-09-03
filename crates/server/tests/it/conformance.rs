@@ -1624,7 +1624,7 @@ fn signed_withdraw_body(
     reason: &str,
 ) -> anyhow::Result<JsonValue> {
     let mut body = arkret_sdk::DirectoryWithdrawRequestBody {
-        resource_id: resource_id.to_owned(),
+        resource_id: serde_json::from_value(json!(resource_id))?,
         governance_proof: arkret_sdk::DirectoryGovernanceProof {
             kind: "detached_jws".to_owned(),
             verification_method: arkret_sdk::DidUrl::new(verification_method.to_owned())

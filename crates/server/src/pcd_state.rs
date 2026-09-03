@@ -1854,7 +1854,6 @@ mod tests {
             arkret_sdk::AntiEnumerationDelay {
                 minimum_ms: 100,
                 jitter_ms: 50,
-                distribution: arkret_sdk::AntiEnumerationDelayDistribution::Uniform,
             },
         );
         config.validate().expect("valid test PCD config");

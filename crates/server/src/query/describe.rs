@@ -222,7 +222,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         service_resolution: cfg.service_resolution.clone(),
         trust_domain,
         service_kind: arkret_sdk::ServiceKind::DirectoryService,
-        protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
+        protocol_version: arkret_sdk::ServiceProtocolVersion::V1,
         supported_profiles,
         profile_bindings: BTreeMap::new(),
         supported_operation_bundles,
@@ -346,8 +346,8 @@ mod tests {
     use std::time::Duration;
 
     use arkret_sdk::{
-        AntiEnumerationDelay, AntiEnumerationDelayDistribution, Did, DidCoreId,
-        PrivateContactDiscovery, PrivateContactDiscoveryHandoffStubsMode, ResolutionCommitment,
+        AntiEnumerationDelay, Did, DidCoreId, PrivateContactDiscovery,
+        PrivateContactDiscoveryHandoffStubsMode, ResolutionCommitment,
     };
 
     use super::*;
@@ -413,7 +413,6 @@ mod tests {
             AntiEnumerationDelay {
                 minimum_ms: 100,
                 jitter_ms: 50,
-                distribution: AntiEnumerationDelayDistribution::Uniform,
             },
         );
         pcd_describe.validate().expect("valid PCD configuration");
@@ -520,7 +519,7 @@ mod tests {
             },
             trust_domain: TrustDomainId::new("ak:trust_domain:local.test").unwrap(),
             service_kind: arkret_sdk::ServiceKind::DirectoryService,
-            protocol_version: arkret_sdk::PROTOCOL_VERSION.to_owned(),
+            protocol_version: arkret_sdk::ServiceProtocolVersion::V1,
             supported_profiles: vec!["ak.profile.directory_service.v1".to_owned()],
             profile_bindings: BTreeMap::new(),
             supported_operation_bundles: vec![

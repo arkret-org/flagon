@@ -437,7 +437,7 @@ impl DirectoryGovernanceRequest for DirectoryWithdrawRequestBody {
     }
 
     fn governance_resource_id(&self) -> &str {
-        &self.resource_id
+        self.resource_id.as_str()
     }
 
     fn governance_binding_bytes(&self) -> Result<Vec<u8>, WireError> {
@@ -1955,7 +1955,9 @@ mod tests {
         audience: &str,
     ) -> DirectoryWithdrawRequestBody {
         let mut body = DirectoryWithdrawRequestBody {
-            resource_id: REALM_ID.to_owned(),
+            resource_id: arkret_sdk::DirectoryWithdrawResourceId::Realm(
+                arkret_sdk::RealmId::new(REALM_ID).unwrap(),
+            ),
             governance_proof: placeholder_proof(signer, created_at, audience),
             reason: Some(arkret_wire::AuditReasonText::new("governance proof test").unwrap()),
             effective_at: None,

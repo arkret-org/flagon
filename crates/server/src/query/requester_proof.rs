@@ -314,7 +314,7 @@ mod tests {
         created_at: DateTime<Utc>,
     ) -> DirectoryRequestProof {
         DirectoryRequestProof {
-            kind: arkret_wire::proof_kind::DETACHED_JWS.to_owned(),
+            kind: arkret_sdk::DirectoryRequestProofKind::DetachedJws,
             verification_method: requester_id.verification_method.clone(),
             payload_digest,
             created_at,
@@ -326,7 +326,7 @@ mod tests {
     fn resolve_handle_body(requester_id: &Requester) -> DirectoryResolveHandleRequestBody {
         DirectoryResolveHandleRequestBody {
             handle: "alice:example.com".to_owned(),
-            expected_principal_id: None,
+            expected_account_id: None,
             proof_challenge: Some("challenge-1".to_owned()),
             claim_presentations: Vec::new(),
             intent: None,

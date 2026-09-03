@@ -65,7 +65,7 @@ pub(crate) fn resource_withdrawal_proof(
             withdraw_id,
             kind: "resource_withdraw",
             resource_kind: JsonValue::from(resource_kind.as_pg()),
-            resource_id: &body.resource_id,
+            resource_id: body.resource_id.as_str(),
             reason: body.reason.as_deref().unwrap_or_default(),
             effective_at,
             acked_at,

@@ -148,7 +148,7 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_LIST_HANDLES_FOR_SUBJECT_V1,
         "realm_id": body.realm_id.as_ref(),
-        "intent": body.intent.as_deref(),
+        "intent": body.intent.as_ref().map(ToString::to_string),
         "requester_id": body.requester_id.as_ref(),
         "as_of": body.as_of,
     })) {
@@ -197,7 +197,10 @@ pub async fn list_handles_for_subject(req: &mut Request, depot: &mut Depot, res:
     let privacy_key = format!(
         "subject_id={};intent={};realm={};req={};cursor={};limit={limit};iph={requester_ip_hash}",
         body.account_id,
-        body.intent.as_deref().unwrap_or_default(),
+        body.intent
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default(),
         body.realm_id
             .as_ref()
             .map(|r| r.as_str())

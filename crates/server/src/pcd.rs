@@ -552,11 +552,11 @@ impl PrivateContactDiscoveryCustody {
         Ok(DirectoryPrivateContactDiscoveryOutcome::Blind {
             profile: request.profile(),
             batch_id: request.batch_id().clone(),
-            ciphersuite: configuration.ciphersuite,
+            ciphersuite: arkret_sdk::PrivateContactDiscovery::CIPHERSUITE,
             key_epoch: configuration.key_epoch,
             evaluated_elements,
             evaluation_proofs: [proof],
-            derived_prefix_bytes: configuration.derived_prefix_bytes,
+            derived_prefix_bytes: arkret_sdk::PrivateContactDiscovery::DERIVED_PREFIX_BYTES,
             padding: PsiResponsePadding::default(),
         })
     }

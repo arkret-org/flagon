@@ -42,16 +42,17 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         }
     };
 
-    if body.resource_id.is_empty() {
+    let resource_id = body.resource_id.as_str();
+    if resource_id.is_empty() {
         ingest_metric.set_outcome("schema_rejected");
         ApiErrorCode::ParamMissing.render(res, "resource_id is required");
         return;
     }
-    if !enforce_ingest_rate_limit(req, res, &state, &body.resource_id, None) {
+    if !enforce_ingest_rate_limit(req, res, &state, resource_id, None) {
         ingest_metric.set_outcome("rate_limited");
         return;
     }
-    let resource_kind = match resolve_withdraw_resource_kind(&state, &body.resource_id).await {
+    let resource_kind = match resolve_withdraw_resource_kind(&state, resource_id).await {
         Ok(resource_kind) => resource_kind,
         Err(message) => {
             ingest_metric.set_outcome("schema_rejected");
@@ -61,7 +62,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     };
 
     let expected_controller =
-        match governance_controller_for_withdraw(&state, resource_kind, &body.resource_id).await {
+        match governance_controller_for_withdraw(&state, resource_kind, resource_id).await {
             Ok(controller) => controller,
             Err((code, msg)) => {
                 ingest_metric.set_outcome("directory_governance_proof_signature_invalid");
@@ -130,7 +131,7 @@ pub async fn withdraw(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         state.db(),
         AuditEventKind::Withdrawal,
         Some(resource_kind),
-        Some(&body.resource_id),
+        Some(resource_id),
         None,
         json!({
             "withdraw_id": withdraw_id,
@@ -194,7 +195,7 @@ async fn persist_withdraw(
             .values((
                 w::withdraw_id.eq(withdraw_id),
                 w::resource_kind.eq(resource_kind),
-                w::resource_id.eq(&body.resource_id),
+                w::resource_id.eq(body.resource_id.as_str()),
                 w::kind.eq(WithdrawalKindWire::ResourceWithdraw),
                 w::reason.eq(body.reason.as_deref().unwrap_or_default()),
                 w::proof.eq(proof),
@@ -208,7 +209,7 @@ async fn persist_withdraw(
 
         diesel::delete(r::directory_resources)
             .filter(r::resource_kind.eq(resource_kind))
-            .filter(r::resource_id.eq(&body.resource_id))
+            .filter(r::resource_id.eq(body.resource_id.as_str()))
             .execute(&mut *conn)
             .await?;
 

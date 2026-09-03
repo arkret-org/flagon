@@ -529,7 +529,7 @@ fn organization_preview_from_envelope(
         realm_ids: organization_projection_field(projection, "realm_ids")?.unwrap_or_default(),
         realm_count: organization_projection_field(projection, "realm_count")?,
         as_of: envelope.as_of,
-        source_refs: envelope.source_refs,
+        source_refs: super::parse_source_refs(envelope.source_refs)?,
         policy_revision: envelope.policy_revision,
         stale: envelope.stale.then_some(true),
         divergent: envelope.divergent.then_some(true),
