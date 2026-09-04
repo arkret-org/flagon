@@ -50,9 +50,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use arkret_signatures::http_signature::{
-    ContentDigest, SignatureError, SignaturePolicyError, SignatureVerificationPolicy,
-    SignedRequestParts, canonical_message, parse_signature_header, parse_signature_input,
-    verify_content_digest, verify_signature,
+    HttpMessageVerificationError, SignatureError, SignatureVerificationPolicy, SignedRequestParts,
+    parse_signature_header, parse_signature_input, verify_signed_canonical_json_message,
 };
 use chrono::{DateTime, Utc};
 use diesel::sql_types::{Bytea, Text, Timestamptz};
@@ -72,7 +71,6 @@ use crate::state::AppState;
 
 const SIGNATURE_INPUT_HEADER: &str = "signature-input";
 const SIGNATURE_HEADER: &str = "signature";
-const CONTENT_DIGEST_HEADER: &str = "content-digest";
 const SIGNATURE_MAX_CLOCK_SKEW_SECONDS: i64 = 5;
 
 /// Pluggable pubkey resolution. The middleware looks up the signer's
@@ -350,44 +348,9 @@ impl Handler for HttpSigMiddleware {
             }
         };
 
-        // The v1 push profile is Ed25519-only — fail closed on anything
-        // else rather than handing an unknown alg to the SDK verifier.
-        if !signature_input.algorithm.eq_ignore_ascii_case("ed25519") {
-            reject_signature_invalid(
-                res,
-                ctrl,
-                format!(
-                    "unsupported signature alg `{}`; only ed25519 is accepted on ingest",
-                    signature_input.algorithm
-                ),
-            );
-            return;
-        }
-
         let now = unix_now_secs();
-        let content_digest_raw = read_header(req, CONTENT_DIGEST_HEADER);
         let policy = SignatureVerificationPolicy::service_ingest()
             .max_clock_skew_seconds(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
-        if let Err(err) = policy.validate(&signature_input, content_digest_raw.as_deref(), now) {
-            let message = match err {
-                SignaturePolicyError::MissingRequiredCoveredComponent => {
-                    "HTTP Message Signature is missing required covered components"
-                }
-                SignaturePolicyError::MissingContentDigest => "content-digest header missing",
-                SignaturePolicyError::InvalidValidityWindow => {
-                    "HTTP Message Signature validity window is invalid"
-                }
-                SignaturePolicyError::CreatedInFuture => {
-                    "HTTP Message Signature created timestamp is in the future"
-                }
-                SignaturePolicyError::CreatedTooOld => {
-                    "HTTP Message Signature created timestamp is too old"
-                }
-                SignaturePolicyError::Expired => "HTTP Message Signature has expired",
-            };
-            reject_invalid_signature(res, ctrl, message);
-            return;
-        }
 
         let signature_bytes = match parse_signature_header(&signature_raw, &signature_input.label) {
             Ok(bytes) => bytes,
@@ -422,37 +385,7 @@ impl Handler for HttpSigMiddleware {
             }
         };
 
-        let content_digest_raw =
-            content_digest_raw.expect("policy requires content-digest to be present");
-        let parsed_digest = match ContentDigest::parse(&content_digest_raw) {
-            Ok(digest) => digest,
-            Err(err) => {
-                reject_signature_invalid(
-                    res,
-                    ctrl,
-                    format!("content-digest header malformed: {err}"),
-                );
-                return;
-            }
-        };
-        if let Err(err) = verify_content_digest(&parsed_digest, &body_bytes) {
-            reject_invalid_signature(
-                res,
-                ctrl,
-                format!("content-digest does not match request body: {err}"),
-            );
-            return;
-        }
-        if let Err(err) = arkret_sdk::canonical::validate_canonical_bytes(&body_bytes) {
-            reject_invalid_signature(
-                res,
-                ctrl,
-                format!("signed request body is not canonical JSON: {err}"),
-            );
-            return;
-        }
-
-        // -- Phase 3: build SignedRequestParts and canonical message. -----
+        // -- Phase 3: project the framework request into SDK inputs. -----
         let parts = match signed_request_parts(req) {
             Ok(parts) => parts,
             Err(msg) => {
@@ -460,21 +393,7 @@ impl Handler for HttpSigMiddleware {
                 return;
             }
         };
-        let message = match canonical_message(&parts, &signature_input) {
-            Ok(msg) => msg,
-            Err(err) => {
-                let msg = match err {
-                    SignatureError::MissingCoveredComponent(name) => {
-                        format!("signed component `{name}` is missing from the request")
-                    }
-                    other => format!("could not build canonical signing string: {other}"),
-                };
-                reject_signature_invalid(res, ctrl, msg);
-                return;
-            }
-        };
-
-        // -- Phase 4: look up the signer's pubkey and verify. -------------
+        // -- Phase 4: look up the signer's pubkey and run SDK verification. -
         // DID-P0-C04 — one `teabay_signature_verify_total{kind="http_signature"}`
         // increment per signature teabay decides on, taken from the process
         // `Metrics` in the depot. When the state is absent (unit-test routers
@@ -502,26 +421,38 @@ impl Handler for HttpSigMiddleware {
             return;
         };
 
-        // The SDK helper takes the signature as base64 string, so we
-        // re-encode the bytes we already decoded — this round-trips
-        // through the same alphabet (standard) the inner-list `:...:`
-        // wrapper produced. Cheap, and keeps the verify step inside the
-        // SDK's typed-error surface.
-        let signature_b64 =
-            arkret_signatures::http_signature::encode_signature_b64(&signature_bytes);
-        if let Err(err) = verify_signature(&message, &signature_b64, &public_key) {
-            record(&metrics, SIGNATURE_OUTCOME_INVALID);
-            reject_invalid_signature(
-                res,
-                ctrl,
-                format!("ed25519 signature verification failed: {err}"),
-            );
-            return;
-        }
+        let verified = match verify_signed_canonical_json_message(
+            &parts.method,
+            &parts.target_uri,
+            &parts.authority,
+            &parts.path,
+            parts
+                .headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+            req.headers().contains_key("content-encoding"),
+            &body_bytes,
+            &public_key,
+            &policy,
+            now,
+        ) {
+            Ok(verified) => verified,
+            Err(error) => {
+                record(&metrics, SIGNATURE_OUTCOME_INVALID);
+                match error {
+                    HttpMessageVerificationError::Signature(
+                        SignatureError::MissingCoveredComponent(_),
+                    ) => reject_signature_invalid(res, ctrl, error.to_string()),
+                    _ => reject_invalid_signature(res, ctrl, error.to_string()),
+                }
+                return;
+            }
+        };
         record(&metrics, SIGNATURE_OUTCOME_OK);
 
-        let replay_key = ReplayKey::new(&signature_input.key_id, &signature_bytes);
-        let replay_expires_at = signature_input
+        let replay_key = ReplayKey::new(&verified.signature_input.key_id, &signature_bytes);
+        let replay_expires_at = verified
+            .signature_input
             .expires
             .saturating_add(SIGNATURE_MAX_CLOCK_SKEW_SECONDS);
         match replay_store
@@ -551,7 +482,8 @@ impl Handler for HttpSigMiddleware {
         // teabay's announce/withdraw/subscribe handlers do their own
         // §8 verify chain on top of this transport guarantee.
         depot.insert_typed(AuthenticatedHttpSignature {
-            source_service_id: signature_input
+            source_service_id: verified
+                .signature_input
                 .covered_components
                 .iter()
                 .any(|component| {
@@ -562,7 +494,7 @@ impl Handler for HttpSigMiddleware {
                 .then(|| read_header(req, "source-service-id"))
                 .flatten()
                 .and_then(|value| arkret_sdk::DidCoreId::new(value).ok()),
-            key_id: signature_input.key_id,
+            key_id: verified.signature_input.key_id,
         });
     }
 }

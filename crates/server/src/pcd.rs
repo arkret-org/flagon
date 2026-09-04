@@ -172,9 +172,12 @@ impl PrivateContactDiscoveryService {
             .headers()
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .and_then(|value| {
+                arkret_server::authorization_credential(
+                    value.trim(),
+                    arkret_server::AuthorizationScheme::Bearer,
+                )
+            })
             .ok_or(())?;
         let mut parts = bearer.splitn(3, '.');
         let prefix = parts.next().ok_or(())?;
