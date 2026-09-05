@@ -11,9 +11,9 @@ use salvo::prelude::*;
 pub(crate) fn render_problem(
     res: &mut Response,
     status: StatusCode,
-    envelope: arkret_sdk::ErrorEnvelope,
+    envelope: arkret_sdk::Problem,
 ) {
-    let problem = arkret_sdk::Problem::from_error_envelope(&envelope, status.as_u16());
+    let problem = envelope.with_status(status.as_u16());
     let mut output = salvo::http::Problem::new(status)
         .kind(problem.problem_type)
         .title(problem.title)
@@ -199,8 +199,8 @@ impl ApiErrorCode {
         render_problem(
             res,
             self.http_status(),
-            arkret_sdk::ErrorEnvelope::new(self.wire_code(), message)
-                .with_request_id(arkret_sdk::new_prefixed_uuid7("ak:request:")),
+            arkret_sdk::Problem::from_code(self.wire_code(), message)
+                .with_instance(arkret_sdk::new_prefixed_uuid7("ak:request:")),
         );
     }
 }

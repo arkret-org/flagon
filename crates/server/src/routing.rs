@@ -516,11 +516,11 @@ async fn api_not_found(res: &mut Response) {
     render_problem(
         res,
         StatusCode::NOT_FOUND,
-        arkret_sdk::ErrorEnvelope::new(
+        arkret_sdk::Problem::from_code(
             arkret_sdk::ErrorCode::UNRECOGNIZED_ENDPOINT,
             "no such directory route",
         )
-        .with_request_id(arkret_sdk::new_prefixed_uuid7("ak:request:")),
+        .with_instance(arkret_sdk::new_prefixed_uuid7("ak:request:")),
     );
 }
 
