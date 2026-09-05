@@ -569,7 +569,7 @@ mod tests {
             public_projection: projection,
             discoverability: DiscoverabilityDb::Public,
             as_of: DateTime::from_timestamp_millis(1_782_000_000_123).unwrap(),
-            source_refs: vec!["fixture-source".to_owned()],
+            source_refs: vec!["ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1".to_owned()],
             policy_revision: "accepted-revision".to_owned(),
             stale: true,
             divergent: false,

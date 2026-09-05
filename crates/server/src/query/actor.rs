@@ -210,7 +210,6 @@ struct ActorRow {
     resource_id: String,
     station_id: String,
     public_projection: JsonValue,
-    discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
     source_refs: Vec<String>,
     policy_revision: String,
@@ -235,7 +234,6 @@ async fn run_actor_search(
             r::resource_id,
             r::station_id,
             r::public_projection,
-            r::discoverability,
             r::as_of,
             r::source_refs,
             r::policy_revision,
@@ -281,7 +279,6 @@ async fn run_user_search(
             r::resource_id,
             r::station_id,
             r::public_projection,
-            r::discoverability,
             r::as_of,
             r::source_refs,
             r::policy_revision,
@@ -308,15 +305,12 @@ async fn run_user_search(
 }
 
 fn envelope_from_row(row: ActorRow) -> ResultEnvelope {
-    let mut payload = row.public_projection;
-    if let Some(obj) = payload.as_object_mut() {
-        obj.insert(
-            "discoverability".into(),
-            JsonValue::String(row.discoverability.as_pg().to_string()),
-        );
-    }
+    // `discoverability` is an indexing-side column: it gates which rows this
+    // query returns at all (see the `.filter(...eq(Public))` above). It is not
+    // a member of `actor_preview`, whose schema is closed, nor of
+    // `UserSearchOutcome`, so it MUST NOT be projected outward.
     ResultEnvelope::from_row(
-        payload,
+        row.public_projection,
         row.as_of,
         row.source_refs,
         row.policy_revision,
@@ -413,7 +407,6 @@ mod tests {
             resource_id: actor.signing_principal_id().to_string(),
             station_id: actor.route_service_id().to_string(),
             public_projection: json!({"actor_id": actor, "display_name": "Fixture Actor"}),
-            discoverability: DiscoverabilityDb::Public,
             as_of: "2026-08-31T00:00:00.000Z".parse().unwrap(),
             source_refs: Vec::new(),
             policy_revision: "fixture".to_owned(),
