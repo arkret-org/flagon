@@ -227,10 +227,10 @@ async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
         diesel::sql_query(
             "INSERT INTO pending_takedowns (\
                  pending_id, resource_kind, resource_id, reason, proposed_by, \
-                 quorum, status, expires_at) \
+                 status, expires_at) \
              VALUES (\
                  'pt-test', 'realm'::resource_kind, 'ak.realm:dlq', 'spam', \
-                 'ak:did_core:web:operator.test', 1, 'pending', now() + interval '1 day')",
+                 'ak:did_core:web:operator.test', 'pending', now() + interval '1 day')",
         )
         .execute(&mut conn)
         .await?;

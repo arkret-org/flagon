@@ -399,15 +399,13 @@ CREATE TRIGGER directory_audit_block_update
     FOR EACH ROW
     EXECUTE FUNCTION directory_audit_block_update();
 
--- B.8.8 — multi-approval takedown workflow skeleton.
+-- B.8.8 — operator takedown proposals and their notifier fanout.
 --
--- An operator-initiated takedown can require N approvals before it
--- takes effect. The `pending_takedowns` row tracks the proposal and
--- the `pending_takedown_approvals` rows track each operator's vote.
--- `quorum` records how many distinct, non-revoked approvals the proposal
--- needs. `notification_status` drives the takedown-notifier webhook fanout,
--- which is the only writer of these rows today; no server code counts
--- approvals or promotes a proposal to executed yet.
+-- `discovery-directory.md` defines unilateral operator takedown with an
+-- immutable audit log and a resource notification; v1 core defines no
+-- multi-operator approval or quorum, so this table carries the proposal and
+-- `notification_status` drives the takedown-notifier webhook fanout, which is
+-- the only writer of these rows.
 CREATE TABLE IF NOT EXISTS pending_takedowns (
     pending_id TEXT PRIMARY KEY,
     resource_kind resource_kind NOT NULL,
@@ -415,7 +413,6 @@ CREATE TABLE IF NOT EXISTS pending_takedowns (
     reason TEXT NOT NULL,
     proposed_by TEXT NOT NULL,
     proposed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    quorum INT NOT NULL DEFAULT 2 CHECK (quorum >= 1),
     -- `pending|approved|executed|rejected|expired`
     status TEXT NOT NULL DEFAULT 'pending',
     expires_at TIMESTAMPTZ NOT NULL,
@@ -433,14 +430,6 @@ CREATE INDEX IF NOT EXISTS pending_takedowns_notification_due_idx
     WHERE notification_status IS NULL
        OR notification_status = 'pending'
        OR notification_status LIKE 'retry:%';
-
-CREATE TABLE IF NOT EXISTS pending_takedown_approvals (
-    pending_id TEXT NOT NULL REFERENCES pending_takedowns(pending_id) ON DELETE CASCADE,
-    approver TEXT NOT NULL,
-    approved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    note TEXT,
-    PRIMARY KEY (pending_id, approver)
-);
 
 -- Webhook subscribers that want to be pinged on every proposal /
 -- approval transition. Distinct from the resource-discovery webhook

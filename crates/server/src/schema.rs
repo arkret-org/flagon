@@ -199,7 +199,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::ResourceKind;
 
-    // B.8.8 — pending takedown proposals awaiting quorum approval.
+    // B.8.8 — operator takedown proposals and their notifier fanout.
     pending_takedowns (pending_id) {
         pending_id -> Text,
         resource_kind -> ResourceKind,
@@ -207,22 +207,12 @@ diesel::table! {
         reason -> Text,
         proposed_by -> Text,
         proposed_at -> Timestamptz,
-        quorum -> Int4,
         status -> Text,
         expires_at -> Timestamptz,
         executed_at -> Nullable<Timestamptz>,
         executed_withdraw_id -> Nullable<Text>,
         notification_status -> Nullable<Text>,
         next_notification_after -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    pending_takedown_approvals (pending_id, approver) {
-        pending_id -> Text,
-        approver -> Text,
-        approved_at -> Timestamptz,
-        note -> Nullable<Text>,
     }
 }
 
@@ -334,7 +324,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     directory_audit,
     admin_tokens,
     pending_takedowns,
-    pending_takedown_approvals,
     pending_takedown_webhooks,
     verified_realm_organizations,
     pcd_key_epochs,
