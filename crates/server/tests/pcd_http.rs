@@ -21,33 +21,12 @@ use server::config::{
     AcceptPolicyKind, DbPoolConfig, IngestModeAdvert, PrivateContactDiscoveryRuntimeConfig,
 };
 use sha2::Sha256;
-use testcontainers_modules::postgres;
-use testcontainers_modules::testcontainers::ImageExt;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
+mod common;
+
+use common::{boot_postgres, docker_tests_enabled};
 use voprf::{Group, Ristretto255, VoprfClient, VoprfServer};
 
 const OPERATION: &str = "ak.find.directory.read.private_contact_discovery.v1";
-
-fn docker_tests_enabled() -> bool {
-    std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() == Some("1")
-}
-
-async fn boot_postgres() -> anyhow::Result<(
-    testcontainers_modules::testcontainers::ContainerAsync<postgres::Postgres>,
-    String,
-)> {
-    let container = postgres::Postgres::default()
-        .with_password("1amTester!")
-        .with_tag("16-alpine")
-        .start()
-        .await?;
-    let database_url = format!(
-        "postgres://postgres:1amTester!@{}:{}/postgres",
-        container.get_host().await?,
-        container.get_host_port_ipv4(5432).await?
-    );
-    Ok((container, database_url))
-}
 
 struct EpochFixture {
     runtime: PrivateContactDiscoveryRuntimeConfig,

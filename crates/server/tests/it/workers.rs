@@ -13,32 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use diesel_async::RunQueryDsl;
-use testcontainers_modules::postgres;
-use testcontainers_modules::testcontainers::ImageExt;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
-fn docker_tests_enabled() -> bool {
-    std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() == Some("1")
-}
-
-async fn boot_postgres() -> anyhow::Result<(
-    testcontainers_modules::testcontainers::ContainerAsync<postgres::Postgres>,
-    String,
-)> {
-    let postgres_tag =
-        std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
-    let container = postgres::Postgres::default()
-        .with_password("1amTester!")
-        .with_tag(postgres_tag)
-        .start()
-        .await?;
-    let database_url = format!(
-        "postgres://postgres:1amTester!@{}:{}/postgres",
-        container.get_host().await?,
-        container.get_host_port_ipv4(5432).await?
-    );
-    Ok((container, database_url))
-}
+use crate::common::{boot_postgres, docker_tests_enabled};
 
 async fn test_app_state(
     database_url: &str,

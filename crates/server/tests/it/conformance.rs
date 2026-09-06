@@ -20,9 +20,8 @@ use salvo::http::StatusCode;
 use salvo::prelude::Service;
 use salvo::test::{ResponseExt, TestClient};
 use serde_json::{Value as JsonValue, json};
-use testcontainers_modules::postgres;
-use testcontainers_modules::testcontainers::ImageExt;
-use testcontainers_modules::testcontainers::runners::AsyncRunner;
+
+use crate::common::{boot_postgres, docker_tests_enabled};
 
 #[derive(diesel::QueryableByName)]
 struct WithdrawalProofRow {
@@ -34,23 +33,12 @@ struct WithdrawalProofRow {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
-    if std::env::var("TEABAY_RUN_DOCKER_TESTS").ok().as_deref() != Some("1") {
+    if !docker_tests_enabled() {
         eprintln!("skipping docker-backed conformance smoke; set TEABAY_RUN_DOCKER_TESTS=1");
         return Ok(());
     }
 
-    let postgres_tag =
-        std::env::var("TEABAY_TEST_POSTGRES_TAG").unwrap_or_else(|_| "16-alpine".to_string());
-    let container = postgres::Postgres::default()
-        .with_password("1amTester!")
-        .with_tag(postgres_tag)
-        .start()
-        .await?;
-    let database_url = format!(
-        "postgres://postgres:1amTester!@{}:{}/postgres",
-        container.get_host().await?,
-        container.get_host_port_ipv4(5432).await?
-    );
+    let (_container, database_url) = boot_postgres().await?;
 
     unsafe {
         std::env::set_var("TEABAY_BIND", "127.0.0.1:0");
