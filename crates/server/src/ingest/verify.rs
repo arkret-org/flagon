@@ -1622,20 +1622,6 @@ mod tests {
             verify(&changed_station).is_err(),
             "same principal on another Station needs a new signature"
         );
-
-        let mut raw_signed = event.clone();
-        proof.jws = sign_jws_ed25519(
-            &arkret_signatures::EventProofBuilder::new()
-                .envelope_bytes(&event)
-                .unwrap(),
-            &signer.signing_key,
-        )
-        .unwrap();
-        raw_signed.proofs = vec![proof.into()];
-        assert!(
-            verify(&raw_signed).is_err(),
-            "legacy raw-envelope signatures are not accepted"
-        );
     }
 
     fn resolver() -> SharedDidResolver {

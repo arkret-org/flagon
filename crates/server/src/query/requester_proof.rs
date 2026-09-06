@@ -622,7 +622,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_generic_proof_members_are_rejected_by_the_closed_leaf() {
+    fn generic_proof_members_are_rejected_by_the_closed_leaf() {
         let requester_id = test_requester(SIGNING_SEED);
         let now = Utc::now();
         let body = signed_resolve_handle(&requester_id, now);
@@ -635,13 +635,13 @@ mod tests {
                 serde_json::json!([DIRECTORY_AUDIENCE, "ak:did_core:web:other.example"]),
             ),
         ] {
-            let mut legacy = canonical.clone();
-            legacy
+            let mut generic = canonical.clone();
+            generic
                 .as_object_mut()
                 .unwrap()
                 .insert(field.to_owned(), value);
-            serde_json::from_value::<DirectoryRequestProof>(legacy)
-                .expect_err("generic proof member must not be a compatibility alias");
+            serde_json::from_value::<DirectoryRequestProof>(generic)
+                .expect_err("the closed leaf admits no generic proof member");
         }
     }
 
