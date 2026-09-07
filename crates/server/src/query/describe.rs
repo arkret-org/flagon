@@ -142,6 +142,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     }
 
     let limits = ServerLimits {
+        mls_governance_proof: None,
         extensions: BTreeMap::from([
             (
                 "per_resource_per_min".to_owned(),
