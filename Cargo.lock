@@ -408,6 +408,7 @@ dependencies = [
  "chrono",
  "hex",
  "regex",
+ "salvo-oapi",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -436,6 +437,7 @@ version = "0.3.0"
 dependencies = [
  "arkret-canonical",
  "arkret-locale",
+ "arkret-models-crypto",
  "arkret-wire",
  "chrono",
  "salvo-oapi",
@@ -526,6 +528,7 @@ dependencies = [
  "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-models-identity",
+ "arkret-schema",
  "arkret-state",
  "arkret-wire",
  "base64 0.23.1",
