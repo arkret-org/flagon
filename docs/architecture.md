@@ -109,7 +109,7 @@ Directory-specific state-only read operation and DTO. Teabay advertises push
 ingest only and never falls back to the forbidden self Events API.
 
 Cross-directory divergence detection is not implemented: peer core ids cannot
-be mapped through verified current service-resolution records yet, and Teabay
+be mapped through verified current DID service endpoints yet, and Teabay
 never derives a URL from an id.
 
 `/readyz` checks PostgreSQL reachability. Metrics

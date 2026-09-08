@@ -30,7 +30,7 @@ pub struct DirectoryAnnounceIngest {
     /// Stable service core id of the Station that owns the resource's
     /// truth source (`discovery-directory.md` §8.3). This is **not** a
     /// resolvable DID: mapping it to a current `did` / URL requires a
-    /// verified `ServiceResolutionRecord`, and the spec forbids handing this
+    /// verified DID service endpoint, and the spec forbids handing this
     /// value to a DID resolver.
     pub station_id: DidCoreId,
     #[serde(skip_serializing)]
