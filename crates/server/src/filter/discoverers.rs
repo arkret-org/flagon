@@ -85,11 +85,6 @@ pub fn allowed_discoverers(projection: &JsonValue) -> Option<&Vec<JsonValue>> {
         .and_then(JsonValue::as_array)
 }
 
-/// True when the projection declares a non-empty `allowed_discoverers` list.
-pub fn has_allowed_discoverers(projection: &JsonValue) -> bool {
-    allowed_discoverers(projection).is_some_and(|arr| !arr.is_empty())
-}
-
 /// Decide whether `requester_id` / `proofs` satisfy the projection's
 /// `allowed_discoverers` list. Returns `false` when the list is absent or
 /// empty (fail-closed: a restricted resource with no discoverers is invisible).
