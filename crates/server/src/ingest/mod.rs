@@ -39,8 +39,8 @@ pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
 // If a future profile mandates the directory carry an optional
 // recovery-witness service-binding hint, validate every announce body whose
 // discovery_state contains a `recovery_policy_ref` or `recovery_receipt_ref`
-// against the SDK's `RecoveryPolicy` / `RecoveryReceipt` types, once those
-// land. Until then a caller attempting to announce a recovery-keyed resource
+// against the SDK's `RecoveryPolicy` / `RecoveryReceipt` types and the new
+// discovery contract. Until then a caller attempting to announce a recovery-keyed resource
 // is rejected by the `resource_kind` enum at deserialization time.
 
 #[derive(

@@ -310,7 +310,6 @@ pub async fn resolve_realm(req: &mut Request, depot: &mut Depot, res: &mut Respo
         Ok(Some((realm_preview, join_candidates))) => {
             res.render(Json(DirectoryRealmResolutionOutcome {
                 realm_preview,
-                stripped_state_entries: Vec::new(),
                 join_rule: None,
                 join_candidates,
             }));
