@@ -1,27 +1,26 @@
 //! `ak.find.directory.read.describe.v1` — service capability advertisement.
 //!
 //! The response is the canonical `ServiceDescribe`
-//! shape (17 required top-level fields, `trust_domain` included). Validated via
+//! shape (`trust_domain` included). Validated via
 //! [`arkret_sdk::ServiceDescribe::validate`] BEFORE serialisation; a
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
 //! Directory-service-specific fields (`resource_kinds`,
-//! `accepted_resource_kinds`, `ingest_modes`, `ttl`, etc.) are registered
+//! `accepted_resource_kinds`, `ttl`, etc.) are registered
 //! ServiceDescribe overlay fields, not vendor-specific `x_*` extensions.
 
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, ClaimedProfileEntry, DirectoryAcceptPolicyKind, DirectoryIngestMode,
-    DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry, PlaintextVisibility,
-    RateLimitPolicy, ServerLimits, ServiceDescribe, TransportBinding, TrustDomainId,
-    VerifiedProfileEntry,
+    AuthMetadata, DirectoryAcceptPolicyKind, DirectoryResourceKind, EgressNetworkPolicy,
+    InteropSurfaceEntry, PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe,
+    TransportBinding, TrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-use crate::config::{AcceptPolicyKind, AppConfig, IngestModeAdvert};
+use crate::config::{AcceptPolicyKind, AppConfig};
 use crate::state::AppState;
 
 pub(crate) const SUPPORTED_OPERATION_BUNDLES: &[&str] = &[
@@ -199,19 +198,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         )
         .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
 
-    // `claimed_profiles` mirrors `supported_profiles` here: every profile
-    // advertised here is self-claimed. `verified_profiles` is
-    // empty until a cotest verifier is wired in; the
-    // `development_mode=true ⇒ verified_profiles=[]` invariant is
-    // enforced by `ServiceDescribe::validate`.
-    //
-    // `claimed_profiles` / `verified_profiles` / `interop_surfaces`
-    // are typed entries in the SDK (`ClaimedProfileEntry` /
-    // `VerifiedProfileEntry` / `InteropSurfaceEntry`), not bare strings.
-    let claimed_profiles: Vec<ClaimedProfileEntry> = supported_profiles
-        .iter()
-        .map(ClaimedProfileEntry::self_claimed)
-        .collect();
+    // Verification evidence is absent until a cotest verifier is configured.
     let verified_profiles: Vec<VerifiedProfileEntry> = Vec::new();
 
     // `interop_surfaces` — the directory bridges no foreign protocol and
@@ -234,7 +221,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         limits,
         plaintext_visibility,
         privacy_derivation: None,
-        claimed_profiles,
         verified_profiles,
         interop_surfaces,
         invite_addressing: None,
@@ -256,7 +242,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             .map(|runtime| runtime.describe.clone()),
         resource_kinds: all_directory_resource_kinds(),
         restricted_query_proof: Some(true),
-        ingest_modes: cfg.ingest_modes.iter().map(directory_ingest_mode).collect(),
         accept_policy_kind: Some(directory_accept_policy_kind(cfg.accept_policy_kind)),
         accept_policy_ref: cfg.accept_policy_ref.as_ref().map(|reference| {
             BTreeMap::from([(
@@ -296,12 +281,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
 fn all_directory_resource_kinds() -> Vec<DirectoryResourceKind> {
     DirectoryResourceKind::ALL.to_vec()
-}
-
-fn directory_ingest_mode(mode: &IngestModeAdvert) -> DirectoryIngestMode {
-    match mode {
-        IngestModeAdvert::Push => DirectoryIngestMode::Push,
-    }
 }
 
 fn directory_accept_policy_kind(kind: AcceptPolicyKind) -> DirectoryAcceptPolicyKind {
@@ -448,7 +427,6 @@ mod tests {
             "auth_metadata",
             "limits",
             "plaintext_visibility",
-            "claimed_profiles",
             "verified_profiles",
             "interop_surfaces",
             "development_mode",
@@ -478,7 +456,8 @@ mod tests {
     fn describe_carries_directory_overlay_fields() {
         let value = build_describe_response_value(&cfg(false)).expect("describe builds");
         assert!(value.get("accepted_resource_kinds").is_some());
-        assert!(value.get("ingest_modes").is_some());
+        assert!(value.get("ingest_modes").is_none());
+        assert!(value.get("claimed_profiles").is_none());
         assert!(value.get("rate_limits").is_some());
         assert!(value.get("accept_policy_kind").is_some());
         assert_eq!(value["accept_policy_kind"], "open");
@@ -487,7 +466,6 @@ mod tests {
             "http://directory.test"
         );
         assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
-        assert_eq!(value["ingest_modes"], json!(["push"]));
         assert!(
             value["supported_operation_bundles"]
                 .as_array()
@@ -539,7 +517,6 @@ mod tests {
             plaintext_visibility: PlaintextVisibility::none(),
             privacy_derivation: None,
             receive_policy_constraints: None,
-            claimed_profiles: Vec::new(),
             verified_profiles: vec![VerifiedProfileEntry {
                 profile_id: "ak.profile.directory_service.v1".to_owned(),
                 claim_kind: arkret_sdk::ConformanceVerifiedKind::ConformanceVerified,
@@ -562,7 +539,6 @@ mod tests {
             private_contact_discovery: None,
             resource_kinds: all_directory_resource_kinds(),
             restricted_query_proof: Some(true),
-            ingest_modes: vec![DirectoryIngestMode::Push],
             accept_policy_kind: Some(DirectoryAcceptPolicyKind::Open),
             accept_policy_ref: None,
             default_ttl_seconds: Some(3_600),
@@ -602,7 +578,6 @@ mod tests {
             "auth_metadata",
             "limits",
             "plaintext_visibility",
-            "claimed_profiles",
             "verified_profiles",
             "interop_surfaces",
             "invite_addressing",
@@ -612,7 +587,6 @@ mod tests {
             "egress_network_policy",
             "resource_kinds",
             "restricted_query_proof",
-            "ingest_modes",
             "accept_policy_kind",
             "accept_policy_ref",
             "default_ttl_seconds",
@@ -664,7 +638,6 @@ mod tests {
             );
             for standard in [
                 "resource_kinds",
-                "ingest_modes",
                 "accept_policy_kind",
                 "accepted_resource_kinds",
                 "rate_limits",
@@ -709,13 +682,6 @@ mod tests {
                 .iter()
                 .any(|p| p == "ak.private_contact_discovery.v1"),
             "PCD must not appear in supported_profiles"
-        );
-        let claimed = value["claimed_profiles"].as_array().unwrap();
-        assert!(
-            !claimed
-                .iter()
-                .any(|p| p["profile_id"] == "ak.private_contact_discovery.v1"),
-            "PCD must not be claimed"
         );
         assert!(
             !value["supported_operation_bundles"]

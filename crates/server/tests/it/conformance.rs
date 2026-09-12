@@ -170,17 +170,12 @@ async fn assert_describe_advertises_core(service: &Service) -> anyhow::Result<()
             .unwrap()
             .contains(&json!("realm"))
     );
+    assert!(body.get("ingest_modes").is_none());
     assert!(
-        body["ingest_modes"]
+        body["supported_operation_bundles"]
             .as_array()
             .unwrap()
-            .contains(&json!("push"))
-    );
-    assert!(
-        !body["ingest_modes"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("pull"))
+            .contains(&json!("ak.operation_bundle.directory_service.http_core.v1"))
     );
     assert!(
         body["x_teabay_limitations"]
