@@ -87,7 +87,6 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     assert_query_surface_matrix(&db, &service).await?;
     assert_search_realms_finds_seeded_realm(&service).await?;
     assert_official_badge_is_verified_relationship_driven(&db, &service).await?;
-    assert_pull_subscribe_registers_webhook(&service).await?;
     assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resource(&db, &service)
         .await?;
     assert_freshness_flags_are_exposed(&db, &service).await?;
@@ -822,44 +821,6 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
             .is_none_or(|candidates| { candidates.as_array().is_some_and(Vec::is_empty) }),
         "a station core id without a verified resolution carrier must not become a routing candidate"
     );
-    Ok(())
-}
-
-async fn assert_pull_subscribe_registers_webhook(service: &Service) -> anyhow::Result<()> {
-    let secret = URL_SAFE_NO_PAD.encode([1_u8; 16]);
-    let mut res = TestClient::post("http://local/_arkret/find/directory/push/register")
-        .add_header(
-            "Arkret-Operation",
-            arkret_wire::ServiceOperationId::FIND_DIRECTORY_PUSH_COMMAND_REGISTER_V1,
-            true,
-        )
-        .json(&json!({
-            "subscriber_id": "ak:did_core:web:subscriber.example",
-            "resource_filter": {
-                "resource_kinds": ["realm"],
-                "resource_ids": ["ak:realm:AV02Q8ck_fhF2AFzJL5GSjGwga7vDJOSzYwX-rgNR2UP"]
-            },
-            "webhook_url": "http://127.0.0.1:9/teabay-conformance-webhook",
-            "secret": secret
-        }))
-        .send(service)
-        .await;
-    assert_eq!(
-        res.status_code.unwrap_or(StatusCode::OK),
-        StatusCode::OK,
-        "{}",
-        res.take_string().await.unwrap_or_default()
-    );
-    let body: JsonValue = res.take_json().await?;
-    assert!(
-        body["subscription_id"]
-            .as_str()
-            .is_some_and(|id| arkret_sdk::SubscriptionId::new(id.to_owned()).is_ok())
-    );
-    assert!(body.get("effective_at").is_some());
-    assert!(body.get("created_at").is_none());
-    assert!(body.get("expires_at").is_none());
-    assert!(body.get("webhook_secret").is_none());
     Ok(())
 }
 

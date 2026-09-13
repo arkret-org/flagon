@@ -357,11 +357,7 @@ pub(crate) fn verify_discovery_event_proofs(
             )
         })?;
     let mut producer_count = 0usize;
-    for proof in event
-        .proofs
-        .iter()
-        .filter_map(arkret_wire::EventProof::as_producer)
-    {
+    for proof in &event.proofs {
         producer_count += 1;
         enforce_governance_method_binding(
             resource_kind,

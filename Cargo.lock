@@ -312,6 +312,8 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -385,6 +387,7 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-crypto",
  "arkret-models-identity",
+ "arkret-models-integration",
  "arkret-schema",
  "arkret-wire",
  "chrono",
