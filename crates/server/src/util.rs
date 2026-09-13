@@ -12,8 +12,11 @@ pub(crate) fn lower_hex(bytes: &[u8]) -> String {
 }
 
 /// HMAC-SHA256 tag encoded with the Arkret base64url-without-padding wire
-/// convention used by every outbound teabay webhook.
-pub(crate) fn webhook_hmac_signature(secret: &[u8], body: &[u8]) -> anyhow::Result<String> {
+/// convention used by the internal operator takedown notifier.
+pub(crate) fn takedown_webhook_hmac_signature(
+    secret: &[u8],
+    body: &[u8],
+) -> anyhow::Result<String> {
     use hmac::{Hmac, Mac};
 
     let mut mac = <Hmac<sha2::Sha256> as hmac::KeyInit>::new_from_slice(secret)?;
@@ -30,7 +33,8 @@ mod tests {
     #[test]
     fn webhook_signature_uses_canonical_base64url_encoding() {
         let signature =
-            webhook_hmac_signature(b"key", b"The quick brown fox jumps over the lazy dog").unwrap();
+            takedown_webhook_hmac_signature(b"key", b"The quick brown fox jumps over the lazy dog")
+                .unwrap();
         assert_eq!(signature, "97yD9DBThCSxMpjmqm-xQ-9NWaFJRhdZl0edvC0aPNg");
     }
 }

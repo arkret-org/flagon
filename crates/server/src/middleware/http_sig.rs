@@ -4,7 +4,7 @@
 //! "transport — assumed enforced by middleware"). Before TB-1 this comment
 //! was load-bearing but unbacked: nothing in [`crate::routing`] actually
 //! mounted a transport-signature check on `/_arkret/find/directory/announce`,
-//! `/withdraw`, or `/push/register`, so the 5-step verify chain ran for any
+//! `/withdraw`, so the 5-step verify chain ran for any
 //! caller — including ones who never proved control of the resource's
 //! governance key. This module fixes that.
 //!
@@ -479,7 +479,7 @@ impl Handler for HttpSigMiddleware {
         }
 
         // Authenticated. Drop to the next hop in the handler chain —
-        // teabay's announce/withdraw/subscribe handlers do their own
+        // teabay's announce/withdraw handlers do their own
         // §8 verify chain on top of this transport guarantee.
         depot.insert_typed(AuthenticatedHttpSignature {
             source_service_id: verified

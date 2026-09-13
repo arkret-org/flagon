@@ -1,6 +1,5 @@
 //! P2E.3 — operator dashboard stats endpoint.
 
-use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use salvo::prelude::*;
@@ -42,7 +41,6 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
     use crate::schema::directory_audit::dsl as au;
     use crate::schema::directory_resources::dsl as r;
     use crate::schema::ingest_announces::dsl as a;
-    use crate::schema::webhook_subscriptions::dsl as s;
 
     let mut conn = state.db().get().await?;
 
@@ -66,11 +64,6 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
         .get_result(&mut *conn)
         .await?;
     let ingest_announces: i64 = a::ingest_announces.count().get_result(&mut *conn).await?;
-    let webhook_subscriptions: i64 = s::webhook_subscriptions
-        .filter(s::expires_at.is_null().or(s::expires_at.gt(Utc::now())))
-        .count()
-        .get_result(&mut *conn)
-        .await?;
     let audit_events: i64 = au::directory_audit.count().get_result(&mut *conn).await?;
     let allowlist_entries: i64 = al::accept_allowlist.count().get_result(&mut *conn).await?;
 
@@ -100,10 +93,9 @@ async fn collect_dashboard_stats(state: &AppState) -> anyhow::Result<DashboardSt
         divergent_resources,
         realm_destroyed,
         ingest_announces,
-        webhook_subscriptions,
         audit_events,
         allowlist_entries,
         per_kind,
-        as_of: Utc::now().to_rfc3339(),
+        as_of: chrono::Utc::now().to_rfc3339(),
     })
 }

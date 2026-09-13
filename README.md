@@ -68,10 +68,9 @@ honesty. Current limitations are: pull-mode ingest remains unsupported until
 the v1 Directory-specific state-only pull operation and DTO are normative;
 Private Contact Discovery is not advertised until its current-v1 exact-batch,
 single batched DLEQ, fixed-bucket and delay contract is implemented;
-operator takedown webhook fanout is
-HMAC-signed best-effort delivery with retry/DLQ status tracking; webhook fanout
-from `ak.find.directory.push.command.register.v1` is HMAC-signed best-effort delivery without a
-durable retry queue.
+operator takedown notification delivery is HMAC-signed and audit-backed with
+retry/DLQ status tracking. Resource discovery updates use the current-v1
+announce/withdraw ingest model and expose no webhook registration surface.
 
 ## Tech stack
 
@@ -175,8 +174,7 @@ scripts/local-artifacts.sh
 
 The Docker-gated conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
-behavior, `ak.find.directory.push.command.register.v1`, signed push announce against a mock
-Station, freshness flags, and takedown audit through the admin operator
+behavior, signed push announce against a mock Station, freshness flags, and takedown audit through the admin operator
 surface.
 
 ## Architecture
@@ -243,7 +241,7 @@ checks across the whole fleet (see T8.3 for the cross-service shape).
 ingest signer keys before accepting traffic:
 
 1. For each resource Station that may call
-   `/_arkret/find/directory/{announce,withdraw,push/register}`, obtain the Ed25519
+   `/_arkret/find/directory/{announce,withdraw}`, obtain the Ed25519
    verifying key that corresponds to the HTTP Message Signature `keyid`.
 2. Encode the raw 32-byte verifying key with unpadded base64url. Standard
    padded base64 is also accepted, but base64url is preferred for env files.

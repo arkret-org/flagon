@@ -27,14 +27,12 @@ pub(crate) use projection::{
 };
 use salvo::prelude::*;
 use serde_json::json;
-use teabay_contracts::DirectoryPublicProjection;
 
 use crate::audit::{self, AuditEventKind};
 use crate::error::ApiErrorCode;
 use crate::filter::circle_isolation;
 use crate::ids::{IdClass, new_id};
 use crate::ingest::rate_limit::enforce_ingest_rate_limit;
-use crate::ingest::subscribe::{AcceptedIngestEvent, fanout_accepted_ingest};
 use crate::ingest::verify::VerifyContext;
 use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
 use crate::state::{AppState, CachedDirectoryAnnounceOutcome};
@@ -461,14 +459,11 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     )
     .await;
 
-    let public_projection = match insert_outcome {
-        Ok(projection) => projection,
-        Err(e) => {
-            ingest_metric.set_outcome("persist_error");
-            ApiErrorCode::InternalError.render(res, format!("persist announce: {e}"));
-            return;
-        }
-    };
+    if let Err(e) = insert_outcome {
+        ingest_metric.set_outcome("persist_error");
+        ApiErrorCode::InternalError.render(res, format!("persist announce: {e}"));
+        return;
+    }
 
     // TBY-ORG-01/03 — verify and project any `ak.realm.organization` relationship
     // statements the Realm announce carries. Only `active`, in-validity-window,
@@ -559,7 +554,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     )
     .await;
 
-    if let Some(destroyed_at) = realm_terminal {
+    if realm_terminal.is_some() {
         let _ = audit::record(
             state.db(),
             AuditEventKind::RealmDestroyed,
@@ -572,37 +567,7 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             }),
         )
         .await;
-        // Tombstone fanout to in-flight subscribers.
-        let tombstone = crate::ingest::subscribe::ReachabilityTombstone {
-            kind: crate::ingest::subscribe::TombstoneKind::RealmDestroyed,
-            resource_kind: body.resource_kind,
-            resource_id: body.resource_id.clone(),
-            station_id: body.station_id.clone(),
-            reason: arkret_wire::CapabilityActionId::REALM_DESTROY.into(),
-            revoked_at: destroyed_at,
-        };
-        let _ =
-            crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &[tombstone])
-                .await;
     }
-
-    fanout_accepted_ingest(
-        state.clone(),
-        AcceptedIngestEvent {
-            announce_id: announce_id.clone(),
-            ingest_mode: IngestModeWire::Push,
-            resource_kind: body.resource_kind,
-            resource_id: body.resource_id.clone(),
-            station_id: body.station_id.clone(),
-            indexed_at,
-            as_of: body.as_of,
-            source_refs: body.source_refs.clone(),
-            policy_revision: Some(verified.policy_revision.clone()),
-            discoverability: verified.discoverability,
-            public_projection: DirectoryPublicProjection::from_json(public_projection),
-        },
-    )
-    .await;
 
     state.remember_federation_replay(
         cache_key,

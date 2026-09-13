@@ -90,11 +90,6 @@ pub fn DashboardPanel(base_url: String, token: String) -> Element {
                             tone: "neutral".to_string(),
                         }
                         DashboardTile {
-                            label: "Webhook subscriptions",
-                            value: payload.webhook_subscriptions.to_string(),
-                            tone: "neutral".to_string(),
-                        }
-                        DashboardTile {
                             label: "Audit events",
                             value: payload.audit_events.to_string(),
                             tone: "neutral".to_string(),

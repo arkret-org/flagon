@@ -11,8 +11,6 @@ use serde_json::json;
 use super::{admin_state, record_admin_audit};
 use crate::audit::AuditEventKind;
 use crate::error::ApiErrorCode;
-use crate::ingest::DirectoryResourceKindDb;
-use crate::ingest::subscribe::{ReachabilityTombstone, TombstoneKind};
 use crate::state::AppState;
 
 /// `POST /_teabay/admin/consent-revoke` — soland (or any peer service)
@@ -23,10 +21,7 @@ use crate::state::AppState;
 /// We **soft-delete** (UPDATE) rather than DELETE
 /// so the audit trail is preserved — the row is marked with
 /// `reachability_revoked_at` and the search face hides it (resolve
-/// still surfaces it so in-flight subscribers can observe the
-/// revocation tombstone). A `ak.find.directory.push.command.register.v1` tombstone webhook
-/// fires on a best-effort basis through the same fanout path the
-/// announce handler uses.
+/// still surfaces it for audit and deterministic stale-result handling).
 #[derive(Debug, Deserialize)]
 struct DirectoryAdminConsentRevokeRequestBody {
     /// Stable Arkret core id of the affected actor. Required.
@@ -52,7 +47,6 @@ struct DirectoryAdminConsentRevokeRequestBody {
 struct DirectoryAdminConsentRevokeOutcome {
     invalidated_rows: i64,
     revoked_at: DateTime<Utc>,
-    tombstoned_subscriptions: usize,
 }
 
 #[handler]
@@ -83,14 +77,13 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
         .reason
         .clone()
         .unwrap_or_else(|| "consent_revoke{scope=any}".to_owned());
-    let (invalidated_rows, affected) =
-        match invalidate_reachability(&state, &body, revoked_at, &reason).await {
-            Ok(rows) => rows,
-            Err(error) => {
-                ApiErrorCode::InternalError.render(res, format!("consent revoke: {error}"));
-                return;
-            }
-        };
+    let invalidated_rows = match invalidate_reachability(&state, &body, revoked_at, &reason).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            ApiErrorCode::InternalError.render(res, format!("consent revoke: {error}"));
+            return;
+        }
+    };
 
     let _ = record_admin_audit(
         &state,
@@ -110,15 +103,9 @@ pub async fn consent_revoke_invalidate(req: &mut Request, depot: &mut Depot, res
     )
     .await;
 
-    // Best-effort tombstone fanout for in-flight `ak.find.directory.push.command.register.v1`
-    // webhook listeners. T07 reuses the same channel for realm destroys.
-    let tombstoned_subscriptions =
-        crate::ingest::subscribe::fanout_reachability_tombstone(state.clone(), &affected).await;
-
     res.render(Json(DirectoryAdminConsentRevokeOutcome {
         invalidated_rows,
         revoked_at,
-        tombstoned_subscriptions,
     }));
 }
 
@@ -127,7 +114,7 @@ async fn invalidate_reachability(
     body: &DirectoryAdminConsentRevokeRequestBody,
     revoked_at: DateTime<Utc>,
     reason: &str,
-) -> anyhow::Result<(i64, Vec<ReachabilityTombstone>)> {
+) -> anyhow::Result<i64> {
     use crate::schema::directory_resources::dsl as r;
 
     let mut conn = state.db().get().await?;
@@ -149,27 +136,12 @@ async fn invalidate_reachability(
     if !body.resource_ids.is_empty() {
         query = query.filter(r::resource_id.eq_any(&body.resource_ids));
     }
-    let affected_rows: Vec<(DirectoryResourceKindDb, String, arkret_sdk::DidCoreId)> = query
+    let invalidated_rows = query
         .set((
             r::reachability_revoked_at.eq(Some(revoked_at)),
             r::reachability_revoked_reason.eq(Some(reason)),
         ))
-        .returning((r::resource_kind, r::resource_id, r::station_id))
-        .get_results(&mut *conn)
+        .execute(&mut *conn)
         .await?;
-    let invalidated_rows = affected_rows.len() as i64;
-    let tombstones = affected_rows
-        .into_iter()
-        .map(
-            |(resource_kind, resource_id, station_id)| ReachabilityTombstone {
-                kind: TombstoneKind::ReachabilityRevoked,
-                resource_kind,
-                resource_id,
-                station_id,
-                reason: reason.to_owned(),
-                revoked_at,
-            },
-        )
-        .collect();
-    Ok((invalidated_rows, tombstones))
+    Ok(invalidated_rows as i64)
 }

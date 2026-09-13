@@ -251,7 +251,7 @@ impl TakedownNotifier {
         let body_bytes = serde_json::to_vec(&body).map_err(DispatchError::retryable)?;
         let signature = if let Some(secret) = webhook.secret.as_deref() {
             Some(
-                crate::util::webhook_hmac_signature(secret, &body_bytes)
+                crate::util::takedown_webhook_hmac_signature(secret, &body_bytes)
                     .map_err(DispatchError::retryable)?,
             )
         } else {

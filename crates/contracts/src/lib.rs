@@ -166,7 +166,6 @@ pub struct DashboardStats {
     pub divergent_resources: i64,
     pub realm_destroyed: i64,
     pub ingest_announces: i64,
-    pub webhook_subscriptions: i64,
     pub audit_events: i64,
     pub allowlist_entries: i64,
     pub per_kind: Vec<DashboardKindCount>,

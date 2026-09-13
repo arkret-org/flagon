@@ -41,7 +41,7 @@ The service listens on `TEABAY_BIND` and exposes:
 - `GET /health`
 - `GET /readyz`
 - `GET /_arkret/find/directory/describe`
-- `POST /_arkret/find/directory/{announce,withdraw,push/register}`
+- `POST /_arkret/find/directory/{announce,withdraw}`
 - `POST /_arkret/find/directory/{search-realms,resolve-realm,...}`
 - `GET /.well-known/arkret/openapi.json`
 - `GET /.well-known/arkret/openapi.yaml`
@@ -320,9 +320,8 @@ captured now that handle-homograph wire-level checks are mandatory.
   ingest routes return `503 read_only` on a secondary node.
 - **Federation peers** — other Arkret Directory deployments reach this one
   over the push-announce ingest face. Peer acceptance is governed by
-  `TEABAY_ACCEPT_POLICY_KIND` plus the `accept_allowlist` table; fanout to
-  peers runs through `webhook_subscriptions`. There is no pull-subscribe
-  worker and no peer-link table.
+  `TEABAY_ACCEPT_POLICY_KIND` plus the `accept_allowlist` table. There is no
+  discovery webhook subscription, pull-subscribe worker, or peer-link table.
 
 ### DR / backup
 
@@ -333,9 +332,9 @@ captured now that handle-homograph wire-level checks are mandatory.
    drills. Restore SHOULD be verified at least quarterly using a
    throwaway secondary DC.
 3. **Crypto material** — admin HMAC token secrets in `admin_tokens` and the
-   per-subscription webhook secrets in `webhook_subscriptions` MUST be
-   treated as secrets-manager material (Vault / Doppler / cloud KMS) in any
-   backup or replication path. Rotate every 90 days.
+   internal takedown notification secrets in `pending_takedown_webhooks` MUST
+   be treated as secrets-manager material (Vault / Doppler / cloud KMS) in
+   any backup or replication path. Rotate every 90 days.
 
 ### Failover
 

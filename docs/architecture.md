@@ -30,7 +30,6 @@ Salvo router
     +-- ingest face
     |      announce
     |      withdraw
-    |      push/register
     |
     +-- /_teabay/admin/*
     |
@@ -72,7 +71,6 @@ PostgreSQL is the system of record for the directory index.
   `(resource_kind, resource_id)` pair.
 - `ingest_announces` records accepted announce attempts and request digests.
 - `withdrawals` records resource and operator withdrawal activity.
-- `webhook_subscriptions` tracks push notification fanout registrations.
 - `accept_allowlist` stores operator-managed accept-policy entries.
 - `directory_audit` is the append-only operator-readable audit feed.
 

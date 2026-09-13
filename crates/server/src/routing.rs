@@ -186,7 +186,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
 
     // Ingest face — §8. Transport hardened by RFC 9421 HTTP Message
     // Signature middleware (TB-1 / `crate::middleware::http_sig`). Every
-    // request to `announce`, `withdraw`, or `push/register` MUST carry a
+    // request to `announce` or `withdraw` MUST carry a
     // valid Ed25519-signed envelope keyed by a `keyid` in the operator
     // pubkey allowlist; the handler-level 5-step verify chain in
     // `ingest::verify` then runs on top of an already-authenticated
@@ -194,8 +194,7 @@ fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
     let ingest_routes = Router::new()
         .hoop(http_sig_middleware)
         .push(Router::with_path("announce").post(ingest::announce::announce))
-        .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw))
-        .push(Router::with_path("push/register").post(ingest::subscribe::subscribe));
+        .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw));
 
     Router::with_path("_arkret/find/directory")
         .hoop(operation_selector_middleware)
@@ -818,14 +817,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ingest",
             "Withdraw Discovery State",
             "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
-        ),
-        (
-            "/_arkret/find/directory/push/register",
-            PathItemType::Post,
-            "ak.find.directory.push.command.register.v1",
-            "ingest",
-            "Subscribe To Directory Updates",
-            "Register an HMAC-signed webhook subscription for accepted ingest updates.",
         ),
     ];
 

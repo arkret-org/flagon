@@ -312,11 +312,6 @@ fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
             "operator takedown is audit-backed, but no takedown_contact is configured; notification_status starts as no_takedown_contact_configured."
         },
     }));
-    limitations.push(json!({
-        "feature": "webhook_fanout_delivery",
-        "status": "best_effort",
-        "detail": "ak.find.directory.push.command.register.v1 webhook fanout is HMAC-signed and filtered, but delivery retry/durability is not implemented.",
-    }));
     limitations
 }
 

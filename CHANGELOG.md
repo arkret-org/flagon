@@ -169,8 +169,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   `reachability_revoked_at` / `reachability_revoked_reason` columns —
   audit-preserving UPDATE, never DELETE. Search face hides revoked rows;
   resolve still surfaces them so in-flight callers can observe the
-  tombstone. Best-effort tombstone webhook fanout reuses the
-  `ak.find.directory.push.command.register.v1` channel. New audit kind
+  tombstone. New audit kind
   `consent_revoke_invalidation`.
 - **T07 — Realm terminal state.** When the ingest face observes a
   `ak.realm.destroy` anchor (signalled either by `terminal_state:

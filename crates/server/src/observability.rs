@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 const PAD_BUCKETS: [f64; 8] = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0];
 const PAD_BUCKET_COUNT: usize = 9;
-const INGEST_KINDS: &[&str] = &["announce", "withdraw", "subscribe"];
+const INGEST_KINDS: &[&str] = &["announce", "withdraw"];
 const INGEST_OUTCOMES: &[&str] = &[
     "verify_ok",
     "json_invalid",

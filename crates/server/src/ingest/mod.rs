@@ -6,7 +6,6 @@ pub mod operator;
 pub mod organization_statement;
 pub mod rate_limit;
 pub mod receipt;
-pub mod subscribe;
 pub mod verify;
 pub mod withdraw;
 

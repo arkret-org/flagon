@@ -1,4 +1,4 @@
-//! Circle isolation guard for ingest/subscribe payloads.
+//! Circle isolation guard for directory ingest payloads.
 //!
 //! Circle (AKP-0007, spec b7d35be / 2b0d70d) is an **intra-Realm**
 //! encrypted sub-boundary: a Circle's existence, member list, and
@@ -74,7 +74,7 @@ impl CircleRejection {
 /// rejection found. Returns `Ok(())` when the payload is clean.
 ///
 /// The walker is intentionally cheap (no allocation beyond the
-/// returned json-pointer string on a hit) so the announce/subscribe
+/// returned json-pointer string on a hit) so the announce
 /// hot path can call it unconditionally on every request.
 pub fn reject_circle_payload(value: &JsonValue) -> Result<(), CircleRejection> {
     walk(value, &mut String::new(), false)
@@ -83,7 +83,7 @@ pub fn reject_circle_payload(value: &JsonValue) -> Result<(), CircleRejection> {
 /// Announce-only variant used before signature/shape validation. It permits
 /// the Circle id field required by a Realm's Circle directory projection, but
 /// it still rejects top-level Circle resources, scope references, embedded
-/// free-text ids, member lists, and subscribe filters.
+/// free-text ids and member lists.
 pub fn reject_circle_payload_allowing_directory_preview(
     value: &JsonValue,
 ) -> Result<(), CircleRejection> {

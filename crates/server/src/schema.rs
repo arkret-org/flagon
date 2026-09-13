@@ -113,18 +113,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    webhook_subscriptions (subscription_id) {
-        subscription_id -> Text,
-        subscriber_id -> Text,
-        resource_filter -> Jsonb,
-        webhook_url -> Text,
-        secret -> Bytea,
-        expires_at -> Nullable<Timestamptz>,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     directory_object_access (realm_id, object_kind, strand_id, message_id) {
         realm_id -> Text,
         object_kind -> Text,
@@ -317,7 +305,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     directory_resources,
     ingest_announces,
     withdrawals,
-    webhook_subscriptions,
     directory_object_access,
     directory_invite_revocations,
     accept_allowlist,

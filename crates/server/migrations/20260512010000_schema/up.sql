@@ -179,21 +179,6 @@ CREATE INDEX withdrawals_active_takedown_idx
     ON withdrawals (resource_kind, resource_id, effective_at DESC)
     WHERE overturned_at IS NULL;
 
--- ---- Webhook subscriptions ----------------------------------------------
-
-CREATE TABLE webhook_subscriptions (
-    subscription_id   TEXT              PRIMARY KEY,
-    subscriber_id    TEXT              NOT NULL,
-    resource_filter   JSONB             NOT NULL,
-    webhook_url       TEXT              NOT NULL,
-    secret            BYTEA             NOT NULL,
-    expires_at        TIMESTAMPTZ,
-    created_at        TIMESTAMPTZ       NOT NULL DEFAULT now()
-);
-
-CREATE INDEX webhook_subscriptions_subscriber_idx
-    ON webhook_subscriptions (subscriber_id);
-
 -- ---- Object access and invite revocation --------------------------------
 
 CREATE TABLE directory_object_access (
@@ -431,10 +416,9 @@ CREATE INDEX IF NOT EXISTS pending_takedowns_notification_due_idx
        OR notification_status = 'pending'
        OR notification_status LIKE 'retry:%';
 
--- Webhook subscribers that want to be pinged on every proposal /
--- approval transition. Distinct from the resource-discovery webhook
--- channel (`webhook_subscriptions`) so a takedown reviewer can opt
--- into the approval strand without subscribing to ingest events.
+-- Operator notification endpoints for pending takedown proposal and
+-- approval transitions. This internal audit notifier is not a discovery
+-- update subscription surface.
 CREATE TABLE IF NOT EXISTS pending_takedown_webhooks (
     webhook_id TEXT PRIMARY KEY,
     endpoint TEXT NOT NULL,
