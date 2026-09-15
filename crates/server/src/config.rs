@@ -316,8 +316,8 @@ impl AcceptPolicyKind {
             "open" => Ok(Self::Open),
             "allowlist" => Ok(Self::Allowlist),
             "trust_root_signed" => Err(anyhow::anyhow!(
-                "TEABAY_ACCEPT_POLICY_KIND=trust_root_signed is reserved until the directory \
-                 trust-seal envelope is defined in arkret-spec and arkret-rust-sdk"
+                "TEABAY_ACCEPT_POLICY_KIND=trust_root_signed is reserved until directory \
+                 acceptance can verify an authority-committed trust-root statement"
             )),
             "operator_review" => Ok(Self::OperatorReview),
             other => Err(anyhow::anyhow!(

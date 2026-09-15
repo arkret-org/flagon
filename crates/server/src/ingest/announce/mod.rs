@@ -514,21 +514,23 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             );
         }
 
-        // TBY-ORG-03 — when the Realm advertises its current control-frontier
-        // digest, mark any verified relationship sealed against an older
-        // frontier as stale so it stops surfacing as an effective badge. A
-        // statement re-announced in THIS batch already refreshed the matching
-        // cell (its digest matches the current frontier), so it is unaffected.
-        if let Some(current_frontier) = body
+        // TBY-ORG-03 — when the Realm advertises the authority revision against
+        // which its organization statements were evaluated, mark a
+        // relationship bound to a different revision as stale so it stops
+        // surfacing as an effective badge. A statement re-announced in this
+        // batch has already refreshed the matching directory projection and is
+        // unaffected.
+        if let Some(current_authority_revision) = body
             .discovery_state
             .get("realm_frontier_digest")
             .and_then(serde_json::Value::as_str)
-            && let Err(e) = crate::ingest::organization_statement::mark_stale_behind_frontier(
-                state.db(),
-                &body.resource_id,
-                current_frontier,
-            )
-            .await
+            && let Err(e) =
+                crate::ingest::organization_statement::mark_stale_for_authority_revision(
+                    state.db(),
+                    &body.resource_id,
+                    current_authority_revision,
+                )
+                .await
         {
             tracing::warn!(
                 resource_id = %body.resource_id,

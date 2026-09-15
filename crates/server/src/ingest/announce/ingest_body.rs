@@ -21,7 +21,8 @@ pub(super) fn transport_origin_matches_actor(
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DirectoryAnnounceIngest {
-    /// Original accepted Event; this is the sole signed discovery carrier.
+    /// Original producer-signed discovery Event. Shared acceptance is carried
+    /// separately by the governance Station's matching RealmCommit.
     pub discovery_event: arkret_wire::Event,
     #[serde(skip_serializing)]
     pub resource_kind: DirectoryResourceKindDb,
@@ -36,7 +37,7 @@ pub struct DirectoryAnnounceIngest {
     #[serde(skip_serializing)]
     pub discovery_state: DirectoryDiscoveryState,
     #[serde(skip_serializing)]
-    pub source_ref_access: arkret_models_collaboration::history_key::DirectorySourceRefAccess,
+    pub source_ref_access: arkret_wire::DirectorySourceRefAccess,
     pub source_refs: Vec<String>,
     pub as_of: DateTime<Utc>,
     #[serde(default)]

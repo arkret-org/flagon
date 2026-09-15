@@ -219,9 +219,9 @@ impl<'a> VerifyContext<'a> {
         // --- Derive outcome from verified state. ---------------------------
         let discoverability = read_discoverability(&req.discovery_state)?;
         let via_services = derive_via_services(&req.discovery_state, &req.station_id);
-        // The request does not echo a free-form revision.  The verified source
-        // frontier is the revision carrier; Realm producers include the
-        // effective policy-bundle Event in this frontier.
+        // The request does not echo a free-form revision. The bounded set of
+        // authority-committed source Events is the revision carrier; Realm
+        // producers include the effective policy-bundle Event in this set.
         let policy_revision = canonical::canonical_sha256(&req.source_refs).map_err(|error| {
             (
                 ApiErrorCode::SchemaViolation,
@@ -1342,9 +1342,7 @@ fn derive_via_services(discovery_state: &JsonValue, station_id: &DidCoreId) -> V
 /// source-ref proof. This never widens a stable core id into a DID: the DID is
 /// supplied by the signed verification method and accepted only when its
 /// adapter projection is exactly the carrier's `source_id`.
-fn source_service_did(
-    access: &arkret_models_collaboration::history_key::DirectorySourceRefAccess,
-) -> Result<Did, String> {
+fn source_service_did(access: &arkret_wire::DirectorySourceRefAccess) -> Result<Did, String> {
     let (controller, fragment) = access
         .proof
         .verification_method
@@ -1723,10 +1721,10 @@ mod tests {
         source_id: DidCoreId,
         verification_method: DidUrl,
         signing_key: &SigningKey,
-    ) -> arkret_models_collaboration::history_key::DirectorySourceRefAccess {
+    ) -> arkret_wire::DirectorySourceRefAccess {
         let as_of = Utc::now();
-        let mut access = arkret_models_collaboration::history_key::DirectorySourceRefAccess {
-            kind: arkret_models_collaboration::history_key::DirectorySourceRefAccessKind::DirectoryAnnounce,
+        let mut access = arkret_wire::DirectorySourceRefAccess {
+            kind: arkret_wire::DirectorySourceRefAccessKind::DirectoryAnnounce,
             source_id,
             directory_id: DidCoreId::new(DIRECTORY_SERVICE_ID).unwrap(),
             realm_id: event.realm_id.clone(),

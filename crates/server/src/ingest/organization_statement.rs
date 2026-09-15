@@ -15,7 +15,8 @@
 //! `discovery_state.organization_statements[]`. Each payload is verified
 //! independently and, on success, projected into the
 //! `verified_realm_organizations` index keyed by `(realm_id, organization_id,
-//! relationship)` (the spec reducer cell subject_id).
+//! relationship)`. This is a directory projection key, not protocol state or
+//! a commit-stream identity.
 //!
 //! The delegation resolver is injected so the directory shares the exact
 //! issuer_id-role / delegation invariants with soland and cotest. teabay does not
@@ -197,8 +198,9 @@ pub(crate) async fn persist_verified_statements(
     let mut conn = db.get().await?;
 
     for statement in statements {
-        // Read the stored statement_issued_at for the cell subject_id to enforce
-        // monotonic replay protection regardless of insert/revoke direction.
+        // Read the stored statement_issued_at for this projection key to
+        // enforce monotonic replay protection regardless of insert/revoke
+        // direction.
         let prior_issued_at: Option<DateTime<Utc>> = v::verified_realm_organizations
             .filter(v::realm_id.eq(&statement.realm_id))
             .filter(v::organization_id.eq(&statement.organization_id))
@@ -294,7 +296,8 @@ impl VerifiedRelationshipRow {
 
 /// Load the currently fresh (non-stale) verified relationships for a Realm.
 /// Expired relationships are filtered at the SQL level; staleness is a stored
-/// flag set by [`mark_stale_behind_frontier`].
+/// flag set when the statement's evaluated authority revision is no longer
+/// current.
 pub(crate) async fn load_verified_relationships(
     db: &Db,
     realm_id: &str,
@@ -337,15 +340,14 @@ pub(crate) async fn purge_expired_relationships(
     Ok(deleted)
 }
 
-/// TBY-ORG-03 — mark a Realm's verified relationships stale when the live
-/// Realm control frontier digest has advanced past the digest the
-/// organization evaluated. A stale relationship stops surfacing as an
-/// effective verified badge (it is filtered by `load_verified_relationships`)
-/// without losing the audit row.
-pub(crate) async fn mark_stale_behind_frontier(
+/// TBY-ORG-03 — mark a Realm's verified relationships stale when the current
+/// authority revision differs from the revision the organization evaluated.
+/// A stale relationship stops surfacing as an effective verified badge (it is
+/// filtered by `load_verified_relationships`) without losing the audit row.
+pub(crate) async fn mark_stale_for_authority_revision(
     db: &Db,
     realm_id: &str,
-    current_frontier_digest: &str,
+    current_authority_revision: &str,
 ) -> anyhow::Result<usize> {
     use crate::schema::verified_realm_organizations::dsl as v;
     let mut conn = db.get().await?;
@@ -354,7 +356,7 @@ pub(crate) async fn mark_stale_behind_frontier(
             .filter(v::realm_id.eq(realm_id))
             .filter(v::stale.eq(false))
             .filter(v::realm_frontier_digest.is_not_null())
-            .filter(v::realm_frontier_digest.ne(current_frontier_digest)),
+            .filter(v::realm_frontier_digest.ne(current_authority_revision)),
     )
     .set(v::stale.eq(true))
     .execute(&mut *conn)

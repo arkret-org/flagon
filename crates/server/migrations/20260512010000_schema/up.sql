@@ -628,8 +628,8 @@ UPDATE directory_resources
 -- (`verify_realm_organization_statement`).
 --
 -- Each verified statement is keyed by `(realm_id, organization_id,
--- relationship)` — the spec reducer cell subject_id — so a newer statement for
--- the same triple supersedes (or revokes) the prior one. `statement_issued_at`
+-- relationship)` as a directory projection key, so a newer statement for the
+-- same triple supersedes (or revokes) the prior one. `statement_issued_at`
 -- is the monotonic ordering key used to reject replayed older statements
 -- (TBY-ORG-03 replay protection).
 
@@ -648,14 +648,14 @@ CREATE TABLE verified_realm_organizations (
     statement_issued_at TIMESTAMPTZ NOT NULL,
     not_before          TIMESTAMPTZ,
     expires_at          TIMESTAMPTZ,
-    -- Realm control frontier digest the organization evaluated, when present.
-    -- Used by TBY-ORG-03 staleness detection: when the live Realm frontier has
-    -- advanced past this digest the verified relationship is marked stale.
+    -- Realm authority revision the organization evaluated, when present.
+    -- The column name follows the current relationship-statement wire field;
+    -- it is not a commit-stream frontier or ordering primitive.
     realm_frontier_digest TEXT,
     -- Whether the relationship is currently considered fresh. A relationship is
-    -- marked stale (rather than deleted) when the Realm frontier digest the
-    -- organization evaluated has fallen behind, so it stops surfacing as an
-    -- effective verified badge without losing the audit trail.
+    -- marked stale (rather than deleted) when the authority revision the
+    -- organization evaluated differs from current, so it stops surfacing as
+    -- an effective verified badge without losing the audit trail.
     stale               BOOLEAN     NOT NULL DEFAULT false,
     verified_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     source_announce_id  TEXT,

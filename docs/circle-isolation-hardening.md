@@ -82,11 +82,11 @@ accept the new selector kind as a first-class membership scope.
 
 | Surface | Pre-R3 behavior | R3 behavior with `circle` selector |
 |---|---|---|
-| **Ingest accept** — event submitted with a signed `scope_ref = {kind:"circle", realm_id, circle_id}` | No such surface (events lacked a circle-scoped form) | Accepted iff submitter is a current member of the named circle; rejected with `isolation_rejected` otherwise. The ingest filter consults `circle_membership` (FSM-backed) at write time and refuses any event whose `scope_ref.circle_id` the submitter is not a member of. The Event wire has exactly one security-scope field (`models/circle.md` §6.2); `effective_scope` below is the read projection materialized from it, never a second wire field. |
+| **Ingest accept** — an authority-committed event has `scope_ref = {kind:"circle", realm_id, circle_id}` | No such surface (events lacked a circle-scoped form) | Accepted iff the Event is paired with a valid `RealmCommit` from the Realm's current governance Station and the submitter was a current member of the named circle at that commit position; rejected with `isolation_rejected` otherwise. The Event wire has exactly one security-scope field (`models/circle.md` §6.2); `effective_scope` below is the read projection materialized from it, never a second wire field. |
 | **Ingest project** — event projected into the audit/event-log table | N/A | Row stored with `effective_scope_kind = "circle"` and `effective_scope_circle_id = <CircleId>`. The B-Tree index `projection_events_effective_scope_idx` covers this column (see `soland/DEPLOYMENT.md` operational notes for sizing). |
 | **Query accept** — caller queries `ak.query.list` with `selector = circle(...)` | N/A | Accepted iff caller is a current member of the named circle. Selector validation matches the canonical full `ak:circle:<event-token>` pattern. |
 | **Query result** — projection rows returned to the caller | Realm-scoped or organization-scoped only | Filtered to rows where `effective_scope_kind = "circle" AND effective_scope_circle_id = caller's-circle-id`. No realm-scoped or organization-scoped rows leak into a circle query (and vice versa). |
-| **Query result** — `prev_digest` / `audit_digest` chain | Realm-/org-scoped chain | Per-circle chain; circles maintain their own independent digest chain to prevent cross-circle digest correlation. |
+| **Query result** — commit continuity | Realm-scoped stream | Each Circle has its own independent `RealmCommit` stream. Its `previous_commit_ref` never links to the Realm stream or another Circle/Sidecar stream. |
 | **Ingest reject reason** | `isolation_rejected` with `detail.rule = "<rule#>"` | Same scheme; `detail.rule = "circle-member"` for circle-scoped rejects, with `detail.circle_id` masked to SHA-256 prefix in production redaction. |
 | **Query reject reason** | `isolation_rejected` | Same; `detail.rule = "circle-member"` |
 
@@ -96,13 +96,14 @@ accept the new selector kind as a first-class membership scope.
   resolve to a circle that is a member of the resource's owning Realm.
   Cross-realm circle references are hard rejected with
   `isolation_rejected` (rule `circle-cross-realm`).
-- The circle membership FSM lives on the durable event log
-  (`ak.circle.membership.{add,remove}`). teabay reads from a projection;
-  if the projection is behind the durable log (replica lag), the
+- The circle membership FSM advances only from governance-authority committed
+  `ak.circle.membership.{add,remove}` Events in that Circle's independent
+  commit stream. teabay reads from a projection; if the projection is behind
+  that stream (replica lag), the
   ingest filter fails closed: writes against a circle the projection
   doesn't yet show membership for are rejected, not silently accepted.
 - Circle membership state on the wire is **never** leaked to non-members
-  via teabay's directory or push surfaces. The circle-scoped event log
+  via teabay's directory or push surfaces. The Circle commit stream
   is opaque to non-members at every read surface.
 
 ### Dashboards
@@ -113,5 +114,5 @@ Two new metrics:
   circle rejects, bucketed by rule (`circle-member`, `circle-cross-realm`,
   `circle-projection-stale`).
 - `teabay_circle_membership_projection_lag_seconds` — gauge of the lag
-  between the durable circle-membership event log and the projection
+  between the Circle's authority commit stream and the projection
   teabay reads from. Alert at >5s.

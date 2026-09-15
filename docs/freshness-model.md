@@ -9,8 +9,8 @@ clients can reason about how recently the directory observed source truth.
 
 - `as_of`: source timestamp carried by the accepted discovery state.
 - `indexed_at`: local time when teabay accepted the state.
-- `source_refs`: source event IDs clients can re-fetch from the Principal
-  Server.
+- `source_refs`: producer-signed source Event IDs whose acceptance is proven by
+  matching `RealmCommit` objects from the Realm's current governance Station.
 - `policy_revision`: required source policy revision.
 - `effective_ttl_seconds`: TTL selected by teabay after applying defaults and
   caps.
@@ -73,9 +73,10 @@ instead of creating a second logical accept.
 
 ## Refresh Path
 
-Resources refresh discovery state with signed push announces. Pull ingest stays
-unsupported until v1 defines the Directory-specific state-only read operation
-and DTO; teabay never reads discovery state from `/_arkret/self/events/*`.
+Resources refresh discovery state with signed push announces. The announce's
+bounded source references are resolved only through an authorization carrier
+to the current governance Station; arbitrary history scan is not a substitute
+for exact committed-Event resolution.
 
 ## Stale And Delete Windows
 
