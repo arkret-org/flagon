@@ -48,8 +48,8 @@
 //! resolve jitter).
 use arkret_identity::binding::DidBindingPurpose;
 use arkret_sdk::{
-    DirectoryResolveTargetRequestBody, DirectoryTargetResolutionOutcome, EventId, MessageId,
-    NonEmptyString, ObjectPreview, ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
+    DirectoryResolveTargetRequestBody, DirectoryTargetResolutionOutcome, MessageId, NonEmptyString,
+    ObjectPreview, ObjectPreviewId, RealmPreview, StrandId, TargetKind, canonical,
 };
 use arkret_wire::{
     AddressLinkKind, ParsedAddress, RealmRef, TargetDescriptor, parse_address, target_digest,
@@ -1012,17 +1012,12 @@ fn preview_object_for_address(
     parsed: &ParsedAddress,
     target_kind: TargetKind,
     as_of: DateTime<Utc>,
-    source_refs: &[String],
+    source_refs: &[arkret_wire::CommittedEventRef],
     policy_revision: &str,
     stale: bool,
     divergent: bool,
 ) -> Result<Option<ObjectPreview>, String> {
-    let source_refs = source_refs
-        .iter()
-        .cloned()
-        .map(EventId::new)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("invalid object preview source reference: {error}"))?;
+    let source_refs = source_refs.to_vec();
     match target_kind {
         TargetKind::Realm => Ok(None),
         TargetKind::Strand | TargetKind::Message => {
@@ -1074,7 +1069,7 @@ struct ObjectAccessRow {
     public_projection: JsonValue,
     required_claims: JsonValue,
     as_of: chrono::DateTime<Utc>,
-    source_refs: Vec<String>,
+    source_refs: crate::source_refs::CommittedEventRefs,
     policy_revision: Option<String>,
     stale: bool,
     divergent: bool,
@@ -1122,13 +1117,7 @@ async fn build_object_response(
     };
 
     let object_id = object_preview_id(parsed, target_kind).map_err(anyhow::Error::msg)?;
-    let object_source_refs = row
-        .source_refs
-        .iter()
-        .cloned()
-        .map(EventId::new)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| anyhow::anyhow!("invalid object preview source reference: {error}"))?;
+    let object_source_refs = row.source_refs.as_slice().to_vec();
     let object_preview = ObjectPreview {
         object_id,
         object_kind: match target_kind {
@@ -1511,7 +1500,7 @@ mod tests {
             public_projection: json!({ "title": "Strand" }),
             required_claims: json!([]),
             as_of: sample_time(),
-            source_refs: vec!["ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1".to_owned()],
+            source_refs: vec![crate::source_refs::fixture_committed_event_ref()].into(),
             policy_revision: None,
             stale: false,
             divergent: false,
@@ -1561,7 +1550,7 @@ mod tests {
                 "organization_id": org.as_str(),
             }]),
             as_of: sample_time(),
-            source_refs: vec!["ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1".to_owned()],
+            source_refs: vec![crate::source_refs::fixture_committed_event_ref()].into(),
             policy_revision: Some("rev-7".to_owned()),
             stale: false,
             divergent: false,
@@ -1587,7 +1576,7 @@ mod tests {
             public_projection: json!({ "title": "Strand" }),
             required_claims: json!([]),
             as_of: sample_time(),
-            source_refs: vec!["ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1".to_owned()],
+            source_refs: vec![crate::source_refs::fixture_committed_event_ref()].into(),
             policy_revision: None,
             stale: false,
             divergent: false,

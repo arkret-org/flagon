@@ -10,8 +10,8 @@
 //!    governance key resolved via DID document.
 //! 3. Directory authorization — `discovery_state.directory_ids` is a core-id list containing *this*
 //!    directory's stable service id.
-//! 4. Source-ref sanity — for first ingest, verifies an anchor from the resource's Station to
-//!    confirm `source_refs[0]` is resolvable.
+//! 4. Source-ref authority — for first ingest, resolves every closed committed Event ref from the
+//!    resource's governance Station and verifies its RealmCommit signature plus authority chain.
 //! 5. Accept policy — local accept_policy (open / allowlist / operator_review) decision.
 //!
 //! Any failure MUST short-circuit; we never partially accept (§8.5 last line).
@@ -35,6 +35,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use reqwest::Client;
+use salvo::async_trait;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use url::Url;
@@ -64,20 +65,63 @@ pub struct VerifyOutcome {
     pub policy_revision: String,
 }
 
+/// Verifies that a resolved `RealmCommit` was signed by the governance
+/// authority active at that generation and that its authority chain is valid.
+///
+/// Structural equality is deliberately handled by the caller first. An
+/// implementation of this trait must additionally verify the commit signature,
+/// the genesis-to-generation authority chain, and the signing Station binding;
+/// accepting solely because [`arkret_wire::CommittedEventRef::matches`] returned
+/// true is forbidden.
+#[async_trait]
+pub trait CommittedEventAuthorityVerifier: Send + Sync + 'static {
+    async fn verify(
+        &self,
+        source_service_id: &DidCoreId,
+        reference: &arkret_wire::CommittedEventRef,
+        item: &arkret_wire::StreamItem,
+    ) -> Result<(), String>;
+}
+
+/// Safe production fallback until a deployment installs an authority-chain
+/// verifier. First-time ingest fails closed instead of treating an exact DTO
+/// match or an authenticated transport as commit authority.
+#[derive(Debug, Default)]
+pub struct FailClosedCommittedEventAuthorityVerifier;
+
+#[async_trait]
+impl CommittedEventAuthorityVerifier for FailClosedCommittedEventAuthorityVerifier {
+    async fn verify(
+        &self,
+        _source_service_id: &DidCoreId,
+        _reference: &arkret_wire::CommittedEventRef,
+        _item: &arkret_wire::StreamItem,
+    ) -> Result<(), String> {
+        Err("RealmCommit authority-chain verifier is not configured".to_owned())
+    }
+}
+
 pub struct VerifyContext<'a> {
     pub config: &'a AppConfig,
     pub db: &'a Db,
     /// DID-P0-C01 — borrowed from `AppState`; never constructed here.
     pub resolver: &'a SharedDidResolver,
+    pub commit_authority_verifier: &'a dyn CommittedEventAuthorityVerifier,
     pub now: DateTime<Utc>,
 }
 
 impl<'a> VerifyContext<'a> {
-    pub fn new(config: &'a AppConfig, db: &'a Db, resolver: &'a SharedDidResolver) -> Self {
+    pub fn new(
+        config: &'a AppConfig,
+        db: &'a Db,
+        resolver: &'a SharedDidResolver,
+        commit_authority_verifier: &'a dyn CommittedEventAuthorityVerifier,
+    ) -> Self {
         Self {
             config,
             db,
             resolver,
+            commit_authority_verifier,
             now: Utc::now(),
         }
     }
@@ -180,7 +224,7 @@ impl<'a> VerifyContext<'a> {
         if req.source_refs.is_empty() {
             return Err((
                 ApiErrorCode::SourceRefsUnverifiable,
-                "source_refs MUST contain at least one anchor event id".into(),
+                "source_refs MUST contain at least one committed Event ref".into(),
             ));
         }
         verify_directory_source_ref_access(req, self.config, self.resolver, self.now)?;
@@ -188,7 +232,13 @@ impl<'a> VerifyContext<'a> {
             .await
             .map_err(|e| (ApiErrorCode::InternalError, format!("source-ref gate: {e}")))?
         {
-            verify_first_source_ref_resolves(req, self.config, self.resolver).await?;
+            verify_first_source_ref_resolves(
+                req,
+                self.config,
+                self.resolver,
+                self.commit_authority_verifier,
+            )
+            .await?;
         }
 
         // --- Step 5: accept policy enforcement. ----------------------------
@@ -222,12 +272,13 @@ impl<'a> VerifyContext<'a> {
         // The request does not echo a free-form revision. The bounded set of
         // authority-committed source Events is the revision carrier; Realm
         // producers include the effective policy-bundle Event in this set.
-        let policy_revision = canonical::canonical_sha256(&req.source_refs).map_err(|error| {
-            (
-                ApiErrorCode::SchemaViolation,
-                format!("source_refs revision is not canonical: {error}"),
-            )
-        })?;
+        let policy_revision = canonical::canonical_sha256(&req.source_ref_access.source_refs)
+            .map_err(|error| {
+                (
+                    ApiErrorCode::SchemaViolation,
+                    format!("committed source refs revision is not canonical: {error}"),
+                )
+            })?;
 
         Ok(VerifyOutcome {
             discoverability,
@@ -643,18 +694,27 @@ async fn verify_first_source_ref_resolves(
     req: &DirectoryAnnounceIngest,
     config: &AppConfig,
     resolver: &SharedDidResolver,
+    commit_authority_verifier: &dyn CommittedEventAuthorityVerifier,
 ) -> Result<(), (ApiErrorCode, String)> {
-    let source_ref = req
-        .source_refs
-        .as_slice()
-        .first()
-        .ok_or_else(|| {
-            (
-                ApiErrorCode::SourceRefsUnverifiable,
-                "source_refs MUST contain at least one anchor event id".to_owned(),
-            )
-        })?
-        .clone();
+    let source_refs = req.source_ref_access.source_refs.clone();
+    if source_refs.is_empty() {
+        return Err((
+            ApiErrorCode::SourceRefsUnverifiable,
+            "source_refs MUST contain at least one committed Event ref".to_owned(),
+        ));
+    }
+    let resolve_request = arkret_wire::CommittedEventResolveRequest {
+        realm_id: req.source_ref_access.realm_id.clone(),
+        refs: source_refs.clone(),
+        source_ref_access: req.source_ref_access.clone(),
+    };
+    resolve_request.validate().map_err(|error| {
+        (
+            ApiErrorCode::SourceRefsUnverifiable,
+            format!("invalid committed source refs: {error}"),
+        )
+    })?;
+
     // `station_id` is a stable `did_core_id`, never a resolvable DID. The
     // source-signed access proof was verified immediately before this call;
     // its verification-method controller is the authenticated route carrier.
@@ -682,14 +742,19 @@ async fn verify_first_source_ref_resolves(
     // DID-P0-C02: the endpoint is an accepted five-tuple (service DID, service
     // kind, trust domain, endpoint digest, source ref), not a cached URL, and
     // the URL below is derived from the *pinned* DID document every time.
-    let accepted = resolve_station_endpoint(config, resolver, &station_did, source_ref.as_str())
-        .await
-        .map_err(|e| {
-            (
-                ApiErrorCode::SourceRefsUnverifiable,
-                format!("station_id did not resolve to events endpoint: {e}"),
-            )
-        })?;
+    let accepted = resolve_station_endpoint(
+        config,
+        resolver,
+        &station_did,
+        req.source_ref_access.discovery_event_id.as_str(),
+    )
+    .await
+    .map_err(|e| {
+        (
+            ApiErrorCode::SourceRefsUnverifiable,
+            format!("station_id did not resolve to committed-event endpoint: {e}"),
+        )
+    })?;
     tracing::debug!(
         service_did = %accepted.service_did,
         service_kind = accepted.service_kind,
@@ -700,49 +765,38 @@ async fn verify_first_source_ref_resolves(
         source_ref = %accepted.source_ref,
         "accepted Station endpoint"
     );
-    let url = endpoint_child(&accepted.endpoint, "events/resolve").map_err(|e| {
+    let url = endpoint_child(&accepted.endpoint, "streams/resolve").map_err(|e| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
-            format!("source-ref URL: {e}"),
+            format!("committed source-ref URL: {e}"),
         )
     })?;
     let target = crate::egress::resolve_url_for_egress(
         &url,
-        "source-ref fetch",
+        "committed source-ref fetch",
         crate::egress::local_development_enabled(config.development_mode),
     )
     .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error))?;
     let locked_http = strict_http_client_for_egress(&target).map_err(|e| {
         (
             ApiErrorCode::InternalError,
-            format!("source-ref HTTP client: {e}"),
+            format!("committed source-ref HTTP client: {e}"),
         )
     })?;
-    let request_body = arkret_models_collaboration::http_bodies::PeerEventsResolveRequestBody {
-        realm_id: req.source_ref_access.realm_id.clone(),
-        event_ids: vec![
-            arkret_wire::EventId::new(source_ref.clone())
-                .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error.to_string()))?,
-        ],
-        event_digests: Vec::new(),
-        include_payload: Some(true),
-        max_response_bytes: Some(8 * 1024 * 1024),
-        history_traversal_access: None,
-        directory_source_ref_access: Some(req.source_ref_access.clone()),
-    };
-    let body_bytes = canonical::canonical_json_bytes(&request_body)
+    let body_bytes = canonical::canonical_json_bytes(&resolve_request)
         .map_err(|error| (ApiErrorCode::SourceRefsUnverifiable, error.to_string()))?;
     let signing_key = config.receipt_signing_key.as_ref().ok_or_else(|| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
-            "Directory service signing key is required for peer exact resolve".to_owned(),
+            "Directory service signing key is required for exact committed-event resolve"
+                .to_owned(),
         )
     })?;
     let target_uri = target.url().as_str().to_owned();
     let host = target.url().host_str().ok_or_else(|| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
-            "source-ref endpoint has no authority".to_owned(),
+            "committed source-ref endpoint has no authority".to_owned(),
         )
     })?;
     let authority = match target.url().port() {
@@ -782,7 +836,7 @@ async fn verify_first_source_ref_resolves(
         ),
     ];
     let signing_parts = SignedRequestParts {
-        method: "QUERY".to_owned(),
+        method: "POST".to_owned(),
         target_uri: target_uri.clone(),
         authority,
         path: target.url().path().to_owned(),
@@ -799,8 +853,7 @@ async fn verify_first_source_ref_resolves(
         "sig1=:{}:",
         sign_message(&signing_message, signing_key.signing_key())
     );
-    let method = reqwest::Method::from_bytes(b"QUERY").expect("QUERY method is valid");
-    let mut outbound = locked_http.request(method, target.url().clone());
+    let mut outbound = locked_http.post(target.url().clone());
     for (name, value) in headers {
         outbound = outbound.header(name, value);
     }
@@ -809,7 +862,7 @@ async fn verify_first_source_ref_resolves(
         .header("signature", signature)
         .header(
             "arkret-operation",
-            arkret_wire::ServiceOperationId::PEER_EVENTS_READ_RESOLVE_V1,
+            arkret_wire::ServiceOperationId::PEER_EVENTS_READ_RESOLVE_COMMITTED_V1,
         )
         .header("content-type", "application/json")
         .body(body_bytes)
@@ -818,34 +871,54 @@ async fn verify_first_source_ref_resolves(
         .map_err(|e| {
             (
                 ApiErrorCode::SourceRefsUnverifiable,
-                format!("source-ref fetch failed: {e:?}"),
+                format!("committed source-ref fetch failed: {e:?}"),
             )
         })?;
     if !response.status().is_success() {
         return Err((
             ApiErrorCode::SourceRefsUnverifiable,
-            format!("source-ref fetch returned {}", response.status()),
+            format!("committed source-ref fetch returned {}", response.status()),
         ));
     }
-    let body = response_json_limited::<
-        arkret_models_collaboration::http_bodies::PeerEventsResolveOutcome,
-    >(response, "source-ref response")
+    let body = response_json_limited::<arkret_wire::CommittedEventResolveOutcome>(
+        response,
+        "committed source-ref response",
+    )
     .await
     .map_err(|e| {
         (
             ApiErrorCode::SourceRefsUnverifiable,
-            format!("source-ref response was not JSON: {e}"),
+            format!("committed source-ref response was not JSON: {e}"),
         )
     })?;
-    let returned = body
-        .events
-        .iter()
-        .any(|submission| submission.event.event_id.as_str() == source_ref);
-    if !returned || !body.missing_event_ids.is_empty() {
+    if body.items.len() != source_refs.len() {
         return Err((
             ApiErrorCode::SourceRefsUnverifiable,
-            "peer exact resolve did not return the selected source ref".to_owned(),
+            "peer exact committed-event resolve omitted or added a source ref".to_owned(),
         ));
+    }
+    for (reference, item) in source_refs.iter().zip(&body.items) {
+        item.commit.validate_shape().map_err(|error| {
+            (
+                ApiErrorCode::SourceRefsUnverifiable,
+                format!("resolved RealmCommit shape is invalid: {error}"),
+            )
+        })?;
+        if !reference.matches(item) {
+            return Err((
+                ApiErrorCode::SourceRefsUnverifiable,
+                "resolved RealmCommit/Event does not match the exact committed ref".to_owned(),
+            ));
+        }
+        commit_authority_verifier
+            .verify(&req.station_id, reference, item)
+            .await
+            .map_err(|reason| {
+                (
+                    ApiErrorCode::SourceRefsUnverifiable,
+                    format!("RealmCommit authority verification failed: {reason}"),
+                )
+            })?;
     }
     Ok(())
 }
@@ -1545,8 +1618,6 @@ mod tests {
             },
             signer.issuer_core_id.clone(),
             DidCoreId::new("ak:did_core:web:station.example").unwrap(),
-            1,
-            arkret_wire::Hlc::new("01970e589d21-0001-a13f9c2e").unwrap(),
             json!({"resource_id": signer.issuer_core_id, "value": {"discoverability": "public"}}),
         )
         .unwrap();
@@ -1562,7 +1633,6 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            signer_resolution_evidence_ref: None,
             created_at: event.created_at,
             domain: None,
             audience: None,
@@ -1699,8 +1769,6 @@ mod tests {
             },
             source_id.clone(),
             source_id,
-            1,
-            arkret_wire::Hlc::new("01970e589d21-0001-a13f9c2e").unwrap(),
             json!({
                 "value": {
                     "resource_kind": "realm",
@@ -1718,6 +1786,7 @@ mod tests {
 
     fn signed_source_ref_access(
         event: &arkret_wire::Event,
+        committed_ref: arkret_wire::CommittedEventRef,
         source_id: DidCoreId,
         verification_method: DidUrl,
         signing_key: &SigningKey,
@@ -1729,7 +1798,7 @@ mod tests {
             directory_id: DidCoreId::new(DIRECTORY_SERVICE_ID).unwrap(),
             realm_id: event.realm_id.clone(),
             discovery_event_id: event.event_id.clone(),
-            source_refs: vec![event.event_id.clone()],
+            source_refs: vec![committed_ref],
             as_of,
             expires_at: as_of + Duration::minutes(5),
             proof: arkret_wire::PayloadProof {
@@ -1751,9 +1820,49 @@ mod tests {
         access
     }
 
+    fn committed_source_item(
+        event: arkret_wire::Event,
+        verification_method: DidUrl,
+    ) -> (arkret_wire::CommittedEventRef, arkret_wire::StreamItem) {
+        let stream_ref = arkret_wire::CommitStreamRef::Realm {
+            realm_id: event.realm_id.clone(),
+        };
+        let commit_id = arkret_wire::RealmCommitId::from_digest(arkret_canonical::sha256_bytes(
+            event.event_id.as_str().as_bytes(),
+        ));
+        let commit = arkret_wire::RealmCommit {
+            commit_id: commit_id.clone(),
+            realm_id: event.realm_id.clone(),
+            stream_ref: stream_ref.clone(),
+            stream_position: 0,
+            previous_commit_ref: None,
+            event_ref: event.event_id.clone(),
+            authority_generation: 0,
+            authority_ref: arkret_wire::RealmCommitAuthorityRef::GenesisOrChangeEvent(
+                event.event_id.clone(),
+            ),
+            committed_at: Utc::now(),
+            signature: arkret_wire::DetachedObjectSignature {
+                context: arkret_wire::DetachedSignatureContext::RealmCommit,
+                signature_algorithm: arkret_wire::DetachedSignatureAlgorithm::Ed25519,
+                verification_method,
+                signed_digest: Hash::new(arkret_canonical::sha256_digest(b"commit body")).unwrap(),
+                created_at: Utc::now(),
+                sig: arkret_wire::Base64UrlString::new("AA").unwrap(),
+            },
+        };
+        let reference = arkret_wire::CommittedEventRef {
+            event_id: event.event_id.clone(),
+            commit_id,
+            stream_ref,
+            stream_position: 0,
+        };
+        (reference, arkret_wire::StreamItem { commit, event })
+    }
+
     async fn source_peer(
         status: u16,
-        event: arkret_wire::Event,
+        item: arkret_wire::StreamItem,
     ) -> (String, tokio::task::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1790,9 +1899,7 @@ mod tests {
                     .unwrap();
             let response_body = if status == 200 {
                 serde_json::to_string(&json!({
-                    "events": [{"event": event, "ingress_receipts": []}],
-                    "missing_event_ids": [],
-                    "missing_event_digests": []
+                    "items": [item]
                 }))
                 .unwrap()
             } else {
@@ -1840,19 +1947,42 @@ mod tests {
         .unwrap()
     }
 
-    async fn run_source_ref_fetch(status: u16) -> Result<String, (ApiErrorCode, String)> {
+    struct TestCommitAuthorityVerifier;
+
+    #[async_trait]
+    impl CommittedEventAuthorityVerifier for TestCommitAuthorityVerifier {
+        async fn verify(
+            &self,
+            _source_service_id: &DidCoreId,
+            reference: &arkret_wire::CommittedEventRef,
+            item: &arkret_wire::StreamItem,
+        ) -> Result<(), String> {
+            if !reference.matches(item) {
+                return Err("test verifier received mismatched evidence".to_owned());
+            }
+            Ok(())
+        }
+    }
+
+    async fn run_source_ref_fetch(
+        status: u16,
+        authority_accepts: bool,
+    ) -> Result<String, (ApiErrorCode, String)> {
         let signing_key = SigningKey::from_bytes(&[77; 32]);
         let source_did = Did::new("did:web:source.example").unwrap();
         let source_id = arkret_sdk::project_did_to_core_id(&source_did).unwrap();
         let verification_method = DidUrl::new("did:web:source.example#source-key").unwrap();
         let event = source_ref_test_event(source_id.clone());
+        let (committed_ref, item) =
+            committed_source_item(event.clone(), verification_method.clone());
         let access = signed_source_ref_access(
             &event,
+            committed_ref,
             source_id.clone(),
             verification_method.clone(),
             &signing_key,
         );
-        let (endpoint, peer) = source_peer(status, event.clone()).await;
+        let (endpoint, peer) = source_peer(status, item).await;
         let resolver =
             source_ref_test_resolver(endpoint, source_did, verification_method, &signing_key);
         let request = DirectoryAnnounceIngest {
@@ -1865,7 +1995,7 @@ mod tests {
                 "discoverability": "public",
                 "directory_ids": [DIRECTORY_SERVICE_ID]
             })),
-            source_refs: access.source_refs.iter().map(ToString::to_string).collect(),
+            source_refs: access.source_refs.clone(),
             as_of: access.as_of,
             source_ref_access: access,
             ttl_seconds: None,
@@ -1873,17 +2003,25 @@ mod tests {
         };
         let config = source_ref_test_config();
         verify_directory_source_ref_access(&request, &config, &resolver, Utc::now())?;
-        let outcome = verify_first_source_ref_resolves(&request, &config, &resolver).await;
+        let accepting_verifier = TestCommitAuthorityVerifier;
+        let fail_closed_verifier = FailClosedCommittedEventAuthorityVerifier;
+        let verifier: &dyn CommittedEventAuthorityVerifier = if authority_accepts {
+            &accepting_verifier
+        } else {
+            &fail_closed_verifier
+        };
+        let outcome =
+            verify_first_source_ref_resolves(&request, &config, &resolver, verifier).await;
         let captured = peer.await.unwrap();
         outcome.map(|()| captured)
     }
 
     #[tokio::test]
     async fn first_ingest_fetches_one_bounded_ref_from_the_authenticated_source_service() {
-        let captured = run_source_ref_fetch(200)
+        let captured = run_source_ref_fetch(200, true)
             .await
             .expect("the source Station returned the selected current ref");
-        assert!(captured.starts_with("QUERY /_arkret/peer/events/resolve HTTP/1.1"));
+        assert!(captured.starts_with("POST /_arkret/peer/streams/resolve HTTP/1.1"));
         assert!(
             captured
                 .to_ascii_lowercase()
@@ -1891,19 +2029,30 @@ mod tests {
         );
         let (_, body) = captured.split_once("\r\n\r\n").unwrap();
         let body: JsonValue = serde_json::from_str(body).unwrap();
-        assert_eq!(body["event_ids"].as_array().unwrap().len(), 1);
+        assert_eq!(body["refs"].as_array().unwrap().len(), 1);
+        assert_eq!(body["refs"][0]["stream_ref"]["realm_id"], body["realm_id"]);
+        assert!(body["refs"][0]["event_id"].as_str().is_some());
+        assert!(body["refs"][0].get("commit_id").is_some());
+        assert_eq!(body["refs"][0]["stream_position"], 0);
         assert_eq!(
-            body["event_ids"][0],
-            body["directory_source_ref_access"]["source_refs"][0]
+            body["source_ref_access"]["discovery_event_id"],
+            body["refs"][0]["event_id"]
         );
-        assert!(body.get("event_digests").is_none());
-        assert!(body.get("history_traversal_access").is_none());
+    }
+
+    #[tokio::test]
+    async fn first_ingest_rejects_matching_commit_without_verified_authority_chain() {
+        let (code, message) = run_source_ref_fetch(200, false)
+            .await
+            .expect_err("exact DTO equality must not replace authority verification");
+        assert_eq!(code, ApiErrorCode::SourceRefsUnverifiable);
+        assert!(message.contains("authority verification failed"));
     }
 
     #[tokio::test]
     async fn first_ingest_rejects_source_ref_after_withdraw_supersession_or_other_announce() {
         for lifecycle in ["withdrawn", "superseded", "other_announce_carrier"] {
-            let (code, message) = run_source_ref_fetch(403)
+            let (code, message) = run_source_ref_fetch(403, true)
                 .await
                 .expect_err("a source Station lifecycle denial must fail first ingest");
             assert_eq!(code, ApiErrorCode::SourceRefsUnverifiable, "{lifecycle}");

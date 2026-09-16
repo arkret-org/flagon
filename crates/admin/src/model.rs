@@ -89,7 +89,7 @@ impl Default for ResourceEditorForm {
             station_id: String::new(),
             discoverability: "public".to_string(),
             as_of: String::new(),
-            source_refs: "[\n  \"admin:manual\"\n]".to_string(),
+            source_refs: "[]".to_string(),
             policy_revision: String::new(),
             effective_ttl_seconds: "86400".to_string(),
             stale: false,
@@ -118,7 +118,8 @@ impl ResourceEditorForm {
             station_id: item.station_id.to_string(),
             discoverability: item.discoverability.clone(),
             as_of: item.as_of.clone(),
-            source_refs: pretty_string_array(&item.source_refs),
+            source_refs: serde_json::to_string_pretty(&item.source_refs)
+                .expect("committed source refs are JSON-serializable"),
             policy_revision: item.policy_revision.clone(),
             effective_ttl_seconds: item.effective_ttl_seconds.to_string(),
             stale: item.stale,
@@ -167,7 +168,9 @@ impl ResourceEditorForm {
             ))
             .map_err(|error| format!("invalid discoverability: {error}"))?,
             as_of: parse_optional_datetime(&self.as_of, "as_of")?,
-            source_refs: parse_string_array(&self.source_refs, "source_refs")?,
+            source_refs: serde_json::from_str(self.source_refs.trim()).map_err(|error| {
+                format!("source_refs must be a committed-ref JSON array: {error}")
+            })?,
             policy_revision,
             effective_ttl_seconds: parse_optional_i64(
                 &self.effective_ttl_seconds,

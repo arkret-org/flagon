@@ -38,7 +38,7 @@ pub struct DirectoryAnnounceIngest {
     pub discovery_state: DirectoryDiscoveryState,
     #[serde(skip_serializing)]
     pub source_ref_access: arkret_wire::DirectorySourceRefAccess,
-    pub source_refs: Vec<String>,
+    pub source_refs: Vec<arkret_wire::CommittedEventRef>,
     pub as_of: DateTime<Utc>,
     #[serde(default)]
     pub ttl_seconds: Option<i64>,
@@ -100,12 +100,7 @@ impl TryFrom<DirectoryAnnounceRequestBody> for DirectoryAnnounceIngest {
         {
             return Err("source_ref_access does not bind the exact announce".to_owned());
         }
-        let source_refs = value
-            .source_ref_access
-            .source_refs
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        let source_refs = value.source_ref_access.source_refs.clone();
         Ok(Self {
             discovery_event: event,
             resource_kind,

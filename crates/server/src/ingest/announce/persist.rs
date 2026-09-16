@@ -14,6 +14,7 @@ use super::ingest_body::DirectoryAnnounceIngest;
 use crate::db::Db;
 use crate::filter::enumeration::{MemberCountResidencyPrior, apply_member_count_residency};
 use crate::ingest::{DirectoryResourceKindDb, IngestModeWire};
+use crate::source_refs::CommittedEventRefs;
 
 pub(crate) fn digest_request(req: &DirectoryAnnounceIngest) -> Result<Vec<u8>, String> {
     // Arkret canonical JSON body SHA-256 — used for replay detection in
@@ -122,6 +123,7 @@ pub(crate) async fn upsert_resource_and_audit(
     use crate::schema::ingest_announces::dsl as a;
 
     let mut conn = db.get().await?;
+    let source_refs = CommittedEventRefs::from(body.source_refs.clone());
     let emitted_projection = conn
         .transaction::<JsonValue, anyhow::Error, _>(async move |conn| {
             let inserted = diesel::insert_into(a::ingest_announces)
@@ -132,7 +134,7 @@ pub(crate) async fn upsert_resource_and_audit(
                     a::station_id.eq(body.station_id.as_str()),
                     a::ingest_mode.eq(ingest_mode),
                     a::discovery_state.eq(body.discovery_state.as_value()),
-                    a::source_refs.eq(&body.source_refs),
+                    a::source_refs.eq(&source_refs),
                     a::policy_revision.eq(&verified.policy_revision),
                     a::as_of.eq(body.as_of),
                     a::indexed_at.eq(indexed_at),
@@ -162,10 +164,10 @@ pub(crate) async fn upsert_resource_and_audit(
                             a::source_refs,
                             a::policy_revision,
                         ))
-                        .first::<(String, JsonValue, Vec<String>, String)>(&mut *conn)
+                        .first::<(String, JsonValue, CommittedEventRefs, String)>(&mut *conn)
                         .await?;
                 if stored_state != body.discovery_state
-                    || stored_source_refs != body.source_refs
+                    || stored_source_refs.as_slice() != body.source_refs
                     || stored_revision != verified.policy_revision
                 {
                     anyhow::bail!(
@@ -251,7 +253,7 @@ pub(crate) async fn upsert_resource_and_audit(
                 r::public_projection.eq(&public_projection),
                 r::discoverability.eq(verified.discoverability),
                 r::as_of.eq(body.as_of),
-                r::source_refs.eq(&body.source_refs),
+                r::source_refs.eq(&source_refs),
                 r::policy_revision.eq(&verified.policy_revision),
                 r::indexed_at.eq(indexed_at),
                 r::effective_ttl_seconds.eq(effective_ttl as i32),
@@ -279,7 +281,7 @@ pub(crate) async fn upsert_resource_and_audit(
                 r::public_projection.eq(&public_projection),
                 r::discoverability.eq(verified.discoverability),
                 r::as_of.eq(body.as_of),
-                r::source_refs.eq(&body.source_refs),
+                r::source_refs.eq(&source_refs),
                 r::policy_revision.eq(&verified.policy_revision),
                 r::indexed_at.eq(indexed_at),
                 r::effective_ttl_seconds.eq(effective_ttl as i32),

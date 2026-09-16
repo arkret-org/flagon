@@ -143,6 +143,17 @@ Provisioning strand:
 5. Restart teabay.
 6. Confirm the Station signs ingest requests with the same `keyid`.
 
+### RealmCommit authority verification
+
+First-time remote ingest resolves the carrier's exact committed Event refs and
+requires a `CommittedEventAuthorityVerifier` that validates each RealmCommit
+signature, authority generation, and genesis-to-current governance handoff
+chain. Embedders install it through `AppState::new_with_dependencies`. The
+default constructor installs a fail-closed verifier, so a deployment that has
+not wired this trust component rejects first-time remote announces with
+`source_refs_unverifiable`; HTTP transport authentication and exact DTO equality
+never substitute for commit authority.
+
 ### 1.0 Secret Backend Decision
 
 Store secrets outside source control. General teabay secrets use deployment-time

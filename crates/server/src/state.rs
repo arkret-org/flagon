@@ -12,6 +12,9 @@ use crate::config::AppConfig;
 use crate::db::Db;
 use crate::did_binding::DidBindingDirectory;
 use crate::did_resolver::SharedDidResolver;
+use crate::ingest::verify::{
+    CommittedEventAuthorityVerifier, FailClosedCommittedEventAuthorityVerifier,
+};
 use crate::observability::Metrics;
 use crate::pcd::PrivateContactDiscoveryService;
 
@@ -28,6 +31,11 @@ struct Inner {
     /// startup from the `AppConfig` snapshot; request paths borrow it and
     /// never rebuild a resolver or a `reqwest::Client`.
     did_resolver: Arc<SharedDidResolver>,
+    /// Verifies RealmCommit signatures and the genesis-to-current authority
+    /// chain for exact source references. The default rejects every proof;
+    /// deployments must inject a complete verifier before enabling first-time
+    /// remote ingest.
+    commit_authority_verifier: Arc<dyn CommittedEventAuthorityVerifier>,
     /// DID-P0-C02/C03 — the zero-network acceptance directory, shared with (and
     /// written by) `did_resolver`. This is what the query / filter face gets:
     /// it owns no resolver, so a query handler cannot express a network
@@ -65,6 +73,21 @@ impl AppState {
         db: Db,
         private_contact_discovery: Option<PrivateContactDiscoveryService>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_dependencies(
+            config,
+            db,
+            private_contact_discovery,
+            Arc::new(FailClosedCommittedEventAuthorityVerifier),
+        )
+    }
+
+    /// Build process state with an explicit authority-chain verifier.
+    pub fn new_with_dependencies(
+        config: AppConfig,
+        db: Db,
+        private_contact_discovery: Option<PrivateContactDiscoveryService>,
+        commit_authority_verifier: Arc<dyn CommittedEventAuthorityVerifier>,
+    ) -> anyhow::Result<Self> {
         if config.private_contact_discovery.is_some() != private_contact_discovery.is_some() {
             anyhow::bail!("PCD configuration/runtime activation state mismatch");
         }
@@ -95,6 +118,7 @@ impl AppState {
                 service_core_id,
                 db,
                 did_resolver: Arc::new(did_resolver),
+                commit_authority_verifier,
                 did_bindings,
                 cursor_authority: arkret_server::MemoryCursorAuthority::default(),
                 rate_limiter: RateLimiter::default(),
@@ -121,6 +145,10 @@ impl AppState {
     /// [`crate::did_resolver::SharedDidResolver`].
     pub fn did_resolver(&self) -> &Arc<SharedDidResolver> {
         &self.inner.did_resolver
+    }
+
+    pub fn commit_authority_verifier(&self) -> &dyn CommittedEventAuthorityVerifier {
+        self.inner.commit_authority_verifier.as_ref()
     }
 
     /// The zero-network accepted-binding directory — the handle every

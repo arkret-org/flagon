@@ -249,7 +249,12 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     // therefore does NOT need to re-run the pair check; it re-runs only the
     // §8.5 capability verify to decide `historical_only`.
     if let Some(cached) = state.cached_federation_replay(&cache_key) {
-        let ctx = VerifyContext::new(state.config(), state.db(), state.did_resolver());
+        let ctx = VerifyContext::new(
+            state.config(),
+            state.db(),
+            state.did_resolver(),
+            state.commit_authority_verifier(),
+        );
         let capability = ctx.verify(&body).await;
         let historical_only = capability.is_err();
         if historical_only {
@@ -289,7 +294,12 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         return;
     }
 
-    let ctx = VerifyContext::new(state.config(), state.db(), state.did_resolver());
+    let ctx = VerifyContext::new(
+        state.config(),
+        state.db(),
+        state.did_resolver(),
+        state.commit_authority_verifier(),
+    );
     let verified = match ctx.verify(&body).await {
         Ok(v) => v,
         Err((code, msg)) => {

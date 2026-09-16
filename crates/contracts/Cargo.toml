@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 arkret-sdk.workspace = true
+arkret-wire.workspace = true
 
 chrono.workspace = true
 serde.workspace = true

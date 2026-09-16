@@ -5,8 +5,7 @@
 
 use arkret_sdk::{
     DIRECTORY_RESTRICTED_CLAIM_PRESENTATION_KIND, Did, DidCoreId, DirectoryPresentedClaim,
-    DirectoryRestrictedClaimPresentation, Hash, Hlc, ProducerEventProof, RealmId, ScopeRef,
-    canonical,
+    DirectoryRestrictedClaimPresentation, Hash, ProducerEventProof, RealmId, ScopeRef, canonical,
 };
 use arkret_signatures::EventProofBuilder;
 use arkret_signatures::jws::sign_jws_ed25519;
@@ -695,7 +694,7 @@ async fn seed_previously_indexed_realm(
           effective_ttl_seconds, next_revalidation_after, stale, divergent, via_services, \
           last_announce_id, last_refreshed_at, expires_at) \
          VALUES ('realm'::resource_kind, $1, $2, $3, $3, 'public'::discoverability, \
-          now() - interval '1 minute', ARRAY[]::text[], 'seeded-accepted-state', now(), \
+          now() - interval '1 minute', '[]'::jsonb, 'seeded-accepted-state', now(), \
           3600, now() + interval '1 hour', false, false, ARRAY[$2], \
           'ak:announce:01991000-0000-7000-8000-000000000001', now(), now() + interval '1 hour')",
     )
@@ -725,10 +724,18 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
         &station_id,
     )?;
 
+    let source_ref_access = signed_source_ref_access(
+        &discovery_event,
+        policy_ref,
+        &verification_method,
+        &signing_key,
+        &station_id,
+    )?;
+    let announce_as_of = canonical::format_timestamp_canonical(source_ref_access.as_of);
     let request = json!({
         "discovery_event": discovery_event,
-        "source_refs": [discovery_event["event_id"], policy_ref],
-        "as_of": canonical::format_timestamp_canonical(Utc::now()),
+        "source_ref_access": source_ref_access,
+        "as_of": announce_as_of,
         "ttl_seconds": 3600,
     });
     let mut rejected = TestClient::post("http://local/_arkret/find/directory/announce")
@@ -812,9 +819,12 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
     let body: JsonValue = res.take_json().await?;
     assert_eq!(body["realm_preview"]["realm_id"], realm_id);
     assert_eq!(body["realm_preview"]["member_count_bucket"], "11-50");
-    assert_eq!(
-        body["realm_preview"]["source_refs"][0],
-        discovery_event["event_id"]
+    assert!(
+        body["realm_preview"]["source_refs"]
+            .as_array()
+            .is_some_and(|refs| refs
+                .iter()
+                .any(|reference| reference["event_id"] == discovery_event["event_id"]))
     );
     assert!(
         body.get("join_candidates")
@@ -883,6 +893,14 @@ async fn assert_three_path_takedown_strand(
         &signing_key,
         &destroy_station_id,
     )?;
+    let source_ref_access = signed_source_ref_access(
+        &discovery_event,
+        destroy_source_ref,
+        &verification_method,
+        &signing_key,
+        &destroy_station_id,
+    )?;
+    let announce_as_of = canonical::format_timestamp_canonical(source_ref_access.as_of);
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .add_header(
             "Arkret-Operation",
@@ -891,8 +909,8 @@ async fn assert_three_path_takedown_strand(
         )
         .json(&json!({
             "discovery_event": discovery_event,
-            "source_refs": [discovery_event["event_id"], destroy_source_ref],
-            "as_of": canonical::format_timestamp_canonical(Utc::now()),
+            "source_ref_access": source_ref_access,
+            "as_of": announce_as_of,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -954,6 +972,14 @@ async fn assert_three_path_takedown_strand(
         &signing_key,
         &withdraw_station_id,
     )?;
+    let source_ref_access = signed_source_ref_access(
+        &discovery_event,
+        withdraw_source_ref,
+        &verification_method,
+        &signing_key,
+        &withdraw_station_id,
+    )?;
+    let announce_as_of = canonical::format_timestamp_canonical(source_ref_access.as_of);
     let mut res = TestClient::post("http://local/_arkret/find/directory/announce")
         .add_header(
             "Arkret-Operation",
@@ -962,8 +988,8 @@ async fn assert_three_path_takedown_strand(
         )
         .json(&json!({
             "discovery_event": discovery_event,
-            "source_refs": [discovery_event["event_id"], withdraw_source_ref],
-            "as_of": canonical::format_timestamp_canonical(Utc::now()),
+            "source_ref_access": source_ref_access,
+            "as_of": announce_as_of,
             "ttl_seconds": 3600,
         }))
         .send(service)
@@ -1054,7 +1080,7 @@ async fn assert_three_path_takedown_strand(
                 },
                 "discoverability": "listed",
                 "as_of": canonical::format_timestamp_canonical(Utc::now()),
-                "source_refs": ["admin:takedown-target"],
+                "source_refs": [fixture_committed_ref_json()],
                 "policy_revision": "admin-takedown-r1",
                 "effective_ttl_seconds": 3600,
                 "via_services": ["ak:did_core:web:directory.test"]
@@ -1245,7 +1271,7 @@ async fn assert_admin_operator_surface(service: &Service) -> anyhow::Result<()> 
             },
             "discoverability": "listed",
             "as_of": canonical::format_timestamp_canonical(Utc::now()),
-            "source_refs": ["admin:test"],
+            "source_refs": [fixture_committed_ref_json()],
             "policy_revision": "admin-r1",
             "effective_ttl_seconds": 3600,
             "via_services": ["ak:did_core:web:directory.test"]
@@ -1476,8 +1502,6 @@ fn signed_realm_discovery_event(
         },
         actor_id,
         station_id,
-        1,
-        Hlc::new("01970e589d21-0001-a13f9c2e")?,
         json!({"value": discovery_state}),
     )?;
     event
@@ -1491,7 +1515,6 @@ fn signed_realm_discovery_event(
         verification_method: arkret_sdk::DidUrl::new(verification_method.to_owned())
             .map_err(anyhow::Error::msg)?,
         event_digest,
-        signer_resolution_evidence_ref: None,
         created_at: event.created_at,
         domain: None,
         audience: None,
@@ -1502,6 +1525,79 @@ fn signed_realm_discovery_event(
     proof.jws = sign_jws_ed25519(&binding, signing_key).map_err(anyhow::Error::msg)?;
     event.proofs.push(proof.into());
     Ok(serde_json::to_value(event)?)
+}
+
+fn committed_ref_for(
+    realm_id: arkret_wire::RealmId,
+    event_id: arkret_wire::EventId,
+    stream_position: u64,
+) -> arkret_wire::CommittedEventRef {
+    let commit_id = arkret_wire::RealmCommitId::from_digest(arkret_canonical::sha256_bytes(
+        format!("{}:{stream_position}", event_id.as_str()).as_bytes(),
+    ));
+    arkret_wire::CommittedEventRef {
+        event_id,
+        commit_id,
+        stream_ref: arkret_wire::CommitStreamRef::Realm { realm_id },
+        stream_position,
+    }
+}
+
+fn signed_source_ref_access(
+    discovery_event: &JsonValue,
+    additional_event_id: &str,
+    verification_method: &str,
+    signing_key: &SigningKey,
+    station_id: &str,
+) -> anyhow::Result<arkret_wire::DirectorySourceRefAccess> {
+    let event: arkret_wire::Event = serde_json::from_value(discovery_event.clone())?;
+    let mut source_refs = vec![
+        committed_ref_for(event.realm_id.clone(), event.event_id.clone(), 0),
+        committed_ref_for(
+            event.realm_id.clone(),
+            arkret_wire::EventId::new(additional_event_id.to_owned())?,
+            1,
+        ),
+    ];
+    source_refs.sort();
+    source_refs.dedup();
+    let as_of = chrono::DateTime::from_timestamp_millis(Utc::now().timestamp_millis())
+        .expect("current time is representable");
+    let mut access = arkret_wire::DirectorySourceRefAccess {
+        kind: arkret_wire::DirectorySourceRefAccessKind::DirectoryAnnounce,
+        source_id: DidCoreId::new(station_id.to_owned())?,
+        directory_id: DidCoreId::new("ak:did_core:web:directory.test")?,
+        realm_id: event.realm_id,
+        discovery_event_id: event.event_id,
+        source_refs,
+        as_of,
+        expires_at: as_of + ChronoDuration::minutes(5),
+        proof: arkret_wire::PayloadProof {
+            kind: arkret_wire::proof_kind::DETACHED_JWS.to_owned(),
+            verification_method: arkret_wire::DidUrl::new(verification_method.to_owned())?,
+            payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64)))?,
+            created_at: as_of,
+            domain: Some("arkret-event-v1".to_owned()),
+            audience: Some(arkret_wire::Audience::Single(
+                "ak:did_core:web:directory.test".to_owned(),
+            )),
+            proof_purpose: None,
+            jws: "pending".to_owned(),
+        },
+    };
+    access.proof.payload_digest = access.payload_digest()?;
+    access.proof.jws = sign_jws_ed25519(&access.proof_binding_bytes()?, signing_key)
+        .map_err(anyhow::Error::msg)?;
+    Ok(access)
+}
+
+fn fixture_committed_ref_json() -> JsonValue {
+    serde_json::to_value(committed_ref_for(
+        RealmId::new("ak:realm:ASsKHIftKaTemZcyvFWmoYnCtQNN_4deE04hdIPA0PPu").unwrap(),
+        arkret_wire::EventId::new("ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1").unwrap(),
+        0,
+    ))
+    .expect("fixture committed ref serializes")
 }
 
 #[derive(serde::Serialize)]

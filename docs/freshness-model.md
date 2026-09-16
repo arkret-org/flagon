@@ -9,9 +9,11 @@ clients can reason about how recently the directory observed source truth.
 
 - `as_of`: source timestamp carried by the accepted discovery state.
 - `indexed_at`: local time when teabay accepted the state.
-- `source_refs`: producer-signed source Event IDs whose acceptance is proven by
+- `source_refs`: closed producer-signed source Event/Commit/stream/position refs whose acceptance is proven by
   matching `RealmCommit` objects from the Realm's current governance Station.
-- `policy_revision`: required source policy revision.
+- `policy_revision`: SHA-256 over the canonical closed source-ref tuples
+  (`event_id`, `commit_id`, `stream_ref`, `stream_position`), not over Event IDs
+  alone.
 - `effective_ttl_seconds`: TTL selected by teabay after applying defaults and
   caps.
 - `next_revalidation_after`: `indexed_at + effective_ttl_seconds`.

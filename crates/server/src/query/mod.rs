@@ -17,13 +17,9 @@ pub(crate) fn requester_ip_hash(requester_ip: &str) -> String {
 }
 
 pub(crate) fn parse_source_refs(
-    source_refs: impl IntoIterator<Item = String>,
-) -> Result<Vec<arkret_sdk::EventId>, String> {
-    source_refs
-        .into_iter()
-        .map(arkret_sdk::EventId::new)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("invalid directory source Event reference: {error}"))
+    source_refs: impl IntoIterator<Item = arkret_wire::CommittedEventRef>,
+) -> Result<Vec<arkret_wire::CommittedEventRef>, String> {
+    Ok(source_refs.into_iter().collect())
 }
 
 pub(crate) fn render_cursor_error(

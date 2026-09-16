@@ -17,6 +17,7 @@ use crate::audit::AuditEventKind;
 use crate::error::ApiErrorCode;
 use crate::ingest::announce::effective_ttl_seconds;
 use crate::ingest::{DirectoryResourceKindDb, DiscoverabilityDb};
+use crate::source_refs::CommittedEventRefs;
 use crate::state::AppState;
 
 /// Hard ceiling on the `q` (text search) filter passed to
@@ -55,7 +56,7 @@ struct ResourceAdminRow {
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
-    source_refs: Vec<String>,
+    source_refs: CommittedEventRefs,
     policy_revision: String,
     indexed_at: DateTime<Utc>,
     effective_ttl_seconds: i32,
@@ -131,14 +132,14 @@ pub async fn resource_upsert(req: &mut Request, depot: &mut Depot, res: &mut Res
     let resource_kind = DirectoryResourceKindDb::from(body.resource_kind);
     let discoverability = DiscoverabilityDb::from(&body.discoverability);
 
-    let source_refs = {
-        let refs = normalize_string_list(&body.source_refs);
-        if refs.is_empty() {
-            vec!["admin:manual".to_string()]
-        } else {
-            refs
-        }
-    };
+    if body.source_refs.is_empty() || !body.source_refs.windows(2).all(|pair| pair[0] < pair[1]) {
+        ApiErrorCode::SchemaViolation.render(
+            res,
+            "source_refs must be a non-empty canonical sorted/unique committed-ref list",
+        );
+        return;
+    }
+    let source_refs = CommittedEventRefs::from(body.source_refs.clone());
     let via_services = {
         let services = body.via_services.clone();
         if services.is_empty() {
@@ -337,7 +338,7 @@ async fn upsert_managed_resource(
     discoverability: DiscoverabilityDb,
     discovery_state: JsonValue,
     public_projection: JsonValue,
-    source_refs: Vec<String>,
+    source_refs: CommittedEventRefs,
     via_services: Vec<DidCoreId>,
     indexed_at: DateTime<Utc>,
     effective_ttl_seconds: i32,
@@ -530,15 +531,6 @@ fn normalized_discovery_state(
     Ok(discovery_state)
 }
 
-fn normalize_string_list(values: &[String]) -> Vec<String> {
-    values
-        .iter()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
 fn trimmed_option(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
@@ -553,7 +545,7 @@ impl From<ResourceAdminRow> for ResourceItem {
             public_projection: DirectoryPublicProjection::from_json(row.public_projection),
             discoverability: row.discoverability.as_pg().to_owned(),
             as_of: row.as_of.to_rfc3339(),
-            source_refs: row.source_refs,
+            source_refs: row.source_refs.into(),
             policy_revision: row.policy_revision,
             indexed_at: row.indexed_at.to_rfc3339(),
             effective_ttl_seconds: row.effective_ttl_seconds,

@@ -3,6 +3,7 @@
 use std::ops::{Deref, DerefMut};
 
 pub use arkret_sdk::{Did, DidCoreId, DirectoryResourceKind, Discoverability};
+pub use arkret_wire::CommittedEventRef;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -142,7 +143,7 @@ pub struct DirectoryAdminResourceUpsertRequestBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub as_of: Option<DateTime<Utc>>,
     #[serde(default)]
-    pub source_refs: Vec<String>,
+    pub source_refs: Vec<CommittedEventRef>,
     pub policy_revision: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effective_ttl_seconds: Option<i64>,
@@ -192,7 +193,7 @@ pub struct ResourceItem {
     pub public_projection: DirectoryPublicProjection,
     pub discoverability: String,
     pub as_of: String,
-    pub source_refs: Vec<String>,
+    pub source_refs: Vec<CommittedEventRef>,
     pub policy_revision: String,
     pub indexed_at: String,
     pub effective_ttl_seconds: i32,

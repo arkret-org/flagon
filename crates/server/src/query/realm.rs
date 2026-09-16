@@ -430,7 +430,7 @@ struct RealmStoredRow {
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
-    source_refs: Vec<String>,
+    source_refs: crate::source_refs::CommittedEventRefs,
     policy_revision: String,
     stale: bool,
     divergent: bool,
@@ -448,7 +448,7 @@ struct RealmRow {
     public_projection: JsonValue,
     discoverability: DiscoverabilityDb,
     as_of: DateTime<Utc>,
-    source_refs: Vec<String>,
+    source_refs: crate::source_refs::CommittedEventRefs,
     policy_revision: String,
     stale: bool,
     divergent: bool,
@@ -469,8 +469,8 @@ struct RealmSqlRow {
     discoverability: String,
     #[diesel(sql_type = Timestamptz)]
     as_of: DateTime<Utc>,
-    #[diesel(sql_type = Array<Text>)]
-    source_refs: Vec<String>,
+    #[diesel(sql_type = Jsonb)]
+    source_refs: crate::source_refs::CommittedEventRefs,
     #[diesel(sql_type = Text)]
     policy_revision: String,
     #[diesel(sql_type = Bool)]
@@ -972,7 +972,7 @@ mod tests {
             public_projection: json!({ "title": "Tea" }),
             discoverability: DiscoverabilityDb::Unlisted,
             as_of: chrono::Utc::now(),
-            source_refs: vec!["ak:event:1".to_owned()],
+            source_refs: vec![crate::source_refs::fixture_committed_event_ref()].into(),
             policy_revision: "rev-1".to_owned(),
             stale: false,
             divergent: false,

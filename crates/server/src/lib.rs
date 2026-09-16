@@ -23,6 +23,7 @@ pub mod pcd_state;
 pub mod query;
 pub mod routing;
 pub mod schema;
+mod source_refs;
 pub mod state;
 mod util;
 pub mod workers;

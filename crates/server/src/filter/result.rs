@@ -5,6 +5,7 @@
 //! the per-query freshness check.
 
 use arkret_sdk::{DidCoreId, RealmJoinCandidate};
+use arkret_wire::CommittedEventRef;
 use chrono::{DateTime, Utc};
 use serde::ser::{Error as _, SerializeMap};
 use serde::{Serialize, Serializer};
@@ -17,8 +18,8 @@ pub struct ResultEnvelope {
     pub payload: DirectoryPublicProjection,
     /// Directory's last refresh timestamp for this entry (§9.1).
     pub as_of: DateTime<Utc>,
-    /// Truth-source event id list — clients verify by re-fetching these.
-    pub source_refs: Vec<String>,
+    /// Closed authority-committed Event references clients can verify exactly.
+    pub source_refs: Vec<CommittedEventRef>,
     /// Effective discovery-state revision marker. §9.1 makes this a MUST on
     /// every result and forbids omission.
     pub policy_revision: String,
@@ -45,7 +46,7 @@ impl ResultEnvelope {
     pub fn from_row(
         payload: JsonValue,
         as_of: DateTime<Utc>,
-        source_refs: Vec<String>,
+        source_refs: impl Into<Vec<CommittedEventRef>>,
         policy_revision: String,
         stale: bool,
         divergent: bool,
@@ -54,7 +55,7 @@ impl ResultEnvelope {
         Self {
             payload: DirectoryPublicProjection::from_json(payload),
             as_of,
-            source_refs,
+            source_refs: source_refs.into(),
             policy_revision,
             stale,
             divergent,
@@ -115,7 +116,7 @@ mod tests {
         let envelope = ResultEnvelope::from_row(
             json!({"realm_id": "ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR"}),
             Utc.timestamp_opt(1_700_000_000, 123_999_999).unwrap(),
-            vec!["ak:event:1".to_owned()],
+            vec![crate::source_refs::fixture_committed_event_ref()],
             "revision-1".to_owned(),
             false,
             false,
