@@ -588,8 +588,6 @@ mod tests {
             "accepted_did_methods",
             "takedown_contact",
             "rate_limits",
-            "frontier",
-            "snapshot_frontier",
             "last_materialized_at",
         ];
 

@@ -312,7 +312,7 @@ async fn assert_official_badge_is_verified_relationship_driven(
         diesel::sql_query(
             "INSERT INTO verified_realm_organizations \
                (realm_id, organization_id, relationship, control_scopes, statement_id, \
-                statement_issued_at, not_before, expires_at, realm_frontier_digest, stale, \
+                statement_issued_at, not_before, expires_at, realm_commit_ref, stale, \
                 verified_at, source_announce_id) \
              VALUES ('ak:realm:AZ0Vyo6cesGriGAh_ea-7SD_Hy3GDnSxDMTrErh0Ki2C', 'ak:did_core:web:tea-org.example', 'owner', \
                      ARRAY['official_badge'], 'org-stmt-expired', now() - interval '2 hours', \

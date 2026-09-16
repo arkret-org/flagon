@@ -227,7 +227,7 @@ diesel::table! {
         statement_issued_at -> Timestamptz,
         not_before -> Nullable<Timestamptz>,
         expires_at -> Nullable<Timestamptz>,
-        realm_frontier_digest -> Nullable<Text>,
+        realm_commit_ref -> Nullable<Text>,
         stale -> Bool,
         verified_at -> Timestamptz,
         source_announce_id -> Nullable<Text>,

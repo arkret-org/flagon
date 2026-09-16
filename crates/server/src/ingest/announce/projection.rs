@@ -94,7 +94,7 @@ pub(crate) fn derive_public_projection(
     // Ingest-projection / validation critical path (NOT a placeholder — the
     // "deferred to M3" note that used to live here was stale). Everything this
     // function does is normative and load-bearing:
-    //   * `validate_handle_claim_ingest` enforces the HC-TBY-1/2 wire scope (retired
+    //   * `validate_handle_claim_ingest` enforces the HC-TBY-1/2 wire scope (forbidden
     //     `claim_type`/`class`, non-principal handle-claim subjects).
     //   * the `proof` / `directory_ids` / `official_organizations` fields are stripped so
     //     governance internals and the forbidden §4.5 `official_organizations` field never enter
@@ -247,8 +247,8 @@ pub(crate) fn validate_handle_claim_ingest(
         return Ok(());
     };
 
-    // (1) `claim_type` / `class` are retired field names. `service_handle`
-    // is no longer a valid claim_kind value.
+    // (1) `claim_type` / `class` are forbidden field names. `service_handle`
+    // is not a valid claim_kind value.
     if obj.get("claim_type").is_some() || obj.get("class").is_some() {
         return Err((
             ApiErrorCode::SchemaViolation,

@@ -79,7 +79,7 @@ pub(crate) struct VerifiedStatement {
     pub statement_issued_at: DateTime<Utc>,
     pub not_before: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
-    pub realm_frontier_digest: Option<String>,
+    pub realm_commit_ref: Option<String>,
     /// Whether the statement revokes (rather than asserts) the relationship.
     pub is_revocation: bool,
 }
@@ -164,10 +164,7 @@ pub(crate) fn verify_announced_statements(
             statement_issued_at: payload.issued_at,
             not_before: payload.not_before,
             expires_at: payload.expires_at,
-            realm_frontier_digest: payload
-                .realm_frontier_digest
-                .as_ref()
-                .map(|digest| digest.to_string()),
+            realm_commit_ref: payload.realm_commit_ref.as_ref().map(ToString::to_string),
             is_revocation: matches!(payload.status, RealmOrganizationStatus::Revoked),
         });
     }
@@ -238,7 +235,7 @@ pub(crate) async fn persist_verified_statements(
                 v::statement_issued_at.eq(statement.statement_issued_at),
                 v::not_before.eq(statement.not_before),
                 v::expires_at.eq(statement.expires_at),
-                v::realm_frontier_digest.eq(statement.realm_frontier_digest.as_deref()),
+                v::realm_commit_ref.eq(statement.realm_commit_ref.as_deref()),
                 v::stale.eq(false),
                 v::verified_at.eq(Utc::now()),
                 v::source_announce_id.eq(Some(source_announce_id)),
@@ -251,7 +248,7 @@ pub(crate) async fn persist_verified_statements(
                 v::statement_issued_at.eq(statement.statement_issued_at),
                 v::not_before.eq(statement.not_before),
                 v::expires_at.eq(statement.expires_at),
-                v::realm_frontier_digest.eq(statement.realm_frontier_digest.as_deref()),
+                v::realm_commit_ref.eq(statement.realm_commit_ref.as_deref()),
                 // A fresh active statement clears any prior stale flag.
                 v::stale.eq(false),
                 v::verified_at.eq(Utc::now()),
@@ -295,7 +292,7 @@ impl VerifiedRelationshipRow {
 
 /// Load the currently fresh (non-stale) verified relationships for a Realm.
 /// Expired relationships are filtered at the SQL level; staleness is a stored
-/// flag set when the statement's evaluated authority revision is no longer
+/// flag set when the statement's evaluated authority commit is no longer
 /// current.
 pub(crate) async fn load_verified_relationships(
     db: &Db,
@@ -340,13 +337,13 @@ pub(crate) async fn purge_expired_relationships(
 }
 
 /// TBY-ORG-03 — mark a Realm's verified relationships stale when the current
-/// authority revision differs from the revision the organization evaluated.
+/// authority commit differs from the commit the organization evaluated.
 /// A stale relationship stops surfacing as an effective verified badge (it is
 /// filtered by `load_verified_relationships`) without losing the audit row.
-pub(crate) async fn mark_stale_for_authority_revision(
+pub(crate) async fn mark_stale_for_realm_commit(
     db: &Db,
     realm_id: &str,
-    current_authority_revision: &str,
+    current_realm_commit_ref: &str,
 ) -> anyhow::Result<usize> {
     use crate::schema::verified_realm_organizations::dsl as v;
     let mut conn = db.get().await?;
@@ -354,8 +351,8 @@ pub(crate) async fn mark_stale_for_authority_revision(
         v::verified_realm_organizations
             .filter(v::realm_id.eq(realm_id))
             .filter(v::stale.eq(false))
-            .filter(v::realm_frontier_digest.is_not_null())
-            .filter(v::realm_frontier_digest.ne(current_authority_revision)),
+            .filter(v::realm_commit_ref.is_not_null())
+            .filter(v::realm_commit_ref.ne(current_realm_commit_ref)),
     )
     .set(v::stale.eq(true))
     .execute(&mut *conn)

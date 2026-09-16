@@ -134,7 +134,7 @@ fn cache_key_separates_by_trust_domain() {
     assert_ne!(a.key(&digest), b.key(&digest));
 }
 
-/// HC-TBY-1 — a handle claim announcing the retired `service_handle`
+/// HC-TBY-1 — a handle claim announcing the forbidden `service_handle`
 /// class/claim_type is rejected with `claim_type_unsupported`.
 #[test]
 fn handle_claim_ingest_rejects_service_handle_claim_type() {
@@ -147,7 +147,7 @@ fn handle_claim_ingest_rejects_service_handle_claim_type() {
     assert_eq!(err.0, ApiErrorCode::SchemaViolation);
     assert!(err.1.contains("claim_type_unsupported"));
 
-    // Also reject retired discriminator fields outright.
+    // Also reject forbidden discriminator fields outright.
     let state = json!({ "class": "service_handle", "subject_id": "ak:did_core:web:alice.example" });
     assert!(validate_handle_claim_ingest(&state).is_err());
     let state =

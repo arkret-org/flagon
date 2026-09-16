@@ -16,7 +16,7 @@ INSERT INTO verified_realm_organizations (
     statement_issued_at,
     not_before,
     expires_at,
-    realm_frontier_digest,
+    realm_commit_ref,
     stale,
     verified_at,
     source_announce_id

@@ -524,23 +524,22 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
             );
         }
 
-        // TBY-ORG-03 — when the Realm advertises the authority revision against
+        // TBY-ORG-03 — when the Realm advertises the authority commit against
         // which its organization statements were evaluated, mark a
-        // relationship bound to a different revision as stale so it stops
+        // relationship bound to a different commit as stale so it stops
         // surfacing as an effective badge. A statement re-announced in this
         // batch has already refreshed the matching directory projection and is
         // unaffected.
-        if let Some(current_authority_revision) = body
+        if let Some(current_realm_commit_ref) = body
             .discovery_state
-            .get("realm_frontier_digest")
+            .get("realm_commit_ref")
             .and_then(serde_json::Value::as_str)
-            && let Err(e) =
-                crate::ingest::organization_statement::mark_stale_for_authority_revision(
-                    state.db(),
-                    &body.resource_id,
-                    current_authority_revision,
-                )
-                .await
+            && let Err(e) = crate::ingest::organization_statement::mark_stale_for_realm_commit(
+                state.db(),
+                &body.resource_id,
+                current_realm_commit_ref,
+            )
+            .await
         {
             tracing::warn!(
                 resource_id = %body.resource_id,

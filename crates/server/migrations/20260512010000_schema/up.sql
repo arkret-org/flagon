@@ -648,12 +648,10 @@ CREATE TABLE verified_realm_organizations (
     statement_issued_at TIMESTAMPTZ NOT NULL,
     not_before          TIMESTAMPTZ,
     expires_at          TIMESTAMPTZ,
-    -- Realm authority revision the organization evaluated, when present.
-    -- The column name follows the current relationship-statement wire field;
-    -- it is not a commit-stream frontier or ordering primitive.
-    realm_frontier_digest TEXT,
+    -- Realm authority commit the organization evaluated, when present.
+    realm_commit_ref     TEXT,
     -- Whether the relationship is currently considered fresh. A relationship is
-    -- marked stale (rather than deleted) when the authority revision the
+    -- marked stale (rather than deleted) when the authority commit the
     -- organization evaluated differs from current, so it stops surfacing as
     -- an effective verified badge without losing the audit trail.
     stale               BOOLEAN     NOT NULL DEFAULT false,
