@@ -649,28 +649,54 @@ fn envelope_from_row(row: RealmRow) -> ResultEnvelope {
     .with_join_candidates(join_candidates)
 }
 
+/// Assemble the closed `realm_preview` DTO **field by field** from the open
+/// stored projection.
+///
+/// This used to serialize the whole `ResultEnvelope` — which flattens every
+/// key of the stored `DirectoryPublicProjection` — and deserialize it into
+/// `RealmPreview`, a `deny_unknown_fields` type, after deleting two keys. That
+/// is a blacklist against an open carrier, so it was wrong by construction and
+/// wrong in practice: the Directory *must* store `allowed_discoverers` (it is
+/// what `filter::discoverers` reads to decide restricted visibility) and
+/// `realm_preview` *must not* carry it, so every restricted Realm that reached
+/// this conversion answered `resolve-realm` with a 500. Search-only aliases
+/// such as `name` did the same to `search-realms`.
+///
+/// The organization surface is the one place where a projection member is
+/// deliberately dropped rather than copied: TBY-ORG-02 makes
+/// `owning_organization_ids` / `organization_id` in the projection DECLARED
+/// hints, and the verified set is re-derived from the
+/// `verified_realm_organizations` index by [`apply_verified_organizations`].
+/// Starting empty is what makes a declared-only hint surface no badge.
 pub(crate) fn realm_preview_from_envelope(
     realm_id: &str,
     envelope: &ResultEnvelope,
 ) -> Result<RealmPreview, String> {
-    let mut value = serde_json::to_value(envelope)
-        .map_err(|e| format!("realm preview envelope serialization failed: {e}"))?;
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| "realm preview envelope did not serialize as an object".to_owned())?;
-    object.insert(
-        "realm_id".to_owned(),
-        JsonValue::String(realm_id.to_owned()),
-    );
-    // TBY-ORG-02 — `owning_organization_ids` / `organization_id` carried by the
-    // public projection are DECLARED hints only. They MUST NOT auto-populate the
-    // verified-relationship surface of the preview; the official badge / verified
-    // organization set is re-derived from the `verified_realm_organizations`
-    // index by `apply_verified_organizations`. Drop the declared values here so a
-    // realm with only declared hints surfaces an EMPTY verified set (no badge).
-    object.remove("owning_organization_ids");
-    object.remove("organization_id");
-    serde_json::from_value(value).map_err(|e| format!("realm preview is not SDK-compatible: {e}"))
+    let projection = envelope
+        .payload
+        .as_object()
+        .ok_or_else(|| "realm projection must be an object".to_owned())?;
+    Ok(RealmPreview {
+        realm_id: arkret_sdk::RealmId::new(realm_id.to_owned())
+            .map_err(|error| format!("invalid realm preview realm_id: {error}"))?,
+        alias: crate::query::projection_field(projection, "realm", "alias")?,
+        title: crate::query::projection_field(projection, "realm", "title")?,
+        avatar_blob_ref: crate::query::projection_field(projection, "realm", "avatar_blob_ref")?,
+        organization_id: None,
+        join_rule: crate::query::projection_field(projection, "realm", "join_rule")?,
+        member_count_bucket: crate::query::projection_field(projection, "realm", "member_count_bucket")?,
+        summary: crate::query::projection_field(projection, "realm", "summary")?,
+        owning_organization_ids: Vec::new(),
+        preview_ref: crate::query::projection_field(projection, "realm", "preview_ref")?,
+        discoverability: crate::query::projection_field(projection, "realm", "discoverability")?,
+        history_access: crate::query::projection_field(projection, "realm", "history_access")?,
+        join_candidates: envelope.join_candidates.clone(),
+        as_of: envelope.as_of,
+        source_refs: super::parse_source_refs(envelope.source_refs.clone())?,
+        policy_revision: envelope.policy_revision.clone(),
+        stale: envelope.stale.then_some(true),
+        divergent: envelope.divergent.then_some(true),
+    })
 }
 
 fn realm_preview_from_row(row: RealmRow) -> Result<RealmPreview, String> {
@@ -924,6 +950,111 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    const TEST_REALM_ID: &str = "ak:realm:AfF-hFqRoMbajXkPapH-xaq0xwK-UKt2ph2zTs9JZRAO";
+
+    fn realm_row(projection: JsonValue, discoverability: DiscoverabilityDb) -> RealmRow {
+        RealmRow {
+            resource_id: TEST_REALM_ID.to_owned(),
+            public_projection: projection,
+            discoverability,
+            as_of: DateTime::from_timestamp_millis(1_782_000_000_123).unwrap(),
+            source_refs: vec![crate::source_refs::fixture_committed_event_ref()].into(),
+            policy_revision: "accepted-revision".to_owned(),
+            stale: true,
+            divergent: false,
+            via_services: Vec::new(),
+            indexed_at: Utc::now(),
+            score: 1.0,
+            realm_destroyed_at: None,
+            reachability_revoked_at: None,
+        }
+    }
+
+    /// The Realm counterpart of
+    /// `organization::tests::public_org_preview_excludes_internal_policy_and_preserves_typed_fields`.
+    ///
+    /// `allowed_discoverers` is the case that matters: `filter::discoverers`
+    /// reads it out of the stored projection to decide restricted visibility,
+    /// so the Directory MUST store it — and `realm_preview` is
+    /// `additionalProperties: false`, so the preview MUST NOT carry it. The
+    /// old whole-value deserialization made those two requirements
+    /// contradictory and answered every restricted `resolve-realm` with a 500.
+    #[test]
+    fn public_realm_preview_excludes_storage_side_fields_and_preserves_typed_fields() {
+        let preview = realm_preview_from_row(realm_row(
+            json!({
+                "title": "Tea Realm",
+                "alias": "#tea:example.com",
+                "summary": "A realm about tea",
+                "avatar_blob_ref": format!("ak:blob:sha256:{}", "ab".repeat(32)),
+                "join_rule": "knock",
+                "member_count_bucket": "11-50",
+                "preview_ref": "preview-1",
+                "history_access": "since_join",
+                // Storage-side members the Directory needs and the closed
+                // preview schema forbids.
+                "allowed_discoverers": [{"type": "claim", "issuer_id": "ak:did_core:web:acme.example"}],
+                "name": "search-only name",
+                "organization_statements": [{"organization_id": "ak:did_core:web:acme.example"}],
+                "anti_enumeration": {"member_count_mode": "bucketed"},
+                "policy_revision": "untrusted-mirror",
+                // TBY-ORG-02 declared hints: never a verified badge.
+                "organization_id": "ak:did_core:web:acme.example",
+                "owning_organization_ids": ["ak:did_core:web:acme.example"],
+            }),
+            DiscoverabilityDb::Restricted,
+        ))
+        .expect("a restricted realm projection must still produce its preview");
+
+        assert_eq!(preview.realm_id.as_str(), TEST_REALM_ID);
+        assert_eq!(preview.title.as_deref(), Some("Tea Realm"));
+        assert_eq!(preview.alias.as_deref(), Some("#tea:example.com"));
+        assert_eq!(preview.summary.as_deref(), Some("A realm about tea"));
+        assert_eq!(preview.join_rule.as_deref(), Some("knock"));
+        assert_eq!(preview.preview_ref.as_deref(), Some("preview-1"));
+        assert_eq!(preview.history_access.as_deref(), Some("since_join"));
+        assert_eq!(
+            preview.discoverability.as_deref(),
+            Some("restricted"),
+            "envelope_from_row injects the row's own discoverability"
+        );
+        assert!(preview.avatar_blob_ref.is_some());
+        assert!(preview.member_count_bucket.is_some());
+        // Envelope members come from the row's own columns, never from a
+        // projection member that happens to share the name.
+        assert_eq!(preview.policy_revision, "accepted-revision");
+        assert_eq!(preview.stale, Some(true));
+        assert_eq!(preview.divergent, None);
+        // TBY-ORG-02: a declared hint is not a verified relationship.
+        assert!(preview.owning_organization_ids.is_empty());
+        assert_eq!(preview.organization_id, None);
+
+        let rendered = serde_json::to_value(&preview).unwrap();
+        for forbidden in [
+            "allowed_discoverers",
+            "name",
+            "organization_statements",
+            "anti_enumeration",
+        ] {
+            assert!(
+                rendered.get(forbidden).is_none(),
+                "{forbidden} must not reach the closed realm preview: {rendered}"
+            );
+        }
+    }
+
+    /// A projection member of the wrong type is a rejection, not a silently
+    /// indexed row that answers 500 on first read.
+    #[test]
+    fn a_wrongly_typed_preview_member_is_refused_rather_than_coerced() {
+        let error = realm_preview_from_row(realm_row(
+            json!({"title": 42}),
+            DiscoverabilityDb::Public,
+        ))
+        .expect_err("title is a string in realm_preview");
+        assert!(error.contains("title"), "{error}");
+    }
 
     #[test]
     fn restricted_projection_requires_verified_claim() {

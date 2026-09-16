@@ -24,6 +24,7 @@ pub(crate) use persist::{
 use projection::validate_request_shape;
 pub(crate) use projection::{
     derive_public_projection, derive_realm_terminal_state, effective_ttl_seconds,
+    validate_preview_projection,
 };
 use salvo::prelude::*;
 use serde_json::json;
@@ -419,7 +420,15 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
     let public_projection = match derive_public_projection(
         &body.discovery_state,
         verified.discoverability,
-    ) {
+    )
+    .and_then(|projection| {
+        // The stored projection stays open, but it MUST still be able to
+        // produce the closed `*_preview` the read face serves. Checking it
+        // here turns "a 500 on the first resolve" into a rejection the
+        // announcer can act on.
+        validate_preview_projection(body.resource_kind, &body.resource_id, &projection)?;
+        Ok(projection)
+    }) {
         Ok(projection) => projection,
         Err((code, msg)) => {
             ingest_metric.set_outcome("projection_rejected");

@@ -343,20 +343,50 @@ fn actor_preview_from_row(row: ActorRow) -> Result<ActorPreview, String> {
     actor_preview_from_envelope(envelope_from_row(row))
 }
 
-fn actor_preview_from_envelope(envelope: ResultEnvelope) -> Result<ActorPreview, String> {
-    let value = serde_json::to_value(envelope)
-        .map_err(|error| format!("actor envelope serialization failed: {error}"))?;
-    serde_json::from_value(value)
-        .map_err(|error| format!("actor preview is not SDK-compatible: {error}"))
+/// Assemble the closed `actor_preview` DTO field by field.
+///
+/// Same reasoning as `query::realm::realm_preview_from_envelope`: the stored
+/// projection is an open carrier and `ActorPreview` is `deny_unknown_fields`,
+/// so serializing the whole envelope into it makes every Directory-internal
+/// projection member a 500 on a main read path.
+pub(crate) fn actor_preview_from_envelope(envelope: ResultEnvelope) -> Result<ActorPreview, String> {
+    let projection = envelope
+        .payload
+        .as_object()
+        .ok_or_else(|| "actor projection must be an object".to_owned())?;
+    Ok(ActorPreview {
+        actor_id: crate::query::projection_field(projection, "actor", "actor_id")?
+            .ok_or_else(|| "actor projection lacks its signed full ActorId".to_owned())?,
+        handle: crate::query::projection_field(projection, "actor", "handle")?,
+        display_name: crate::query::projection_field(projection, "actor", "display_name")?,
+        organization_id: crate::query::projection_field(projection, "actor", "organization_id")?,
+        avatar_blob_ref: crate::query::projection_field(projection, "actor", "avatar_blob_ref")?,
+        as_of: envelope.as_of,
+        source_refs: super::parse_source_refs(envelope.source_refs.clone())?,
+        policy_revision: envelope.policy_revision.clone(),
+        stale: envelope.stale.then_some(true),
+        divergent: envelope.divergent.then_some(true),
+    })
 }
 
+/// `user_search_outcome` carries no envelope members at all — no `as_of`, no
+/// `policy_revision`, no `source_refs` — so it is assembled purely from the
+/// projection.
 fn user_search_outcome_from_envelope(
     envelope: ResultEnvelope,
 ) -> Result<UserSearchOutcome, String> {
-    let value = serde_json::to_value(envelope)
-        .map_err(|error| format!("user envelope serialization failed: {error}"))?;
-    serde_json::from_value(value)
-        .map_err(|error| format!("user search outcome is not SDK-compatible: {error}"))
+    let projection = envelope
+        .payload
+        .as_object()
+        .ok_or_else(|| "user projection must be an object".to_owned())?;
+    Ok(UserSearchOutcome {
+        handle: crate::query::projection_field(projection, "user", "handle")?,
+        account_id: crate::query::projection_field(projection, "user", "account_id")?,
+        display_name: crate::query::projection_field(projection, "user", "display_name")?,
+        avatar_blob_ref: crate::query::projection_field(projection, "user", "avatar_blob_ref")?,
+        membership: crate::query::projection_field(projection, "user", "membership")?,
+        verified: crate::query::projection_field(projection, "user", "verified")?,
+    })
 }
 
 fn actor_matches(projection: &JsonValue, resource_id: &str, needle: &str) -> bool {

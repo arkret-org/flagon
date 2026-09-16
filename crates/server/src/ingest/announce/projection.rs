@@ -170,6 +170,51 @@ pub(crate) fn derive_public_projection(
     Ok(clone)
 }
 
+/// Reject a projection the read face could not turn into its closed
+/// `*_preview` DTO.
+///
+/// The stored projection is deliberately open — it keeps `allowed_discoverers`,
+/// declared organization hints and search-only aliases that the preview
+/// schemas forbid — so this is *not* a whole-object schema check. It runs the
+/// exact same field-by-field assembly the query handlers run and asks whether
+/// it succeeds.
+///
+/// Without it, a projection whose typed members are the wrong shape is
+/// accepted here and only surfaces later, as a 500 on `resolve-*` /
+/// `search-*`, at which point the row is already indexed and the operator has
+/// no rejection to look at. §8.5 wants the answer at ingest, and the answer is
+/// `schema_violation`.
+pub(crate) fn validate_preview_projection(
+    resource_kind: DirectoryResourceKindDb,
+    resource_id: &str,
+    projection: &JsonValue,
+) -> Result<(), (ApiErrorCode, String)> {
+    let envelope = crate::filter::result::ResultEnvelope::from_row(
+        projection.clone(),
+        Utc::now(),
+        Vec::new(),
+        String::new(),
+        false,
+        false,
+        Vec::new(),
+    );
+    let outcome = match resource_kind {
+        DirectoryResourceKindDb::Realm => {
+            crate::query::realm::realm_preview_from_envelope(resource_id, &envelope).map(drop)
+        }
+        DirectoryResourceKindDb::Organization => {
+            crate::query::organization::organization_preview_from_envelope(envelope).map(drop)
+        }
+        DirectoryResourceKindDb::Actor => {
+            crate::query::actor::actor_preview_from_envelope(envelope).map(drop)
+        }
+        // `applet` and `handle` rows are not served through a `*_preview`
+        // DTO; they have no closed projection to check here.
+        DirectoryResourceKindDb::Applet | DirectoryResourceKindDb::Handle => Ok(()),
+    };
+    outcome.map_err(|message| (ApiErrorCode::SchemaViolation, message))
+}
+
 fn strip_private_search_projection_fields(obj: &mut serde_json::Map<String, JsonValue>) {
     const PRIVATE_SEARCH_FIELDS: &[&str] = &[
         "search_policy",

@@ -507,7 +507,7 @@ fn envelope_from_row(row: OrgRow) -> ResultEnvelope {
     )
 }
 
-fn organization_preview_from_envelope(
+pub(crate) fn organization_preview_from_envelope(
     envelope: ResultEnvelope,
 ) -> Result<OrganizationPreview, String> {
     // The index also carries disclosure policy and search-only fields. They
