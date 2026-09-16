@@ -141,7 +141,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     }
 
     let limits = ServerLimits {
-        mls_governance_proof: None,
         extensions: BTreeMap::from([
             (
                 "per_resource_per_min".to_owned(),
@@ -256,7 +255,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         accepted_did_methods: cfg.accepted_did_methods.clone(),
         takedown_contact: cfg.takedown_contact.clone(),
         rate_limits: Some(directory_rate_limits),
-        supported_reducer_profiles: Vec::new(),
     };
     describe_body
         .validate()
@@ -543,7 +541,6 @@ mod tests {
             accepted_did_methods: vec!["did:web".to_owned()],
             takedown_contact: None,
             rate_limits: Some(BTreeMap::new()),
-            supported_reducer_profiles: Vec::new(),
             extensions: Default::default(),
         };
         assert!(describe_body.validate().is_err());
@@ -591,7 +588,6 @@ mod tests {
             "accepted_did_methods",
             "takedown_contact",
             "rate_limits",
-            "supported_reducer_profiles",
             "frontier",
             "snapshot_frontier",
             "last_materialized_at",

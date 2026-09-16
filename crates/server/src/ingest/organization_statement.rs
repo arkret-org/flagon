@@ -60,7 +60,6 @@ fn control_scope_as_str(scope: RealmOrganizationControlScope) -> &'static str {
         RealmOrganizationControlScope::OfficialBadge => "official_badge",
         RealmOrganizationControlScope::RealmAdmin => "realm_admin",
         RealmOrganizationControlScope::NotaryControl => "notary_control",
-        RealmOrganizationControlScope::DurabilityPolicy => "durability_policy",
         RealmOrganizationControlScope::ModerationPolicy => "moderation_policy",
         RealmOrganizationControlScope::RetentionPolicy => "retention_policy",
         RealmOrganizationControlScope::DirectoryListing => "directory_listing",

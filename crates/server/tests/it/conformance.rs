@@ -1574,7 +1574,8 @@ fn signed_source_ref_access(
         expires_at: as_of + ChronoDuration::minutes(5),
         proof: arkret_wire::PayloadProof {
             kind: arkret_wire::proof_kind::DETACHED_JWS.to_owned(),
-            verification_method: arkret_wire::DidUrl::new(verification_method.to_owned())?,
+            verification_method: arkret_wire::DidUrl::new(verification_method.to_owned())
+                .map_err(anyhow::Error::msg)?,
             payload_digest: Hash::new(format!("sha256:{}", "0".repeat(64)))?,
             created_at: as_of,
             domain: Some("arkret-event-v1".to_owned()),
@@ -1582,7 +1583,7 @@ fn signed_source_ref_access(
                 "ak:did_core:web:directory.test".to_owned(),
             )),
             proof_purpose: None,
-            jws: "pending".to_owned(),
+            jws: "e30..c2ln".to_owned(),
         },
     };
     access.proof.payload_digest = access.payload_digest()?;

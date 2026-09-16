@@ -151,7 +151,6 @@ dependencies = [
  "arkret-identifiers",
  "arkret-identity",
  "arkret-keystore",
- "arkret-lattice-registry",
  "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-models-discovery",
@@ -187,11 +186,8 @@ name = "arkret-bootstrap"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
- "arkret-event-draft",
- "arkret-lattice-registry",
  "arkret-models-collaboration",
  "arkret-models-identity",
- "arkret-state",
  "arkret-wire",
  "chrono",
  "serde_json",
@@ -218,7 +214,6 @@ name = "arkret-crypto"
 version = "0.3.0"
 dependencies = [
  "arkret-canonical",
- "arkret-models-collaboration",
  "arkret-models-crypto",
  "arkret-signatures",
  "arkret-wire",
@@ -360,18 +355,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arkret-lattice-registry"
-version = "0.3.0"
-dependencies = [
- "arkret-models-collaboration",
- "arkret-schema",
- "arkret-state",
- "arkret-wire",
- "serde_json",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "arkret-locale"
 version = "0.3.0"
 dependencies = [
@@ -387,7 +370,6 @@ dependencies = [
  "arkret-identifiers",
  "arkret-models-crypto",
  "arkret-models-identity",
- "arkret-models-integration",
  "arkret-schema",
  "arkret-wire",
  "chrono",

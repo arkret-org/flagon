@@ -1017,7 +1017,10 @@ fn preview_object_for_address(
     stale: bool,
     divergent: bool,
 ) -> Result<Option<ObjectPreview>, String> {
-    let source_refs = source_refs.to_vec();
+    let source_refs = source_refs
+        .iter()
+        .map(|reference| reference.event_id.clone())
+        .collect();
     match target_kind {
         TargetKind::Realm => Ok(None),
         TargetKind::Strand | TargetKind::Message => {
@@ -1117,7 +1120,11 @@ async fn build_object_response(
     };
 
     let object_id = object_preview_id(parsed, target_kind).map_err(anyhow::Error::msg)?;
-    let object_source_refs = row.source_refs.as_slice().to_vec();
+    let committed_source_refs = row.source_refs.as_slice().to_vec();
+    let object_source_refs: Vec<arkret_wire::EventId> = committed_source_refs
+        .iter()
+        .map(|reference| reference.event_id.clone())
+        .collect();
     let object_preview = ObjectPreview {
         object_id,
         object_kind: match target_kind {
@@ -1148,7 +1155,7 @@ async fn build_object_response(
         object_preview: Some(object_preview),
         join_rule: None,
         as_of: row.as_of,
-        source_refs: object_source_refs,
+        source_refs: committed_source_refs,
         join_candidates: Vec::new(),
         policy_revision: NonEmptyString::new(policy_revision)
             .map_err(|error| anyhow::anyhow!(error))?,
@@ -1474,7 +1481,7 @@ mod tests {
             envelope: crate::filter::result::ResultEnvelope::from_row(
                 json!({ "realm_id": format!("ak:realm:{R}"), "title": "Tea Time" }),
                 sample_time(),
-                vec!["ak:event:ASeIBHNVQyeIcU4aBIt2t2BF_ikuVMH0kNru_HgO_gG1".to_owned()],
+                vec![crate::source_refs::fixture_committed_event_ref()],
                 "rev-7".to_owned(),
                 false,
                 false,

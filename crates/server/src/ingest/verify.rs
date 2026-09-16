@@ -1811,7 +1811,7 @@ mod tests {
                     DIRECTORY_SERVICE_ID.to_owned(),
                 )),
                 proof_purpose: None,
-                jws: "pending".to_owned(),
+                jws: "e30..c2ln".to_owned(),
             },
         };
         access.proof.payload_digest = access.payload_digest().unwrap();
@@ -2072,7 +2072,7 @@ mod tests {
             created_at,
             proof_purpose: DirectoryGovernanceProofPurpose::GovernanceAuthorization,
             audience_id: DidCoreId::new(audience).expect("directory service id"),
-            jws: "pending".to_owned(),
+            jws: "e30..c2ln".to_owned(),
         }
     }
 
