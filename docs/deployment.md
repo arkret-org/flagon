@@ -146,13 +146,32 @@ Provisioning strand:
 ### RealmCommit authority verification
 
 First-time remote ingest resolves the carrier's exact committed Event refs and
-requires a `CommittedEventAuthorityVerifier` that validates each RealmCommit
-signature, authority generation, and genesis-to-current governance handoff
-chain. Embedders install it through `AppState::new_with_dependencies`. The
-default constructor installs a fail-closed verifier, so a deployment that has
-not wired this trust component rejects first-time remote announces with
-`source_refs_unverifiable`; HTTP transport authentication and exact DTO equality
-never substitute for commit authority.
+then verifies the `RealmCommit` behind each one: its signature, its authority
+generation, and the genesis-to-current governance handoff chain. HTTP transport
+authentication and exact DTO equality never substitute for commit authority.
+
+This is wired by default and is not a deployment decision. `AppState::new`
+installs `RealmAuthorityChainVerifier`, which asks the source Station's open
+face for a nonce-bound `RealmAuthorityBundle`
+(`ak.open.realm_authority.read.bundle.v1`) and hands it to
+`arkret_identity::verify_realm_authority_bundle`. Two consequences are worth
+planning for:
+
+- **Egress.** The Directory makes an outbound request to the source Station's
+  `_arkret/open` face during announce admission, in addition to the
+  `_arkret/peer/streams/resolve` call. Both go through the same egress policy
+  and DNS-rebinding pin; a network policy that allows only the peer path will
+  reject every first ingest.
+- **Station DID method.** The bundle is fetched from the `ArkretStation`
+  endpoint published in the Station's DID document, so a source Station must
+  use a service DID method that resolves to a document — `did:webvh` or
+  explicit no-history `did:web`. A `did:key` Station has no document and no
+  endpoint, and its first ingest fails closed.
+
+`AppState::new_with_dependencies` accepts an optional verifier. It exists so a
+test can drive admission against a fixture Station; it is not a way to select a
+weaker rule, and `None` — what every production boot passes — installs the real
+one.
 
 ### 1.0 Secret Backend Decision
 

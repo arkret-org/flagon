@@ -65,6 +65,24 @@ pub struct VerifyOutcome {
     pub policy_revision: String,
 }
 
+/// The authenticated source Station, in both spellings a verifier needs.
+///
+/// They are not derivable from one another. `project_did_to_core_id` is
+/// one-way — a `did:webvh` core id keeps only the SCID — so the resolvable DID
+/// has to travel with the stable business id rather than be reconstructed from
+/// it. Both members here have already been bound to each other and to the
+/// announce: `source_service_did` projects the verified access proof's
+/// verification-method DID and rejects it unless it equals
+/// `source_ref_access.source_id`, which `verify_directory_source_ref_access`
+/// in turn requires to equal `req.station_id`.
+#[derive(Clone, Copy, Debug)]
+pub struct SourceStation<'a> {
+    /// Stable business identity, as carried by the announce (`station_id`).
+    pub service_id: &'a DidCoreId,
+    /// The same Station as a resolvable DID.
+    pub did: &'a Did,
+}
+
 /// Verifies that a resolved `RealmCommit` was signed by the governance
 /// authority active at that generation and that its authority chain is valid.
 ///
@@ -73,32 +91,19 @@ pub struct VerifyOutcome {
 /// the genesis-to-generation authority chain, and the signing Station binding;
 /// accepting solely because [`arkret_wire::CommittedEventRef::matches`] returned
 /// true is forbidden.
+///
+/// The production implementation is
+/// [`crate::ingest::authority_chain::RealmAuthorityChainVerifier`]. The trait
+/// stays as a seam only so that a test can drive the announce path without a
+/// live Station — not so that a deployment can choose a weaker rule.
 #[async_trait]
 pub trait CommittedEventAuthorityVerifier: Send + Sync + 'static {
     async fn verify(
         &self,
-        source_service_id: &DidCoreId,
+        station: SourceStation<'_>,
         reference: &arkret_wire::CommittedEventRef,
         item: &arkret_wire::StreamRow,
     ) -> Result<(), String>;
-}
-
-/// Safe production fallback until a deployment installs an authority-chain
-/// verifier. First-time ingest fails closed instead of treating an exact DTO
-/// match or an authenticated transport as commit authority.
-#[derive(Debug, Default)]
-pub struct FailClosedCommittedEventAuthorityVerifier;
-
-#[async_trait]
-impl CommittedEventAuthorityVerifier for FailClosedCommittedEventAuthorityVerifier {
-    async fn verify(
-        &self,
-        _source_service_id: &DidCoreId,
-        _reference: &arkret_wire::CommittedEventRef,
-        _item: &arkret_wire::StreamRow,
-    ) -> Result<(), String> {
-        Err("RealmCommit authority-chain verifier is not configured".to_owned())
-    }
 }
 
 pub struct VerifyContext<'a> {
@@ -911,7 +916,14 @@ async fn verify_first_source_ref_resolves(
             ));
         }
         commit_authority_verifier
-            .verify(&req.station_id, reference, item)
+            .verify(
+                SourceStation {
+                    service_id: &req.station_id,
+                    did: &station_did,
+                },
+                reference,
+                item,
+            )
             .await
             .map_err(|reason| {
                 (
@@ -1644,7 +1656,7 @@ mod tests {
             &signer.signing_key,
         )
         .unwrap();
-        event.proofs = vec![proof.clone().into()];
+        event.proofs = vec![proof.clone()];
         let resolver = resolver();
         let verify = |candidate: &arkret_wire::Event| {
             verify_discovery_event_proofs(
@@ -1660,7 +1672,7 @@ mod tests {
         let mut changed_metadata = event.clone();
         let mut changed_proof = proof.clone();
         changed_proof.created_at += Duration::seconds(1);
-        changed_metadata.proofs = vec![changed_proof.into()];
+        changed_metadata.proofs = vec![changed_proof];
         assert!(
             verify(&changed_metadata).is_err(),
             "proof metadata is cryptographically bound"
@@ -1681,7 +1693,7 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        changed_station.proofs = vec![changed_proof.into()];
+        changed_station.proofs = vec![changed_proof];
         assert!(
             verify(&changed_station).is_err(),
             "same principal on another Station needs a new signature"
@@ -1760,8 +1772,10 @@ mod tests {
         }
     }
 
-    fn source_ref_test_event(source_id: DidCoreId) -> arkret_wire::Event {
-        let realm_id = arkret_wire::RealmId::new(REALM_ID).unwrap();
+    fn source_ref_test_event(
+        realm_id: arkret_wire::RealmId,
+        source_id: DidCoreId,
+    ) -> arkret_wire::Event {
         let mut event = arkret_wire::test_support::raw_event(
             "ak.realm.discovery",
             arkret_wire::ScopeRef::Realm {
@@ -1820,98 +1834,317 @@ mod tests {
         access
     }
 
+    /// A `DetachedObjectSignature` shaped correctly and signed by nobody.
+    ///
+    /// Every use of it is immediately overwritten by a real signature; it
+    /// exists because the unsigned projection a signature is computed over is
+    /// the object *minus* its `signature` member, so the member has to be
+    /// present before it can be dropped.
+    fn unsealed_signature(
+        context: arkret_wire::DetachedSignatureContext,
+        verification_method: DidUrl,
+    ) -> arkret_wire::DetachedObjectSignature {
+        arkret_wire::DetachedObjectSignature {
+            context,
+            signature_algorithm: arkret_wire::DetachedSignatureAlgorithm::Ed25519,
+            verification_method,
+            signed_digest: Hash::new(arkret_canonical::sha256_digest(b"unsealed")).unwrap(),
+            created_at: Utc::now(),
+            sig: arkret_wire::Base64UrlString::new("AA").unwrap(),
+        }
+    }
+
+    /// Seal a `RealmCommit` the way the verifier reconstructs it: the signed
+    /// body is the canonical object minus its own `signature` member.
+    fn seal_realm_commit(
+        mut commit: arkret_wire::RealmCommit,
+        verification_method: &DidUrl,
+        signing_key: &SigningKey,
+    ) -> arkret_wire::RealmCommit {
+        let unsigned =
+            arkret_canonical::canonical::unsigned_value(&commit, &["signature"]).unwrap();
+        commit.signature = arkret_signatures::detached_object::sign_detached_object(
+            &unsigned,
+            arkret_wire::DetachedSignatureContext::RealmCommit,
+            verification_method.clone(),
+            Utc::now(),
+            signing_key,
+        )
+        .unwrap();
+        commit
+    }
+
+    fn realm_commit_id_for(event_id: &arkret_wire::EventId) -> arkret_wire::RealmCommitId {
+        arkret_wire::RealmCommitId::from_digest(arkret_canonical::sha256_bytes(
+            event_id.as_str().as_bytes(),
+        ))
+    }
+
+    /// The Realm's genesis Event: position 0 of the Realm stream, and the
+    /// record that installs generation 0 of its governance authority.
+    ///
+    /// `ak.realm.create` carries the `realm_genesis` scope and omits
+    /// `realm_id` on the wire — `models/realm-and-space.md` §2.5.0 has
+    /// receivers derive it from the Event's own id — so the Realm this whole
+    /// fixture is about is *defined by* this Event rather than chosen next to
+    /// it. Using a fixed constant here produced a bundle that verified in
+    /// memory and broke the moment it round-tripped through JSON, which is the
+    /// only form the production verifier ever sees.
+    fn genesis_realm_event(source_id: DidCoreId) -> arkret_wire::Event {
+        arkret_wire::test_support::raw_event(
+            "ak.realm.create",
+            arkret_wire::ScopeRef::RealmGenesis,
+            source_id.clone(),
+            source_id,
+            json!({"value": {"name": "authority fixture realm"}}),
+        )
+        .unwrap()
+    }
+
+    /// The announce's discovery Event as the source Station committed it:
+    /// position 1, under generation 0, naming the genesis Event as the record
+    /// that installed the authority behind it.
+    ///
+    /// `signed_by` is a parameter because the negative case needs a commit
+    /// that is structurally perfect and really signed — just not by the
+    /// Station the verified chain says holds authority.
     fn committed_source_item(
         event: arkret_wire::Event,
-        verification_method: DidUrl,
+        genesis: &arkret_wire::RealmCommit,
+        signed_by: (&DidUrl, &SigningKey),
     ) -> (arkret_wire::CommittedEventRef, arkret_wire::StreamRow) {
         let stream_ref = arkret_wire::CommitStreamRef::Realm {
             realm_id: event.realm_id.clone(),
         };
-        let commit_id = arkret_wire::RealmCommitId::from_digest(arkret_canonical::sha256_bytes(
-            event.event_id.as_str().as_bytes(),
-        ));
-        let commit = arkret_wire::RealmCommit {
-            commit_id: commit_id.clone(),
-            realm_id: event.realm_id.clone(),
-            stream_ref: stream_ref.clone(),
-            stream_position: 0,
-            previous_commit_ref: None,
-            event_ref: event.event_id.clone(),
-            authority_generation: 0,
-            authority_ref: arkret_wire::RealmCommitAuthorityRef::GenesisOrChangeEvent(
-                event.event_id.clone(),
-            ),
-            committed_at: Utc::now(),
-            signature: arkret_wire::DetachedObjectSignature {
-                context: arkret_wire::DetachedSignatureContext::RealmCommit,
-                signature_algorithm: arkret_wire::DetachedSignatureAlgorithm::Ed25519,
-                verification_method,
-                signed_digest: Hash::new(arkret_canonical::sha256_digest(b"commit body")).unwrap(),
-                created_at: Utc::now(),
-                sig: arkret_wire::Base64UrlString::new("AA").unwrap(),
+        let commit_id = realm_commit_id_for(&event.event_id);
+        let (verification_method, signing_key) = signed_by;
+        let commit = seal_realm_commit(
+            arkret_wire::RealmCommit {
+                commit_id: commit_id.clone(),
+                realm_id: event.realm_id.clone(),
+                stream_ref: stream_ref.clone(),
+                stream_position: 1,
+                previous_commit_ref: Some(genesis.commit_id.clone()),
+                event_ref: event.event_id.clone(),
+                authority_generation: 0,
+                authority_ref: arkret_wire::RealmCommitAuthorityRef::GenesisOrChangeEvent(
+                    genesis.event_ref.clone(),
+                ),
+                committed_at: Utc::now(),
+                signature: unsealed_signature(
+                    arkret_wire::DetachedSignatureContext::RealmCommit,
+                    verification_method.clone(),
+                ),
             },
-        };
+            verification_method,
+            signing_key,
+        );
         let reference = arkret_wire::CommittedEventRef {
             event_id: event.event_id.clone(),
             commit_id,
             stream_ref,
-            stream_position: 0,
+            stream_position: 1,
         };
         (reference, arkret_wire::StreamRow { commit, event })
     }
 
+    /// The governance material the fixture Station serves from its open face.
+    ///
+    /// A genesis-only chain: generation 0, held by the same Station that
+    /// carries the announce. Every signature in it is a real Ed25519
+    /// signature over the canonical unsigned body, because the point of these
+    /// tests is that the **production** verifier is what admits the announce.
+    #[derive(Clone)]
+    struct AuthorityFixture {
+        genesis_event: arkret_wire::Event,
+        genesis_commit: arkret_wire::RealmCommit,
+        realm_stream_head: arkret_wire::CommitStreamHead,
+        current_service_id: DidCoreId,
+        verification_method: DidUrl,
+        signing_key: SigningKey,
+        route_record: JsonValue,
+    }
+
+    impl AuthorityFixture {
+        fn new(
+            source_did: &Did,
+            source_id: DidCoreId,
+            verification_method: DidUrl,
+            signing_key: SigningKey,
+            genesis_event: arkret_wire::Event,
+            genesis_commit: arkret_wire::RealmCommit,
+            realm_stream_head: arkret_wire::CommitStreamHead,
+        ) -> Self {
+            let multibase = arkret_canonical::ed25519_pubkey_to_did_key_multibase(
+                signing_key.verifying_key().as_bytes(),
+            );
+            let document: DidDocument = serde_json::from_value(json!({
+                "@context": ["https://www.w3.org/ns/did/v1"],
+                "id": source_did.as_str(),
+                "verificationMethod": [{
+                    "id": verification_method.as_str(),
+                    "controller": source_did.as_str(),
+                    "type": "Multikey",
+                    "publicKeyMultibase": multibase,
+                }],
+                "authentication": [verification_method.as_str()],
+                "assertionMethod": [verification_method.as_str()],
+                "service": [{
+                    "id": format!("{}#station", source_did.as_str()),
+                    "type": "ArkretService",
+                    "serviceEndpoint": "https://source.example/",
+                    "serviceKind": "station",
+                }],
+            }))
+            .unwrap();
+            let resolution = arkret_identity::build_authenticated_did_web_service_resolution(
+                source_id.clone(),
+                "station".to_owned(),
+                document,
+                Utc::now(),
+            )
+            .unwrap();
+            Self {
+                genesis_event,
+                genesis_commit,
+                realm_stream_head,
+                current_service_id: source_id,
+                verification_method,
+                signing_key,
+                route_record: serde_json::to_value(&resolution).unwrap(),
+            }
+        }
+
+        /// Answer exactly one nonce.
+        ///
+        /// The current assertion is signed here, at request time, so the
+        /// fixture cannot serve a pre-baked assertion for a nonce it was never
+        /// asked about — which is the very replay the freshness check exists
+        /// to catch.
+        fn bundle(&self, nonce: arkret_wire::Base64UrlString) -> arkret_wire::RealmAuthorityBundle {
+            let issued_at = Utc::now() - Duration::seconds(1);
+            let mut assertion = arkret_wire::RealmAuthorityCurrentAssertion {
+                realm_id: self.genesis_event.realm_id.clone(),
+                current_generation: 0,
+                current_service_id: self.current_service_id.clone(),
+                last_handoff_ref: None,
+                realm_stream_head: self.realm_stream_head.clone(),
+                nonce,
+                expires_at: issued_at + Duration::minutes(5),
+                signature: unsealed_signature(
+                    arkret_wire::DetachedSignatureContext::RealmAuthorityCurrentAssertion,
+                    self.verification_method.clone(),
+                ),
+            };
+            let unsigned =
+                arkret_canonical::canonical::unsigned_value(&assertion, &["signature"]).unwrap();
+            assertion.signature = arkret_signatures::detached_object::sign_detached_object(
+                &unsigned,
+                arkret_wire::DetachedSignatureContext::RealmAuthorityCurrentAssertion,
+                self.verification_method.clone(),
+                issued_at,
+                &self.signing_key,
+            )
+            .unwrap();
+            arkret_wire::RealmAuthorityBundle {
+                realm_id: self.genesis_event.realm_id.clone(),
+                genesis_event: self.genesis_event.clone(),
+                genesis_commit: self.genesis_commit.clone(),
+                authority_transitions: Vec::new(),
+                current_generation: 0,
+                current_service_id: self.current_service_id.clone(),
+                current_route_record: self.route_record.clone(),
+                realm_stream_head: self.realm_stream_head.clone(),
+                bundle_issued_at: issued_at,
+                current_assertion: assertion,
+            }
+        }
+    }
+
+    /// The fixture source Station, answering on its two real faces.
+    ///
+    /// Announce admission talks to a Station twice: once on the peer face for
+    /// the exact committed-event resolve, and once on the open face for the
+    /// nonce-bound authority bundle that decides whether the resolve's answer
+    /// means anything. Serving both from one listener is what lets these
+    /// tests drive the production verifier instead of a stand-in.
+    ///
+    /// The returned string is the peer-face request, so the existing
+    /// assertions about the outbound resolve body keep working.
     async fn source_peer(
-        status: u16,
+        resolve_status: u16,
         item: arkret_wire::StreamRow,
+        authority: AuthorityFixture,
     ) -> (String, tokio::task::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let task = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let mut received = Vec::new();
-            let header_end = loop {
-                let mut chunk = [0_u8; 4096];
-                let count = stream.read(&mut chunk).await.unwrap();
-                assert!(count > 0, "source peer request ended before headers");
-                received.extend_from_slice(&chunk[..count]);
-                if let Some(position) = received.windows(4).position(|window| window == b"\r\n\r\n")
-                {
-                    break position + 4;
-                }
-            };
-            let headers = String::from_utf8(received[..header_end].to_vec()).unwrap();
-            let content_length = headers
-                .lines()
-                .find_map(|line| {
-                    let (name, value) = line.split_once(':')?;
-                    name.eq_ignore_ascii_case("content-length")
-                        .then(|| value.trim().parse::<usize>().unwrap())
-                })
-                .unwrap();
-            while received.len() < header_end + content_length {
-                let mut chunk = [0_u8; 4096];
-                let count = stream.read(&mut chunk).await.unwrap();
-                assert!(count > 0, "source peer request body was truncated");
-                received.extend_from_slice(&chunk[..count]);
-            }
-            let body =
-                String::from_utf8(received[header_end..header_end + content_length].to_vec())
+            let mut captured = String::new();
+            // A denied resolve ends admission before the authority bundle is
+            // ever requested, so only one connection is expected then.
+            let expected_requests = if resolve_status == 200 { 2 } else { 1 };
+            for _ in 0..expected_requests {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut received = Vec::new();
+                let header_end = loop {
+                    let mut chunk = [0_u8; 4096];
+                    let count = stream.read(&mut chunk).await.unwrap();
+                    assert!(count > 0, "source peer request ended before headers");
+                    received.extend_from_slice(&chunk[..count]);
+                    if let Some(position) =
+                        received.windows(4).position(|window| window == b"\r\n\r\n")
+                    {
+                        break position + 4;
+                    }
+                };
+                let headers = String::from_utf8(received[..header_end].to_vec()).unwrap();
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().unwrap())
+                    })
                     .unwrap();
-            let response_body = if status == 200 {
-                serde_json::to_string(&json!({
-                    "items": [item]
-                }))
-                .unwrap()
-            } else {
-                "{}".to_owned()
-            };
-            let reason = if status == 200 { "OK" } else { "Forbidden" };
-            let response = format!(
-                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
-                response_body.len()
-            );
-            stream.write_all(response.as_bytes()).await.unwrap();
-            format!("{headers}{body}")
+                while received.len() < header_end + content_length {
+                    let mut chunk = [0_u8; 4096];
+                    let count = stream.read(&mut chunk).await.unwrap();
+                    assert!(count > 0, "source peer request body was truncated");
+                    received.extend_from_slice(&chunk[..count]);
+                }
+                let body =
+                    String::from_utf8(received[header_end..header_end + content_length].to_vec())
+                        .unwrap();
+                let request_line = headers.lines().next().unwrap_or_default().to_owned();
+                let (status, response_body) = if request_line.contains("/realm-authority/bundle") {
+                    assert!(
+                        request_line.starts_with("POST /_arkret/open/realm-authority/bundle "),
+                        "authority bundle must be fetched from the open face: {request_line}"
+                    );
+                    let request: arkret_wire::AuthorityBundleRequest =
+                        serde_json::from_str(&body).unwrap();
+                    request.validate().unwrap();
+                    let bundle = authority.bundle(request.nonce);
+                    (200_u16, serde_json::to_string(&bundle).unwrap())
+                } else {
+                    captured = format!("{headers}{body}");
+                    if resolve_status == 200 {
+                        (
+                            resolve_status,
+                            serde_json::to_string(&json!({"items": [&item]})).unwrap(),
+                        )
+                    } else {
+                        (resolve_status, "{}".to_owned())
+                    }
+                };
+                let reason = if status == 200 { "OK" } else { "Forbidden" };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response_body}",
+                    response_body.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+            captured
         });
         (format!("http://{address}/_arkret/peer"), task)
     }
@@ -1947,48 +2180,104 @@ mod tests {
         .unwrap()
     }
 
-    struct TestCommitAuthorityVerifier;
-
-    #[async_trait]
-    impl CommittedEventAuthorityVerifier for TestCommitAuthorityVerifier {
-        async fn verify(
-            &self,
-            _source_service_id: &DidCoreId,
-            reference: &arkret_wire::CommittedEventRef,
-            item: &arkret_wire::StreamRow,
-        ) -> Result<(), String> {
-            if !reference.matches(item) {
-                return Err("test verifier received mismatched evidence".to_owned());
-            }
-            Ok(())
-        }
+    /// Drive one first-ingest admission against the fixture Station.
+    ///
+    /// There is no stand-in verifier here. `verify_first_source_ref_resolves`
+    /// runs against [`crate::ingest::authority_chain::RealmAuthorityChainVerifier`],
+    /// which fetches the nonce-bound bundle from the fixture Station and hands
+    /// it to `arkret_identity::verify_realm_authority_bundle`. A test that
+    /// passed by asserting `CommittedEventRef::matches` would prove nothing
+    /// about admission, which is exactly what the trait doc forbids.
+    ///
+    /// `commit_authority` selects who signed the resolved commit:
+    /// `CommitAuthority::Genuine` is the Station the verified chain names,
+    /// `CommitAuthority::Impostor` is a different Station whose signature is
+    /// just as real and whose coordinates still satisfy `matches`.
+    #[derive(Clone, Copy)]
+    enum CommitAuthority {
+        Genuine,
+        Impostor,
     }
 
     async fn run_source_ref_fetch(
         status: u16,
-        authority_accepts: bool,
+        commit_authority: CommitAuthority,
     ) -> Result<String, (ApiErrorCode, String)> {
         let signing_key = SigningKey::from_bytes(&[77; 32]);
         let source_did = Did::new("did:web:source.example").unwrap();
         let source_id = arkret_sdk::project_did_to_core_id(&source_did).unwrap();
         let verification_method = DidUrl::new("did:web:source.example#source-key").unwrap();
-        let event = source_ref_test_event(source_id.clone());
-        let (committed_ref, item) =
-            committed_source_item(event.clone(), verification_method.clone());
+
+        // Generation 0: the genesis Event, the Realm it defines, and the
+        // commit that seals it.
+        let genesis_event = genesis_realm_event(source_id.clone());
+        let realm_id = genesis_event.realm_id.clone();
+        let genesis_commit = seal_realm_commit(
+            arkret_wire::RealmCommit {
+                commit_id: realm_commit_id_for(&genesis_event.event_id),
+                realm_id: genesis_event.realm_id.clone(),
+                stream_ref: arkret_wire::CommitStreamRef::Realm {
+                    realm_id: genesis_event.realm_id.clone(),
+                },
+                stream_position: 0,
+                previous_commit_ref: None,
+                event_ref: genesis_event.event_id.clone(),
+                authority_generation: 0,
+                authority_ref: arkret_wire::RealmCommitAuthorityRef::GenesisOrChangeEvent(
+                    genesis_event.event_id.clone(),
+                ),
+                committed_at: Utc::now(),
+                signature: unsealed_signature(
+                    arkret_wire::DetachedSignatureContext::RealmCommit,
+                    verification_method.clone(),
+                ),
+            },
+            &verification_method,
+            &signing_key,
+        );
+
+        let impostor_key = SigningKey::from_bytes(&[78; 32]);
+        let impostor_method = DidUrl::new("did:web:impostor.example#source-key").unwrap();
+        let event = source_ref_test_event(realm_id.clone(), source_id.clone());
+        let (committed_ref, item) = committed_source_item(
+            event.clone(),
+            &genesis_commit,
+            match commit_authority {
+                CommitAuthority::Genuine => (&verification_method, &signing_key),
+                CommitAuthority::Impostor => (&impostor_method, &impostor_key),
+            },
+        );
         let access = signed_source_ref_access(
             &event,
-            committed_ref,
+            committed_ref.clone(),
             source_id.clone(),
             verification_method.clone(),
             &signing_key,
         );
-        let (endpoint, peer) = source_peer(status, item).await;
-        let resolver =
-            source_ref_test_resolver(endpoint, source_did, verification_method, &signing_key);
+        let authority = AuthorityFixture::new(
+            &source_did,
+            source_id.clone(),
+            verification_method.clone(),
+            signing_key.clone(),
+            genesis_event,
+            genesis_commit,
+            arkret_wire::CommitStreamHead {
+                stream_ref: committed_ref.stream_ref.clone(),
+                stream_position: committed_ref.stream_position,
+                commit_id: committed_ref.commit_id.clone(),
+            },
+        );
+        let (endpoint, peer) = source_peer(status, item, authority).await;
+        let resolver = Arc::new(source_ref_test_resolver(
+            endpoint,
+            source_did,
+            verification_method,
+            &signing_key,
+        ));
         let request = DirectoryAnnounceIngest {
             discovery_event: event,
             resource_kind: DirectoryResourceKindDb::Realm,
-            resource_id: REALM_ID.to_owned(),
+            resource_id: realm_id.to_string(),
             station_id: source_id,
             discovery_state: teabay_contracts::DirectoryDiscoveryState::from_json(json!({
                 "resource_kind": "realm",
@@ -2003,22 +2292,19 @@ mod tests {
         };
         let config = source_ref_test_config();
         verify_directory_source_ref_access(&request, &config, &resolver, Utc::now())?;
-        let accepting_verifier = TestCommitAuthorityVerifier;
-        let fail_closed_verifier = FailClosedCommittedEventAuthorityVerifier;
-        let verifier: &dyn CommittedEventAuthorityVerifier = if authority_accepts {
-            &accepting_verifier
-        } else {
-            &fail_closed_verifier
-        };
+        let verifier = crate::ingest::authority_chain::RealmAuthorityChainVerifier::new(
+            config.clone(),
+            Arc::clone(&resolver),
+        );
         let outcome =
-            verify_first_source_ref_resolves(&request, &config, &resolver, verifier).await;
+            verify_first_source_ref_resolves(&request, &config, &resolver, &verifier).await;
         let captured = peer.await.unwrap();
         outcome.map(|()| captured)
     }
 
     #[tokio::test]
     async fn first_ingest_fetches_one_bounded_ref_from_the_authenticated_source_service() {
-        let captured = run_source_ref_fetch(200, true)
+        let captured = run_source_ref_fetch(200, CommitAuthority::Genuine)
             .await
             .expect("the source Station returned the selected current ref");
         assert!(captured.starts_with("POST /_arkret/peer/streams/resolve HTTP/1.1"));
@@ -2033,26 +2319,42 @@ mod tests {
         assert_eq!(body["refs"][0]["stream_ref"]["realm_id"], body["realm_id"]);
         assert!(body["refs"][0]["event_id"].as_str().is_some());
         assert!(body["refs"][0].get("commit_id").is_some());
-        assert_eq!(body["refs"][0]["stream_position"], 0);
+        // Position 1: the genesis commit holds position 0, and the discovery
+        // Event is committed after it under the same generation.
+        assert_eq!(body["refs"][0]["stream_position"], 1);
         assert_eq!(
             body["source_ref_access"]["discovery_event_id"],
             body["refs"][0]["event_id"]
         );
     }
 
+    /// The resolved commit here is perfect in every way a structural check can
+    /// see: its four coordinates satisfy `CommittedEventRef::matches`, its
+    /// shape validates, and its signature is a real Ed25519 signature that
+    /// really verifies against the key its verification method names. The only
+    /// thing wrong with it is that the signer is not the Station the verified
+    /// authority chain says held generation 0 — which is precisely the thing
+    /// no amount of DTO equality can notice.
     #[tokio::test]
     async fn first_ingest_rejects_matching_commit_without_verified_authority_chain() {
-        let (code, message) = run_source_ref_fetch(200, false)
+        let (code, message) = run_source_ref_fetch(200, CommitAuthority::Impostor)
             .await
             .expect_err("exact DTO equality must not replace authority verification");
         assert_eq!(code, ApiErrorCode::SourceRefsUnverifiable);
-        assert!(message.contains("authority verification failed"));
+        assert!(
+            message.contains("authority verification failed"),
+            "{message}"
+        );
+        assert!(
+            message.contains("governance Station"),
+            "the rejection must name the Station binding that failed, not just fail: {message}"
+        );
     }
 
     #[tokio::test]
     async fn first_ingest_rejects_source_ref_after_withdraw_supersession_or_other_announce() {
         for lifecycle in ["withdrawn", "superseded", "other_announce_carrier"] {
-            let (code, message) = run_source_ref_fetch(403, true)
+            let (code, message) = run_source_ref_fetch(403, CommitAuthority::Genuine)
                 .await
                 .expect_err("a source Station lifecycle denial must fail first ingest");
             assert_eq!(code, ApiErrorCode::SourceRefsUnverifiable, "{lifecycle}");

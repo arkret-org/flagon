@@ -12,9 +12,8 @@ use crate::config::AppConfig;
 use crate::db::Db;
 use crate::did_binding::DidBindingDirectory;
 use crate::did_resolver::SharedDidResolver;
-use crate::ingest::verify::{
-    CommittedEventAuthorityVerifier, FailClosedCommittedEventAuthorityVerifier,
-};
+use crate::ingest::authority_chain::RealmAuthorityChainVerifier;
+use crate::ingest::verify::CommittedEventAuthorityVerifier;
 use crate::observability::Metrics;
 use crate::pcd::PrivateContactDiscoveryService;
 
@@ -32,9 +31,10 @@ struct Inner {
     /// never rebuild a resolver or a `reqwest::Client`.
     did_resolver: Arc<SharedDidResolver>,
     /// Verifies RealmCommit signatures and the genesis-to-current authority
-    /// chain for exact source references. The default rejects every proof;
-    /// deployments must inject a complete verifier before enabling first-time
-    /// remote ingest.
+    /// chain for exact source references. Built here by default from
+    /// [`RealmAuthorityChainVerifier`], which fetches a nonce-bound
+    /// `RealmAuthorityBundle` from the source Station and hands it to the SDK
+    /// verifier; a deployment cannot select a weaker rule.
     commit_authority_verifier: Arc<dyn CommittedEventAuthorityVerifier>,
     /// DID-P0-C02/C03 — the zero-network acceptance directory, shared with (and
     /// written by) `did_resolver`. This is what the query / filter face gets:
@@ -73,20 +73,25 @@ impl AppState {
         db: Db,
         private_contact_discovery: Option<PrivateContactDiscoveryService>,
     ) -> anyhow::Result<Self> {
-        Self::new_with_dependencies(
-            config,
-            db,
-            private_contact_discovery,
-            Arc::new(FailClosedCommittedEventAuthorityVerifier),
-        )
+        Self::new_with_dependencies(config, db, private_contact_discovery, None)
     }
 
-    /// Build process state with an explicit authority-chain verifier.
+    /// Build process state, optionally overriding the authority-chain verifier.
+    ///
+    /// `None` — the ordinary case, including every production boot — installs
+    /// [`RealmAuthorityChainVerifier`] bound to this process's DID resolver.
+    /// It cannot be constructed by the caller, because the resolver it needs
+    /// is built inside this function; that is deliberate, so that "forgot to
+    /// inject a verifier" cannot silently degrade into a Directory that
+    /// accepts an unverified `RealmCommit`.
+    ///
+    /// `Some` exists only so a test can drive announce admission against a
+    /// fixture Station instead of the network. It is not a deployment knob.
     pub fn new_with_dependencies(
         config: AppConfig,
         db: Db,
         private_contact_discovery: Option<PrivateContactDiscoveryService>,
-        commit_authority_verifier: Arc<dyn CommittedEventAuthorityVerifier>,
+        commit_authority_verifier: Option<Arc<dyn CommittedEventAuthorityVerifier>>,
     ) -> anyhow::Result<Self> {
         if config.private_contact_discovery.is_some() != private_contact_discovery.is_some() {
             anyhow::bail!("PCD configuration/runtime activation state mismatch");
@@ -112,12 +117,19 @@ impl AppState {
         )
         .map_err(|error| anyhow::anyhow!("DID resolver init failed: {error}"))?;
         let did_bindings = Arc::clone(did_resolver.bindings());
+        let did_resolver = Arc::new(did_resolver);
+        let commit_authority_verifier = commit_authority_verifier.unwrap_or_else(|| {
+            Arc::new(RealmAuthorityChainVerifier::new(
+                config.clone(),
+                Arc::clone(&did_resolver),
+            ))
+        });
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
                 service_core_id,
                 db,
-                did_resolver: Arc::new(did_resolver),
+                did_resolver,
                 commit_authority_verifier,
                 did_bindings,
                 cursor_authority: arkret_server::MemoryCursorAuthority::default(),

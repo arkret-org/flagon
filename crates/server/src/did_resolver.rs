@@ -403,6 +403,31 @@ impl SharedDidResolver {
     }
 }
 
+/// Key material for the verification methods a Realm authority chain names.
+///
+/// [`arkret_identity::verify_realm_authority_bundle`] asks for one key at a
+/// time and treats a `None` as `MaterialIncomplete` — never as a pass — so this
+/// impl is allowed to be, and is, the same acceptance path every other Station
+/// service key takes: a `DidBindingPurpose::Service` binding, reused from the
+/// store when one exists and resolved exactly once when it does not.
+///
+/// The governance Stations a chain names ARE service DIDs, which is why
+/// `Service` is the purpose and not a new one. And the resolution happens
+/// inside announce admission, which `discovery-directory.md` §8.5 already
+/// registers as part of `ak.find.directory.command.announce.v1` — it is
+/// explicit there that this resolution "MUST NOT 另立 call site".
+impl arkret_identity::RealmAuthorityKeyDirectory for SharedDidResolver {
+    fn public_key(
+        &self,
+        verification_method: &arkret_wire::DidUrl,
+    ) -> Option<arkret_signatures::PublicKeyMaterial> {
+        let key = self.http_signature_public_key(verification_method.as_str())?;
+        Some(arkret_signatures::PublicKeyMaterial::Ed25519Raw {
+            bytes: key.to_bytes().to_vec(),
+        })
+    }
+}
+
 /// Zero-network resolver over exactly one already-pinned document.
 ///
 /// Lets the HTTP-signature path reuse `arkret_identity::jws::resolve_ed25519_pubkey`
