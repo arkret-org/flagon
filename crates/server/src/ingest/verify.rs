@@ -1248,7 +1248,7 @@ fn principal_did_method_allowed(config: &AppConfig, did: &str) -> bool {
         .is_some_and(|method| did_method_allowed(&config.accepted_did_methods, method))
 }
 
-fn did_document_url(did: &Did) -> anyhow::Result<Url> {
+pub(crate) fn did_document_url(did: &Did) -> anyhow::Result<Url> {
     let url = match did.method() {
         "web" => DidWebResolver::document_url(did)?,
         "webvh" => DidWebvhResolver::document_url(did)?,
@@ -1257,14 +1257,22 @@ fn did_document_url(did: &Did) -> anyhow::Result<Url> {
     Url::parse(&url).map_err(|e| anyhow::anyhow!("invalid DID document URL `{url}`: {e}"))
 }
 
-/// Raw DID Document fetch. Used **only** by the development-mode loopback
-/// branch of [`resolve_station_endpoint`]; the production branch goes
-/// through the shared resolver chain instead.
+/// Raw DID Document fetch. Used **only** on development-mode loopback
+/// paths — the [`resolve_station_endpoint`] branch below and
+/// `crate::did_resolver::LoopbackDidWebResolver`, which is the same concession
+/// made once for every other DID consumer in the process. Every production
+/// path goes through the shared resolver chain instead.
+///
+/// It refuses anything that is not HTTPS or a development-mode loopback HTTP
+/// URL, so the two callers cannot widen it by passing a different URL.
 ///
 /// The dead `_http: &Client` parameter is gone. It was never read: the body
 /// always built its own egress-pinned client below, because that client has to
 /// be bound to the validated target address and a caller-supplied one is not.
-async fn fetch_did_document_json(url: Url, development_mode: bool) -> anyhow::Result<JsonValue> {
+pub(crate) async fn fetch_did_document_json(
+    url: Url,
+    development_mode: bool,
+) -> anyhow::Result<JsonValue> {
     if url.scheme() != "https"
         && !(development_mode && url.scheme() == "http" && is_loopback_url(&url))
     {
@@ -1346,7 +1354,7 @@ fn service_endpoint_url(
     Ok(parsed)
 }
 
-fn is_loopback_url(url: &Url) -> bool {
+pub(crate) fn is_loopback_url(url: &Url) -> bool {
     match url.host_str() {
         Some("localhost") => true,
         Some(host) => host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback()),

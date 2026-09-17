@@ -87,6 +87,10 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     assert_freshness_flags_are_exposed(&db, &service).await?;
     assert_three_path_takedown_strand(&db, &service).await?;
     assert_admin_operator_surface(&service).await?;
+    // Last: this one indexes a new resource, and running it here keeps every
+    // assertion above it looking at exactly the fixture set it was written
+    // against.
+    crate::first_ingest::assert_first_ingest_admits_a_did_web_station(&db, &service).await?;
     Ok(())
 }
 
@@ -1478,7 +1482,7 @@ impl FixtureStation {
     }
 }
 
-fn realm_discovery_state(name: &str) -> JsonValue {
+pub(crate) fn realm_discovery_state(name: &str) -> JsonValue {
     json!({
         "kind": "ak.realm.discovery",
         "discoverability": "public",
@@ -1489,7 +1493,7 @@ fn realm_discovery_state(name: &str) -> JsonValue {
     })
 }
 
-fn signed_realm_discovery_event(
+pub(crate) fn signed_realm_discovery_event(
     realm_id: &str,
     discovery_state: JsonValue,
     verification_method: &str,

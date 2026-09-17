@@ -80,6 +80,9 @@ pub struct SharedDidResolver {
     allow_private_networks: bool,
     /// PRIVATE, and deliberately without an accessor. See the module docs.
     chain: Arc<dyn DidResolver + Send + Sync>,
+    /// `Some` only under `TEABAY_DEVELOPMENT_MODE=true`. See
+    /// [`LoopbackDidWebResolver`].
+    loopback_did_web: Option<LoopbackDidWebResolver>,
     /// Zero-sized, zero-network `did:key` decoder. `did:key` is
     /// self-describing key material (spec §2.4), so resolving it is pure
     /// multibase decoding and MUST NOT be routed through the HTTP chain.
@@ -128,6 +131,11 @@ impl SharedDidResolver {
             service_id,
             metrics,
         )?);
+        let loopback_did_web = if allow_private_networks {
+            Some(LoopbackDidWebResolver::new()?)
+        } else {
+            None
+        };
         Ok(Self {
             allow_private_networks,
             chain: Arc::new(did_resolver_chain(
@@ -135,6 +143,7 @@ impl SharedDidResolver {
                 allow_private_networks,
             )?),
             did_key: DidKeyResolver::new(),
+            loopback_did_web,
             bindings,
         })
     }
@@ -153,6 +162,7 @@ impl SharedDidResolver {
             allow_private_networks: false,
             chain,
             did_key: DidKeyResolver::new(),
+            loopback_did_web: None,
             bindings: Arc::new(DidBindingDirectory::new(
                 accepted_did_methods,
                 "did:web:directory.example",
@@ -324,6 +334,16 @@ impl SharedDidResolver {
                 DID_RESOLVE_SOURCE_DID_KEY,
             );
             resolve_and_verify_binding(&metered, store, &request, now)
+        } else if let Some(loopback) = self
+            .loopback_did_web
+            .as_ref()
+            .filter(|loopback| loopback.supports(did))
+        {
+            // Development-mode loopback `did:web`. Still an outbound fetch, so
+            // it carries the `network` label like the chain it stands in for.
+            let metered =
+                MeteredAuthorityResolver::new(loopback, self.metrics(), DID_RESOLVE_SOURCE_NETWORK);
+            resolve_and_verify_binding(&metered, store, &request, now)
         } else {
             let metered = MeteredAuthorityResolver::new(
                 self.chain.as_ref(),
@@ -425,6 +445,143 @@ impl arkret_identity::RealmAuthorityKeyDirectory for SharedDidResolver {
         Some(arkret_signatures::PublicKeyMaterial::Ed25519Raw {
             bytes: key.to_bytes().to_vec(),
         })
+    }
+}
+
+/// `did:web` resolution for **loopback** hosts, enabled only by
+/// `TEABAY_DEVELOPMENT_MODE=true`.
+///
+/// # Why this exists, and why it is not a second trust rule
+///
+/// `arkret_models_identity::did_web_document_url` derives the document URL as
+/// `https://<authority>/.well-known/did.json` — always HTTPS, by construction,
+/// because that scheme *is* the `did:web` method's only evidence. A DID whose
+/// authority is `127.0.0.1:<port>` therefore cannot be resolved by the network
+/// chain at all: there is no certificate a local fixture or a developer's
+/// machine can present for a loopback address that the chain's roots accept.
+///
+/// teabay already conceded that point once, in
+/// [`crate::ingest::verify::resolve_station_endpoint`], which fetches a
+/// loopback DID document over plain HTTP when development mode is on. That
+/// branch covers exactly one call site — the Station's `ArkretStation`
+/// endpoint — and nothing else. Every other DID consumer in the process
+/// (§8.5 step 2's discovery-proof key, the RFC 9421 HTTP-signature key, and
+/// since `6f3bca7` the Realm authority chain's
+/// [`arkret_identity::RealmAuthorityKeyDirectory`] key material) still went
+/// through the chain, so a development deployment could resolve *where* a
+/// Station is and never *who* it is. First ingest was consequently
+/// unreachable in development mode for a reason that has nothing to do with
+/// the protocol.
+///
+/// This resolver closes that inconsistency at the one place every consumer
+/// funnels through, [`SharedDidResolver::accepted_or_resolved`], and it
+/// narrows rather than widens what the bypass can do:
+///
+/// - it is `None` unless `development_mode` is true — production behaviour is byte-for-byte
+///   unchanged, and the field cannot be switched on by a request;
+/// - it answers only for `did:web` whose derived authority is a loopback host ([`is_loopback_url`]
+///   — `localhost` or a loopback IP), so a DID naming a routable host still goes to the chain
+///   even in development mode;
+/// - the fetch is the same `crate::ingest::verify::fetch_did_document_json` the existing branch
+///   uses: shared egress guard, address pinning, no redirects, `DID_WEB_MAX_DOCUMENT_BYTES` cap;
+/// - the document is then handed to the SDK's own [`arkret_sdk::DidWebResolver`], so document
+///   validation and the `did:web` "proofless evidence" degradation are the SDK's, not teabay's;
+///   and
+/// - the result goes through the ordinary `resolve_and_verify_binding` acceptance, which re-checks
+///   `document.id == did` and that the requested verification method is really carried.
+///
+/// What it does **not** do is relax any signature, chain, freshness or
+/// authority rule: a loopback Station still has to sign everything correctly.
+struct LoopbackDidWebResolver {
+    /// Cached at construction for the sync [`DidResolver`] facade; see
+    /// [`Self::drive`].
+    runtime: tokio::runtime::Handle,
+}
+
+impl LoopbackDidWebResolver {
+    fn new() -> Result<Self, String> {
+        let runtime = tokio::runtime::Handle::try_current().map_err(|error| {
+            format!("loopback did:web resolver requires an active Tokio runtime: {error}")
+        })?;
+        Ok(Self { runtime })
+    }
+
+    /// The plain-HTTP loopback URL for `did`, or `None` when this resolver has
+    /// no business answering for it.
+    fn document_url(did: &Did) -> Option<url::Url> {
+        if did.method() != "web" {
+            return None;
+        }
+        let mut url = crate::ingest::verify::did_document_url(did).ok()?;
+        if !crate::ingest::verify::is_loopback_url(&url) {
+            return None;
+        }
+        url.set_scheme("http").ok()?;
+        Some(url)
+    }
+
+    /// Run one fetch to completion from a synchronous [`DidResolver`] call.
+    ///
+    /// Same shape as the SDK's `HttpDidResolver::drive`, and for the same
+    /// reason: `DidResolver::resolve_did` is synchronous, so the fetch has to
+    /// be driven rather than awaited. A multi-threaded runtime yields its
+    /// worker through `block_in_place`; a current-thread runtime cannot, so the
+    /// future is moved to a scoped thread with a runtime of its own instead of
+    /// deadlocking.
+    fn drive<T, F>(&self, future: F) -> anyhow::Result<T>
+    where
+        T: Send,
+        F: Future<Output = anyhow::Result<T>> + Send,
+    {
+        let handle = tokio::runtime::Handle::try_current().unwrap_or_else(|_| self.runtime.clone());
+        match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::CurrentThread => std::thread::scope(|scope| {
+                scope
+                    .spawn(move || {
+                        tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .map_err(|error| {
+                                anyhow::anyhow!("loopback DID resolver runtime: {error}")
+                            })?
+                            .block_on(future)
+                    })
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("loopback DID resolver thread panicked"))?
+            }),
+            _ => tokio::task::block_in_place(|| handle.block_on(future)),
+        }
+    }
+}
+
+impl DidResolver for LoopbackDidWebResolver {
+    fn supports(&self, did: &Did) -> bool {
+        Self::document_url(did).is_some()
+    }
+
+    fn resolve_did(&self, did: &Did) -> IdentityResult<ResolvedDid> {
+        let url = Self::document_url(did).ok_or_else(|| {
+            arkret_sdk::identity::IdentityError::Protocol(format!(
+                "`{did}` is not a loopback did:web identifier"
+            ))
+        })?;
+        let json = self
+            .drive(crate::ingest::verify::fetch_did_document_json(url, true))
+            .map_err(|error| {
+                arkret_sdk::identity::IdentityError::Protocol(format!(
+                    "loopback did:web fetch for `{did}` failed: {error}"
+                ))
+            })?;
+        let document: DidDocument = serde_json::from_value(json).map_err(|error| {
+            arkret_sdk::identity::IdentityError::Protocol(format!(
+                "loopback did:web document for `{did}` is not a DID document: {error}"
+            ))
+        })?;
+        // The SDK owns `did:web` document validation and the proofless
+        // evidence degradation; this resolver only carries the bytes.
+        let mut web = arkret_sdk::DidWebResolver::new();
+        web.insert(document)?;
+        web.resolve_did(did)
     }
 }
 

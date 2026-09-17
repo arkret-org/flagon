@@ -300,3 +300,98 @@ fn public_projection_collapses_circle_directory_preview_to_locked_stub() {
         assert!(!serialized.contains(forbidden), "{forbidden} leaked");
     }
 }
+
+/// The read face injects `organization_id` from the row's `resource_id`
+/// (`query::organization::envelope_from_row`), so an announced organization
+/// projection legitimately does not carry one — and `OrganizationPreview`
+/// rejects a projection that has none.
+///
+/// This test is the guard for a defect that shipped inside the write-face
+/// change and was caught before release: an ingest-time preview check that
+/// validated the *stored* projection instead of the projection **as the read
+/// face assembles it** rejects every single organization announce with
+/// `schema_violation`. Deleting the `organization_id` injection from
+/// `validate_preview_projection` must turn this test red.
+#[test]
+fn preview_validation_mirrors_the_row_level_members_the_read_face_injects() {
+    use super::projection::validate_preview_projection;
+    use crate::ingest::DirectoryResourceKindDb;
+
+    let organization = json!({
+        "handle": "@tea-org",
+        "display_name": "Tea Org",
+        "realm_count": 2
+    });
+    assert!(organization.get("organization_id").is_none());
+    validate_preview_projection(
+        DirectoryResourceKindDb::Organization,
+        "ak:did_core:web:tea-org.example",
+        DiscoverabilityDb::Public,
+        &organization,
+    )
+    .expect("an organization announce must not be rejected for the identity the read face injects");
+
+    // Same argument on the realm face: `realm_id` is the row key, never a
+    // stored projection member.
+    let realm = json!({ "title": "Tea Time", "member_count_bucket": "11-50" });
+    assert!(realm.get("realm_id").is_none());
+    validate_preview_projection(
+        DirectoryResourceKindDb::Realm,
+        "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt",
+        DiscoverabilityDb::Public,
+        &realm,
+    )
+    .expect("a realm announce must not be rejected for the identity the read face injects");
+}
+
+/// `filter::discoverers` reads `allowed_discoverers` out of the **stored**
+/// projection to decide restricted visibility, so a restricted Realm's
+/// projection carries a member `RealmPreview` has no field for.
+///
+/// That is the shape that used to make `resolve-realm` answer 500 for every
+/// restricted Realm: the read face deserialized the whole envelope into a
+/// `deny_unknown_fields` DTO behind a hand-maintained blacklist that did not
+/// list `allowed_discoverers`. Ingest must accept it, and the read face must
+/// render it.
+#[test]
+fn preview_validation_accepts_a_restricted_realm_projection_with_allowed_discoverers() {
+    use super::projection::validate_preview_projection;
+    use crate::ingest::DirectoryResourceKindDb;
+
+    let restricted = json!({
+        "title": "Tea Time",
+        "member_count_bucket": "11-50",
+        "allowed_discoverers": [{
+            "type": "claim",
+            "claim_kind": "organization_membership",
+            "issuer_id": "ak:did_core:web:issuer.example",
+            "organization_id": "ak:did_core:web:tea-org.example"
+        }]
+    });
+    validate_preview_projection(
+        DirectoryResourceKindDb::Realm,
+        "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt",
+        DiscoverabilityDb::Restricted,
+        &restricted,
+    )
+    .expect("a restricted Realm's discoverer selector is not a preview field and must not reject");
+}
+
+/// The point of the check: a projection the read face could not render is
+/// refused at ingest, with `schema_violation`, instead of being indexed and
+/// then answering 500 on the first `resolve-*`.
+#[test]
+fn preview_validation_rejects_a_projection_the_read_face_could_not_render() {
+    use super::projection::validate_preview_projection;
+    use crate::ingest::DirectoryResourceKindDb;
+
+    let (code, message) = validate_preview_projection(
+        DirectoryResourceKindDb::Realm,
+        "ak:realm:AdaQzevAO2VnYKLw4DxSt_OKfNQnb8F2PBgVHfF5A6yt",
+        DiscoverabilityDb::Public,
+        &json!({ "title": 12 }),
+    )
+    .expect_err("a title that is not a string cannot become a RealmPreview");
+    assert_eq!(code, ApiErrorCode::SchemaViolation);
+    assert!(message.contains("title"), "{message}");
+}
