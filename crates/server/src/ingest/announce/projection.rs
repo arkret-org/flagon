@@ -184,13 +184,52 @@ pub(crate) fn derive_public_projection(
 /// `search-*`, at which point the row is already indexed and the operator has
 /// no rejection to look at. §8.5 wants the answer at ingest, and the answer is
 /// `schema_violation`.
+///
+/// The row-level members the read face injects itself — the canonical
+/// `realm_id` / `organization_id` key and the indexing-side `discoverability`
+/// column — are injected here too, because the query handlers'
+/// `envelope_from_row` injects them and a preview member is only missing at
+/// read time if it is missing *after* that injection. Checking the raw stored
+/// projection instead would reject every organization announce whose
+/// `organization_id` the read face supplies from `resource_id`.
 pub(crate) fn validate_preview_projection(
     resource_kind: DirectoryResourceKindDb,
     resource_id: &str,
+    discoverability: DiscoverabilityDb,
     projection: &JsonValue,
 ) -> Result<(), (ApiErrorCode, String)> {
+    let mut payload = projection.clone();
+    if let Some(object) = payload.as_object_mut() {
+        match resource_kind {
+            DirectoryResourceKindDb::Realm => {
+                object.insert(
+                    "realm_id".to_owned(),
+                    JsonValue::String(resource_id.to_owned()),
+                );
+                object.insert(
+                    "discoverability".to_owned(),
+                    JsonValue::String(discoverability.as_pg().to_owned()),
+                );
+            }
+            DirectoryResourceKindDb::Organization => {
+                object.insert(
+                    "organization_id".to_owned(),
+                    JsonValue::String(resource_id.to_owned()),
+                );
+                object.insert(
+                    "discoverability".to_owned(),
+                    JsonValue::String(discoverability.as_pg().to_owned()),
+                );
+            }
+            // `query::actor::envelope_from_row` injects nothing: an Actor
+            // preview is built from the signed projection alone.
+            DirectoryResourceKindDb::Actor
+            | DirectoryResourceKindDb::Applet
+            | DirectoryResourceKindDb::Handle => {}
+        }
+    }
     let envelope = crate::filter::result::ResultEnvelope::from_row(
-        projection.clone(),
+        payload,
         Utc::now(),
         Vec::new(),
         String::new(),

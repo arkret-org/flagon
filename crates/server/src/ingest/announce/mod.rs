@@ -426,7 +426,12 @@ pub async fn announce(req: &mut Request, depot: &mut Depot, res: &mut Response) 
         // produce the closed `*_preview` the read face serves. Checking it
         // here turns "a 500 on the first resolve" into a rejection the
         // announcer can act on.
-        validate_preview_projection(body.resource_kind, &body.resource_id, &projection)?;
+        validate_preview_projection(
+            body.resource_kind,
+            &body.resource_id,
+            verified.discoverability,
+            &projection,
+        )?;
         Ok(projection)
     }) {
         Ok(projection) => projection,
