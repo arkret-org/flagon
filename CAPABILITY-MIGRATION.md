@@ -13,11 +13,20 @@ carries it. This file records, per product entry point, where the capability
 lives now and which test covers it. Empty implementations, unverified seams and
 untested routes are named as such.
 
-Two findings below are load-bearing for acceptance and are stated up front:
-the ingest verify chain's `RealmCommit` authority step has no shipped
-implementation ("Unverified seam"), and `search-realms` / `resolve-realm`
-currently return HTTP 500 for projections the ingest face accepts
-("Live defect"). Neither is visible in a default `cargo test` run.
+Three findings were load-bearing for acceptance when this file was first
+written; all three are now closed, and each is kept below with what it was and
+what closed it, because a ledger that deletes its own findings cannot be
+audited:
+
+1. the ingest verify chain's `RealmCommit` authority step had no shipped
+   implementation ("Authority seam" below) — **closed**: the production
+   verifier is `ingest/authority_chain.rs:RealmAuthorityChainVerifier`;
+2. `search-realms` / `resolve-realm` returned HTTP 500 for projections the
+   ingest face accepts ("Realm preview" below) — **closed**: the Realm preview
+   is assembled field by field and ingest validates against it;
+3. the Docker-backed suite reported seven skipped tests as passed
+   ("Docker reporting" below) — **closed**: those tests are `#[ignore]`, so a
+   default run reports them as ignored and CI fails if any is.
 
 ## Protocol invariants every row is measured against
 
@@ -35,8 +44,10 @@ currently return HTTP 500 for projections the ingest face accepts
   *current governance Station*, verified back through the genesis-to-current
   handoff chain. Exact DTO equality (`CommittedEventRef::matches`) and an
   authenticated HTTP transport are explicitly **not** substitutes — the trait
-  doc says so and `FailClosedCommittedEventAuthorityVerifier` enforces it.
-  See "Unverified seam" below for what actually ships.
+  doc says so and `ingest/authority_chain.rs:RealmAuthorityChainVerifier`
+  enforces it by fetching a nonce-bound `RealmAuthorityBundle` from the source
+  Station's open face and handing it to
+  `arkret_identity::verify_realm_authority_bundle`. See "Authority seam" below.
 - [x] `policy_revision` is SHA-256 over the canonical closed source-ref tuples,
   not over Event ids alone (`ingest/verify.rs:VerifyContext::verify`), so a ref
   set that differs only in commit or stream coordinate is a different revision.
@@ -122,42 +133,65 @@ Route entry points are as declared in `crates/server/src/routing.rs:router`.
 | Takedown notifier (HMAC-signed webhook fanout, 3-attempt backoff, DLQ) | `crates/server/src/workers/takedown_notifier.rs` | `tests/it/workers.rs:takedown_notifier_dlqs_after_three_retries` (**Docker-gated**) |
 | PCD maintenance worker | `crates/server/src/workers/private_contact_discovery.rs` | `tests/it/pcd_state.rs` (3, **Docker-gated**) |
 
-### Unverified seam — the one that matters
+### Authority seam — closed
 
 `ingest/verify.rs` step 4 requires a `CommittedEventAuthorityVerifier` that
 validates each `RealmCommit` signature, its authority generation, and the
-genesis-to-current governance handoff chain. **teabay ships no implementation of
-that trait.** The only two implementors in the repository are:
+genesis-to-current governance handoff chain.
 
-- `FailClosedCommittedEventAuthorityVerifier` (`verify.rs:90`) — its `verify`
-  body is one line: `Err("RealmCommit authority-chain verifier is not configured")`.
-- `TestCommitAuthorityVerifier` (`verify.rs:1950`, `#[cfg(test)]`) — and this one
-  accepts on `reference.matches(item)` alone, which is exactly what the trait
-  doc forbids a real implementation from doing. It is a stand-in that lets the
-  surrounding tests exercise the *fetch* path; it is not, and does not claim to
-  be, an authority-chain verifier. So no code in this repository, test or
-  production, verifies a `RealmCommit` signature or a governance handoff chain.
+**What it was.** teabay shipped no implementation. The only two implementors
+were `FailClosedCommittedEventAuthorityVerifier`, whose whole body was
+`Err("RealmCommit authority-chain verifier is not configured")`, and a
+`#[cfg(test)]` stand-in that accepted on `reference.matches(item)` alone —
+exactly what the trait doc forbids. `AppState::new_with_dependencies` was an
+injection seam with no caller. In a default deployment the first-ever announce
+of any Directory resource was rejected with `source_refs_unverifiable`.
 
-`AppState::new` installs the fail-closed one; `AppState::new_with_dependencies`
-is the injection seam and has **no caller outside `AppState::new` itself**. The
-consequence is exact and worth stating plainly: in a default deployment, the
-first-ever announce of any Directory resource is rejected with
-`source_refs_unverifiable`. Resources already in the index skip step 4
-(`resource_already_indexed`) and keep updating normally.
+**What closed it.** `arkret-rust-sdk` commit `514762cc` landed
+`arkret_identity::realm_authority_chain`: `verify_realm_authority_bundle`
+verifies genesis → current cryptographically and returns a
+`VerifiedRealmAuthority` that is the only thing able to judge an individual
+`RealmCommit`. teabay now consumes it and re-implements none of it:
 
-This is a deliberate, documented fail-closed gap, not an accident — it is
-written up in `docs/deployment.md` under "RealmCommit authority verification"
-and guarded by `first_ingest_rejects_matching_commit_without_verified_authority_chain`.
-It is recorded here because "compiles and the suite is green" is not the same as
-"the capability works end to end", and for first-time remote ingest it does not.
+- `crates/server/src/ingest/authority_chain.rs` —
+  `RealmAuthorityChainVerifier` generates a 32-byte nonce, fetches the bundle
+  from the source Station's `ak.open.realm_authority.read.bundle.v1` face
+  (derived from the accepted `ArkretStation` peer endpoint; a base that is not
+  a peer face is refused rather than guessed), verifies it with a 300-second
+  freshness window, requires the answering Station to *be* the Realm's current
+  governance authority, and then calls `verify_committed_item` on the resolved
+  `(RealmCommit, Event)` pair.
+- `crates/server/src/did_resolver.rs` — `SharedDidResolver` implements
+  `arkret_identity::RealmAuthorityKeyDirectory` through the ordinary
+  `DidBindingPurpose::Service` acceptance path. A verification method it cannot
+  produce is `MaterialIncomplete`, never a pass.
+- `crates/server/src/state.rs` — the production verifier is the **default**.
+  `new_with_dependencies` takes an `Option`, and `None` builds
+  `RealmAuthorityChainVerifier` from the process resolver, so "forgot to inject
+  a verifier" can no longer degrade into accepting an unverified commit.
+- `verify.rs` gained `SourceStation<'a> { service_id, did }`. The two spellings
+  are not derivable from one another (`project_did_to_core_id` is one-way), and
+  the caller has already bound both to the announce.
 
-A second, narrower gap in the same area: the operator upsert path
-(`query/admin/resources.rs`) validates `source_refs` for shape only — non-empty,
-canonically sorted, unique — and never calls the authority verifier. An admin
-token can therefore install a Directory row with syntactically well-formed but
-unverified committed refs. That is presumably intended (the operator is the
-trust root for that route), but it is the one way a row reaches the index
-without step 4, and nothing in the code says so.
+**What tests it.** `crates/server/src/ingest/verify.rs` now drives the real
+verifier: the fixture Station serves both its peer face (the exact
+committed-event resolve) and its open face (the nonce-bound bundle, signed at
+request time against the nonce actually asked for), over a genesis-generation
+chain built with real Ed25519 keys.
+`first_ingest_rejects_matching_commit_without_verified_authority_chain` is a
+true negative — the resolved commit satisfies `CommittedEventRef::matches`, has
+a valid shape and carries a signature that really verifies, and is refused
+solely because its signer is not the Station the verified chain names.
+`authority_chain.rs` additionally pins the open-face derivation and nonce
+freshness.
+
+**Still open.** The Docker conformance smoke does not reach this path: its
+fixture Station is a `did:key`, which `identity/identity-did.md` does not
+register as a service method, so admission fails earlier at endpoint
+resolution (asserted at `conformance.rs`), and the refresh half of that test
+goes through `resource_already_indexed`. End-to-end coverage of a first ingest
+that *succeeds* would need a `did:web` fixture Station and is not in this
+round.
 
 ## Removed as complete old-protocol units
 
@@ -257,84 +291,86 @@ run from `D:\Works\arkret-org\teabay`.
 
 | Command | Result |
 |---|---|
-| `cargo test --workspace --no-fail-fast` (default configuration) | **230 passed, 0 failed, 0 ignored.** Breakdown: 196 `server` unit tests, 9 `list_handles_for_subject`, 10 `resolve_target`, 7 `it`, 3 `health`, 2 `timing_variance`, 1 `did_binding_metrics`, 1 `pcd_http`, 1 `teabay-contracts`. |
-| `TEABAY_RUN_DOCKER_TESTS=1 cargo test --workspace --no-fail-fast` | **The `it` suite is 6 passed / 1 failed.** `conformance::postgres_query_conformance_smoke` fails once the Docker-backed database is actually provided, with a live HTTP 500 — root cause in "Live defect" below. `tests/pcd_http.rs`, `tests/it/pcd_state.rs` and `tests/it/workers.rs` all pass with Docker enabled (1 / 3 / 3). **This is the headline verification result: the 230/0 figure above is obtained with the integration suite short-circuited.** |
+| `cargo test -p server --lib` | **201 passed, 0 failed, 0 ignored.** |
+| `cargo test --locked -p server --test it -- --include-ignored` | **7 passed, 0 failed, 0 ignored** (`conformance` 1, `workers` 3, `pcd_state` 3). |
+| `cargo test --locked -p server --test pcd_http -- --include-ignored` | **1 passed, 0 ignored.** |
+| `cargo test --workspace --no-fail-fast` (default configuration) | The seven Docker-backed tests are reported as **ignored**, not passed. That is the point: the count no longer claims coverage the run did not execute. |
 | module reachability self-check | 3 crates (`admin`, `contracts`, `server`), 11 crate roots; **85 `.rs` files on disk under `crates/*/src`, `crates/*/tests`; 85 reachable by walking `mod` from those roots; 0 orphans.** The walk resolves `#[path]` attributes and nested inline `mod` blocks, and treats every integration-test file as its own crate root (required here: `crates/server/tests/it/` is a multi-file test crate rooted at `main.rs`, and `tests/common/mod.rs` is shared by several roots). No file in this repository is excluded from compilation. |
 | residue scan (`git grep -i` for `Seal`, `Cell`, `CBS`, `ControlProposal`, `frontier`, `lattice`, `RHRK`, `history_secret`, `policy_root`, `state_root`, `actor_seq`, `encryption_floor`, `governance_profile`, `security_frontier`, `ordinary_authoring`, `Deprecated`) | **Zero hits.** `Retired` matches 47 times and `Legacy` twice, and every one is ordinary English or an unrelated domain term: 43 of the `Retired` hits are `retired_at` / `retired_key_epochs` in `pcd_state.rs`, `schema.rs`, `up.sql` and `tests/it/pcd_state.rs` — the PCD key-epoch lifecycle column, which has nothing to do with the protocol; the rest are `docs/deployment.md` describing the GC interval, `docs/did-normalization.md` stating that no compatibility aliases exist, and one comment in `query/handle.rs:654` noting that the `arkret://` URI form is gone. `CHANGELOG.md:56` uses "legacy DIDs" about `via_services`. |
-| `cargo fmt` | Not run. `--all` reaches into the sibling `arkret-rust-sdk` path-dependency checkout, which other agents are editing concurrently. |
+| `cargo fmt -p server -p teabay-contracts` | Applied. `--all` is never used here: it reaches into the sibling `arkret-rust-sdk` path-dependency checkout, which other agents are editing concurrently. |
 
-### How the Docker gate hides work
+### Docker reporting — closed
 
-`crates/server/tests/common/mod.rs:docker_tests_enabled` returns false unless
-`TEABAY_RUN_DOCKER_TESTS=1`. Every Docker-backed test then does
-`eprintln!("skipping …"); return Ok(())` — and libtest counts that as **passed**.
-A default `cargo test` therefore reports green for
-`postgres_query_conformance_smoke`, the three `workers` tests, the three
-`pcd_state` tests and `pcd_http`, having executed none of them. Since
-`postgres_query_conformance_smoke` is the only end-to-end coverage for
+**What it was.** `crates/server/tests/common/mod.rs:docker_tests_enabled`
+returned false unless `TEABAY_RUN_DOCKER_TESTS=1`, and every Docker-backed test
+then did `eprintln!("skipping …"); return Ok(())`. libtest counts that as
+**passed**. A default `cargo test` reported green for
+`postgres_query_conformance_smoke` — the only end-to-end coverage for
 `announce`, `withdraw`, every `search-*`/`resolve-*` route and the admin
-resources/allowlist/takedown/audit routes, the default green run proves far less
-about this repository than its count suggests. The design rationale (a checkout
-without a Docker daemon still runs the rest of the suite) is written down in the
-same file and is reasonable; the reporting is what misleads.
+resources/allowlist/takedown/audit routes — plus the three `workers` tests, the
+three `pcd_state` tests and `pcd_http`, having executed none of them.
 
-### Live defect — the Realm preview rejects the projection it is built from
+**What closed it.** All seven now carry `#[ignore]` with the reason spelled
+out, and the environment switch is gone entirely — a second way to skip is a
+second way to be silently green. libtest reports ignored separately from passed
+in every counter, summary line and machine-readable output, so a default run
+says `N passed; 7 ignored` and claims nothing it did not do. Run them with
+`-- --include-ignored`; `boot_postgres` then turns an unreachable Docker daemon
+into a loud failure, because the test was asked for explicitly.
 
-This is what the Docker gate was hiding, and it is not stale test data.
+The gate says it out loud: `.github/workflows/ci.yml` runs both Docker-backed
+targets with `--include-ignored`, tees the output, and **fails the job** if the
+summary line reports any ignored test or if no test executed at all. Skipping
+can no longer be mistaken for passing by a machine either.
 
-`query/realm.rs:realm_preview_from_envelope` builds a `RealmPreview` by
-serialising the whole `ResultEnvelope` and deserialising the result into
-`arkret_models_discovery::RealmPreview`. `ResultEnvelope.payload` is a
-`DirectoryPublicProjection`, which `crates/contracts/src/lib.rs:json_boundary!`
+### Realm preview — closed
+
+**What it was.** `query/realm.rs:realm_preview_from_envelope` built a
+`RealmPreview` by serialising the whole `ResultEnvelope` and deserialising the
+result into `arkret_models_discovery::RealmPreview`. `ResultEnvelope.payload` is
+a `DirectoryPublicProjection`, which `crates/contracts/src/lib.rs:json_boundary!`
 defines as a **transparent `serde_json::Value` newtype** — every key of the
-stored projection is flattened into the candidate preview. `RealmPreview` is
-`#[serde(deny_unknown_fields)]`, matching the specification's `realm_preview`
-(`spec/v1/artifacts/schemas/directory-operations.schema.json`,
-`additionalProperties: false`). `realm_preview_from_envelope` removes exactly
-two keys before deserialising — `owning_organization_ids` and
-`organization_id` — and nothing else.
+stored projection was flattened into the candidate preview, and `RealmPreview`
+is `#[serde(deny_unknown_fields)]` (`additionalProperties: false` in
+`directory-operations.schema.json`). The function removed exactly two keys and
+nothing else, so any other stored member produced HTTP 500 at query time.
 
-Nothing upstream constrains the projection to that closed shape.
-`ingest/announce/projection.rs:derive_public_projection` strips `proof`,
-`directory_ids` and `official_organizations` and normalises the member count;
-it never validates against `realm_preview`. **So a projection carrying any
-other field is accepted at ingest and then produces HTTP 500 at query time**,
-instead of being rejected at ingest with `schema_violation`.
+The instance that was not test data: `filter/discoverers.rs:allowed_discoverers`
+reads `allowed_discoverers` out of the stored `public_projection` to decide
+restricted visibility, so the Directory *must* store it and `realm_preview`
+*must not* carry it. `resolve-realm` therefore returned 500 for **every**
+restricted Realm that reached preview conversion.
 
-Two concrete instances, both reproduced on this machine:
+**What closed it.** Two halves, because a read-side fix alone would only have
+moved the failure:
 
-1. `"name"` — `search-realms` returns 500 (`conformance.rs:350`):
-   `realm preview is not SDK-compatible: unknown field 'name', expected one of
-   realm_id, alias, title, …`. No directory preview in the specification has a
-   `name` field (`realm_preview` and `object_preview` have `title`;
-   `actor_preview` and `organization_preview` have neither), so this one is
-   fixture data that drifted from the schema.
-2. `"allowed_discoverers"` — `resolve-realm` returns 500 for the restricted
-   Realm (`conformance.rs:678`). **This one is not test data.**
-   `filter/discoverers.rs:allowed_discoverers` reads that field out of the
-   stored `public_projection` to decide restricted visibility, so the directory
-   *must* store it, and `realm_preview` *must not* carry it. The consequence is
-   that `resolve-realm` 500s for every restricted Realm that reaches preview
-   conversion.
+- read side — `realm_preview_from_envelope` assembles the closed DTO field by
+  field through `query::projection_field`, the same shape
+  `organization_preview_from_envelope` already had. A projection key that is not
+  a preview member is simply not carried, and a member of the wrong type is a
+  named error rather than a coerced value
+  (`a_wrongly_typed_preview_member_is_refused_rather_than_coerced`).
+- write side — `ingest/announce/projection.rs:validate_preview_projection`
+  checks, at announce time, that the projection about to be stored can produce
+  its preview, so a projection the read face cannot serve is rejected with
+  `schema_violation` instead of being indexed and 500ing later. It mirrors the
+  row-level members the read face injects (`realm_id` and `discoverability` for
+  Realms, `organization_id` and `discoverability` for organizations) — without
+  that, every organization announce would have been falsely rejected.
 
-I established that (2) is independent of (1) by a throwaway probe: renaming
-the fixture's `name` to `title` moved the failure from line 350 to line 678
-with the new field named in the error. **The probe was reverted (the fixture is
-byte-identical to `HEAD`) and no fixture change is committed** — patching test
-data would have turned the suite green without touching the defect.
+**The two faces held for review.** `actor_preview`
+(`query/actor.rs:actor_preview_from_envelope`) and `object_preview`
+(`query/target.rs`, both construction sites) were checked and are already
+assembled member by member; neither ever deserialised an open projection into a
+closed DTO. `applet` and `handle` rows are not served through a `*_preview` DTO
+at all. The Realm face was the only one with this defect.
 
-The organization face does not have this bug and shows the shape of the fix:
-`query/organization.rs:organization_preview_from_envelope` assembles the
-preview field by field through `organization_projection_field`, so a projection
-key that is not a preview member is simply not carried.
-`public_org_preview_excludes_internal_policy_and_preserves_typed_fields`
-asserts precisely that, including for `name`. The Realm face is the only one
-that does whole-value deserialisation of an open projection into a closed DTO.
-
-This is a product-capability failure, not a test-harness artefact: two of the
-Directory's primary read entry points return 500 for inputs the ingest face
-accepts. It is out of scope for this file to fix, and it is recorded here
-rather than worked around.
+**What proves it.** `conformance::postgres_query_conformance_smoke` installs a
+genuinely restricted Realm (`install_restricted_realm_claim_selector` writes
+`allowed_discoverers` into the stored projection) and then asserts
+`resolve-realm` returns `200 OK` for a signed claim presentation. That
+assertion runs against a real PostgreSQL and passes; it is the coverage this
+row previously lacked.
 
 ## Uncovered entry points
 
@@ -387,12 +423,10 @@ still have an implementation *and a test*" is not met for them.
    windows where the SDK compiled. **Nothing in the SDK was changed to obtain
    them**, and no teabay source was changed to make anything go green.
 
-   Capturing the conformance failure took several attempts for this reason: the
-   first Docker-enabled run reported `FAILED` but the panic text scrolled past
-   the captured tail, and the retries were stopped by SDK errors before the
-   test could build. It did eventually run — the result is written up under
-   "Live defect" above. Reproduce with `TEABAY_RUN_DOCKER_TESTS=1 cargo test -p
-   server --test it --no-fail-fast conformance` whenever the SDK tree compiles.
+   Reproduce the Docker-backed suite with `cargo test --locked -p server --test
+   it -- --include-ignored` whenever the SDK tree compiles.
 
-2. **Nothing else is blocked externally.** The one red test is teabay's own
-   defect, not an upstream one.
+2. **Nothing is blocked externally now.** The authority-chain verifier this
+   file previously recorded as unshippable was unblocked by `arkret-rust-sdk`
+   `514762cc`; teabay consumes that API and hand-rolls no cryptography of its
+   own.

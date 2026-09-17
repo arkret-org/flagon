@@ -4,9 +4,10 @@
 )]
 
 //! P5 — integration tests for the background workers (expiry +
-//! takedown notifier). All Postgres tests are gated on the
-//! `TEABAY_RUN_DOCKER_TESTS=1` env so the test suite remains green on
-//! hosts without Docker.
+//! takedown notifier). Every Postgres test here is `#[ignore]` so that a
+//! checkout without a Docker daemon reports them as *ignored* rather than
+//! running them; see `crate::common` for why that is not an environment
+//! switch. Run them with `-- --include-ignored`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,7 +15,7 @@ use std::time::Duration;
 
 use diesel_async::RunQueryDsl;
 
-use crate::common::{boot_postgres, docker_tests_enabled};
+use crate::common::boot_postgres;
 
 async fn test_app_state(
     database_url: &str,
@@ -42,12 +43,9 @@ async fn test_app_state(
     Ok((config, state))
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!("skipping expiry_worker_purges_rows_past_grace; set TEABAY_RUN_DOCKER_TESTS=1");
-        return Ok(());
-    }
     let (_pg, database_url) = boot_postgres().await?;
     let (_config, state) = test_app_state(&database_url).await?;
 
@@ -90,14 +88,9 @@ async fn expiry_worker_purges_rows_past_grace() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!(
-            "skipping freshness_worker_waits_until_revalidation_grace_elapsed; set TEABAY_RUN_DOCKER_TESTS=1"
-        );
-        return Ok(());
-    }
     let (_pg, database_url) = boot_postgres().await?;
     let (_config, state) = test_app_state(&database_url).await?;
 
@@ -149,14 +142,9 @@ async fn freshness_worker_waits_until_revalidation_grace_elapsed() -> anyhow::Re
     Ok(())
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn takedown_notifier_dlqs_after_three_retries() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!(
-            "skipping takedown_notifier_dlqs_after_three_retries; set TEABAY_RUN_DOCKER_TESTS=1"
-        );
-        return Ok(());
-    }
     let (_pg, database_url) = boot_postgres().await?;
     let (_config, state) = test_app_state(&database_url).await?;
 

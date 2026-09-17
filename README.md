@@ -165,17 +165,25 @@ cargo +nightly fmt --all -- --check
 cargo check --all-targets
 cargo test
 cargo check --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
-TEABAY_RUN_DOCKER_TESTS=1 cargo test -p server --test it -- --nocapture
+cargo test -p server --test it -- --include-ignored --nocapture
+cargo test -p server --test pcd_http -- --include-ignored --nocapture
 cargo deny check
 cargo tarpaulin --config tarpaulin.toml --fail-under 70
 scripts/trivy-scan.sh
 scripts/local-artifacts.sh
 ```
 
-The Docker-gated conformance test starts PostgreSQL with Testcontainers and
+The Docker-backed conformance test starts PostgreSQL with Testcontainers and
 covers describe, query / resolve envelopes, anti-enumeration hidden-result
 behavior, signed push announce against a mock Station, freshness flags, and takedown audit through the admin operator
 surface.
+
+It and the other six Docker-backed tests are `#[ignore]`, not environment-gated.
+A plain `cargo test` reports them as **ignored**, which is what libtest counts
+separately from passed; the previous `TEABAY_RUN_DOCKER_TESTS=1` early return
+made a default run report seven passes for tests that never executed. Passing
+`--include-ignored` runs them for real, and a missing Docker daemon then fails
+the run instead of skipping it.
 
 ## Architecture
 

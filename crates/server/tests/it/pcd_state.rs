@@ -11,7 +11,7 @@ use server::pcd_state::{
     PostgresPcdStore,
 };
 
-use crate::common::{boot_postgres, docker_tests_enabled};
+use crate::common::boot_postgres;
 
 #[derive(QueryableByName)]
 struct CountRow {
@@ -99,14 +99,9 @@ fn matching(blind: &BlindAdmissionRequest, digest: u8, owner: u8) -> MatchAdmiss
     }
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!(
-            "skipping pcd_state_survives_pool_restart_and_retains_epoch_fk; set TEABAY_RUN_DOCKER_TESTS=1"
-        );
-        return Ok(());
-    }
     let (_postgres, database_url) = boot_postgres().await?;
     let db = server::Db::connect(&database_url)?;
     db.run_migrations(&database_url).await?;
@@ -267,14 +262,9 @@ async fn pcd_state_survives_pool_restart_and_retains_epoch_fk() -> anyhow::Resul
     Ok(())
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!(
-            "skipping expired_pending_lease_is_taken_over_with_versioned_cas; set TEABAY_RUN_DOCKER_TESTS=1"
-        );
-        return Ok(());
-    }
     let (_postgres, database_url) = boot_postgres().await?;
     let db = server::Db::connect(&database_url)?;
     db.run_migrations(&database_url).await?;
@@ -428,15 +418,10 @@ async fn expired_pending_lease_is_taken_over_with_versioned_cas() -> anyhow::Res
     Ok(())
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn explicit_gc_preserves_current_and_live_bindings_then_reclaims_history()
 -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!(
-            "skipping explicit_gc_preserves_current_and_live_bindings_then_reclaims_history; set TEABAY_RUN_DOCKER_TESTS=1"
-        );
-        return Ok(());
-    }
     let (_postgres, database_url) = boot_postgres().await?;
     let db = server::Db::connect(&database_url)?;
     db.run_migrations(&database_url).await?;

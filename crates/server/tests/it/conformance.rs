@@ -20,7 +20,7 @@ use salvo::prelude::Service;
 use salvo::test::{ResponseExt, TestClient};
 use serde_json::{Value as JsonValue, json};
 
-use crate::common::{boot_postgres, docker_tests_enabled};
+use crate::common::boot_postgres;
 
 #[derive(diesel::QueryableByName)]
 struct WithdrawalProofRow {
@@ -30,13 +30,9 @@ struct WithdrawalProofRow {
     proof: JsonValue,
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!("skipping docker-backed conformance smoke; set TEABAY_RUN_DOCKER_TESTS=1");
-        return Ok(());
-    }
-
     let (_container, database_url) = boot_postgres().await?;
 
     unsafe {
@@ -86,7 +82,7 @@ async fn postgres_query_conformance_smoke() -> anyhow::Result<()> {
     assert_query_surface_matrix(&db, &service).await?;
     assert_search_realms_finds_seeded_realm(&service).await?;
     assert_official_badge_is_verified_relationship_driven(&db, &service).await?;
-    assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resource(&db, &service)
+    assert_first_ingest_rejects_unresolvable_station_then_refreshes_seeded_resource(&db, &service)
         .await?;
     assert_freshness_flags_are_exposed(&db, &service).await?;
     assert_three_path_takedown_strand(&db, &service).await?;
@@ -706,7 +702,7 @@ async fn seed_previously_indexed_realm(
     Ok(())
 }
 
-async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resource(
+async fn assert_first_ingest_rejects_unresolvable_station_then_refreshes_seeded_resource(
     db: &server::Db,
     service: &Service,
 ) -> anyhow::Result<()> {
@@ -756,8 +752,22 @@ async fn assert_first_ingest_rejects_missing_carrier_then_refreshes_seeded_resou
         rejection["type"], "https://arkret.org/problems/source_refs_unverifiable",
         "{rejection}"
     );
+    // The fixture Station is a `did:key`, and `identity/identity-did.md`
+    // registers `did:key` for device/Agent keys, service *evidence* and the
+    // explicit ephemeral pairwise profile — never as a service DID method. A
+    // `did:key` Station therefore publishes no DID document and no
+    // `ArkretStation` endpoint, so first ingest has nowhere to resolve the
+    // carrier `CommittedEventRef` from and MUST fail closed.
+    //
+    // This assertion used to look for "service-resolution carrier", the
+    // wording of a hard `Err` that commit 4f129ff replaced when the source
+    // DID started coming from the verified access proof. Nothing caught the
+    // drift because this whole suite was being counted as passed while Docker
+    // was unavailable.
     assert!(
-        rejection.to_string().contains("service-resolution carrier"),
+        rejection
+            .to_string()
+            .contains("unsupported Station DID method did:key"),
         "{rejection}"
     );
     assert_resolve_realm_status(service, realm_id, StatusCode::NOT_FOUND, json!({})).await?;
@@ -1523,7 +1533,7 @@ fn signed_realm_discovery_event(
     };
     let binding = proof.canonical_binding_bytes(&event.actor_id)?;
     proof.jws = sign_jws_ed25519(&binding, signing_key).map_err(anyhow::Error::msg)?;
-    event.proofs.push(proof.into());
+    event.proofs.push(proof);
     Ok(serde_json::to_value(event)?)
 }
 

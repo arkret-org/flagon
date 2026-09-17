@@ -75,10 +75,13 @@ cargo deny check
 cargo audit --ignore RUSTSEC-2025-0111 --ignore RUSTSEC-2025-0134
 ```
 
-Docker-backed conformance tests are opt-in:
+Docker-backed tests are `#[ignore]`, so `cargo test` above reports them as
+*ignored* rather than passed. Run them explicitly — a missing Docker daemon then
+fails the run instead of skipping it:
 
 ```bash
-TEABAY_RUN_DOCKER_TESTS=1 cargo test --locked -p server --test it -- --nocapture
+cargo test --locked -p server --test it -- --include-ignored --nocapture
+cargo test --locked -p server --test pcd_http -- --include-ignored --nocapture
 ```
 
 ## Documentation

@@ -23,7 +23,7 @@ use server::config::{
 use sha2::Sha256;
 mod common;
 
-use common::{boot_postgres, docker_tests_enabled};
+use common::boot_postgres;
 use voprf::{Group, Ristretto255, VoprfClient, VoprfServer};
 
 const OPERATION: &str = "ak.find.directory.read.private_contact_discovery.v1";
@@ -225,14 +225,9 @@ fn assert_bucket_headers(response: &salvo::Response, content_type: &str) {
     );
 }
 
+#[ignore = "Docker-backed: this test starts a real PostgreSQL container. Run it with `-- --include-ignored`; a default run reports it as ignored, never as passed."]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pcd_http_closes_proof_padding_retry_quota_restart_and_rotation() -> anyhow::Result<()> {
-    if !docker_tests_enabled() {
-        eprintln!(
-            "skipping pcd_http_closes_proof_padding_retry_quota_restart_and_rotation; set TEABAY_RUN_DOCKER_TESTS=1"
-        );
-        return Ok(());
-    }
     let (_postgres, database_url) = boot_postgres().await?;
     let mut random = [0_u8; 8];
     rand::rng().fill(&mut random);
