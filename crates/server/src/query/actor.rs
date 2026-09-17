@@ -349,7 +349,9 @@ fn actor_preview_from_row(row: ActorRow) -> Result<ActorPreview, String> {
 /// projection is an open carrier and `ActorPreview` is `deny_unknown_fields`,
 /// so serializing the whole envelope into it makes every Directory-internal
 /// projection member a 500 on a main read path.
-pub(crate) fn actor_preview_from_envelope(envelope: ResultEnvelope) -> Result<ActorPreview, String> {
+pub(crate) fn actor_preview_from_envelope(
+    envelope: ResultEnvelope,
+) -> Result<ActorPreview, String> {
     let projection = envelope
         .payload
         .as_object()

@@ -684,7 +684,11 @@ pub(crate) fn realm_preview_from_envelope(
         avatar_blob_ref: crate::query::projection_field(projection, "realm", "avatar_blob_ref")?,
         organization_id: None,
         join_rule: crate::query::projection_field(projection, "realm", "join_rule")?,
-        member_count_bucket: crate::query::projection_field(projection, "realm", "member_count_bucket")?,
+        member_count_bucket: crate::query::projection_field(
+            projection,
+            "realm",
+            "member_count_bucket",
+        )?,
         summary: crate::query::projection_field(projection, "realm", "summary")?,
         owning_organization_ids: Vec::new(),
         preview_ref: crate::query::projection_field(projection, "realm", "preview_ref")?,
@@ -1048,11 +1052,9 @@ mod tests {
     /// indexed row that answers 500 on first read.
     #[test]
     fn a_wrongly_typed_preview_member_is_refused_rather_than_coerced() {
-        let error = realm_preview_from_row(realm_row(
-            json!({"title": 42}),
-            DiscoverabilityDb::Public,
-        ))
-        .expect_err("title is a string in realm_preview");
+        let error =
+            realm_preview_from_row(realm_row(json!({"title": 42}), DiscoverabilityDb::Public))
+                .expect_err("title is a string in realm_preview");
         assert!(error.contains("title"), "{error}");
     }
 

@@ -79,7 +79,7 @@ pub trait CommittedEventAuthorityVerifier: Send + Sync + 'static {
         &self,
         source_service_id: &DidCoreId,
         reference: &arkret_wire::CommittedEventRef,
-        item: &arkret_wire::StreamItem,
+        item: &arkret_wire::StreamRow,
     ) -> Result<(), String>;
 }
 
@@ -95,7 +95,7 @@ impl CommittedEventAuthorityVerifier for FailClosedCommittedEventAuthorityVerifi
         &self,
         _source_service_id: &DidCoreId,
         _reference: &arkret_wire::CommittedEventRef,
-        _item: &arkret_wire::StreamItem,
+        _item: &arkret_wire::StreamRow,
     ) -> Result<(), String> {
         Err("RealmCommit authority-chain verifier is not configured".to_owned())
     }
@@ -1823,7 +1823,7 @@ mod tests {
     fn committed_source_item(
         event: arkret_wire::Event,
         verification_method: DidUrl,
-    ) -> (arkret_wire::CommittedEventRef, arkret_wire::StreamItem) {
+    ) -> (arkret_wire::CommittedEventRef, arkret_wire::StreamRow) {
         let stream_ref = arkret_wire::CommitStreamRef::Realm {
             realm_id: event.realm_id.clone(),
         };
@@ -1857,12 +1857,12 @@ mod tests {
             stream_ref,
             stream_position: 0,
         };
-        (reference, arkret_wire::StreamItem { commit, event })
+        (reference, arkret_wire::StreamRow { commit, event })
     }
 
     async fn source_peer(
         status: u16,
-        item: arkret_wire::StreamItem,
+        item: arkret_wire::StreamRow,
     ) -> (String, tokio::task::JoinHandle<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1955,7 +1955,7 @@ mod tests {
             &self,
             _source_service_id: &DidCoreId,
             reference: &arkret_wire::CommittedEventRef,
-            item: &arkret_wire::StreamItem,
+            item: &arkret_wire::StreamRow,
         ) -> Result<(), String> {
             if !reference.matches(item) {
                 return Err("test verifier received mismatched evidence".to_owned());
