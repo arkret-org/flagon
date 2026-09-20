@@ -9,5 +9,4 @@ pub mod circle_directory;
 pub mod circle_isolation;
 pub mod discoverers;
 pub mod enumeration;
-pub mod result;
 pub mod selector;

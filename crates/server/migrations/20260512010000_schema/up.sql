@@ -671,3 +671,17 @@ CREATE INDEX verified_realm_organizations_org_idx
 CREATE INDEX verified_realm_organizations_expiry_idx
     ON verified_realm_organizations (expires_at)
     WHERE expires_at IS NOT NULL;
+
+-- D2 read-only isolation. The old directory_resources rows have no verified
+-- current-governance/public opt-in provenance under the Realm-only protocol.
+-- This table starts empty and has no application write path until D1 closes.
+CREATE TABLE directory_public_realm_entries (
+    realm_id TEXT PRIMARY KEY,
+    public_metadata JSONB NOT NULL,
+    indexed_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT directory_public_realm_metadata_object
+        CHECK (jsonb_typeof(public_metadata) = 'object'),
+    CONSTRAINT directory_public_realm_expiry_after_index
+        CHECK (expires_at > indexed_at)
+);

@@ -44,7 +44,6 @@ dotenvy.workspace = true
 ed25519-dalek.workspace = true
 hmac.workspace = true
 rand.workspace = true
-rand_09.workspace = true
 reqwest.workspace = true
 salvo.workspace = true
 serde.workspace = true
@@ -55,7 +54,6 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
-voprf.workspace = true
 
 [dev-dependencies]
 arkret-wire = { workspace = true, features = ["test-support"] }

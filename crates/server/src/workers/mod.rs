@@ -10,5 +10,4 @@
 //! and wired in `main.rs` alongside the existing freshness worker.
 
 pub mod expiry;
-pub mod private_contact_discovery;
 pub mod takedown_notifier;

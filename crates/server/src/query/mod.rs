@@ -66,13 +66,7 @@ pub(crate) fn render_cursor_error(
     }
 }
 
-pub mod actor;
 pub mod admin;
 pub mod describe;
-pub mod handle;
-pub mod handles_for_subject;
-pub mod organization;
 pub mod rate_limit;
 pub mod realm;
-pub mod requester_proof;
-pub mod target;

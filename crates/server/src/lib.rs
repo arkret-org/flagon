@@ -18,8 +18,6 @@ pub mod ids;
 pub mod ingest;
 pub mod middleware;
 pub mod observability;
-pub mod pcd;
-pub mod pcd_state;
 pub mod query;
 pub mod routing;
 pub mod schema;

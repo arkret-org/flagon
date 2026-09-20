@@ -1,21 +1,16 @@
 //! Process-wide shared state injected via salvo affix-state.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 use arkret_rate_limit::{FixedWindowConfig, MemoryFixedWindowRateLimiter};
 use arkret_sdk::DidCoreId;
-use chrono::{DateTime, Utc};
 
 use crate::config::AppConfig;
 use crate::db::Db;
 use crate::did_binding::DidBindingDirectory;
 use crate::did_resolver::SharedDidResolver;
-use crate::ingest::authority_chain::RealmAuthorityChainVerifier;
-use crate::ingest::verify::CommittedEventAuthorityVerifier;
 use crate::observability::Metrics;
-use crate::pcd::PrivateContactDiscoveryService;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -30,12 +25,6 @@ struct Inner {
     /// startup from the `AppConfig` snapshot; request paths borrow it and
     /// never rebuild a resolver or a `reqwest::Client`.
     did_resolver: Arc<SharedDidResolver>,
-    /// Verifies RealmCommit signatures and the genesis-to-current authority
-    /// chain for exact source references. Built here by default from
-    /// [`RealmAuthorityChainVerifier`], which fetches a nonce-bound
-    /// `RealmAuthorityBundle` from the source Station and hands it to the SDK
-    /// verifier; a deployment cannot select a weaker rule.
-    commit_authority_verifier: Arc<dyn CommittedEventAuthorityVerifier>,
     /// DID-P0-C02/C03 — the zero-network acceptance directory, shared with (and
     /// written by) `did_resolver`. This is what the query / filter face gets:
     /// it owns no resolver, so a query handler cannot express a network
@@ -43,9 +32,7 @@ struct Inner {
     did_bindings: Arc<DidBindingDirectory>,
     cursor_authority: arkret_server::MemoryCursorAuthority,
     rate_limiter: RateLimiter,
-    announce_replay_cache: AnnounceReplayCache,
     metrics: Metrics,
-    private_contact_discovery: Option<Arc<PrivateContactDiscoveryService>>,
 }
 
 impl AppState {
@@ -60,49 +47,6 @@ impl AppState {
     /// resolver that cannot be built is a configuration error, and
     /// configuration errors belong at boot.
     pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
-        if config.private_contact_discovery.is_some() {
-            anyhow::bail!(
-                "PCD configuration requires custody/index bootstrap before AppState construction"
-            );
-        }
-        Self::new_with_private_contact_discovery(config, db, None)
-    }
-
-    pub fn new_with_private_contact_discovery(
-        config: AppConfig,
-        db: Db,
-        private_contact_discovery: Option<PrivateContactDiscoveryService>,
-    ) -> anyhow::Result<Self> {
-        Self::new_with_dependencies(config, db, private_contact_discovery, None)
-    }
-
-    /// Build process state, optionally overriding the authority-chain verifier.
-    ///
-    /// `None` — the ordinary case, including every production boot — installs
-    /// [`RealmAuthorityChainVerifier`] bound to this process's DID resolver.
-    /// It cannot be constructed by the caller, because the resolver it needs
-    /// is built inside this function; that is deliberate, so that "forgot to
-    /// inject a verifier" cannot silently degrade into a Directory that
-    /// accepts an unverified `RealmCommit`.
-    ///
-    /// `Some` exists only so a test can drive announce admission against a
-    /// fixture Station instead of the network. It is not a deployment knob.
-    pub fn new_with_dependencies(
-        config: AppConfig,
-        db: Db,
-        private_contact_discovery: Option<PrivateContactDiscoveryService>,
-        commit_authority_verifier: Option<Arc<dyn CommittedEventAuthorityVerifier>>,
-    ) -> anyhow::Result<Self> {
-        if config.private_contact_discovery.is_some() != private_contact_discovery.is_some() {
-            anyhow::bail!("PCD configuration/runtime activation state mismatch");
-        }
-        if let (Some(runtime), Some(service)) = (
-            config.private_contact_discovery.as_ref(),
-            private_contact_discovery.as_ref(),
-        ) && &runtime.describe != service.configuration()
-        {
-            anyhow::bail!("PCD runtime does not match the advertised configuration");
-        }
         let service_core_id = config.service_id.clone();
         // Built before the resolver so the DID counters land on the same
         // `Metrics` instance `/metrics` renders.
@@ -118,25 +62,16 @@ impl AppState {
         .map_err(|error| anyhow::anyhow!("DID resolver init failed: {error}"))?;
         let did_bindings = Arc::clone(did_resolver.bindings());
         let did_resolver = Arc::new(did_resolver);
-        let commit_authority_verifier = commit_authority_verifier.unwrap_or_else(|| {
-            Arc::new(RealmAuthorityChainVerifier::new(
-                config.clone(),
-                Arc::clone(&did_resolver),
-            ))
-        });
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
                 service_core_id,
                 db,
                 did_resolver,
-                commit_authority_verifier,
                 did_bindings,
                 cursor_authority: arkret_server::MemoryCursorAuthority::default(),
                 rate_limiter: RateLimiter::default(),
-                announce_replay_cache: AnnounceReplayCache::default(),
                 metrics,
-                private_contact_discovery: private_contact_discovery.map(Arc::new),
             }),
         })
     }
@@ -157,10 +92,6 @@ impl AppState {
     /// [`crate::did_resolver::SharedDidResolver`].
     pub fn did_resolver(&self) -> &Arc<SharedDidResolver> {
         &self.inner.did_resolver
-    }
-
-    pub fn commit_authority_verifier(&self) -> &dyn CommittedEventAuthorityVerifier {
-        self.inner.commit_authority_verifier.as_ref()
     }
 
     /// The zero-network accepted-binding directory — the handle every
@@ -187,30 +118,10 @@ impl AppState {
         &self.inner.metrics
     }
 
-    pub fn private_contact_discovery(&self) -> Option<&PrivateContactDiscoveryService> {
-        self.inner.private_contact_discovery.as_deref()
-    }
-
     pub fn check_rate_limit(&self, key: impl Into<String>, max_requests: u32) -> RateLimitOutcome {
         self.inner
             .rate_limiter
             .check(key.into(), max_requests, Duration::from_secs(60))
-    }
-
-    /// Look up the federation idempotency cache by the
-    /// extended four-field key. `digest` is SHA-256 over `(request_digest
-    /// || source_id || verification_method ||
-    /// service_binding_ref || origin_key_state_digest)`.
-    pub fn cached_federation_replay(&self, key: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
-        self.inner.announce_replay_cache.get(key)
-    }
-
-    pub fn remember_federation_replay(
-        &self,
-        key: Vec<u8>,
-        response: CachedDirectoryAnnounceOutcome,
-    ) {
-        self.inner.announce_replay_cache.put(key, response);
     }
 }
 
@@ -222,75 +133,6 @@ pub enum RateLimitOutcome {
 
 struct RateLimiter {
     inner: MemoryFixedWindowRateLimiter<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CachedDirectoryAnnounceOutcome {
-    pub announce_id: String,
-    pub indexed_at: DateTime<Utc>,
-    pub effective_ttl_seconds: i64,
-    pub next_revalidation_after: DateTime<Utc>,
-}
-
-#[derive(Default)]
-struct AnnounceReplayCache {
-    rows: Mutex<HashMap<Vec<u8>, CachedAnnounceCacheRow>>,
-}
-
-struct CachedAnnounceCacheRow {
-    response: CachedDirectoryAnnounceOutcome,
-    inserted_at: Instant,
-}
-
-impl AnnounceReplayCache {
-    const MAX_ROWS: usize = 8192;
-    const TTL: Duration = Duration::from_secs(600);
-
-    fn get(&self, digest: &[u8]) -> Option<CachedDirectoryAnnounceOutcome> {
-        let mut rows = self
-            .rows
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let now = Instant::now();
-        match rows.get(digest) {
-            Some(row) if now.duration_since(row.inserted_at) < Self::TTL => {
-                Some(row.response.clone())
-            }
-            Some(_) => {
-                rows.remove(digest);
-                None
-            }
-            None => None,
-        }
-    }
-
-    fn put(&self, digest: Vec<u8>, response: CachedDirectoryAnnounceOutcome) {
-        let mut rows = self
-            .rows
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if rows.len() >= Self::MAX_ROWS {
-            let now = Instant::now();
-            rows.retain(|_, row| now.duration_since(row.inserted_at) < Self::TTL);
-            while rows.len() >= Self::MAX_ROWS {
-                let Some(oldest) = rows
-                    .iter()
-                    .min_by_key(|(_, row)| row.inserted_at)
-                    .map(|(digest, _)| digest.clone())
-                else {
-                    break;
-                };
-                rows.remove(&oldest);
-            }
-        }
-        rows.insert(
-            digest,
-            CachedAnnounceCacheRow {
-                response,
-                inserted_at: Instant::now(),
-            },
-        );
-    }
 }
 
 impl RateLimiter {

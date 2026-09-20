@@ -4,7 +4,6 @@ mod allowlist;
 mod audit;
 mod consent;
 mod dashboard;
-mod resources;
 mod takedown;
 
 pub use allowlist::{allowlist_delete, allowlist_list, allowlist_upsert};
@@ -12,7 +11,6 @@ pub use audit::{audit_chain_verify, audit_feed};
 use chrono::{DateTime, Utc};
 pub use consent::consent_revoke_invalidate;
 pub use dashboard::dashboard_stats;
-pub use resources::{resource_delete, resource_upsert, resources_browser};
 use salvo::prelude::*;
 pub use takedown::takedown_audit_export;
 

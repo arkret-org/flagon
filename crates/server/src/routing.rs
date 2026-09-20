@@ -1,12 +1,7 @@
 //! Salvo router declaration. All `/_arkret/find/directory/*` endpoints (spec §9)
 //! plus `/health` and OpenAPI metadata.
 
-use std::sync::Arc;
-
-use arkret_models_discovery::{
-    DirectoryPrivateContactDiscoveryOutcome, DirectoryPrivateContactDiscoveryRequestBody,
-    DirectoryRealmSearchOutcome, PsiPaddedProblem,
-};
+use arkret_models_discovery::DirectoryRealmSearchOutcome;
 use diesel_async::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
@@ -16,21 +11,15 @@ use salvo::prelude::*;
 use serde_json::json;
 
 use crate::error::{ApiErrorCode, render_problem};
-use crate::middleware::http_sig::{HttpSigKeyDirectory, HttpSigMiddleware};
+use crate::query;
 use crate::state::AppState;
-use crate::{ingest, query};
 
 #[derive(Clone)]
 pub struct TeabayOpenApiDoc(pub serde_json::Value);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
-    // DID-P0-C01 — one key directory, built once for the ingest middleware.
-    // It points at the single `AppState` resolver and therefore shares its
-    // connection pool and document cache.
-    let key_directory = http_sig_key_directory(&state);
-    let http_sig_middleware = build_http_sig_middleware(&state, key_directory);
-    let directory = directory_router(http_sig_middleware);
+    let directory = directory_router();
     let admin = admin_router();
     let doc = openapi(&directory);
 
@@ -59,41 +48,10 @@ pub fn router(state: AppState) -> Router {
                 .get(openapi_yaml),
         )
         .push(
-            // Product-private resolver probe. `/.well-known/arkret/handle`
-            // is reserved by the spec for signed issuer_id claims, so teabay's
-            // unsigned directory index probe must stay under `/_teabay`.
-            Router::with_path("_teabay/handle/probe").get(query::handle::private_handle_probe),
-        )
-        .push(
             Router::with_path("{**rest}")
                 .options(cors_preflight)
                 .get(api_not_found),
         )
-}
-
-/// Construct the [`HttpSigMiddleware`] for this state. Pulls the
-/// `keyid → Ed25519 pubkey` allowlist from `AppConfig` and toggles
-/// enforcement based on `require_http_sig`. Always returns a middleware
-/// instance so the ingest sub-router has a single, predictable shape —
-/// the passthrough variant lets the in-process conformance harness
-/// post unsigned envelopes while keeping the route topology identical.
-fn http_sig_key_directory(state: &AppState) -> Arc<dyn HttpSigKeyDirectory> {
-    Arc::new(
-        state
-            .config()
-            .http_sig_key_directory(Arc::clone(state.did_resolver())),
-    )
-}
-
-fn build_http_sig_middleware(
-    state: &AppState,
-    directory: Arc<dyn HttpSigKeyDirectory>,
-) -> HttpSigMiddleware {
-    if state.config().require_http_sig {
-        HttpSigMiddleware::new_with_postgres_replay_store(directory, state.db().clone())
-    } else {
-        HttpSigMiddleware::passthrough(directory)
-    }
 }
 
 pub fn service(state: AppState) -> Service {
@@ -125,13 +83,6 @@ fn admin_router() -> Router {
                 .post(query::admin::allowlist_upsert)
                 .delete(query::admin::allowlist_delete),
         )
-        .push(
-            Router::with_path("resources")
-                .get(query::admin::resources_browser)
-                .post(query::admin::resource_upsert)
-                .delete(query::admin::resource_delete),
-        )
-        .push(Router::with_path("takedown").post(ingest::operator::operator_takedown))
         // B.8.6 — operator-facing export of every takedown row, for
         // legal / ops review. Bearer-auth same as the rest of admin.
         .push(Router::with_path("takedowns").get(query::admin::takedown_audit_export))
@@ -141,65 +92,19 @@ fn admin_router() -> Router {
         .push(Router::with_path("consent-revoke").post(query::admin::consent_revoke_invalidate))
 }
 
-fn directory_router(http_sig_middleware: HttpSigMiddleware) -> Router {
+fn directory_router() -> Router {
     // Query face — no transport signature required (search/resolve are
     // read-only against the indexed view, and CORS / auth gating is
     // handled per-handler where applicable).
     let query_routes = Router::new()
         .push(Router::with_path("describe").get(query::describe::describe))
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
-        .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm))
-        // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
-        // Generalization of resolve-realm to a client-agnostic shareable
-        // address (Realm / Strand / Message). Realm resolution DELEGATES to the
-        // resolve_realm logic; invite tokens are bound to the resolved object
-        // via the SDK `target_digest` so a token cannot be replayed across
-        // objects. Same anti-enumeration latency floor + jitter + blinded
-        // not_found as resolve-realm.
-        .push(Router::with_path("resolve-target").post(query::target::resolve_target))
-        .push(
-            Router::with_path("search-organizations")
-                .post(query::organization::search_organizations),
-        )
-        .push(
-            Router::with_path("resolve-organization")
-                .post(query::organization::resolve_organization),
-        )
-        .push(Router::with_path("search-actors").post(query::actor::search_actors))
-        .push(Router::with_path("search-users").post(query::actor::search_users))
-        .push(Router::with_path("resolve-handle").post(query::handle::resolve_handle))
-        // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle lookup.
-        // Inverse of `resolve-handle`: known holder/principal DID + context
-        // → currently-visible handle claims + primary handle. Read-only
-        // against the indexed view; visibility is decided per-claim by the
-        // disclosure-policy + issuer_id-trust + audience filters in the query
-        // handler (no transport signature required, same as the other query
-        // routes). The mention renderer's live-resolve path consumes this.
-        .push(
-            Router::with_path("list-handles-for-subject")
-                .post(query::handles_for_subject::list_handles_for_subject),
-        )
-        .push(
-            Router::with_path("private-contact-discovery")
-                .post(crate::pcd::private_contact_discovery),
-        );
+        .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm));
 
-    // Ingest face — §8. Transport hardened by RFC 9421 HTTP Message
-    // Signature middleware (TB-1 / `crate::middleware::http_sig`). Every
-    // request to `announce` or `withdraw` MUST carry a
-    // valid Ed25519-signed envelope keyed by a `keyid` in the operator
-    // pubkey allowlist; the handler-level 5-step verify chain in
-    // `ingest::verify` then runs on top of an already-authenticated
-    // transport.
-    let ingest_routes = Router::new()
-        .hoop(http_sig_middleware)
-        .push(Router::with_path("announce").post(ingest::announce::announce))
-        .push(Router::with_path("withdraw").post(ingest::withdraw::withdraw));
-
+    // D2: proof/currentness is unresolved. No write route is mounted.
     Router::with_path("_arkret/find/directory")
         .hoop(operation_selector_middleware)
         .push(query_routes)
-        .push(ingest_routes)
 }
 
 #[handler]
@@ -241,12 +146,7 @@ async fn operation_selector_middleware(
         ctrl.skip_rest();
         return;
     };
-    let private_contact_discovery_active = depot
-        .get_typed::<AppState>()
-        .ok()
-        .and_then(AppState::private_contact_discovery)
-        .is_some();
-    if !query::describe::supports_http_operation(selected, private_contact_discovery_active)
+    if !query::describe::supports_http_operation(selected)
         || !selected.matches_http_request(req.method().as_str(), req.uri().path())
     {
         ApiErrorCode::UnsupportedOperationVersion.render(
@@ -552,24 +452,10 @@ pub fn openapi(router: &Router) -> serde_json::Value {
 }
 
 fn register_teabay_schemas(doc: &mut OpenApi) {
-    for (name, schema) in [
-        (
-            "DirectoryRealmSearchOutcome",
-            DirectoryRealmSearchOutcome::to_schema(&mut doc.components),
-        ),
-        (
-            "DirectoryPrivateContactDiscoveryRequestBody",
-            DirectoryPrivateContactDiscoveryRequestBody::to_schema(&mut doc.components),
-        ),
-        (
-            "DirectoryPrivateContactDiscoveryOutcome",
-            DirectoryPrivateContactDiscoveryOutcome::to_schema(&mut doc.components),
-        ),
-        (
-            "PsiPaddedProblem",
-            PsiPaddedProblem::to_schema(&mut doc.components),
-        ),
-    ] {
+    for (name, schema) in [(
+        "DirectoryRealmSearchOutcome",
+        DirectoryRealmSearchOutcome::to_schema(&mut doc.components),
+    )] {
         doc.components.schemas.insert(name, schema);
     }
 }
@@ -645,38 +531,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Remove an operator-managed accept-policy allowlist entry.",
         ),
         (
-            "/_teabay/admin/resources",
-            PathItemType::Get,
-            "org.arkret.teabay.admin.resources_browser",
-            "admin",
-            "Browse Directory Resources",
-            "Return indexed resources with kind, stale, divergent, and text filters.",
-        ),
-        (
-            "/_teabay/admin/resources",
-            PathItemType::Post,
-            "org.arkret.teabay.admin.resource_upsert",
-            "admin",
-            "Upsert Directory Resource",
-            "Create or update an indexed directory resource directly from the operator console.",
-        ),
-        (
-            "/_teabay/admin/resources",
-            PathItemType::Delete,
-            "org.arkret.teabay.admin.resource_delete",
-            "admin",
-            "Delete Directory Resource",
-            "Remove an indexed directory resource directly from the operator console.",
-        ),
-        (
-            "/_teabay/admin/takedown",
-            PathItemType::Post,
-            "org.arkret.teabay.admin.operator_takedown",
-            "admin",
-            "Operator Takedown",
-            "Admin-only operator takedown path for §8.7 path 3.",
-        ),
-        (
             "/_teabay/admin/takedowns",
             PathItemType::Get,
             "org.arkret.teabay.admin.takedown_audit_export",
@@ -698,7 +552,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ak.find.directory.read.describe.v1",
             "directory",
             "Describe Directory Service",
-            "Expose ingest modes, accept policy, TTL limits, and resource kind support.",
+            "Advertise the public Realm metadata index and supported operations.",
         ),
         (
             "/_arkret/find/directory/search-realms",
@@ -706,7 +560,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ak.find.directory.read.search_realms.v1",
             "query",
             "Search Realms",
-            "Return listed/public Realm directory results using the §9.1 result envelope.",
+            "Return unexpired public Realm metadata entries.",
         ),
         (
             "/_arkret/find/directory/resolve-realm",
@@ -714,109 +568,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "ak.find.directory.read.resolve_realm.v1",
             "query",
             "Resolve Realm",
-            "Resolve a Realm by ID, alias, invite token, or signed link with blinded misses.",
-        ),
-        (
-            // R3.3 (AKP-0011, arkret-spec @ cced4b8) — object-level resolve.
-            // The object-level generalization of resolve-realm: resolves a
-            // client-agnostic shareable object address (Realm / Strand / Message)
-            // to a target_kind + preview, binding an invite token to the
-            // resolved object. Realm resolution delegates to resolve_realm.
-            "/_arkret/find/directory/resolve-target",
-            PathItemType::Post,
-            "ak.find.directory.read.resolve_target.v1",
-            "query",
-            "Resolve Target",
-            "Resolve a client-agnostic shareable object address (Realm / Strand / Message) to a \
-             target_kind + (realm_preview | object_preview) + join_rule with blinded misses. \
-             Invite tokens must carry an Ed25519 detached JWS and are bound to the resolved \
-             object via the target digest so a token cannot be replayed across objects.",
-        ),
-        (
-            "/_arkret/find/directory/search-organizations",
-            PathItemType::Post,
-            "ak.find.directory.read.search_organizations.v1",
-            "query",
-            "Search Organizations",
-            "Return public/listed Organization directory results.",
-        ),
-        (
-            "/_arkret/find/directory/resolve-organization",
-            PathItemType::Post,
-            "ak.find.directory.read.resolve_organization.v1",
-            "query",
-            "Resolve Organization",
-            "Resolve an Organization discovery record with hidden rows collapsed to not_found.",
-        ),
-        (
-            "/_arkret/find/directory/search-actors",
-            PathItemType::Post,
-            "ak.find.directory.read.search_actors.v1",
-            "query",
-            "Search Actors",
-            "Return public Actor discovery records.",
-        ),
-        (
-            "/_arkret/find/directory/search-users",
-            PathItemType::Post,
-            "ak.find.directory.read.search_users.v1",
-            "query",
-            "Search Users",
-            "Realm-gated user search using indexed membership hints.",
-        ),
-        (
-            "/_arkret/find/directory/resolve-handle",
-            PathItemType::Post,
-            "ak.find.directory.read.resolve_handle.v1",
-            "query",
-            "Resolve Handle",
-            "Resolve handle discovery resources with the Directory result envelope.",
-        ),
-        (
-            "/_teabay/handle/probe",
-            PathItemType::Get,
-            "org.arkret.teabay.handle_probe",
-            "query",
-            "Private Handle Probe",
-            "Product-private resolver/index probe by `?localpart=<localpart>` and optional \
-             `?domain=<domain>`. This endpoint returns the Directory result envelope and is \
-             not the spec-pinned signed issuer_id channel `/.well-known/arkret/handle`.",
-        ),
-        (
-            // R3.2 (DIR-TBY-1, arkret-spec @ b56cab1) — reverse handle
-            // lookup. Response shape `ak.schema.list_handles_for_subject_response.v1`.
-            "/_arkret/find/directory/list-handles-for-subject",
-            PathItemType::Post,
-            "ak.find.directory.read.list_handles_for_subject.v1",
-            "query",
-            "List Handles For Subject",
-            "Resolve a known holder/principal DID to its currently-visible handle claims \
-             and primary handle (inverse of resolve-handle). Rejects non-principal \
-             subjects (ak:actor:/ak:account:/service DID) with failed_precondition.",
-        ),
-        (
-            "/_arkret/find/directory/private-contact-discovery",
-            PathItemType::Post,
-            "ak.find.directory.read.private_contact_discovery.v1",
-            "query",
-            "Private Contact Discovery",
-            "Run one fixed-cardinality RFC 9497 modeVOPRF blind or match phase with an exact padded response bucket.",
-        ),
-        (
-            "/_arkret/find/directory/announce",
-            PathItemType::Post,
-            "ak.find.directory.command.announce.v1",
-            "ingest",
-            "Announce Discovery State",
-            "Push-mode ingest for signed ak.{kind}.discovery state.",
-        ),
-        (
-            "/_arkret/find/directory/withdraw",
-            PathItemType::Post,
-            "ak.find.directory.command.withdraw.v1",
-            "ingest",
-            "Withdraw Discovery State",
-            "Resource-initiated withdrawal path that removes the indexed row and writes audit.",
+            "Resolve an unexpired public Realm metadata entry by Realm ID.",
         ),
     ];
 
@@ -898,7 +650,7 @@ mod tests {
             TestClient::post("http://local/_arkret/find/directory/resolve-agent-selector")
                 .add_header(
                     "Arkret-Operation",
-                    arkret_sdk::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_AGENT_SELECTOR_V1,
+                    "ak.find.directory.read.resolve_agent_selector.v1",
                     true,
                 )
                 .send(&service)
@@ -920,14 +672,13 @@ mod tests {
     }
 
     #[test]
-    fn openapi_keeps_unsigned_handle_probe_off_well_known_surface() {
+    fn openapi_exposes_only_registered_directory_resource_routes() {
         let doc = openapi(&Router::new());
         let yaml = serde_norway::to_string(&doc).expect("OpenAPI serializes");
 
-        assert!(yaml.contains("/_teabay/handle/probe:"));
-        assert!(yaml.contains("org.arkret.teabay.handle_probe"));
-        assert!(!yaml.contains("/.well-known/arkret/handle:"));
-        assert!(!yaml.contains("org.arkret.teabay.well_known_handle"));
+        assert!(!yaml.contains("/_teabay/handle/probe:"));
+        assert!(!yaml.contains("/_arkret/find/directory/search-users:"));
+        assert!(!yaml.contains("/_arkret/find/directory/private-contact-discovery:"));
         assert!(yaml.contains("x-arkret-artifact-first: true"));
         assert!(yaml.contains("ak.find.directory.read.search_realms.v1"));
         assert!(yaml.contains("DirectoryRealmSearchOutcome"));

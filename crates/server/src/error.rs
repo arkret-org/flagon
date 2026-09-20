@@ -121,11 +121,6 @@ impl ApiErrorCode {
 
     // -------- directory ingest codes --------
     #[allow(non_upper_case_globals)]
-    pub const ResponseInvalid: Self = Self::new(
-        arkret_sdk::ErrorCode::RESPONSE_INVALID,
-        StatusCode::BAD_REQUEST,
-    );
-    #[allow(non_upper_case_globals)]
     pub const DirectoryUnauthorized: Self = Self::new(
         arkret_sdk::ErrorCode::DIRECTORY_UNAUTHORIZED,
         StatusCode::FORBIDDEN,

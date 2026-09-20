@@ -1,5 +1,6 @@
 -- Roll back the squashed teabay schema in reverse dependency order.
 
+DROP TABLE IF EXISTS directory_public_realm_entries;
 DROP TABLE IF EXISTS verified_realm_organizations;
 
 DROP INDEX IF EXISTS pcd_batches_pinned_epoch_idx;

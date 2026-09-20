@@ -52,6 +52,61 @@ use crate::observability::{
     DID_RESOLVE_SOURCE_DID_KEY, DID_RESOLVE_SOURCE_NETWORK, Metrics, SIGNATURE_OUTCOME_OK,
 };
 
+const ARKRET_STATION: &str = "ArkretStation";
+
+fn did_document_url(did: &Did) -> anyhow::Result<url::Url> {
+    let url = match did.method() {
+        "web" => arkret_sdk::DidWebResolver::document_url(did)?,
+        "webvh" => arkret_sdk::identity::DidWebvhResolver::document_url(did)?,
+        other => anyhow::bail!("unsupported Station DID method did:{other}"),
+    };
+    url::Url::parse(&url).map_err(|error| anyhow::anyhow!("invalid DID document URL: {error}"))
+}
+
+fn is_loopback_url(url: &url::Url) -> bool {
+    match url.host_str() {
+        Some("localhost") => true,
+        Some(host) => host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback()),
+        None => false,
+    }
+}
+
+async fn fetch_did_document_json(
+    url: url::Url,
+    development_mode: bool,
+) -> anyhow::Result<serde_json::Value> {
+    if url.scheme() != "https"
+        && !(development_mode && url.scheme() == "http" && is_loopback_url(&url))
+    {
+        anyhow::bail!("DID document URL must be HTTPS");
+    }
+    let target = crate::egress::resolve_url_for_egress(
+        &url,
+        "principal DID document fetch",
+        crate::egress::local_development_enabled(development_mode),
+    )
+    .map_err(|error| anyhow::anyhow!(error))?;
+    let http = target
+        .apply_to_client_builder(
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::none()),
+        )
+        .build()?;
+    let response = http.get(target.url().clone()).send().await?;
+    if !response.status().is_success() {
+        anyhow::bail!("DID document fetch returned {}", response.status());
+    }
+    let bytes = response.bytes().await?;
+    if bytes.len() > arkret_sdk::DID_WEB_MAX_DOCUMENT_BYTES {
+        anyhow::bail!("DID document exceeds maximum size");
+    }
+    serde_json::from_slice(&bytes)
+        .map_err(|error| anyhow::anyhow!("DID document JSON parse: {error}"))
+}
+
 /// Process-wide DID resolver handle — the authority face.
 ///
 /// Built exactly once, in `AppState::new`, from the startup `AppConfig`
@@ -480,13 +535,12 @@ impl arkret_identity::RealmAuthorityKeyDirectory for SharedDidResolver {
 /// - it is `None` unless `development_mode` is true — production behaviour is byte-for-byte
 ///   unchanged, and the field cannot be switched on by a request;
 /// - it answers only for `did:web` whose derived authority is a loopback host ([`is_loopback_url`]
-///   — `localhost` or a loopback IP), so a DID naming a routable host still goes to the chain
-///   even in development mode;
+///   — `localhost` or a loopback IP), so a DID naming a routable host still goes to the chain even
+///   in development mode;
 /// - the fetch is the same `crate::ingest::verify::fetch_did_document_json` the existing branch
 ///   uses: shared egress guard, address pinning, no redirects, `DID_WEB_MAX_DOCUMENT_BYTES` cap;
 /// - the document is then handed to the SDK's own [`arkret_sdk::DidWebResolver`], so document
-///   validation and the `did:web` "proofless evidence" degradation are the SDK's, not teabay's;
-///   and
+///   validation and the `did:web` "proofless evidence" degradation are the SDK's, not teabay's; and
 /// - the result goes through the ordinary `resolve_and_verify_binding` acceptance, which re-checks
 ///   `document.id == did` and that the requested verification method is really carried.
 ///
@@ -512,8 +566,8 @@ impl LoopbackDidWebResolver {
         if did.method() != "web" {
             return None;
         }
-        let mut url = crate::ingest::verify::did_document_url(did).ok()?;
-        if !crate::ingest::verify::is_loopback_url(&url) {
+        let mut url = did_document_url(did).ok()?;
+        if !is_loopback_url(&url) {
             return None;
         }
         url.set_scheme("http").ok()?;
@@ -566,7 +620,7 @@ impl DidResolver for LoopbackDidWebResolver {
             ))
         })?;
         let json = self
-            .drive(crate::ingest::verify::fetch_did_document_json(url, true))
+            .drive(fetch_did_document_json(url, true))
             .map_err(|error| {
                 arkret_sdk::identity::IdentityError::Protocol(format!(
                     "loopback did:web fetch for `{did}` failed: {error}"
@@ -1086,7 +1140,7 @@ mod tests {
             "service".to_owned(),
             serde_json::json!([{
                 "id": format!("{did}#ps"),
-                "type": crate::ingest::verify::ARKRET_STATION,
+                "type": ARKRET_STATION,
                 "serviceEndpoint": "https://principal.example/",
             }]),
         );

@@ -6,40 +6,29 @@
 //! validation failure renders an `internal_error` rather than letting a
 //! malformed `verified_profiles + development_mode=true` slip through.
 //!
-//! Directory-service-specific fields (`resource_kinds`,
-//! `accepted_resource_kinds`, `ttl`, etc.) are registered
-//! ServiceDescribe overlay fields, not vendor-specific `x_*` extensions.
+//! The Directory overlay advertises only the public Realm metadata index.
 
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, DirectoryAcceptPolicyKind, DirectoryResourceKind, EgressNetworkPolicy,
-    InteropSurfaceEntry, PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe,
-    TransportBinding, TrustDomainId, VerifiedProfileEntry,
+    AuthMetadata, DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry,
+    PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, TransportBinding,
+    TrustDomainId, VerifiedProfileEntry,
 };
 use salvo::prelude::*;
 use serde_json::{Value as JsonValue, json};
 
-use crate::config::{AcceptPolicyKind, AppConfig};
+use crate::config::AppConfig;
 use crate::state::AppState;
 
 pub(crate) const SUPPORTED_OPERATION_BUNDLES: &[&str] = &[
     "ak.operation_bundle.directory_service.describe.v1",
-    "ak.operation_bundle.directory_service.http_core.v1",
+    "ak.operation_bundle.directory_service.public_read.v1",
 ];
-const PRIVATE_CONTACT_DISCOVERY_OPERATION_BUNDLE: &str =
-    "ak.operation_bundle.directory_service.private_contact_discovery.v1";
-
-pub(crate) fn supports_http_operation(
-    operation: arkret_wire::ServiceOperationId,
-    private_contact_discovery_active: bool,
-) -> bool {
+pub(crate) fn supports_http_operation(operation: arkret_wire::ServiceOperationId) -> bool {
     SUPPORTED_OPERATION_BUNDLES
         .iter()
         .copied()
-        .chain(
-            private_contact_discovery_active.then_some(PRIVATE_CONTACT_DISCOVERY_OPERATION_BUNDLE),
-        )
         .any(|bundle_id| {
             arkret_wire::operation_bundle_descriptor(bundle_id).is_some_and(|bundle| {
                 bundle.contains(operation, arkret_wire::BindingKind::HttpJson)
@@ -76,20 +65,12 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     let development_mode = cfg.development_mode;
 
-    // The full directory-service profile currently requires
-    // resolve_agent_selector, whose canonical evidence ingest carrier is not
-    // yet defined. Do not self-claim it. PCD is an optional capability
-    // expressed by its operation bundle plus closed configuration, not a
-    // conformance profile claim.
+    // Profile verification requires separate conformance evidence; do not
+    // self-claim it based on implementing a route bundle.
     let supported_profiles = Vec::new();
     let supported_operation_bundles = SUPPORTED_OPERATION_BUNDLES
         .iter()
         .copied()
-        .chain(
-            cfg.private_contact_discovery
-                .is_some()
-                .then_some(PRIVATE_CONTACT_DISCOVERY_OPERATION_BUNDLE),
-        )
         .map(str::to_owned)
         .collect();
     let transport_bindings = vec![TransportBinding::HttpJson {
@@ -98,24 +79,11 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     }];
     let supported_features = Vec::new();
 
-    // `auth_metadata` advertises the transport-layer auth that ingest
-    // mounts (RFC 9421 HTTP Message Signature) and the admin HMAC
-    // surface. Static bearer auth is development-only. The directory has
-    // no end-user account surface, so `mode` is `service_transport`; the
-    // ingest/admin descriptors ride in `x_teabay_*` extension keys
+    // `auth_metadata` advertises the admin HMAC surface. The current
+    // read-only candidate has no accepted ingest transport; static bearer
+    // auth is development-only. Admin descriptors ride in `x_teabay_*` extension keys
     // (`auth_metadata` is `additionalProperties: true`).
     let mut auth_metadata = AuthMetadata::minimal();
-    auth_metadata
-        .extra
-        .insert(
-            "x_teabay_ingest".to_owned(),
-            json!({
-                "kind": "rfc9421_http_message_signature",
-                "required": cfg.require_http_sig,
-                "algorithms": ["ed25519"],
-            }),
-        )
-        .expect("x_teabay_ingest is a valid extension key");
     auth_metadata
         .extra
         .insert(
@@ -127,18 +95,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             }),
         )
         .expect("x_teabay_admin is a valid extension key");
-    if cfg.private_contact_discovery.is_some() {
-        auth_metadata
-            .extra
-            .insert(
-                "x_teabay_private_contact_discovery".to_owned(),
-                json!({
-                    "kind": "device_scoped_hmac_bearer",
-                    "required": true,
-                }),
-            )
-            .expect("x_teabay_private_contact_discovery is a valid extension key");
-    }
 
     let limits = ServerLimits {
         extensions: BTreeMap::from([
@@ -165,20 +121,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             ),
         ]),
     };
-    let directory_rate_limits = BTreeMap::from([
-        (
-            "per_resource_per_min".to_owned(),
-            json!(cfg.rate_limit_per_resource_per_min),
-        ),
-        (
-            "query_latency_floor_ms".to_owned(),
-            json!(cfg.query_latency_floor.as_millis() as u64),
-        ),
-        (
-            "query_latency_jitter_ms".to_owned(),
-            json!(cfg.query_latency_jitter.as_millis() as u64),
-        ),
-    ]);
 
     // `plaintext_visibility` advertises that the directory does NOT
     // surface plaintext message bodies — directory entries are
@@ -235,26 +177,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
             cfg.rate_limit_per_resource_per_min,
         )),
         rate_limit_policy_id: None,
-        private_contact_discovery: cfg
-            .private_contact_discovery
-            .as_ref()
-            .map(|runtime| runtime.describe.clone()),
-        resource_kinds: all_directory_resource_kinds(),
-        restricted_query_proof: Some(true),
-        accept_policy_kind: Some(directory_accept_policy_kind(cfg.accept_policy_kind)),
-        accept_policy_ref: cfg.accept_policy_ref.as_ref().map(|reference| {
-            BTreeMap::from([(
-                "policy_ref".to_owned(),
-                JsonValue::String(reference.clone()),
-            )])
-        }),
-        default_ttl_seconds: Some(cfg.default_ttl.as_secs()),
-        max_ttl_seconds: Some(cfg.max_ttl.as_secs()),
-        revalidation_grace_seconds: Some(cfg.revalidation_grace.as_secs()),
-        accepted_resource_kinds: cfg.accepted_resource_kinds.to_vec(),
-        accepted_did_methods: cfg.accepted_did_methods.clone(),
-        takedown_contact: cfg.takedown_contact.clone(),
-        rate_limits: Some(directory_rate_limits),
+        resource_kinds: vec![DirectoryResourceKind::Realm],
     };
     describe_body
         .validate()
@@ -277,38 +200,17 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     Ok(value)
 }
 
-fn all_directory_resource_kinds() -> Vec<DirectoryResourceKind> {
-    DirectoryResourceKind::ALL.to_vec()
-}
-
-fn directory_accept_policy_kind(kind: AcceptPolicyKind) -> DirectoryAcceptPolicyKind {
-    match kind {
-        AcceptPolicyKind::Open => DirectoryAcceptPolicyKind::Open,
-        AcceptPolicyKind::Allowlist => DirectoryAcceptPolicyKind::Allowlist,
-        AcceptPolicyKind::OperatorReview => DirectoryAcceptPolicyKind::OperatorReview,
-    }
-}
-
-fn describe_limitations(cfg: &AppConfig) -> Vec<JsonValue> {
+fn describe_limitations(_cfg: &AppConfig) -> Vec<JsonValue> {
     let mut limitations: Vec<JsonValue> = Vec::new();
     limitations.push(json!({
-        "feature": "pull_mode_ingest",
+        "feature": "directory_announce_withdraw",
         "status": "unsupported",
-        "detail": "The v1 specification does not yet define the required Directory-specific state-only pull operation or DTO; this service only advertises push ingest.",
+        "detail": "Read-only D2 transition: current-governance/public opt-in proof admission is unresolved; no write routes are mounted and the public index starts empty.",
     }));
     limitations.push(json!({
         "feature": "cross_directory_divergence",
         "status": "unsupported",
         "detail": "Peer directory core ids have no configured verified current-resolution carrier. The worker cannot be enabled and no id is interpreted as a URL authority.",
-    }));
-    limitations.push(json!({
-        "feature": "operator_takedown_notification",
-        "status": if cfg.takedown_contact.is_some() { "best_effort" } else { "no_contact_configured" },
-        "detail": if cfg.takedown_contact.is_some() {
-            "operator takedown is audit-backed; notification_status starts as pending and the notifier performs HMAC-signed webhook fanout with retry/DLQ tracking."
-        } else {
-            "operator takedown is audit-backed, but no takedown_contact is configured; notification_status starts as no_takedown_contact_configured."
-        },
     }));
     limitations
 }
@@ -318,13 +220,10 @@ mod tests {
     use std::collections::HashMap;
     use std::time::Duration;
 
-    use arkret_sdk::{
-        AntiEnumerationDelay, Did, DidCoreId, PrivateContactDiscovery,
-        PrivateContactDiscoveryHandoffStubsMode, ResolutionCommitment,
-    };
+    use arkret_sdk::{Did, DidCoreId, ResolutionCommitment};
 
     use super::*;
-    use crate::config::{AcceptPolicyKind, IngestModeAdvert, PrivateContactDiscoveryRuntimeConfig};
+    use crate::config::{AcceptPolicyKind, IngestModeAdvert};
 
     fn cfg(development_mode: bool) -> AppConfig {
         AppConfig {
@@ -368,36 +267,6 @@ mod tests {
             expiry_interval: Some(Duration::from_secs(1800)),
             takedown_notifier_interval: Some(Duration::from_secs(60)),
             trusted_proxy: None,
-            private_contact_discovery: None,
-        }
-    }
-
-    fn pcd_runtime() -> PrivateContactDiscoveryRuntimeConfig {
-        let pcd_describe = PrivateContactDiscovery::new(
-            "yAPizGsF_BUGRUm1kgZZykp3ssym8E9rNXAJM1R2rU4",
-            14,
-            8,
-            PrivateContactDiscoveryHandoffStubsMode::Never,
-            4096,
-            4096,
-            3_600,
-            1,
-            86_400,
-            AntiEnumerationDelay {
-                minimum_ms: 100,
-                jitter_ms: 50,
-            },
-        );
-        pcd_describe.validate().expect("valid PCD configuration");
-        PrivateContactDiscoveryRuntimeConfig {
-            describe: pcd_describe,
-            custody_key_ref: "kms://teabay/pcd/epoch/14".to_owned(),
-            custody_manifest_path: "custody.json".into(),
-            index_manifest_path: "index.json".into(),
-            device_authentication_key_path: "device-authentication.key".into(),
-            key_activated_at: chrono::Utc::now(),
-            evaluation_lease_seconds: 30,
-            garbage_collection_interval: Duration::from_secs(60),
         }
     }
 
@@ -442,18 +311,17 @@ mod tests {
         );
     }
 
-    /// Directory-specific fields are standard ServiceDescribe
-    /// overlay fields. They are emitted as bare top-level keys, while
-    /// teabay-private fields stay under `x_teabay_*`.
+    /// The Directory overlay advertises only Realm indexing; stale
+    /// multi-resource and private discovery fields must not reappear.
     #[test]
     fn describe_carries_directory_overlay_fields() {
         let value = build_describe_response_value(&cfg(false)).expect("describe builds");
-        assert!(value.get("accepted_resource_kinds").is_some());
+        assert_eq!(value["resource_kinds"], json!(["realm"]));
+        assert!(value.get("accepted_resource_kinds").is_none());
         assert!(value.get("ingest_modes").is_none());
         assert!(value.get("claimed_profiles").is_none());
-        assert!(value.get("rate_limits").is_some());
-        assert!(value.get("accept_policy_kind").is_some());
-        assert_eq!(value["accept_policy_kind"], "open");
+        assert!(value.get("rate_limits").is_none());
+        assert!(value.get("accept_policy_kind").is_none());
         assert_eq!(
             value["transport_bindings"][0]["base_url"],
             "http://directory.test"
@@ -464,7 +332,7 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|bundle| bundle == "ak.operation_bundle.directory_service.http_core.v1")
+                .any(|bundle| bundle == "ak.operation_bundle.directory_service.public_read.v1")
         );
         let limitation_features: std::collections::BTreeSet<_> = value["x_teabay_limitations"]
             .as_array()
@@ -472,7 +340,7 @@ mod tests {
             .iter()
             .filter_map(|entry| entry.get("feature").and_then(JsonValue::as_str))
             .collect();
-        assert!(limitation_features.contains("pull_mode_ingest"));
+        assert!(limitation_features.contains("directory_announce_withdraw"));
         assert!(!limitation_features.contains("resolve_target.preview_link"));
     }
 
@@ -529,22 +397,14 @@ mod tests {
             development_mode: true,
             rate_limit_policy: Some(RateLimitPolicy::unspecified()),
             rate_limit_policy_id: None,
-            private_contact_discovery: None,
-            resource_kinds: all_directory_resource_kinds(),
-            restricted_query_proof: Some(true),
-            accept_policy_kind: Some(DirectoryAcceptPolicyKind::Open),
-            accept_policy_ref: None,
-            default_ttl_seconds: Some(3_600),
-            max_ttl_seconds: Some(86_400),
-            revalidation_grace_seconds: Some(300),
-            accepted_resource_kinds: all_directory_resource_kinds(),
-            accepted_did_methods: vec!["did:web".to_owned()],
-            takedown_contact: None,
-            rate_limits: Some(BTreeMap::new()),
+            resource_kinds: vec![DirectoryResourceKind::Realm],
             extensions: Default::default(),
         };
         assert!(describe_body.validate().is_err());
-        assert!(serde_json::to_value(&describe_body).unwrap()["rate_limits"].is_object());
+        assert_eq!(
+            serde_json::to_value(&describe_body).unwrap()["resource_kinds"],
+            json!(["realm"])
+        );
     }
 
     /// TEABAY-01 regression — the describe response MUST conform to the
@@ -578,17 +438,6 @@ mod tests {
             "rate_limit_policy_id",
             "egress_network_policy",
             "resource_kinds",
-            "restricted_query_proof",
-            "accept_policy_kind",
-            "accept_policy_ref",
-            "default_ttl_seconds",
-            "max_ttl_seconds",
-            "revalidation_grace_seconds",
-            "accepted_resource_kinds",
-            "accepted_did_methods",
-            "takedown_contact",
-            "rate_limits",
-            "last_materialized_at",
         ];
 
         let x_ext = regex_lite_matcher();
@@ -625,12 +474,7 @@ mod tests {
                 object.contains_key(ext),
                 "teabay-private extension `{ext}` must ride as an x_teabay_* key"
             );
-            for standard in [
-                "resource_kinds",
-                "accept_policy_kind",
-                "accepted_resource_kinds",
-                "rate_limits",
-            ] {
+            for standard in ["resource_kinds"] {
                 assert!(
                     object.contains_key(standard),
                     "standard directory field `{standard}` must be emitted as a bare key"
@@ -660,8 +504,7 @@ mod tests {
         }
     }
 
-    /// PCD remains absent until startup has fully activated its custody key
-    /// and derived index and has installed the runtime into AppState.
+    /// Private contact discovery has no current Directory operation.
     #[test]
     fn describe_omits_pcd_without_an_activated_runtime() {
         let value = build_describe_response_value(&cfg(false)).expect("describe builds");
@@ -681,31 +524,5 @@ mod tests {
                     == "ak.operation_bundle.directory_service.private_contact_discovery.v1")
         );
         assert!(value.get("private_contact_discovery").is_none());
-    }
-
-    #[test]
-    fn describe_advertises_only_the_activated_closed_pcd_configuration() {
-        let mut config = cfg(false);
-        let runtime = pcd_runtime();
-        config.private_contact_discovery = Some(runtime.clone());
-
-        let value = build_describe_response_value(&config).expect("describe builds");
-
-        assert!(
-            value["supported_operation_bundles"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|bundle| bundle
-                    == "ak.operation_bundle.directory_service.private_contact_discovery.v1")
-        );
-        assert_eq!(
-            value["private_contact_discovery"],
-            serde_json::to_value(&runtime.describe).unwrap()
-        );
-        assert_eq!(
-            value["auth_metadata"]["x_teabay_private_contact_discovery"]["kind"],
-            "device_scoped_hmac_bearer"
-        );
     }
 }

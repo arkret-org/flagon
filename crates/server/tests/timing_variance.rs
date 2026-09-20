@@ -23,16 +23,16 @@ fn latency_budget_targets_are_branch_independent_and_bounded() {
     let ceiling = floor + Duration::from_millis(JITTER_MS);
 
     for privacy_key in [
-        "handle=alice.example;branch=found",
-        "handle=ghost.example;branch=not_found",
-        "handle=alice.example;branch=unauthorized",
+        "realm=known;branch=found",
+        "realm=unknown;branch=not_found",
+        "realm=known;branch=unauthorized",
     ] {
         let first = budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
             privacy_key,
         );
         let second = budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
             privacy_key,
         );
 
@@ -51,15 +51,15 @@ fn zero_jitter_budget_collapses_to_exact_floor() {
 
     assert_eq!(
         budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
-            "handle=alice.example;branch=found"
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            "realm=known;branch=found"
         ),
         Duration::from_millis(FLOOR_MS)
     );
     assert_eq!(
         budget.target_for(
-            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_HANDLE_V1,
-            "handle=alice.example;branch=unauthorized"
+            ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
+            "realm=known;branch=unauthorized"
         ),
         Duration::from_millis(FLOOR_MS)
     );

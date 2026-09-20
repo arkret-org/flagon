@@ -1,28 +1,9 @@
 //! Discovery ingest protocol — spec discovery-directory.md §8.
 
-pub mod announce;
-pub mod authority_chain;
-pub mod freshness_worker;
-pub mod operator;
-pub mod organization_statement;
-pub mod rate_limit;
-pub mod receipt;
-pub mod verify;
-pub mod withdraw;
-
-use salvo::Request;
+// D2 read-only transition: legacy ingest modules are not part of this build.
+// They cannot validate current governance/opt-in and must not accept writes.
 use serde::{Deserialize, Serialize};
 use teabay_contracts::{DirectoryResourceKind, Discoverability};
-
-/// Read a request header as a trimmed, non-empty `String`. Shared by ingest
-/// handlers so the trim+empty-filter convention lives in one place.
-pub(crate) fn header_value(req: &Request, name: &str) -> Option<String> {
-    req.headers()
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
 
 // ---- Resource kind (database adapter enum) ------------------------------
 //
@@ -98,10 +79,6 @@ impl From<DirectoryResourceKind> for DirectoryResourceKindDb {
     fn from(value: DirectoryResourceKind) -> Self {
         match value {
             DirectoryResourceKind::Realm => Self::Realm,
-            DirectoryResourceKind::Organization => Self::Organization,
-            DirectoryResourceKind::Actor => Self::Actor,
-            DirectoryResourceKind::Applet => Self::Applet,
-            DirectoryResourceKind::Handle => Self::Handle,
         }
     }
 }
