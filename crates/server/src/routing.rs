@@ -74,22 +74,8 @@ pub fn metrics_service(state: AppState) -> Service {
 fn admin_router() -> Router {
     Router::with_path("_teabay/admin")
         .hoop(crate::middleware::AdminAuthHoop)
-        .push(Router::with_path("dashboard").get(query::admin::dashboard_stats))
         .push(Router::with_path("audit").get(query::admin::audit_feed))
         .push(Router::with_path("audit/verify").get(query::admin::audit_chain_verify))
-        .push(
-            Router::with_path("allowlist")
-                .get(query::admin::allowlist_list)
-                .post(query::admin::allowlist_upsert)
-                .delete(query::admin::allowlist_delete),
-        )
-        // B.8.6 — operator-facing export of every takedown row, for
-        // legal / ops review. Bearer-auth same as the rest of admin.
-        .push(Router::with_path("takedowns").get(query::admin::takedown_audit_export))
-        // soland calls this to broadcast a
-        // `consent_revoke{scope=any}` and trigger eager directory
-        // reachability invalidation. Bearer auth, admin-only.
-        .push(Router::with_path("consent-revoke").post(query::admin::consent_revoke_invalidate))
 }
 
 fn directory_router() -> Router {
@@ -267,20 +253,16 @@ async fn database_ready(state: &AppState) -> Result<(), String> {
 /// soland / starid / coauth / floria all use.
 fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value {
     let development_mode = cfg.development_mode;
-    // teabay terminates TLS at a reverse proxy; we can't probe the
-    // listener from in-process. `require_http_sig` (RFC 9421 HTTP
-    // Message Signature middleware) is the closest in-process signal
-    // that the deployment is hardened against unsigned ingest.
-    let tls_enabled = !development_mode && cfg.require_http_sig;
+    // TLS is terminated outside this process; a read-only Directory cannot
+    // infer the reverse proxy's posture from retired ingest configuration.
+    let tls_enabled = false;
     let csp_header_configured = cfg.cors_allow_origin.is_some();
     let cors_strict = match cfg.cors_allow_origin.as_deref() {
         None => true,
         Some(value) => !value.trim().split(',').any(|origin| origin.trim() == "*"),
     };
-    // No external secret manager; `http_sig_pubkeys` is the closest
-    // in-process surface that the operator has wired keys in
-    // somewhere outside source.
-    let secret_manager_in_use = !cfg.http_sig_pubkeys.is_empty();
+    // No configured external secret-manager attestation in this process.
+    let secret_manager_in_use = false;
     let log_redaction_enabled = !development_mode;
     let admin_auth_mode = if development_mode {
         if cfg.admin_token.as_deref().is_some_and(|t| !t.is_empty()) {
@@ -483,14 +465,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "PostgreSQL and background-worker readiness probe.",
         ),
         (
-            "/_teabay/admin/dashboard",
-            PathItemType::Get,
-            "org.arkret.teabay.admin.dashboard_stats",
-            "admin",
-            "Directory Dashboard Stats",
-            "Return aggregate counts (resources / announces / subscriptions / audit) for the operator dashboard.",
-        ),
-        (
             "/_teabay/admin/audit",
             PathItemType::Get,
             "org.arkret.teabay.admin.audit_feed",
@@ -505,38 +479,6 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "admin",
             "Verify Audit Chain",
             "Walk the append-only audit chain and recompute chained SHA-256 digests.",
-        ),
-        (
-            "/_teabay/admin/allowlist",
-            PathItemType::Get,
-            "org.arkret.teabay.admin.allowlist_list",
-            "admin",
-            "List Allowlist Entries",
-            "Return operator-managed accept-policy allowlist entries.",
-        ),
-        (
-            "/_teabay/admin/allowlist",
-            PathItemType::Post,
-            "org.arkret.teabay.admin.allowlist_upsert",
-            "admin",
-            "Upsert Allowlist Entry",
-            "Add or update an operator-managed accept-policy allowlist entry.",
-        ),
-        (
-            "/_teabay/admin/allowlist",
-            PathItemType::Delete,
-            "org.arkret.teabay.admin.allowlist_delete",
-            "admin",
-            "Delete Allowlist Entry",
-            "Remove an operator-managed accept-policy allowlist entry.",
-        ),
-        (
-            "/_teabay/admin/takedowns",
-            PathItemType::Get,
-            "org.arkret.teabay.admin.takedown_audit_export",
-            "admin",
-            "Export Takedown Audit",
-            "Return every operator-takedown audit row within an optional `since` / `until` window.",
         ),
         (
             "/_arkret/describe",

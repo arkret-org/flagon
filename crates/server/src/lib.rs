@@ -24,7 +24,6 @@ pub mod schema;
 mod source_refs;
 pub mod state;
 mod util;
-pub mod workers;
 
 pub use config::AppConfig;
 pub use db::Db;

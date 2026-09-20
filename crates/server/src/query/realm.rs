@@ -38,8 +38,8 @@ impl TryFrom<PublicRealmRow> for PublicRealmDirectoryEntry {
     type Error = String;
 
     fn try_from(row: PublicRealmRow) -> Result<Self, Self::Error> {
-        // Never deserialize or migrate the old directory_resources table:
-        // those rows lack current-governance and public opt-in provenance.
+        // Never deserialize or migrate old source-ref projections:
+        // they lack current-governance and public opt-in provenance.
         let entry = Self {
             realm_id: RealmId::new(row.realm_id).map_err(|error| error.to_string())?,
             public_metadata: serde_json::from_value::<PublicRealmMetadata>(row.public_metadata)
@@ -247,6 +247,10 @@ mod tests {
         public_index_present: bool,
         #[diesel(sql_type = Bool)]
         retired_pcd_absent: bool,
+        #[diesel(sql_type = Bool)]
+        retired_directory_tables_absent: bool,
+        #[diesel(sql_type = Bool)]
+        only_current_tables_present: bool,
     }
 
     fn row(projection: JsonValue) -> PublicRealmRow {
@@ -287,7 +291,7 @@ mod tests {
 
     #[ignore = "Docker-backed PostgreSQL isolation test; run with --include-ignored"]
     #[tokio::test]
-    async fn old_unverified_row_never_enters_empty_public_read_index() -> anyhow::Result<()> {
+    async fn fresh_schema_has_only_empty_public_realm_index() -> anyhow::Result<()> {
         let container = postgres::Postgres::default()
             .with_password("1amTester!")
             .with_tag("16-alpine")
@@ -309,27 +313,34 @@ mod tests {
                      AND to_regclass('public.pcd_config_snapshots') IS NULL \
                      AND to_regclass('public.pcd_quota_windows') IS NULL \
                      AND to_regclass('public.pcd_batches') IS NULL) \
-                    AS retired_pcd_absent",
+                    AS retired_pcd_absent, \
+                    (to_regclass('public.directory_resources') IS NULL \
+                     AND to_regclass('public.ingest_announces') IS NULL \
+                     AND to_regclass('public.withdrawals') IS NULL \
+                     AND to_regclass('public.directory_object_access') IS NULL \
+                     AND to_regclass('public.directory_invite_revocations') IS NULL \
+                     AND to_regclass('public.accept_allowlist') IS NULL \
+                     AND to_regclass('public.pending_takedowns') IS NULL \
+                     AND to_regclass('public.pending_takedown_webhooks') IS NULL \
+                     AND to_regclass('public.verified_realm_organizations') IS NULL) \
+                    AS retired_directory_tables_absent, \
+                    NOT EXISTS (SELECT 1 FROM information_schema.tables \
+                                WHERE table_schema = 'public' \
+                                  AND table_type = 'BASE TABLE' \
+                                  AND table_name NOT IN ( \
+                                      '__diesel_schema_migrations', \
+                                      'directory_public_realm_entries', \
+                                      'directory_audit', 'admin_tokens')) \
+                    AS only_current_tables_present",
         )
         .get_result(&mut *conn)
         .await?;
         assert!(shape.public_index_present);
         assert!(shape.retired_pcd_absent);
+        assert!(shape.retired_directory_tables_absent);
+        assert!(shape.only_current_tables_present);
         let realm_id =
             RealmId::new("ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR".to_owned())?;
-        diesel::sql_query(
-            "INSERT INTO directory_resources \
-             (resource_kind, resource_id, station_id, discovery_state, public_projection, \
-              discoverability, as_of, source_refs, policy_revision, effective_ttl_seconds, \
-              next_revalidation_after, expires_at) VALUES \
-             ('realm', $1, 'ak:did_core:web:old-station.test', '{}'::jsonb, \
-              '{\"display_name\":\"Legacy appears public\"}'::jsonb, 'public', now(), \
-              '[]'::jsonb, 'legacy', 3600, now() + interval '1 hour', \
-              now() + interval '1 hour')",
-        )
-        .bind::<Text, _>(realm_id.as_str())
-        .execute(&mut *conn)
-        .await?;
         drop(conn);
 
         assert!(load_search_rows(&db, "", "", 10).await?.is_empty());

@@ -135,7 +135,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .extra
         .insert(
             "x_teabay_scope".to_owned(),
-            JsonValue::String("directory_resources_only".to_owned()),
+            JsonValue::String("public_realm_metadata_only".to_owned()),
         )
         .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
 

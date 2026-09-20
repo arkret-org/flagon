@@ -12,7 +12,7 @@ by the offline `diesel` CLI (`diesel print-schema`).
 
 | Timestamp | Slug | Intent | Rollback hint |
 |---|---|---|---|
-| `20260512010000` | `schema` | Squashed fresh-install schema containing the complete directory, freshness, administration, takedown, replay-protection, residency, and verified-organization structures through 2026-06-25. | `down.sql` removes the complete schema in reverse dependency order. Safe only on dev/test databases; recover production from backup instead. |
+| `20260512010000` | `schema` | Squashed fresh-install D2 schema: empty public Realm metadata index plus operator audit and admin credentials. Retired ingest, PCD/PSI, and non-Realm resource tables are absent. | `down.sql` removes these structures. Safe only on dev/test databases; recover production from backup instead. |
 
 ## Conventions
 
