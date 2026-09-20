@@ -5851,8 +5851,6 @@ name = "teabay-contracts"
 version = "0.3.0"
 dependencies = [
  "arkret",
- "arkret-wire",
- "chrono",
  "serde",
  "serde_json",
 ]

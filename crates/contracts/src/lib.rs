@@ -1,10 +1,6 @@
-//! Shared operator-admin HTTP contracts for teabay.
+//! Shared audit-only operator-admin HTTP contracts for teabay.
 
-use std::ops::{Deref, DerefMut};
-
-pub use arkret_sdk::{Did, DidCoreId, DirectoryResourceKind, Discoverability};
-pub use arkret_wire::CommittedEventRef;
-use chrono::{DateTime, Utc};
+pub use arkret_sdk::{DidCoreId, DirectoryResourceKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
@@ -41,195 +37,6 @@ impl From<AuthenticatedCredentialId> for String {
     fn from(value: AuthenticatedCredentialId) -> Self {
         value.0
     }
-}
-
-macro_rules! json_boundary {
-    ($name:ident) => {
-        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-        #[serde(transparent)]
-        pub struct $name(pub JsonValue);
-
-        impl $name {
-            pub fn from_json(value: JsonValue) -> Self {
-                Self(value)
-            }
-
-            pub fn from_json_object(value: JsonValue, field: &str) -> Result<Self, String> {
-                if value.is_object() {
-                    Ok(Self(value))
-                } else {
-                    Err(format!("{field} must be a JSON object"))
-                }
-            }
-
-            pub fn as_value(&self) -> &JsonValue {
-                &self.0
-            }
-
-            pub fn into_value(self) -> JsonValue {
-                self.0
-            }
-        }
-
-        impl Deref for $name {
-            type Target = JsonValue;
-
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl DerefMut for $name {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
-            }
-        }
-
-        impl PartialEq<JsonValue> for $name {
-            fn eq(&self, other: &JsonValue) -> bool {
-                &self.0 == other
-            }
-        }
-
-        impl PartialEq<$name> for JsonValue {
-            fn eq(&self, other: &$name) -> bool {
-                self == &other.0
-            }
-        }
-    };
-}
-
-json_boundary!(OperatorEvidence);
-json_boundary!(DirectoryDecisionReceipt);
-json_boundary!(DirectoryPublicProjection);
-json_boundary!(DirectoryDiscoveryState);
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DirectoryAdminAllowlistUpsertRequestBody {
-    pub resource_did: Did,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub added_by: Option<DidCoreId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct OperatorTakedownRequestBody {
-    pub resource_kind: DirectoryResourceKind,
-    pub resource_id: String,
-    pub reason: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operator: Option<String>,
-    #[serde(default)]
-    pub evidence: OperatorEvidence,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effective_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct OperatorTakedownOutcome {
-    pub withdraw_id: String,
-    pub acked_at: DateTime<Utc>,
-    pub effective_at: DateTime<Utc>,
-    pub notification_status: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DirectoryAdminResourceUpsertRequestBody {
-    pub resource_kind: DirectoryResourceKind,
-    pub resource_id: String,
-    pub station_id: DidCoreId,
-    pub discoverability: Discoverability,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub as_of: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub source_refs: Vec<CommittedEventRef>,
-    pub policy_revision: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effective_ttl_seconds: Option<i64>,
-    #[serde(default)]
-    pub stale: bool,
-    #[serde(default)]
-    pub divergent: bool,
-    #[serde(default)]
-    pub via_services: Vec<DidCoreId>,
-    pub public_projection: DirectoryPublicProjection,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discovery_state: Option<DirectoryDiscoveryState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_announce_id: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct DashboardStats {
-    pub directory_resources: i64,
-    pub stale_resources: i64,
-    pub divergent_resources: i64,
-    pub realm_destroyed: i64,
-    pub ingest_announces: i64,
-    pub audit_events: i64,
-    pub allowlist_entries: i64,
-    pub per_kind: Vec<DashboardKindCount>,
-    pub as_of: String,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct DashboardKindCount {
-    pub resource_kind: String,
-    pub count: i64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ResourceList {
-    pub items: Vec<ResourceItem>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ResourceItem {
-    pub resource_kind: String,
-    pub resource_id: String,
-    pub station_id: DidCoreId,
-    pub discovery_state: DirectoryDiscoveryState,
-    pub public_projection: DirectoryPublicProjection,
-    pub discoverability: String,
-    pub as_of: String,
-    pub source_refs: Vec<CommittedEventRef>,
-    pub policy_revision: String,
-    pub indexed_at: String,
-    pub effective_ttl_seconds: i32,
-    pub next_revalidation_after: String,
-    pub stale: bool,
-    pub divergent: bool,
-    pub via_services: Vec<DidCoreId>,
-    pub last_announce_id: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ResourceMutationEnvelope {
-    pub item: ResourceItem,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct DeleteCount {
-    pub deleted: i64,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct AllowlistEnvelope {
-    pub items: Vec<AllowlistItem>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AllowlistItem {
-    pub resource_did: Did,
-    pub added_by: DidCoreId,
-    pub added_at: String,
-    pub note: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AllowlistMutationEnvelope {
-    pub item: AllowlistItem,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -275,20 +82,10 @@ pub struct AuditChainVerificationFailure {
 mod tests {
     use super::*;
 
-    /// The SDK enum accessors are the only token source and must agree with serde.
     #[test]
-    fn tokens_match_the_sdk_serde_representation() {
-        for value in DirectoryResourceKind::ALL {
-            assert_eq!(
-                serde_json::to_value(value).unwrap(),
-                JsonValue::String(value.as_str().to_string())
-            );
-        }
-        for value in Discoverability::ALL {
-            assert_eq!(
-                serde_json::to_value(value).unwrap(),
-                JsonValue::String(value.as_str().to_string())
-            );
-        }
+    fn authenticated_credential_id_rejects_ambiguous_values() {
+        assert!(AuthenticatedCredentialId::new("admin-token-1").is_ok());
+        assert!(AuthenticatedCredentialId::new("").is_err());
+        assert!(AuthenticatedCredentialId::new("admin token").is_err());
     }
 }
