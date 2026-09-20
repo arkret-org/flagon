@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use salvo::prelude::*;
 
 use crate::error::ApiErrorCode;
-use crate::middleware::{require_admin_csrf, verify_admin_credential};
+use crate::middleware::verify_admin_credential;
 use crate::state::AppState;
 
 async fn require_admin(req: &Request, state: &AppState) -> Result<(), ApiErrorCode> {

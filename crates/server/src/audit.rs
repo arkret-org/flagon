@@ -23,9 +23,41 @@ use teabay_contracts::{
 };
 
 use crate::db::Db;
-use crate::ingest::DirectoryResourceKindDb;
 use crate::schema::directory_audit;
 use crate::util::lower_hex;
+
+/// The operational audit may name a Directory resource, but only Realm is
+/// a registered public resource kind in this candidate.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    diesel::AsExpression,
+    diesel::FromSqlRow,
+)]
+#[diesel(sql_type = crate::schema::sql_types::ResourceKind)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectoryResourceKindDb {
+    Realm,
+}
+
+crate::db_enum::impl_pg_enum!(
+    DirectoryResourceKindDb,
+    crate::schema::sql_types::ResourceKind,
+    { DirectoryResourceKindDb::Realm => "realm" }
+);
+
+impl From<teabay_contracts::DirectoryResourceKind> for DirectoryResourceKindDb {
+    fn from(value: teabay_contracts::DirectoryResourceKind) -> Self {
+        match value {
+            teabay_contracts::DirectoryResourceKind::Realm => Self::Realm,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel::AsExpression, diesel::FromSqlRow)]
 #[diesel(sql_type = crate::schema::sql_types::AuditEventKind)]
@@ -75,7 +107,7 @@ crate::db_enum::impl_pg_enum!(AuditEventKind, crate::schema::sql_types::AuditEve
 struct NewAuditRow<'a> {
     occurred_at: DateTime<Utc>,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<&'a str>,
     /// DID that initiated the audited operation — the resource's
     /// `station_id`, the directory's own `service_id`, or an
@@ -121,7 +153,7 @@ pub struct ActorIdentity<'a> {
 pub async fn record(
     db: &Db,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<&str>,
     actor_id: Option<&str>,
     detail: JsonValue,
@@ -150,7 +182,7 @@ pub async fn record(
 pub async fn record_with_identity(
     db: &Db,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<&str>,
     actor_id: Option<&str>,
     detail: JsonValue,
@@ -343,7 +375,7 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutco
 fn compute_row_digest(
     occurred_at: DateTime<Utc>,
     kind: AuditEventKind,
-    resource_kind: Option<crate::ingest::DirectoryResourceKindDb>,
+    resource_kind: Option<DirectoryResourceKindDb>,
     resource_id: Option<&str>,
     actor_id: Option<&str>,
     detail: &JsonValue,
@@ -353,7 +385,7 @@ fn compute_row_digest(
     let canonical = json!({
         "occurred_at": occurred_at.to_rfc3339(),
         "kind": kind.as_pg(),
-        "resource_kind": resource_kind.map(crate::ingest::DirectoryResourceKindDb::as_pg),
+        "resource_kind": resource_kind.map(DirectoryResourceKindDb::as_pg),
         "resource_id": resource_id,
         "actor_id": actor_id,
         "detail": detail,

@@ -26,7 +26,6 @@ async fn run() -> anyhow::Result<()> {
     // the multi-threaded tokio runtime.
     let db = Db::connect_with(&config.database_url, &config.db_pool)?;
     db.run_migrations(&config.database_url).await?;
-    // Fails closed at boot if the shared DID resolver chain cannot be built.
     let state = AppState::new(config.clone(), db)?;
 
     let metrics_acceptor = TcpListener::new(config.metrics_bind.to_string())

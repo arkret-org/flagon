@@ -87,10 +87,6 @@ fn config_builds_with_minimal_state() {
         config.service_resolution.method_history_head,
         "did-web-document-etag-fixture"
     );
-    assert_eq!(
-        config.accept_policy_kind,
-        server::config::AcceptPolicyKind::Open
-    );
 }
 
 /// T8.3 — `/health` returns a JSON body with a `hardening` block.
@@ -128,7 +124,6 @@ fn hardening_status_shape_matches_cross_service_contract() {
     // with several warnings.
     assert!(config.development_mode);
     assert!(config.admin_token.is_none());
-    assert!(!config.require_http_sig);
 
     // Now flip to production posture and ensure the config-level
     // signals required by `hardening_status` are present. P5 — CSRF is
@@ -146,7 +141,6 @@ fn hardening_status_shape_matches_cross_service_contract() {
     }
     let prod_config = server::AppConfig::from_env().expect("prod config builds");
     assert!(!prod_config.development_mode);
-    assert!(prod_config.require_http_sig);
     assert!(prod_config.admin_token.is_none());
     assert!(prod_config.cors_allow_origin.is_some());
 }

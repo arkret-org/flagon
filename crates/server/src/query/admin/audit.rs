@@ -9,9 +9,8 @@ use serde_json::Value as JsonValue;
 use teabay_contracts::{AuditEnvelope, AuditEvent};
 
 use super::{parse_since, require_admin};
-use crate::audit::AuditEventKind;
+use crate::audit::{AuditEventKind, DirectoryResourceKindDb};
 use crate::error::ApiErrorCode;
-use crate::ingest::DirectoryResourceKindDb;
 use crate::state::AppState;
 
 const DEFAULT_AUDIT_LIMIT: i64 = 100;

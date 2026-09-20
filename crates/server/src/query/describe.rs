@@ -97,29 +97,10 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .expect("x_teabay_admin is a valid extension key");
 
     let limits = ServerLimits {
-        extensions: BTreeMap::from([
-            (
-                "per_resource_per_min".to_owned(),
-                json!(cfg.rate_limit_per_resource_per_min),
-            ),
-            (
-                "query_latency_floor_ms".to_owned(),
-                json!(cfg.query_latency_floor.as_millis() as u64),
-            ),
-            (
-                "query_latency_jitter_ms".to_owned(),
-                json!(cfg.query_latency_jitter.as_millis() as u64),
-            ),
-            (
-                "default_ttl_seconds".to_owned(),
-                json!(cfg.default_ttl.as_secs()),
-            ),
-            ("max_ttl_seconds".to_owned(), json!(cfg.max_ttl.as_secs())),
-            (
-                "revalidation_grace_seconds".to_owned(),
-                json!(cfg.revalidation_grace.as_secs()),
-            ),
-        ]),
+        extensions: BTreeMap::from([(
+            "query_per_ip_per_min".to_owned(),
+            json!(cfg.query_max_queries_per_ip_per_min),
+        )]),
     };
 
     // `plaintext_visibility` advertises that the directory does NOT
@@ -170,11 +151,11 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         development_mode,
         receive_policy_constraints: None,
         // Canonical inline rate-limit policy. The directory enforces a
-        // per-resource windowed limit; expressed as a windowed policy entry. The
+        // per-IP query windowed limit; expressed as a windowed policy entry. The
         // ServiceDescribe `anyOf` requires `rate_limit_policy` or
         // `rate_limit_policy_id`.
         rate_limit_policy: Some(RateLimitPolicy::windowed_per_minute(
-            cfg.rate_limit_per_resource_per_min,
+            cfg.query_max_queries_per_ip_per_min,
         )),
         rate_limit_policy_id: None,
         resource_kinds: vec![DirectoryResourceKind::Realm],
@@ -217,13 +198,11 @@ fn describe_limitations(_cfg: &AppConfig) -> Vec<JsonValue> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::time::Duration;
 
     use arkret_sdk::{Did, DidCoreId, ResolutionCommitment};
 
     use super::*;
-    use crate::config::{AcceptPolicyKind, IngestModeAdvert};
 
     fn cfg(development_mode: bool) -> AppConfig {
         AppConfig {
@@ -245,27 +224,9 @@ mod tests {
             admin_token: None,
             admin_token_rotation_window: Duration::from_secs(1800),
             development_mode,
-            accept_policy_kind: AcceptPolicyKind::Open,
-            accept_policy_ref: None,
-            takedown_contact: None,
-            accepted_resource_kinds: DirectoryResourceKind::ALL.to_vec(),
-            accepted_did_methods: vec!["did:web".to_owned()],
-            default_ttl: Duration::from_secs(3600),
-            max_ttl: Duration::from_secs(86400),
-            revalidation_grace: Duration::from_secs(300),
-            as_of_skew: Duration::from_secs(60),
-            ingest_modes: vec![IngestModeAdvert::Push],
-            rate_limit_per_resource_per_min: 60,
             query_max_queries_per_ip_per_min: 0,
             query_max_resolves_per_resource_per_min: 0,
-            query_latency_floor: Duration::from_millis(0),
-            query_latency_jitter: Duration::from_millis(0),
-            require_http_sig: false,
-            http_sig_pubkeys: HashMap::new(),
-            receipt_signing_key: None,
             db_pool: crate::config::DbPoolConfig::default(),
-            expiry_interval: Some(Duration::from_secs(1800)),
-            takedown_notifier_interval: Some(Duration::from_secs(60)),
             trusted_proxy: None,
         }
     }

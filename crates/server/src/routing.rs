@@ -273,11 +273,9 @@ fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value 
     } else {
         "rotating_hmac".to_owned()
     };
-    let rate_limit_enabled = cfg.rate_limit_per_resource_per_min > 0;
-    // Local development admits loopback only; private and link-local targets
-    // remain blocked in every mode.
-    let egress_private_networks_blocked =
-        !crate::egress::local_development_enabled(development_mode);
+    let rate_limit_enabled = cfg.query_max_queries_per_ip_per_min > 0;
+    // No read-only request path performs outbound network resolution.
+    let egress_private_networks_blocked = true;
     let provider_credential_rotation = if secret_manager_in_use {
         "manual".to_owned()
     } else {

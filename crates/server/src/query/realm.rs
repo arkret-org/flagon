@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::error::ApiErrorCode;
-use crate::query::rate_limit::{enforce_query_rate_limit, enforce_resolve_rate_limit};
+use crate::query::rate_limit::{
+    enforce_query_rate_limit, enforce_resolve_rate_limit, enforce_search_needle_rate_limit,
+};
 use crate::state::AppState;
 
 #[derive(Debug, diesel::QueryableByName)]
@@ -78,6 +80,9 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
     }
 
     let needle = body.query.unwrap_or_default().trim().to_owned();
+    if !enforce_search_needle_rate_limit(res, &state, &needle) {
+        return;
+    }
     let limit = body.limit.unwrap_or(20).min(100) as i64;
     let filter_digest = match arkret_server::cursor_filter_digest(&serde_json::json!({
         "operation": arkret_sdk::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,

@@ -1,28 +1,13 @@
 //! Environment-driven configuration.
 //!
-//! Mirrors the spec `ak.find.directory.read.describe.v1` ingest fields (§8.9) so the
-//! runtime can both honor and advertise them coherently.
+//! D2 read-only service configuration. There are no ingest policy knobs.
 
-use std::collections::HashMap;
-use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
-use arkret_sdk::{
-    Did, DidCoreId, DirectoryResourceKind, ResolutionCommitment, project_did_to_core_id,
-};
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ed25519_dalek::SigningKey;
-use serde::{Deserialize, Serialize};
-
-use crate::did_resolver::SharedDidResolver;
-use crate::middleware::http_sig::{DidResolverKeyDirectory, VerifyingKey};
-
-const HARD_MAX_TTL_SECONDS: i64 = 2_592_000; // 30 days, per spec §8.9
+use arkret_sdk::{Did, DidCoreId, ResolutionCommitment, project_did_to_core_id};
 const CONFIG_ARG: &str = "--config";
 const NO_ENV_OVERRIDES_ARG: &str = "--no-env-overrides";
 
@@ -134,11 +119,7 @@ pub struct AppConfig {
     /// `ServiceDescribe`. Teabay never manufactures history heads or version
     /// identifiers from the DID text.
     pub service_resolution: ResolutionCommitment,
-    /// Typed trust domain advertised in
-    /// `/directory/describe` and required on every cross-trust-domain
-    /// federation request. Sourced from `TEABAY_TRUST_DOMAIN`; defaults
-    /// to `ak:trust_domain:local.test` so the in-process conformance
-    /// harness keeps working without operator hand-holding.
+    /// Typed trust domain advertised in `/directory/describe`.
     pub trust_domain: String,
     pub database_url: String,
     pub cors_allow_origin: Option<String>,
@@ -159,20 +140,6 @@ pub struct AppConfig {
     pub admin_token_rotation_window: std::time::Duration,
     pub development_mode: bool,
 
-    pub accept_policy_kind: AcceptPolicyKind,
-    pub accept_policy_ref: Option<String>,
-    pub takedown_contact: Option<String>,
-    pub accepted_resource_kinds: Vec<DirectoryResourceKind>,
-    pub accepted_did_methods: Vec<String>,
-
-    pub default_ttl: Duration,
-    pub max_ttl: Duration,
-    pub revalidation_grace: Duration,
-    pub as_of_skew: Duration,
-
-    pub ingest_modes: Vec<IngestModeAdvert>,
-
-    pub rate_limit_per_resource_per_min: u32,
     /// Query-face rate limit (per IP, per 60s window). Applies to every
     /// `ak.directory.search_*` / `ak.directory.resolve_*` endpoint. 0
     /// means disabled. Env: `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`.
@@ -182,39 +149,11 @@ pub struct AppConfig {
     /// search traffic. 0 means disabled. Env:
     /// `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`.
     pub query_max_resolves_per_resource_per_min: u32,
-    pub query_latency_floor: Duration,
-    pub query_latency_jitter: Duration,
 
-    /// When `true`, the RFC 9421 HTTP Message Signature middleware
-    /// (see [`crate::middleware::http_sig`]) is mounted on the ingest
-    /// route group with enforcement enabled. When `false`, the middleware
-    /// is mounted in passthrough mode so the existing conformance
-    /// harness (which posts unsigned envelopes) keeps working. Defaults
-    /// to `true` — that's the secure default for any non-test deploy.
-    pub require_http_sig: bool,
-    /// `keyid → Ed25519 verifying key` allowlist for the ingest HTTP
-    /// signature middleware. Operators populate this at boot via
-    /// `TEABAY_HTTP_SIG_PUBKEYS` (comma-separated `keyid=BASE64URL32`
-    /// pairs). Empty when `require_http_sig=false`.
-    pub http_sig_pubkeys: HashMap<String, VerifyingKey>,
-    /// Optional Ed25519 signing key for operator-takedown receipts stored in
-    /// `withdrawals.proof`. Resource-initiated withdrawals carry the resource
-    /// governance signature; operator takedowns need a service receipt key.
-    pub receipt_signing_key: Option<ReceiptSigningKey>,
     /// P2E.6 — diesel + r2d2 connection pool tunables. Operators surface
     /// these as env vars; see `docs/scaling.md` for sizing guidance and
     /// `Db::connect_with` for the live behaviour.
     pub db_pool: DbPoolConfig,
-    /// P5 — period for the [`crate::workers::expiry::ExpiryWorker`]
-    /// background purge. Env: `TEABAY_EXPIRY_INTERVAL_SECONDS`
-    /// (default 1800). Set to `0` to disable the worker entirely.
-    pub expiry_interval: Option<Duration>,
-    /// P5 — period for the
-    /// [`crate::workers::takedown_notifier::TakedownNotifier`]
-    /// background dispatcher. Env:
-    /// `TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS` (default 60). Set to
-    /// `0` to disable the notifier entirely (development only).
-    pub takedown_notifier_interval: Option<Duration>,
     /// P5 — list of IPs that are allowed to inject `X-Forwarded-For`
     /// (or equivalent) when the rate-limiter resolves a client address.
     /// When unset, the rate-limiter trusts `req.remote_addr()` only.
@@ -228,13 +167,12 @@ pub struct AppConfig {
 #[derive(Clone, Debug)]
 pub struct DbPoolConfig {
     /// Hard ceiling on concurrent Postgres connections this teabay
-    /// instance will open. Includes connections held by background
-    /// workers (expiry, freshness, takedown notifier) and admin queries.
+    /// instance will open, including admin queries.
     /// Default: 16. Env: `TEABAY_DB_POOL_MAX_SIZE`.
     pub max_size: u32,
     /// How long `pool.get()` waits for an available connection before
     /// returning a `Timeout` error. Tune this together with the
-    /// ingest rate limit so a burst can't tarpit the request thread.
+    /// query rate limit so a burst can't tarpit the request thread.
     /// Default: 5 s. Env: `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`.
     pub connection_timeout: Duration,
 }
@@ -244,82 +182,6 @@ impl Default for DbPoolConfig {
         Self {
             max_size: 16,
             connection_timeout: Duration::from_secs(5),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct ReceiptSigningKey {
-    key_id: String,
-    signing_key: SigningKey,
-}
-
-impl ReceiptSigningKey {
-    pub(crate) fn from_raw(key_id: String, bytes: [u8; 32]) -> Self {
-        Self {
-            key_id,
-            signing_key: SigningKey::from_bytes(&bytes),
-        }
-    }
-
-    pub fn key_id(&self) -> &str {
-        &self.key_id
-    }
-
-    pub(crate) fn signing_key(&self) -> &SigningKey {
-        &self.signing_key
-    }
-
-    pub(crate) fn public_key_base64url(&self) -> String {
-        URL_SAFE_NO_PAD.encode(self.signing_key.verifying_key().as_bytes())
-    }
-}
-
-impl fmt::Debug for ReceiptSigningKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ReceiptSigningKey")
-            .field("key_id", &self.key_id)
-            .field("signing_key", &"<redacted>")
-            .finish()
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AcceptPolicyKind {
-    Open,
-    Allowlist,
-    OperatorReview,
-}
-
-impl AcceptPolicyKind {
-    pub fn from_env_value(value: &str) -> anyhow::Result<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "open" => Ok(Self::Open),
-            "allowlist" => Ok(Self::Allowlist),
-            "trust_root_signed" => Err(anyhow::anyhow!(
-                "TEABAY_ACCEPT_POLICY_KIND=trust_root_signed is reserved until directory \
-                 acceptance can verify an authority-committed trust-root statement"
-            )),
-            "operator_review" => Ok(Self::OperatorReview),
-            other => Err(anyhow::anyhow!(
-                "invalid TEABAY_ACCEPT_POLICY_KIND={other}; \
-                 expected open|allowlist|operator_review"
-            )),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IngestModeAdvert {
-    Push,
-}
-
-impl IngestModeAdvert {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Push => "push",
         }
     }
 }
@@ -408,54 +270,6 @@ impl AppConfig {
         let admin_token_rotation_window =
             Duration::from_secs(admin_token_rotation_window_secs.max(60));
 
-        let accept_policy_kind = match std::env::var("TEABAY_ACCEPT_POLICY_KIND") {
-            Ok(v) => AcceptPolicyKind::from_env_value(&v)?,
-            // Fail closed in production: `open` accepts any validly-signed
-            // source, widening the poisoning / anti-enumeration surface.
-            // Operators MUST make the accept-policy choice explicit, mirroring
-            // the CSRF fail-closed guard above.
-            Err(_) if !development_mode => anyhow::bail!(
-                "TEABAY_ACCEPT_POLICY_KIND must be set explicitly in production \
-                 (development_mode=false). Choose one of \
-                 open|allowlist|operator_review. \
-                 `open` is intentionally not the production default."
-            ),
-            Err(_) => AcceptPolicyKind::Open,
-        };
-
-        let accept_policy_ref = std::env::var("TEABAY_ACCEPT_POLICY_REF").ok();
-        let takedown_contact = std::env::var("TEABAY_TAKEDOWN_CONTACT").ok();
-
-        // did:webvh is the only v1-core accepted DID method. did:web is a
-        // no-history identity (DNS/TLS-takeover risk) and must never be a
-        // default for a discovery index; operators that run an explicit
-        // no-history service/personal_node profile can opt in via
-        // TEABAY_ACCEPTED_DID_METHODS. did:key (ephemeral, self-contained) is
-        // likewise opt-in only.
-        let accepted_did_methods = csv_env("TEABAY_ACCEPTED_DID_METHODS", &["did:webvh"]);
-
-        let default_ttl_seconds = read_u64("TEABAY_DEFAULT_TTL_SECONDS", 86_400)?;
-        let max_ttl_seconds = read_u64("TEABAY_MAX_TTL_SECONDS", 604_800)?;
-        let revalidation_grace_seconds = read_u64("TEABAY_REVALIDATION_GRACE_SECONDS", 3_600)?;
-        let as_of_skew_seconds = read_u64("TEABAY_AS_OF_SKEW_SECONDS", 300)?;
-
-        if max_ttl_seconds as i64 > HARD_MAX_TTL_SECONDS {
-            anyhow::bail!(
-                "TEABAY_MAX_TTL_SECONDS={max_ttl_seconds} exceeds spec hard ceiling \
-                 of {HARD_MAX_TTL_SECONDS} (discovery-directory.md §8.9)"
-            );
-        }
-        if default_ttl_seconds > max_ttl_seconds {
-            anyhow::bail!(
-                "TEABAY_DEFAULT_TTL_SECONDS ({default_ttl_seconds}) must be <= \
-                 TEABAY_MAX_TTL_SECONDS ({max_ttl_seconds})"
-            );
-        }
-
-        let ingest_modes = vec![IngestModeAdvert::Push];
-
-        let rate_limit_per_resource_per_min =
-            read_u64("TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN", 60)? as u32;
         // Query-face rate limit (per IP). Default 600/min keeps every
         // realistic browser dashboard happy while breaking obvious
         // enumeration sweeps. Set to 0 to disable.
@@ -463,20 +277,7 @@ impl AppConfig {
             read_u64("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 600)? as u32;
         let query_max_resolves_per_resource_per_min =
             read_u64("TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", 120)? as u32;
-        let query_latency_floor_ms = read_u64("TEABAY_QUERY_LATENCY_FLOOR_MS", 25)?;
-        let query_latency_jitter_ms = read_u64("TEABAY_QUERY_LATENCY_JITTER_MS", 10)?;
 
-        let require_http_sig = read_bool("TEABAY_REQUIRE_HTTP_SIG", true)?;
-        let http_sig_pubkeys =
-            parse_http_sig_pubkeys(std::env::var("TEABAY_HTTP_SIG_PUBKEYS").ok().as_deref())?;
-        let receipt_signing_key = parse_receipt_signing_key(
-            std::env::var("TEABAY_RECEIPT_SIGNING_KEY_B64")
-                .ok()
-                .as_deref(),
-            std::env::var("TEABAY_RECEIPT_KEY_ID")
-                .ok()
-                .unwrap_or_else(|| format!("{service_did}#teabay-receipt-1")),
-        )?;
         // P2E.6 — db pool tunables.
         let defaults = DbPoolConfig::default();
         let pool_max = read_u64("TEABAY_DB_POOL_MAX_SIZE", defaults.max_size as u64)? as u32;
@@ -495,48 +296,8 @@ impl AppConfig {
             connection_timeout: Duration::from_secs(pool_connection_timeout_secs),
         };
 
-        // P5 — new background worker periods.
-        let expiry_interval_seconds = read_u64("TEABAY_EXPIRY_INTERVAL_SECONDS", 1_800)?;
-        let expiry_interval = if expiry_interval_seconds == 0 {
-            None
-        } else {
-            Some(Duration::from_secs(expiry_interval_seconds))
-        };
-        let takedown_notifier_interval_seconds =
-            read_u64("TEABAY_TAKEDOWN_NOTIFIER_INTERVAL_SECONDS", 60)?;
-        let takedown_notifier_interval = if takedown_notifier_interval_seconds == 0 {
-            None
-        } else {
-            Some(Duration::from_secs(takedown_notifier_interval_seconds))
-        };
-
         // P5 — trusted proxy allowlist for the rate-limiter.
         let trusted_proxy = parse_trusted_proxy(std::env::var("TEABAY_TRUSTED_PROXY").ok())?;
-
-        // Operator-configurable subset of the §8.3 resource-kind enum this
-        // directory accepts for ingest. Unset ⇒ full enum. Each token MUST be
-        // a valid §8.3 kind (`space` is not a kind and is rejected).
-        let accepted_resource_kinds = match std::env::var("TEABAY_ACCEPTED_RESOURCE_KINDS") {
-            Ok(raw) if !raw.trim().is_empty() => {
-                let mut kinds = Vec::new();
-                for token in raw.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-                    let kind = token.parse::<DirectoryResourceKind>().map_err(|_| {
-                        anyhow::anyhow!(
-                            "invalid TEABAY_ACCEPTED_RESOURCE_KINDS token {token:?}; \
-                             valid: realm|organization|actor|applet|handle"
-                        )
-                    })?;
-                    if !kinds.contains(&kind) {
-                        kinds.push(kind);
-                    }
-                }
-                if kinds.is_empty() {
-                    anyhow::bail!("TEABAY_ACCEPTED_RESOURCE_KINDS must list at least one kind");
-                }
-                kinds
-            }
-            _ => DirectoryResourceKind::ALL.to_vec(),
-        };
 
         Ok(Self {
             bind,
@@ -552,112 +313,12 @@ impl AppConfig {
             admin_token,
             admin_token_rotation_window,
             development_mode,
-            accept_policy_kind,
-            accept_policy_ref,
-            takedown_contact,
-            accepted_resource_kinds,
-            accepted_did_methods,
-            default_ttl: Duration::from_secs(default_ttl_seconds),
-            max_ttl: Duration::from_secs(max_ttl_seconds),
-            revalidation_grace: Duration::from_secs(revalidation_grace_seconds),
-            as_of_skew: Duration::from_secs(as_of_skew_seconds),
-            ingest_modes,
-            rate_limit_per_resource_per_min,
             query_max_queries_per_ip_per_min,
             query_max_resolves_per_resource_per_min,
-            query_latency_floor: Duration::from_millis(query_latency_floor_ms),
-            query_latency_jitter: Duration::from_millis(query_latency_jitter_ms),
-            require_http_sig,
-            http_sig_pubkeys,
-            receipt_signing_key,
             db_pool,
-            expiry_interval,
-            takedown_notifier_interval,
             trusted_proxy,
         })
     }
-
-    /// Materialise the ingest HTTP signature key directory. Static keys
-    /// remain a deterministic fallback, while DID-URL keyids resolve through
-    /// the process-wide resolver the caller passes in.
-    ///
-    /// DID-P0-C01: the resolver is an argument rather than something this
-    /// method builds, so the accepted-method allowlist and the egress
-    /// decision come from the single `AppState` instance instead of being
-    /// re-derived (and potentially re-widened) per middleware.
-    pub fn http_sig_key_directory(
-        &self,
-        resolver: Arc<SharedDidResolver>,
-    ) -> DidResolverKeyDirectory {
-        DidResolverKeyDirectory::new(self.http_sig_pubkeys.clone(), resolver)
-    }
-}
-
-/// Parse `TEABAY_HTTP_SIG_PUBKEYS` into a `keyid → VerifyingKey`
-/// map. The wire format is comma-separated `keyid=base64url(pubkey)`
-/// pairs; both `base64url` (no padding) and standard padded base64 are
-/// tolerated. Empty / unset is `Ok(HashMap::new())`.
-fn parse_http_sig_pubkeys(value: Option<&str>) -> anyhow::Result<HashMap<String, VerifyingKey>> {
-    let mut map = HashMap::new();
-    let Some(raw) = value else {
-        return Ok(map);
-    };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Ok(map);
-    }
-    for entry in trimmed.split(',').map(str::trim).filter(|p| !p.is_empty()) {
-        let (key_id, encoded) = entry.split_once('=').ok_or_else(|| {
-            anyhow::anyhow!(
-                "TEABAY_HTTP_SIG_PUBKEYS entry `{entry}` is not `keyid=base64url(pubkey)`"
-            )
-        })?;
-        let key_id = key_id.trim().to_owned();
-        if key_id.is_empty() {
-            anyhow::bail!("TEABAY_HTTP_SIG_PUBKEYS entry has empty keyid");
-        }
-        let encoded = encoded.trim();
-        let bytes = URL_SAFE_NO_PAD
-            .decode(encoded)
-            .or_else(|_| base64::engine::general_purpose::STANDARD.decode(encoded))
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "TEABAY_HTTP_SIG_PUBKEYS keyid `{key_id}` pubkey is not base64: {e}"
-                )
-            })?;
-        let key = VerifyingKey::try_from(bytes.as_slice()).map_err(|e| {
-            anyhow::anyhow!(
-                "TEABAY_HTTP_SIG_PUBKEYS keyid `{key_id}` is not a valid Ed25519 public key: {e}"
-            )
-        })?;
-        map.insert(key_id, key);
-    }
-    Ok(map)
-}
-
-fn parse_receipt_signing_key(
-    value: Option<&str>,
-    key_id: String,
-) -> anyhow::Result<Option<ReceiptSigningKey>> {
-    let Some(raw) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    let bytes = URL_SAFE_NO_PAD
-        .decode(raw)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(raw))
-        .map_err(|error| {
-            anyhow::anyhow!("TEABAY_RECEIPT_SIGNING_KEY_B64 is not base64: {error}")
-        })?;
-    let bytes: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-        anyhow::anyhow!(
-            "TEABAY_RECEIPT_SIGNING_KEY_B64 must decode to a 32-byte Ed25519 signing key"
-        )
-    })?;
-    let key_id = key_id.trim();
-    if key_id.is_empty() {
-        anyhow::bail!("TEABAY_RECEIPT_KEY_ID must not be empty when receipt signing is enabled");
-    }
-    Ok(Some(ReceiptSigningKey::from_raw(key_id.to_owned(), bytes)))
 }
 
 /// Parse `TEABAY_TRUSTED_PROXY` into a list of IPs that the
@@ -712,17 +373,6 @@ fn read_u64(key: &str, default: u64) -> anyhow::Result<u64> {
             u64::from_str(v.trim()).map_err(|e| anyhow::anyhow!("invalid integer {key}={v}: {e}"))
         }
         Err(_) => Ok(default),
-    }
-}
-
-fn csv_env(key: &str, fallback: &[&str]) -> Vec<String> {
-    match std::env::var(key) {
-        Ok(v) if !v.trim().is_empty() => v
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect(),
-        _ => fallback.iter().map(|s| s.to_string()).collect(),
     }
 }
 
