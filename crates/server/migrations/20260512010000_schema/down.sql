@@ -3,16 +3,6 @@
 DROP TABLE IF EXISTS directory_public_realm_entries;
 DROP TABLE IF EXISTS verified_realm_organizations;
 
-DROP INDEX IF EXISTS pcd_batches_pinned_epoch_idx;
-DROP INDEX IF EXISTS pcd_batches_pinned_config_idx;
-DROP INDEX IF EXISTS pcd_batches_expiry_idx;
-DROP TABLE IF EXISTS pcd_batches;
-DROP INDEX IF EXISTS pcd_quota_windows_expires_at_idx;
-DROP TABLE IF EXISTS pcd_quota_windows;
-DROP INDEX IF EXISTS pcd_config_snapshots_epoch_idx;
-DROP TABLE IF EXISTS pcd_config_snapshots;
-DROP TABLE IF EXISTS pcd_key_epochs;
-
 ALTER TABLE directory_resources
     DROP COLUMN IF EXISTS member_count_bucket_since,
     DROP COLUMN IF EXISTS member_count_bucket_locked,

@@ -232,6 +232,7 @@ async fn load_realm_row(
 
 #[cfg(test)]
 mod tests {
+    use diesel::sql_types::Bool;
     use diesel_async::RunQueryDsl;
     use serde_json::json;
     use testcontainers_modules::postgres;
@@ -239,6 +240,14 @@ mod tests {
     use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
     use super::*;
+
+    #[derive(diesel::QueryableByName)]
+    struct FreshSchemaShape {
+        #[diesel(sql_type = Bool)]
+        public_index_present: bool,
+        #[diesel(sql_type = Bool)]
+        retired_pcd_absent: bool,
+    }
 
     fn row(projection: JsonValue) -> PublicRealmRow {
         let indexed_at = Utc::now();
@@ -291,9 +300,23 @@ mod tests {
         );
         let db = crate::db::Db::connect(&database_url)?;
         db.run_migrations(&database_url).await?;
+        let mut conn = db.get().await?;
+        let shape: FreshSchemaShape = diesel::sql_query(
+            "SELECT to_regclass('public.directory_public_realm_entries') IS NOT NULL \
+                    AS public_index_present, \
+                    (to_regclass('public.pcd_key_epochs') IS NULL \
+                     AND to_regclass('public.pcd_index_entries') IS NULL \
+                     AND to_regclass('public.pcd_config_snapshots') IS NULL \
+                     AND to_regclass('public.pcd_quota_windows') IS NULL \
+                     AND to_regclass('public.pcd_batches') IS NULL) \
+                    AS retired_pcd_absent",
+        )
+        .get_result(&mut *conn)
+        .await?;
+        assert!(shape.public_index_present);
+        assert!(shape.retired_pcd_absent);
         let realm_id =
             RealmId::new("ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR".to_owned())?;
-        let mut conn = db.get().await?;
         diesel::sql_query(
             "INSERT INTO directory_resources \
              (resource_kind, resource_id, station_id, discovery_state, public_projection, \
