@@ -1537,7 +1537,7 @@ pub(crate) fn signed_realm_discovery_event(
     };
     let binding = proof.canonical_binding_bytes(&event.actor_id)?;
     proof.jws = sign_jws_ed25519(&binding, signing_key).map_err(anyhow::Error::msg)?;
-    event.proofs.push(proof);
+    event.producer_proof = Some(proof);
     Ok(serde_json::to_value(event)?)
 }
 

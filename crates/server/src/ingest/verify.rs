@@ -412,54 +412,50 @@ pub(crate) fn verify_discovery_event_proofs(
                 format!("discovery Event proof binding is invalid: {error}"),
             )
         })?;
-    let mut producer_count = 0usize;
-    for proof in &event.proofs {
-        producer_count += 1;
-        enforce_governance_method_binding(
-            resource_kind,
-            resource_id,
-            expected_controller_did,
-            proof.verification_method.as_str(),
-        )?;
-        let issuer_id = proof
-            .verification_method
-            .as_str()
-            .split_once('#')
-            .map_or(proof.verification_method.as_str(), |(did, _)| did);
-        // Event identity/digest bindings were checked above. The signature
-        // covers the producer proof binding object, including the complete
-        // ActorId and proof metadata, never the raw Event bytes alone.
-        let binding_bytes = proof
-            .canonical_binding_bytes(&event.actor_id)
-            .map_err(|error| {
-                (
-                    ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                    format!("discovery Event proof transcript is invalid: {error}"),
-                )
-            })?;
-        resolver
-            .verify_detached_jws_with_authority(
-                &binding_bytes,
-                &proof.jws,
-                proof.verification_method.as_str(),
-                issuer_id,
-                DidBindingPurpose::DirectoryIngest,
-                SIGNATURE_KIND_INGEST_PROOF,
-                Utc::now(),
-            )
-            .map_err(|error| {
-                (
-                    ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
-                    format!("discovery Event proof rejected: {error}"),
-                )
-            })?;
-    }
-    if producer_count == 0 {
-        return Err((
+    let proof = event.producer_proof.as_ref().ok_or_else(|| {
+        (
             ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
             "discovery Event has no producer proof".to_owned(),
-        ));
-    }
+        )
+    })?;
+    enforce_governance_method_binding(
+        resource_kind,
+        resource_id,
+        expected_controller_did,
+        proof.verification_method.as_str(),
+    )?;
+    let issuer_id = proof
+        .verification_method
+        .as_str()
+        .split_once('#')
+        .map_or(proof.verification_method.as_str(), |(did, _)| did);
+    // Event identity/digest bindings were checked above. The signature
+    // covers the producer proof binding object, including the complete
+    // ActorId and proof metadata, never the raw Event bytes alone.
+    let binding_bytes = proof
+        .canonical_binding_bytes(&event.actor_id)
+        .map_err(|error| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                format!("discovery Event proof transcript is invalid: {error}"),
+            )
+        })?;
+    resolver
+        .verify_detached_jws_with_authority(
+            &binding_bytes,
+            &proof.jws,
+            proof.verification_method.as_str(),
+            issuer_id,
+            DidBindingPurpose::DirectoryIngest,
+            SIGNATURE_KIND_INGEST_PROOF,
+            Utc::now(),
+        )
+        .map_err(|error| {
+            (
+                ApiErrorCode::DirectoryGovernanceProofSignatureInvalid,
+                format!("discovery Event proof rejected: {error}"),
+            )
+        })?;
     Ok(())
 }
 
@@ -1664,7 +1660,7 @@ mod tests {
             &signer.signing_key,
         )
         .unwrap();
-        event.proofs = vec![proof.clone()];
+        event.producer_proof = Some(proof.clone());
         let resolver = resolver();
         let verify = |candidate: &arkret_wire::Event| {
             verify_discovery_event_proofs(
@@ -1680,7 +1676,7 @@ mod tests {
         let mut changed_metadata = event.clone();
         let mut changed_proof = proof.clone();
         changed_proof.created_at += Duration::seconds(1);
-        changed_metadata.proofs = vec![changed_proof];
+        changed_metadata.producer_proof = Some(changed_proof);
         assert!(
             verify(&changed_metadata).is_err(),
             "proof metadata is cryptographically bound"
@@ -1701,7 +1697,7 @@ mod tests {
                 .unwrap(),
         )
         .unwrap();
-        changed_station.proofs = vec![changed_proof];
+        changed_station.producer_proof = Some(changed_proof);
         assert!(
             verify(&changed_station).is_err(),
             "same principal on another Station needs a new signature"
