@@ -20,7 +20,6 @@ fn config_rejects_missing_resolution_commitment_even_in_development() {
         env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
-        env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
         env::remove_var("TEABAY_SERVICE_METHOD_HISTORY_HEAD");
         env::remove_var("TEABAY_SERVICE_VERSION_ID");
     }
@@ -74,10 +73,6 @@ fn config_builds_with_minimal_state() {
         );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
-        env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
-        // Default-policy assertion below relies on this being unset; clear any
-        // value leaked from another test in this binary.
-        env::remove_var("TEABAY_ACCEPT_POLICY_KIND");
     }
 
     let config = server::AppConfig::from_env().expect("config builds");
@@ -95,7 +90,7 @@ fn config_builds_with_minimal_state() {
 /// the public `service` constructor by serializing the config and
 /// checking the hardening function via `serde_json::to_string` on a
 /// representative `AppConfig`. The shape check (presence + score
-/// bounds) is what matters for the dashboard.
+/// bounds) is what matters for the operator health contract.
 #[test]
 fn hardening_status_shape_matches_cross_service_contract() {
     use std::env;
@@ -114,13 +109,12 @@ fn hardening_status_shape_matches_cross_service_contract() {
         );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
         env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
-        env::set_var("TEABAY_REQUIRE_HTTP_SIG", "false");
         env::remove_var("TEABAY_ADMIN_TOKEN");
     }
     let config = server::AppConfig::from_env().expect("config builds");
     // The hardening status function is exercised via the `/health`
     // route, but we can sanity check the contract here:
-    // development_mode true, no admin token, no http_sig => low score
+    // development_mode true and no admin token => low score
     // with several warnings.
     assert!(config.development_mode);
     assert!(config.admin_token.is_none());
@@ -131,13 +125,10 @@ fn hardening_status_shape_matches_cross_service_contract() {
     // TEABAY_ADMIN_CSRF_TOKEN.
     unsafe {
         env::set_var("TEABAY_DEVELOPMENT_MODE", "false");
-        env::set_var("TEABAY_REQUIRE_HTTP_SIG", "true");
         // Static admin bearer is development-only; production ignores it.
         env::set_var("TEABAY_ADMIN_TOKEN", "prod-admin-token-32bytes-or-more");
         env::set_var("TEABAY_ADMIN_CSRF_TOKEN", "prod-csrf-token-32bytes-or-more");
         env::set_var("TEABAY_CORS_ALLOW_ORIGIN", "https://app.example.com");
-        // Production now requires an explicit accept policy (fail-closed).
-        env::set_var("TEABAY_ACCEPT_POLICY_KIND", "allowlist");
     }
     let prod_config = server::AppConfig::from_env().expect("prod config builds");
     assert!(!prod_config.development_mode);

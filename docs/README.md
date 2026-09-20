@@ -1,20 +1,14 @@
-# teabay docs
+# teabay operator notes
 
-This directory holds operator and contributor-facing notes for teabay, the
-reference Arkret Directory Service implementation.
+These notes describe the current D2 read-only Realm Directory candidate:
 
-- [Architecture](architecture.md)
-- [Deployment](deployment.md)
-- [Operations](operations.md)
-- [Runbook](runbook.md)
-- [Scaling](scaling.md)
-- [Freshness model](freshness-model.md)
-- [Anti-enumeration rationale](anti-enumeration.md)
-- [Circle isolation hardening](circle-isolation-hardening.md)
-- [DID normalization](did-normalization.md)
-- [Takedown receipts](takedown-receipts.md)
-- [Webhook retry](webhook-retry.md)
-- [External security review readiness](security-review-readiness.md)
+- [Architecture](architecture.md): authority and storage boundaries.
+- [Deployment](deployment.md): supported configuration and fresh-install checks.
+- [Operations](operations.md): health, metrics, and operator audit.
+- [Scaling](scaling.md): query pool and rate-limit knobs.
 
-Observability details, including `/readyz`, `TEABAY_METRICS_BIND`, Prometheus
-series, and OTel Collector handoff, live in [Operations](operations.md).
+Old ingest, private-contact, Circle, non-Realm query, webhook, takedown, and
+direct-edit runbooks were removed because their endpoints and tables are not
+present in this candidate. The unresolved Station-direct announce
+proof/currentness question is tracked in arkret-work spec-open 0350; these
+notes do not authorize a write route.

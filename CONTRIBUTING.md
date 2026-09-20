@@ -68,20 +68,19 @@ Run the checks that match the files you changed:
 cargo +nightly fmt --all -- --check
 cargo check --locked --all-targets
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked
+cargo test --locked --workspace
 cargo check --locked --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 typos --config typos.toml .
 cargo deny check
 cargo audit --ignore RUSTSEC-2025-0111 --ignore RUSTSEC-2025-0134
 ```
 
-Docker-backed tests are `#[ignore]`, so `cargo test` above reports them as
-*ignored* rather than passed. Run them explicitly — a missing Docker daemon then
-fails the run instead of skipping it:
+The fresh-schema Docker-backed test is `#[ignore]`, so the workspace test
+reports it as ignored. Run it explicitly; a missing Docker daemon fails the
+run instead of skipping it:
 
 ```bash
-cargo test --locked -p server --test it -- --include-ignored --nocapture
-cargo test --locked -p server --test pcd_http -- --include-ignored --nocapture
+cargo test --locked -p server --lib fresh_schema_has_only_empty_public_realm_index -- --include-ignored --nocapture
 ```
 
 ## Documentation
@@ -90,9 +89,8 @@ Update `docs/` when changing:
 
 - architecture or route topology
 - deployment configuration
-- operational runbooks
-- freshness, TTL, stale, or divergence behavior
-- anti-enumeration behavior
+- operator audit and fresh-schema checks
+- public Realm read behavior
 - admin console workflows
 
 ## Commit Hygiene

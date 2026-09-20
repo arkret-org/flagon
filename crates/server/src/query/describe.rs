@@ -435,12 +435,10 @@ mod tests {
                 object.contains_key(ext),
                 "teabay-private extension `{ext}` must ride as an x_teabay_* key"
             );
-            for standard in ["resource_kinds"] {
-                assert!(
-                    object.contains_key(standard),
-                    "standard directory field `{standard}` must be emitted as a bare key"
-                );
-            }
+            assert!(
+                object.contains_key("resource_kinds"),
+                "standard directory field `resource_kinds` must be emitted as a bare key"
+            );
         }
     }
 

@@ -11,7 +11,6 @@ export TEABAY_PUBLIC_BASE_URL="${TEABAY_PUBLIC_BASE_URL:-http://localhost:7781}"
 : "${TEABAY_SERVICE_METHOD_HISTORY_HEAD:?set the verified current method-history head}"
 : "${TEABAY_SERVICE_VERSION_ID:?set the verified current method version id}"
 export TEABAY_SERVICE_DID TEABAY_SERVICE_METHOD_HISTORY_HEAD TEABAY_SERVICE_VERSION_ID
-export TEABAY_ACCEPT_POLICY_KIND="${TEABAY_ACCEPT_POLICY_KIND:-open}"
 
 docker compose up -d postgres
 

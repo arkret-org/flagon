@@ -1,10 +1,9 @@
 //! Append-only operator-readable audit log.
 //!
-//! Every accepted ingest, every revalidation outcome, every withdrawal and
-//! every operator takedown produces one row in `directory_audit`. This
-//! supports spec §7.3 invariant 5 (no-shadow-grant — auditable surface) and
-//! §8.7 normative requirement that operator takedowns *must* write an audit
-//! entry distinguishable from resource-initiated withdrawals.
+//! Operational audit history is separate from the public Realm index. In the
+//! D2 read-only candidate no ingest, revalidation, withdrawal, or direct
+//! admin mutation route writes a new row. The historical event vocabulary is
+//! retained only so existing audit rows remain readable and verifiable.
 //!
 //! A.8.5 — every row carries a SHA-256 chained digest computed over the
 //! canonical row plus the previous row's digest, so a tamper of any

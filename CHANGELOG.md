@@ -5,6 +5,15 @@ All notable changes to teabay (Arkret v1 Directory Service) live here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased — D2 Realm-only read candidate (2026-09-21)
+
+- Clean break from retired PCD/PSI, non-Realm discovery, and direct admin
+  resource mutation. The public Realm index starts empty; announce/withdraw
+  remain unsupported until the current-governance proof contract closes.
+- ServiceDescribe advertises only the public-read three-operation bundle.
+  Historical entries below describe earlier implementations, not mounted
+  behavior in the current candidate.
+
 ## R3.4 — Spec sync 2026-05-31 (arkret-spec @ c2848a4)
 
 - Synced protocol-facing names and fixtures to `c2848a4`: event envelope schema naming, `_ids` grant constraints, accountability principal vocabulary, `ak:rtc_participant:` media participants, agent session start fields, and key-backup signature algorithm naming where applicable.

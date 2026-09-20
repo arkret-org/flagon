@@ -50,7 +50,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Test teabay
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
@@ -61,27 +61,10 @@ jobs:
       - name: Check admin wasm
         run: cargo check --locked --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 
-      # The Docker-backed tests are `#[ignore]`, so the `Test teabay` step above
-      # reports them as ignored and never as passed. This step is the only
-      # place they actually execute, and it fails if any of them were left out:
-      # a run that ignores the sole end-to-end coverage for announce / withdraw
-      # / search / resolve / admin must not be reported as a pass.
-      - name: Docker conformance
-        run: |
-          set -o pipefail
-          for target in it pcd_http; do
-            cargo test --locked -p server --test "$target" -- --include-ignored --nocapture \
-              2>&1 | tee "docker-$target.log"
-            if grep -qE 'test result: .* [1-9][0-9]* ignored' "docker-$target.log"; then
-              echo "::error::tests were ignored in the Docker-backed run of --test $target" >&2
-              grep -E 'test result:' "docker-$target.log" >&2
-              exit 1
-            fi
-            if ! grep -qE 'test result: ok\. [1-9][0-9]* passed' "docker-$target.log"; then
-              echo "::error::the Docker-backed run of --test $target executed no test" >&2
-              exit 1
-            fi
-          done
+      # The fresh-schema test is ignored in ordinary workspace tests because
+      # it requires Docker. Run it explicitly and fail if it does not execute.
+      - name: Docker fresh-schema isolation
+        run: cargo test --locked -p server --lib fresh_schema_has_only_empty_public_realm_index -- --include-ignored --nocapture
 
   supply-chain:
     name: Supply-chain policy

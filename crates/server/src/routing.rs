@@ -432,12 +432,10 @@ pub fn openapi(router: &Router) -> serde_json::Value {
 }
 
 fn register_teabay_schemas(doc: &mut OpenApi) {
-    for (name, schema) in [(
-        "DirectoryRealmSearchOutcome",
-        DirectoryRealmSearchOutcome::to_schema(&mut doc.components),
-    )] {
-        doc.components.schemas.insert(name, schema);
-    }
+    let schema = DirectoryRealmSearchOutcome::to_schema(&mut doc.components);
+    doc.components
+        .schemas
+        .insert("DirectoryRealmSearchOutcome", schema);
 }
 
 fn product_openapi_document(product_doc: &OpenApi) -> serde_json::Value {
@@ -468,7 +466,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "org.arkret.teabay.admin.audit_feed",
             "admin",
             "List Audit Events",
-            "Return the append-only directory audit feed for operator dashboards.",
+            "Return the append-only directory audit feed for operators.",
         ),
         (
             "/_teabay/admin/audit/verify",
