@@ -1,4 +1,4 @@
-//! D2 Directory capability regression: only public Realm reads are claimed.
+//! Current-v1 Directory capability regression: only public Realm reads are claimed.
 
 use arkret_wire::{BindingKind, ServiceOperationId, operation_bundle_descriptor};
 
@@ -14,12 +14,7 @@ fn public_read_bundle_is_exactly_the_routed_directory_surface() {
     ] {
         assert!(bundle.contains(operation, BindingKind::HttpJson));
     }
-    for operation in [
-        ServiceOperationId::FindDirectoryCommandAnnounceV1,
-        ServiceOperationId::FindDirectoryCommandWithdrawV1,
-    ] {
-        assert!(!bundle.contains(operation, BindingKind::HttpJson));
-    }
+    assert_eq!(bundle.members.len(), 3);
 
     let doc = server::routing::openapi(&salvo::Router::new());
     assert!(

@@ -1,24 +1,24 @@
 # teabay
 
-Arkret v1 Directory Service candidate for public Realm discovery. In the D2
-transition this service is deliberately read-only: it advertises only the
+Arkret v1 Directory Service for public Realm discovery. The service is
+deliberately read-only: it advertises the read-only Directory profile and the
 `ak.operation_bundle.directory_service.public_read.v1` three-operation bundle
-(`describe`, `search_realms`, `resolve_realm`), not the full Directory profile
-or HTTP core profile. The public index starts empty. Older, unverified rows are
-never migrated or exposed.
+(`describe`, `search_realms`, `resolve_realm`). There is no Directory HTTP-core
+write bundle. The public index starts empty. Older, unverified rows are never
+migrated or exposed.
 
 The Directory is a rebuildable discovery hint, not a source of membership,
 join, history, capability, or current-governance authority. The centrally
 governing Station is authoritative for each Realm. Organization, Actor,
 Applet, Handle, private-contact/PSI, source-callback, and exact-event lookup
-surfaces are retired. The `announce` and `withdraw` write operations are not
-mounted: the current-governance proof and opt-in evidence chain remains open
-in `arkret-work/tasks/spec-open/2026-09-21-0350-directory-direct-push-proof-and-currentness-contract-gap.md`.
+surfaces are retired. The old `announce` and `withdraw` operations, their write
+DTOs, governance proof, and announce identifier namespace are not current-v1
+protocol and remain unknown to this service.
 
 ## Endpoints
 
 - `GET /_arkret/describe` and `GET /_arkret/find/directory/describe`:
-  candidate service description and its exact supported operation bundle.
+  service description and its exact supported profile and operation bundles.
 - `POST /_arkret/find/directory/search-realms` and `resolve-realm`:
   public Realm metadata reads. With a fresh database they return no results.
 - `GET /_teabay/admin/audit` and `audit/verify`: authenticated, read-only
@@ -66,7 +66,7 @@ Diesel's migration ledger are present. It fails when Docker is unavailable.
 audit-chain verifier; `crates/contracts` contains only audit admin DTOs;
 `crates/admin` is the audit-only Dioxus console. Prometheus on
 `TEABAY_METRICS_BIND` reports the mounted Realm query operations. The index
-does not become a write-admission source until the open protocol proof issue
-is resolved and implemented.
+can be populated only through deployment-private maintenance that is not an
+Arkret interoperability surface and is never advertised by ServiceDescribe.
 
 Apache-2.0.

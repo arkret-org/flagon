@@ -1,6 +1,6 @@
 //! Salvo middleware modules.
 //!
-//! Admin authentication middleware for the read-only Directory candidate.
+//! Admin authentication middleware for the read-only Directory service.
 
 pub mod admin_auth;
 

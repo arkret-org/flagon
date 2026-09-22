@@ -14,4 +14,4 @@ Point the API base field at the teabay service, usually `http://localhost:7781`,
 and use the development `TEABAY_ADMIN_TOKEN` or a production rotating HMAC
 bearer as the token. The console only loads the audit feed and verifies its
 append-only digest chain. It cannot modify the public Realm index; Directory
-announce/withdraw remain disabled until their proof/currentness contract closes.
+announce/withdraw are not current-v1 operations.

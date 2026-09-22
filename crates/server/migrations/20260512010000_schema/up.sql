@@ -1,4 +1,4 @@
--- Squashed fresh-install schema for the D2 read-only Realm Directory.
+-- Squashed fresh-install schema for the read-only Realm Directory.
 -- The public index starts empty. There is no current write-admission path:
 -- legacy source-ref rows must never be imported into this table.
 

@@ -5,14 +5,16 @@ All notable changes to teabay (Arkret v1 Directory Service) live here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased — D2 Realm-only read candidate (2026-09-21)
+## Unreleased — current-v1 read-only Directory (2026-09-22)
 
 - Clean break from retired PCD/PSI, non-Realm discovery, and direct admin
-  resource mutation. The public Realm index starts empty; announce/withdraw
-  remain unsupported until the current-governance proof contract closes.
-- ServiceDescribe advertises only the public-read three-operation bundle.
+  resource mutation. The public Realm index starts empty; announce/withdraw,
+  their DTOs, governance proof, and announce identifier namespace are retired.
+- ServiceDescribe advertises the read-only Directory profile plus the exact
+  describe and public-read bundles; the former HTTP-core bundle is absent.
+- Retired write selectors remain unknown, with no route or compatibility alias.
   Historical entries below describe earlier implementations, not mounted
-  behavior in the current candidate.
+  behavior in current-v1.
 
 ## R3.4 — Spec sync 2026-05-31 (arkret-spec @ c2848a4)
 

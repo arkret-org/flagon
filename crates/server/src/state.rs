@@ -27,7 +27,7 @@ struct Inner {
 impl AppState {
     /// Build the process state.
     ///
-    /// The read-only candidate has no outbound DID resolution or write
+    /// The read-only service has no outbound DID resolution or write
     /// admission at startup.
     pub fn new(config: AppConfig, db: Db) -> anyhow::Result<Self> {
         let service_core_id = config.service_id.clone();

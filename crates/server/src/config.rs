@@ -1,6 +1,6 @@
 //! Environment-driven configuration.
 //!
-//! D2 read-only service configuration. There are no ingest policy knobs.
+//! Read-only service configuration. There are no ingest policy knobs.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};

@@ -87,7 +87,8 @@ fn directory_router() -> Router {
         .push(Router::with_path("search-realms").post(query::realm::search_realms))
         .push(Router::with_path("resolve-realm").post(query::realm::resolve_realm));
 
-    // D2: proof/currentness is unresolved. No write route is mounted.
+    // Directory current-v1 is permanently read-only. No protocol write route
+    // or compatibility alias is mounted.
     Router::with_path("_arkret/find/directory")
         .hoop(operation_selector_middleware)
         .push(query_routes)
@@ -574,6 +575,21 @@ mod tests {
             .await;
         assert_eq!(unknown.status_code, Some(StatusCode::UNPROCESSABLE_ENTITY));
 
+        for retired_write in [
+            "ak.find.directory.command.announce.v1",
+            "ak.find.directory.command.withdraw.v1",
+        ] {
+            let response = TestClient::get("http://local/_arkret/find/directory/describe")
+                .add_header("Arkret-Operation", retired_write, true)
+                .send(&service)
+                .await;
+            assert_eq!(
+                response.status_code,
+                Some(StatusCode::UNPROCESSABLE_ENTITY),
+                "retired Directory write operation must remain unknown"
+            );
+        }
+
         let mismatch = TestClient::get("http://local/_arkret/find/directory/describe")
             .add_header(
                 "Arkret-Operation",
@@ -617,6 +633,8 @@ mod tests {
         assert!(!yaml.contains("/_teabay/handle/probe:"));
         assert!(!yaml.contains("/_arkret/find/directory/search-users:"));
         assert!(!yaml.contains("/_arkret/find/directory/private-contact-discovery:"));
+        assert!(!yaml.contains("/_arkret/find/directory/announce:"));
+        assert!(!yaml.contains("/_arkret/find/directory/withdraw:"));
         assert!(yaml.contains("x-arkret-artifact-first: true"));
         assert!(yaml.contains("ak.find.directory.read.search_realms.v1"));
         assert!(yaml.contains("DirectoryRealmSearchOutcome"));

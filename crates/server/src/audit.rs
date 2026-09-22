@@ -1,7 +1,7 @@
 //! Append-only operator-readable audit log.
 //!
 //! Operational audit history is separate from the public Realm index. In the
-//! D2 read-only candidate no ingest, revalidation, withdrawal, or direct
+//! The read-only service has no ingest, revalidation, withdrawal, or direct
 //! admin mutation route writes a new row. The historical event vocabulary is
 //! retained only so existing audit rows remain readable and verifiable.
 //!
@@ -26,7 +26,7 @@ use crate::schema::directory_audit;
 use crate::util::lower_hex;
 
 /// The operational audit may name a Directory resource, but only Realm is
-/// a registered public resource kind in this candidate.
+/// a registered public resource kind in current-v1.
 #[derive(
     Debug,
     Clone,

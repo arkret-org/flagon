@@ -65,9 +65,10 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     let development_mode = cfg.development_mode;
 
-    // Profile verification requires separate conformance evidence; do not
-    // self-claim it based on implementing a route bundle.
-    let supported_profiles = Vec::new();
+    // The current-v1 Directory profile is itself read-only. Advertising it
+    // does not imply third-party verification; that stronger evidence belongs
+    // exclusively in `verified_profiles`.
+    let supported_profiles = vec!["ak.profile.directory_service.v1".to_owned()];
     let supported_operation_bundles = SUPPORTED_OPERATION_BUNDLES
         .iter()
         .copied()
@@ -79,8 +80,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     }];
     let supported_features = Vec::new();
 
-    // `auth_metadata` advertises the admin HMAC surface. The current
-    // read-only candidate has no accepted ingest transport; static bearer
+    // `auth_metadata` advertises the admin HMAC surface. The read-only
+    // service has no protocol ingest transport; static bearer
     // auth is development-only. Admin descriptors ride in `x_teabay_*` extension keys
     // (`auth_metadata` is `additionalProperties: true`).
     let mut auth_metadata = AuthMetadata::minimal();
@@ -164,36 +165,8 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         .validate()
         .map_err(|err| format!("ServiceDescribe validation failed: {err}"))?;
 
-    let mut value = serde_json::to_value(&describe_body)
-        .map_err(|err| format!("ServiceDescribe serialisation failed: {err}"))?;
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| "ServiceDescribe must serialise as a JSON object".to_owned())?;
-
-    // Teabay-private describe fields stay namespaced under `x_teabay_*`.
-    // The routable base URL is part of the canonical `http_json` binding,
-    // never inferred from `service_id` or duplicated as an authority hint.
-    object.insert(
-        "x_teabay_limitations".to_owned(),
-        JsonValue::Array(describe_limitations(cfg)),
-    );
-
-    Ok(value)
-}
-
-fn describe_limitations(_cfg: &AppConfig) -> Vec<JsonValue> {
-    let mut limitations: Vec<JsonValue> = Vec::new();
-    limitations.push(json!({
-        "feature": "directory_announce_withdraw",
-        "status": "unsupported",
-        "detail": "Read-only D2 transition: current-governance/public opt-in proof admission is unresolved; no write routes are mounted and the public index starts empty.",
-    }));
-    limitations.push(json!({
-        "feature": "cross_directory_divergence",
-        "status": "unsupported",
-        "detail": "Peer directory core ids have no configured verified current-resolution carrier. The worker cannot be enabled and no id is interpreted as a URL authority.",
-    }));
-    limitations
+    serde_json::to_value(&describe_body)
+        .map_err(|err| format!("ServiceDescribe serialisation failed: {err}"))
 }
 
 #[cfg(test)]
@@ -288,21 +261,18 @@ mod tests {
             "http://directory.test"
         );
         assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
-        assert!(
-            value["supported_operation_bundles"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|bundle| bundle == "ak.operation_bundle.directory_service.public_read.v1")
+        assert_eq!(
+            value["supported_profiles"],
+            json!(["ak.profile.directory_service.v1"])
         );
-        let limitation_features: std::collections::BTreeSet<_> = value["x_teabay_limitations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|entry| entry.get("feature").and_then(JsonValue::as_str))
-            .collect();
-        assert!(limitation_features.contains("directory_announce_withdraw"));
-        assert!(!limitation_features.contains("resolve_target.preview_link"));
+        assert_eq!(
+            value["supported_operation_bundles"],
+            json!([
+                "ak.operation_bundle.directory_service.describe.v1",
+                "ak.operation_bundle.directory_service.public_read.v1"
+            ])
+        );
+        assert!(value.get("x_teabay_limitations").is_none());
     }
 
     /// `validate` fails closed when development mode is set
@@ -325,7 +295,7 @@ mod tests {
             profile_bindings: BTreeMap::new(),
             supported_operation_bundles: vec![
                 "ak.operation_bundle.directory_service.describe.v1".to_owned(),
-                "ak.operation_bundle.directory_service.http_core.v1".to_owned(),
+                "ak.operation_bundle.directory_service.public_read.v1".to_owned(),
             ],
             transport_bindings: vec![TransportBinding::HttpJson {
                 base_url: "http://directory.test".to_owned(),
@@ -429,12 +399,6 @@ mod tests {
                 );
             }
 
-            // Teabay-private fields remain under `x_teabay_*`.
-            let ext = "x_teabay_limitations";
-            assert!(
-                object.contains_key(ext),
-                "teabay-private extension `{ext}` must ride as an x_teabay_* key"
-            );
             assert!(
                 object.contains_key("resource_kinds"),
                 "standard directory field `resource_kinds` must be emitted as a bare key"

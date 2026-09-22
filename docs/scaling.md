@@ -1,6 +1,6 @@
 # Read-only query sizing
 
-Teabay's D2 candidate performs only public Realm searches/resolves and
+Teabay performs only public Realm searches/resolves and
 operator audit reads. `TEABAY_DB_POOL_MAX_SIZE` sets the PostgreSQL connection
 pool size (default 16); `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS` controls how
 long a request waits for a connection (default 5 seconds). Size the pool to
@@ -12,4 +12,4 @@ room for migrations and operator access.
 disables a limit. Behind a proxy, configure `TEABAY_TRUSTED_PROXY` only for
 known proxy IPs so arbitrary clients cannot spoof the rate-limit address.
 
-There is no ingest, revalidation, PCD, or takedown worker to size in D2.
+There is no ingest, revalidation, PCD, or takedown worker to size.
