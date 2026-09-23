@@ -164,6 +164,7 @@ dependencies = [
  "arkret-state",
  "arkret-wire",
  "chrono",
+ "ed25519-dalek",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
