@@ -51,14 +51,17 @@ CSRF token.
 ## Validation
 
 ```bash
+createdb teabay_test
+export TEABAY_TEST_DATABASE_URL=postgres://localhost/teabay_test
 cargo check --all-targets
 cargo test --workspace
-cargo test -p server --lib fresh_schema_has_only_empty_public_realm_index -- --include-ignored --nocapture
 ```
 
-The last test uses Docker/Testcontainers and checks a newly migrated database:
+Use a dedicated empty PostgreSQL database, separate from the service runtime.
+The ordinary schema test applies the current migrations and verifies that
 only the empty public Realm index, operator audit, admin credentials, and
-Diesel's migration ledger are present. It fails when Docker is unavailable.
+Diesel's migration ledger are present. Missing `TEABAY_TEST_DATABASE_URL` fails
+explicitly; the test is not skipped and requires no Docker daemon.
 
 ## Implementation
 

@@ -240,9 +240,6 @@ mod tests {
     use diesel::sql_types::Bool;
     use diesel_async::RunQueryDsl;
     use serde_json::json;
-    use testcontainers_modules::postgres;
-    use testcontainers_modules::testcontainers::ImageExt;
-    use testcontainers_modules::testcontainers::runners::AsyncRunner;
 
     use super::*;
 
@@ -294,19 +291,13 @@ mod tests {
         }
     }
 
-    #[ignore = "Docker-backed PostgreSQL isolation test; run with --include-ignored"]
     #[tokio::test]
     async fn fresh_schema_has_only_empty_public_realm_index() -> anyhow::Result<()> {
-        let container = postgres::Postgres::default()
-            .with_password("1amTester!")
-            .with_tag("16-alpine")
-            .start()
-            .await?;
-        let database_url = format!(
-            "postgres://postgres:1amTester!@{}:{}/postgres",
-            container.get_host().await?,
-            container.get_host_port_ipv4(5432).await?
-        );
+        // A dedicated empty database is required: this assertion audits the
+        // entire public schema and must never share a runtime database.
+        let database_url = std::env::var("TEABAY_TEST_DATABASE_URL").map_err(|_| {
+            anyhow::anyhow!("set TEABAY_TEST_DATABASE_URL to an isolated empty PostgreSQL database")
+        })?;
         let db = crate::db::Db::connect(&database_url)?;
         db.run_migrations(&database_url).await?;
         let mut conn = db.get().await?;

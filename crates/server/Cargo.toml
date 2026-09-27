@@ -59,7 +59,6 @@ url.workspace = true
 arkret-wire = { workspace = true, features = ["test-support"] }
 
 salvo = { workspace = true, features = ["test"] }
-testcontainers-modules.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
