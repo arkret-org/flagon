@@ -15,6 +15,22 @@ jobs:
     name: Rust checks
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: teabay
+          POSTGRES_PASSWORD: teabay
+          POSTGRES_DB: teabay_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U teabay -d teabay_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEABAY_TEST_DATABASE_URL: postgres://teabay:teabay@localhost:5432/teabay_ci
     defaults:
       run:
         working-directory: teabay
@@ -61,9 +77,9 @@ jobs:
       - name: Check admin wasm
         run: cargo check --locked --manifest-path crates/admin/Cargo.toml --target wasm32-unknown-unknown
 
-      # The fresh-schema test is ignored in ordinary workspace tests because
-      # it requires Docker. Run it explicitly and fail if it does not execute.
-      - name: Docker fresh-schema isolation
+      # The database service starts empty; this test audits its migrated schema
+      # and must execute in addition to the ordinary workspace tests.
+      - name: PostgreSQL fresh-schema isolation
         run: cargo test --locked -p server --lib fresh_schema_has_only_empty_public_realm_index -- --include-ignored --nocapture
 
   supply-chain:
@@ -129,7 +145,7 @@ jobs:
         run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.admin -t teabay-admin:ci .
 
       - name: Scan server image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: teabay-server:ci
           scan-type: image
@@ -140,7 +156,7 @@ jobs:
           severity: HIGH,CRITICAL
 
       - name: Scan admin image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: teabay-admin:ci
           scan-type: image
