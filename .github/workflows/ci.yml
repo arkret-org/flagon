@@ -72,6 +72,9 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Coverage
+        # Instrumented builds must retain OpenSSL linkage for bundled libpq.
+        env:
+          RUSTFLAGS: "-C link-arg=-lssl -C link-arg=-lcrypto"
         run: cargo tarpaulin --config tarpaulin.toml --fail-under 70
 
       - name: Check admin wasm
