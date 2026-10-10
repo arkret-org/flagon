@@ -19,17 +19,25 @@ use crate::query::rate_limit::{
 };
 use crate::state::AppState;
 
-#[derive(Debug, diesel::QueryableByName)]
-struct PublicRealmRow {
-    #[diesel(sql_type = Text)]
-    realm_id: String,
-    #[diesel(sql_type = Jsonb)]
-    public_metadata: JsonValue,
-    #[diesel(sql_type = Timestamptz)]
-    indexed_at: DateTime<Utc>,
-    #[diesel(sql_type = Timestamptz)]
-    expires_at: DateTime<Utc>,
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Diesel QueryableByName generates redundant initializers in this row mapping."
+)]
+mod public_row {
+    use super::*;
+    #[derive(Debug, diesel::QueryableByName)]
+    pub(super) struct PublicRealmRow {
+        #[diesel(sql_type = Text)]
+        pub(super) realm_id: String,
+        #[diesel(sql_type = Jsonb)]
+        pub(super) public_metadata: JsonValue,
+        #[diesel(sql_type = Timestamptz)]
+        pub(super) indexed_at: DateTime<Utc>,
+        #[diesel(sql_type = Timestamptz)]
+        pub(super) expires_at: DateTime<Utc>,
+    }
 }
+use public_row::PublicRealmRow;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct SearchCursor {
@@ -243,17 +251,25 @@ mod tests {
 
     use super::*;
 
-    #[derive(diesel::QueryableByName)]
-    struct FreshSchemaShape {
-        #[diesel(sql_type = Bool)]
-        public_index_present: bool,
-        #[diesel(sql_type = Bool)]
-        retired_pcd_absent: bool,
-        #[diesel(sql_type = Bool)]
-        retired_directory_tables_absent: bool,
-        #[diesel(sql_type = Bool)]
-        only_current_tables_present: bool,
+    #[expect(
+        clippy::redundant_field_names,
+        reason = "Diesel QueryableByName generates redundant initializers in this row mapping."
+    )]
+    mod schema_row {
+        use super::*;
+        #[derive(diesel::QueryableByName)]
+        pub(super) struct FreshSchemaShape {
+            #[diesel(sql_type = Bool)]
+            pub(super) public_index_present: bool,
+            #[diesel(sql_type = Bool)]
+            pub(super) retired_pcd_absent: bool,
+            #[diesel(sql_type = Bool)]
+            pub(super) retired_directory_tables_absent: bool,
+            #[diesel(sql_type = Bool)]
+            pub(super) only_current_tables_present: bool,
+        }
     }
+    use schema_row::FreshSchemaShape;
 
     fn row(projection: JsonValue) -> PublicRealmRow {
         let indexed_at = Utc::now();
