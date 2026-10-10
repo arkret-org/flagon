@@ -76,12 +76,15 @@ pub fn enforce_search_needle_rate_limit(
 /// `X-Forwarded-For` value only when the direct `remote_addr` is in the
 /// `TEABAY_TRUSTED_PROXY` allowlist.
 pub(crate) fn resolve_client_ip(req: &Request, state: &AppState) -> String {
-    let remote = req.remote_addr().to_string();
+    let direct_ip = req.remote_addr().ip();
+    let remote = direct_ip
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| req.remote_addr().to_string());
     let trusted = state.config().trusted_proxy.as_deref().unwrap_or(&[]);
     if trusted.is_empty() {
         return remote;
     }
-    let Some(direct_ip) = direct_remote_ip(&remote) else {
+    let Some(direct_ip) = direct_ip else {
         return remote;
     };
     if !trusted.contains(&direct_ip) {
@@ -93,27 +96,11 @@ pub(crate) fn resolve_client_ip(req: &Request, state: &AppState) -> String {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
+        .and_then(|value| value.parse::<IpAddr>().ok())
     {
-        return forwarded.to_owned();
+        return forwarded.to_string();
     }
     remote
-}
-
-fn direct_remote_ip(remote: &str) -> Option<IpAddr> {
-    // `req.remote_addr()` renders as `SocketAddr` / `Unix` / `Unknown`
-    // depending on the listener. Strip the trailing `:port` if present
-    // and try IP parsing.
-    if let Ok(ip) = remote.parse::<IpAddr>() {
-        return Some(ip);
-    }
-    if let Some((host, _port)) = remote.rsplit_once(':') {
-        let host = host.trim_start_matches('[').trim_end_matches(']');
-        if let Ok(ip) = host.parse::<IpAddr>() {
-            return Some(ip);
-        }
-    }
-    None
 }
 
 fn check(state: &AppState, res: &mut Response, key: String, max: u32) -> bool {

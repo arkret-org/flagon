@@ -385,3 +385,128 @@ fn arg_value(name: &str) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+#[allow(
+    unsafe_code,
+    reason = "configuration tests restore their process-local environment after synchronous validation"
+)]
+mod tests {
+    use super::*;
+
+    struct Environment(Vec<(String, Option<String>)>);
+    impl Environment {
+        fn set(&mut self, key: &str, value: &str) {
+            if !self.0.iter().any(|(saved, _)| saved == key) {
+                self.0.push((key.into(), std::env::var(key).ok()));
+            }
+            // SAFETY: this module has one synchronous test; no other lib test reads these keys.
+            unsafe { std::env::set_var(key, value) };
+        }
+    }
+    impl Drop for Environment {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                // SAFETY: restore only keys owned by the synchronous configuration test.
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn operator_configuration_rejects_invalid_posture_and_values() -> anyhow::Result<()> {
+        let mut env = Environment(Vec::new());
+        for (key, value) in [
+            ("TEABAY_BIND", "127.0.0.1:7781"),
+            ("TEABAY_METRICS_BIND", "127.0.0.1:9095"),
+            ("TEABAY_SERVICE_DID", "did:web:directory.test"),
+            ("TEABAY_SERVICE_METHOD_HISTORY_HEAD", "verified-head"),
+            ("TEABAY_SERVICE_VERSION_ID", "verified-version"),
+            ("DATABASE_URL", "postgres://localhost/unused"),
+            ("TEABAY_TRUST_DOMAIN", "ak:trust_domain:local.test"),
+            ("TEABAY_DEVELOPMENT_MODE", "false"),
+            ("TEABAY_ADMIN_CSRF_TOKEN", "csrf-proof"),
+            ("TEABAY_ADMIN_TOKEN", "development-only-secret"),
+            ("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", "1"),
+            ("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", "100"),
+            ("TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", "20"),
+            ("TEABAY_DB_POOL_MAX_SIZE", "2"),
+            ("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS", "1"),
+            ("TEABAY_TRUSTED_PROXY", "127.0.0.1, ::1"),
+        ] {
+            env.set(key, value);
+        }
+        let good = AppConfig::from_env()?;
+        assert!(good.admin_token.is_none());
+        assert_eq!(good.admin_token_rotation_window, Duration::from_secs(60));
+        assert_eq!(good.trusted_proxy.as_ref().unwrap().len(), 2);
+        for (key, invalid, restore) in [
+            ("TEABAY_BIND", "invalid", "127.0.0.1:7781"),
+            ("TEABAY_METRICS_BIND", "invalid", "127.0.0.1:9095"),
+            ("TEABAY_SERVICE_DID", "invalid", "did:web:directory.test"),
+            ("TEABAY_SERVICE_METHOD_HISTORY_HEAD", " ", "verified-head"),
+            ("TEABAY_TRUST_DOMAIN", "bad", "ak:trust_domain:local.test"),
+            ("TEABAY_DEVELOPMENT_MODE", "maybe", "false"),
+            ("TEABAY_ADMIN_CSRF_TOKEN", "", "csrf-proof"),
+            ("TEABAY_DB_POOL_MAX_SIZE", "0", "2"),
+            ("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS", "0", "1"),
+            ("TEABAY_TRUSTED_PROXY", "localhost", "127.0.0.1, ::1"),
+            (
+                "TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN",
+                "not-an-integer",
+                "100",
+            ),
+        ] {
+            env.set(key, invalid);
+            assert!(
+                AppConfig::from_env().is_err(),
+                "invalid {key} must fail closed"
+            );
+            env.set(key, restore);
+        }
+        assert_eq!(
+            config_path_from_args(&["teabay".into(), "--config=a.env".into()])?,
+            Some("a.env".into())
+        );
+        assert_eq!(
+            config_path_from_args(&["teabay".into(), "--config".into(), "a.env".into()])?,
+            Some("a.env".into())
+        );
+        assert!(config_path_from_args(&["teabay".into(), "--config".into()]).is_err());
+        assert!(config_path_from_args(&["teabay".into(), "--config=".into()]).is_err());
+        assert!(
+            config_path_from_args(&["teabay".into(), "--bind".into(), "127.0.0.1:0".into()])?
+                .is_none()
+        );
+        let path =
+            std::env::temp_dir().join(format!("teabay-config-test-{}.env", std::process::id()));
+        std::fs::write(
+            &path,
+            "TEABAY_BIND=127.0.0.1:0\nDATABASE_URL=postgres://localhost/unused\nRUST_LOG=info\n",
+        )?;
+        assert_eq!(read_config_environment(&path)?.len(), 3);
+        std::fs::write(&path, "UNSUPPORTED_SECRET=not-used\n")?;
+        assert!(read_config_environment(&path).is_err());
+        std::fs::write(&path, "malformed [ config\n")?;
+        assert!(read_config_environment(&path).is_err());
+        std::fs::remove_file(path)?;
+        assert!(parse_trusted_proxy(None)?.is_none());
+        assert!(parse_trusted_proxy(Some(" , ".into()))?.is_none());
+        for boolean in ["true", "YES", "on", "1"] {
+            env.set("TEABAY_DEVELOPMENT_MODE", boolean);
+            assert!(read_bool("TEABAY_DEVELOPMENT_MODE", false)?);
+        }
+        for boolean in ["false", "OFF", "0", ""] {
+            env.set("TEABAY_DEVELOPMENT_MODE", boolean);
+            assert!(!read_bool("TEABAY_DEVELOPMENT_MODE", true)?);
+        }
+        env.set("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", "");
+        assert_eq!(read_u64("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 42)?, 42);
+        Ok(())
+    }
+}

@@ -19,7 +19,7 @@ use crate::query::rate_limit::{
 };
 use crate::state::AppState;
 
-#[expect(
+#[allow(
     clippy::redundant_field_names,
     reason = "Diesel QueryableByName generates redundant initializers in this row mapping."
 )]
@@ -251,7 +251,7 @@ mod tests {
 
     use super::*;
 
-    #[expect(
+    #[allow(
         clippy::redundant_field_names,
         reason = "Diesel QueryableByName generates redundant initializers in this row mapping."
     )]

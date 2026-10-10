@@ -88,4 +88,18 @@ mod tests {
         assert!(AuthenticatedCredentialId::new("").is_err());
         assert!(AuthenticatedCredentialId::new("admin token").is_err());
     }
+
+    #[test]
+    fn credential_id_roundtrips_and_enforces_length_at_serialization_boundary() {
+        let id = AuthenticatedCredentialId::try_from("a".repeat(256)).unwrap();
+        assert_eq!(id.as_str().len(), 256);
+        let wire = serde_json::to_string(&id).unwrap();
+        assert_eq!(
+            serde_json::from_str::<AuthenticatedCredentialId>(&wire).unwrap(),
+            id
+        );
+        assert_eq!(String::from(id).len(), 256);
+        assert!(AuthenticatedCredentialId::new("a".repeat(257)).is_err());
+        assert!(serde_json::from_str::<AuthenticatedCredentialId>("\"space id\"").is_err());
+    }
 }
