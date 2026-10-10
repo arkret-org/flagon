@@ -151,11 +151,17 @@ async fn public_index(db: &Db, state: &AppState) -> Result<()> {
         StatusCode::BAD_REQUEST,
     )
     .await?;
-    checked_json(
+    let malformed = checked_json(
         search(&service, json!({"cursor": "tampered"})).await,
         StatusCode::BAD_REQUEST,
     )
     .await?;
+    let problem: arkret_sdk::Problem = serde_json::from_value(malformed.clone())?;
+    assert_eq!(
+        problem.error_code(),
+        Some(arkret_sdk::ErrorCode::ParamInvalid)
+    );
+    assert_eq!(malformed["reason_code"], "invalid_cursor");
     for path in ["search-realms", "resolve-realm"] {
         let operation = format!("ak.find.directory.read.{}.v1", path.replace('-', "_"));
         let response = TestClient::post(format!(
