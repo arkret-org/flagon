@@ -30,7 +30,7 @@ fn TopBar(mut base_url: Signal<String>, mut token: Signal<String>) -> Element {
     rsx! {
         header { class: "topbar",
             div { class: "brand",
-                div { class: "brand-title", "teabay admin" }
+                div { class: "brand-title", "flagon admin" }
                 div { class: "brand-subtitle", "audit-only operator console" }
             }
             div { class: "field",

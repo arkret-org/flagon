@@ -1,4 +1,4 @@
-name: teabay-audit
+name: flagon-audit
 
 on:
   pull_request:
@@ -16,13 +16,13 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: teabay
+        working-directory: flagon
 
     steps:
-      - name: Checkout teabay
+      - name: Checkout flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
 
       - name: Checkout Arkret Rust SDK
         uses: actions/checkout@v4

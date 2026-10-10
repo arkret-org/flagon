@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to teabay (Arkret v1 Directory Service) live here.
+All notable changes to flagon (Arkret v1 Directory Service) live here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -77,7 +77,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### circle-rollout · AKP-0007 enforcement (P2E, arkret-spec `2b0d70d`)
 
 The Circle primitive lands in the spec as an intra-Realm encrypted
-sub-boundary. teabay does not index Circle as a top-level directory
+sub-boundary. flagon does not index Circle as a top-level directory
 resource; Realm announcements that carry Circle directory material are
 reduced to the spec preview/stub forms.
 
@@ -88,7 +88,7 @@ reduced to the spec preview/stub forms.
   the internal preview builder supports the parent-Realm-member whitelist for
   `directory_visibility=realm_members`.
 - **Added** `crates/admin/` is now an actual source tree (the prior
-  state shipped only `teabay-admin/` build artifacts). Dioxus SPA with
+  state shipped only `flagon-admin/` build artifacts). Dioxus SPA with
   six tabs: Dashboard / Resources / Allowlist / Takedown / Audit /
   Review. Bearer-token login. New Dashboard tab fans out to a new
   `GET /api/admin/v1/dashboard` endpoint that returns aggregate
@@ -96,8 +96,8 @@ reduced to the spec preview/stub forms.
 - **Added** `Dockerfile.server` (renamed from `Dockerfile`, plus
   HEALTHCHECK on `/health`, non-root) and `Dockerfile.admin`
   (multi-stage Rust + dx wasm build served via nginx:alpine).
-  `docker-compose.yml` brings the full stack (postgres + teabay-server
-  + teabay-admin) online with one `docker compose up --build`.
+  `docker-compose.yml` brings the full stack (postgres + flagon-server
+  + flagon-admin) online with one `docker compose up --build`.
 - **Added** Trivy scan coverage for both images (P2E.4.4). The CI
   `container-scan` job now builds `Dockerfile.server` and
   `Dockerfile.admin` separately and runs `aquasecurity/trivy-action`

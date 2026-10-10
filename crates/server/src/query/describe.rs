@@ -191,7 +191,7 @@ mod tests {
                 version_id: "did-web-document-version-fixture".to_owned(),
             },
             trust_domain: "ak:trust_domain:local.test".to_owned(),
-            database_url: "postgres://localhost/teabay".to_owned(),
+            database_url: "postgres://localhost/flagon".to_owned(),
             cors_allow_origin: None,
             admin_csrf_token: None,
             admin_token: None,

@@ -16,7 +16,7 @@ adapt to your local toolchain.
 
 ## Scope
 
-teabay is the reference Arkret Directory Service. Keep changes focused on this
+flagon is the reference Arkret Directory Service. Keep changes focused on this
 repository and preserve the Directory Service boundary: source Stations
 remain authoritative for identity, authorization, membership, and source event
 state.
@@ -42,7 +42,7 @@ Manual bootstrap:
 
 ```bash
 cargo install diesel_cli --no-default-features --features postgres
-createdb teabay
+createdb flagon
 cp .env.example .env
 diesel setup
 cargo run -p server
@@ -95,10 +95,10 @@ Update `docs/` when changing:
 
 ## Commit Hygiene
 
-Use concise commit subjects. For local teabay task slices, prefer:
+Use concise commit subjects. For local flagon task slices, prefer:
 
 ```text
-teabay: describe the change
+flagon: describe the change
 ```
 
 Do not commit unrelated dirty files. In particular, do not include `Cargo.lock`

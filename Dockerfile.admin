@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# teabay admin SPA image — Dioxus WASM build served by nginx. Build
+# flagon admin SPA image — Dioxus WASM build served by nginx. Build
 # from the arkret root with:
 #
 #   docker build \
 #     --build-context arkret-rust-sdk=../arkret-rust-sdk \
-#     -f Dockerfile.admin -t teabay-admin .
+#     -f Dockerfile.admin -t flagon-admin .
 #
 # P2E.4 — splits the admin SPA out of the server image so operators
 # can deploy / scale the front-end independently of the server
@@ -17,14 +17,14 @@ ARG BUILDARCH
 
 WORKDIR /workspace
 
-# teabay depends on the local Arkret SDK by path; admin currently
+# flagon depends on the local Arkret SDK by path; admin currently
 # does NOT import the SDK directly but we keep the build context
 # stable so a future shared module (e.g. typed wire structs) does not
 # need a separate build wiring.
 COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
-COPY . ./teabay
+COPY . ./flagon
 
-WORKDIR /workspace/teabay
+WORKDIR /workspace/flagon
 
 # wasm32 target + dx (dioxus-cli) for the static SPA build.
 RUN rustup target add wasm32-unknown-unknown
@@ -47,7 +47,7 @@ RUN case "$BUILDARCH" in \
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/workspace/teabay/target \
+    --mount=type=cache,target=/workspace/flagon/target \
     build_ok=false && \
     for i in 1 2 3; do \
         if dx build -p admin --release --debug-symbols false; then \
@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
         echo "Retry $i..." && sleep 10; \
     done && \
     test "$build_ok" = true && \
-    dist_dir="$(find /workspace/teabay/target/dx -type d -path '*/release/web/public' | head -n 1)" && \
+    dist_dir="$(find /workspace/flagon/target/dx -type d -path '*/release/web/public' | head -n 1)" && \
     test -n "$dist_dir" && \
     mkdir -p /workspace/dist && \
     cp -r "$dist_dir"/* /workspace/dist/

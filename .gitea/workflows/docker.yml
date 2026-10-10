@@ -143,10 +143,10 @@ jobs:
       packages: write
 
     steps:
-      - name: Check out teabay
+      - name: Check out flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
 
       - name: Check out Arkret Rust SDK
         uses: actions/checkout@v4
@@ -223,8 +223,8 @@ jobs:
             --pull \
             --build-context arkret-rust-sdk=arkret-rust-sdk \
             "${tag_args[@]}" \
-            -f teabay/Dockerfile.server \
-            teabay
+            -f flagon/Dockerfile.server \
+            flagon
 
       - name: Build ARM64 admin image
         shell: bash
@@ -245,8 +245,8 @@ jobs:
             --pull \
             --build-context arkret-rust-sdk=arkret-rust-sdk \
             "${tag_args[@]}" \
-            -f teabay/Dockerfile.admin \
-            teabay
+            -f flagon/Dockerfile.admin \
+            flagon
 
       - name: Push ARM64 image tags
         if: needs.prepare.outputs.push_images == 'true'

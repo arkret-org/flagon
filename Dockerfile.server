@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# teabay server image — Rust workspace built against the local Arkret
+# flagon server image — Rust workspace built against the local Arkret
 # SDK by path. Build from the arkret root with:
 #
 #   docker build \
 #     --build-context arkret-rust-sdk=../arkret-rust-sdk \
-#     -f Dockerfile.server -t teabay-server .
+#     -f Dockerfile.server -t flagon-server .
 #
 # P2E.4 — split out from the previous monolithic `Dockerfile` so the
 # admin SPA has its own image (`Dockerfile.admin`).
@@ -14,15 +14,15 @@ FROM --platform=$BUILDPLATFORM rust:bookworm AS builder
 
 WORKDIR /workspace
 
-# teabay depends on the local Arkret SDK by path.
+# flagon depends on the local Arkret SDK by path.
 COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
-COPY . ./teabay
+COPY . ./flagon
 
-WORKDIR /workspace/teabay
+WORKDIR /workspace/flagon
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/workspace/teabay/target \
+    --mount=type=cache,target=/workspace/flagon/target \
     cargo build --locked --release -p server && \
     cp target/release/server /usr/local/bin/server
 
@@ -38,7 +38,7 @@ RUN apt-get update && \
 COPY --from=builder /usr/local/bin/server /usr/local/bin/server
 
 USER 10001:10001
-WORKDIR /var/lib/teabay
+WORKDIR /var/lib/flagon
 
 ENV TEABAY_BIND=0.0.0.0:7781
 EXPOSE 7781

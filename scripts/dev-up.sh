@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-export DATABASE_URL="${DATABASE_URL:-postgres://teabay:teabay@localhost:5432/teabay}"
+export DATABASE_URL="${DATABASE_URL:-postgres://flagon:flagon@localhost:5432/flagon}"
 export TEABAY_BIND="${TEABAY_BIND:-127.0.0.1:7781}"
 export TEABAY_PUBLIC_BASE_URL="${TEABAY_PUBLIC_BASE_URL:-http://localhost:7781}"
 : "${TEABAY_SERVICE_DID:?set TEABAY_SERVICE_DID to the verified current DID}"
@@ -15,9 +15,9 @@ export TEABAY_SERVICE_DID TEABAY_SERVICE_METHOD_HISTORY_HEAD TEABAY_SERVICE_VERS
 docker compose up -d postgres
 
 echo "Waiting for PostgreSQL..."
-until docker compose exec -T postgres pg_isready -U teabay -d teabay >/dev/null 2>&1; do
+until docker compose exec -T postgres pg_isready -U flagon -d flagon >/dev/null 2>&1; do
   sleep 1
 done
 
-echo "Starting teabay on ${TEABAY_BIND}"
+echo "Starting flagon on ${TEABAY_BIND}"
 exec cargo run -p server

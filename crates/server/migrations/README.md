@@ -1,4 +1,4 @@
-# teabay diesel migrations
+# flagon diesel migrations
 
 This directory holds the Diesel migrations applied by the `server` binary.
 Each migration is a pair of `up.sql` / `down.sql`. They are embedded via

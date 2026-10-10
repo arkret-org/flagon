@@ -1,4 +1,4 @@
-name: teabay-typos
+name: flagon-typos
 
 on:
   push:
@@ -13,13 +13,13 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout teabay
+      - name: Checkout flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
 
       - name: Check spelling
         uses: crate-ci/typos@master
         with:
-          config: teabay/typos.toml
-          files: teabay
+          config: flagon/typos.toml
+          files: flagon

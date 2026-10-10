@@ -134,7 +134,7 @@ pub struct AppConfig {
     /// A.8.4 — sliding window during which a rotating HMAC token
     /// remains valid. Defaults to 30 minutes; clients sign
     /// `HMAC_SHA256(secret, format!("{key_id}:{timestamp}"))` and
-    /// teabay accepts the proof when `now - timestamp <=
+    /// flagon accepts the proof when `now - timestamp <=
     /// admin_token_rotation_window`. Env:
     /// `TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS` (default 1800).
     pub admin_token_rotation_window: std::time::Duration,
@@ -166,7 +166,7 @@ pub struct AppConfig {
 /// production" sizing recommended in `docs/scaling.md`.
 #[derive(Clone, Debug)]
 pub struct DbPoolConfig {
-    /// Hard ceiling on concurrent Postgres connections this teabay
+    /// Hard ceiling on concurrent Postgres connections this flagon
     /// instance will open, including admin queries.
     /// Default: 16. Env: `TEABAY_DB_POOL_MAX_SIZE`.
     pub max_size: u32,
@@ -470,21 +470,21 @@ mod tests {
             env.set(key, restore);
         }
         assert_eq!(
-            config_path_from_args(&["teabay".into(), "--config=a.env".into()])?,
+            config_path_from_args(&["flagon".into(), "--config=a.env".into()])?,
             Some("a.env".into())
         );
         assert_eq!(
-            config_path_from_args(&["teabay".into(), "--config".into(), "a.env".into()])?,
+            config_path_from_args(&["flagon".into(), "--config".into(), "a.env".into()])?,
             Some("a.env".into())
         );
-        assert!(config_path_from_args(&["teabay".into(), "--config".into()]).is_err());
-        assert!(config_path_from_args(&["teabay".into(), "--config=".into()]).is_err());
+        assert!(config_path_from_args(&["flagon".into(), "--config".into()]).is_err());
+        assert!(config_path_from_args(&["flagon".into(), "--config=".into()]).is_err());
         assert!(
-            config_path_from_args(&["teabay".into(), "--bind".into(), "127.0.0.1:0".into()])?
+            config_path_from_args(&["flagon".into(), "--bind".into(), "127.0.0.1:0".into()])?
                 .is_none()
         );
         let path =
-            std::env::temp_dir().join(format!("teabay-config-test-{}.env", std::process::id()));
+            std::env::temp_dir().join(format!("flagon-config-test-{}.env", std::process::id()));
         std::fs::write(
             &path,
             "TEABAY_BIND=127.0.0.1:0\nDATABASE_URL=postgres://localhost/unused\nRUST_LOG=info\n",

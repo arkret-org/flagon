@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image_ref="${TEABAY_IMAGE_REF:-teabay:local}"
+image_ref="${TEABAY_IMAGE_REF:-flagon:local}"
 out_dir="${TEABAY_ARTIFACT_DIR:-artifacts}"
 sdk_context="${ARKRET_SDK_CONTEXT:-../arkret-rust-sdk}"
 
@@ -14,22 +14,22 @@ if [[ "${TEABAY_BUILD_IMAGE:-0}" == "1" ]]; then
     .
 fi
 
-syft "${image_ref}" -o "spdx-json=${out_dir}/teabay-image.spdx.json"
-syft dir:. -o "spdx-json=${out_dir}/teabay-source.spdx.json"
+syft "${image_ref}" -o "spdx-json=${out_dir}/flagon-image.spdx.json"
+syft dir:. -o "spdx-json=${out_dir}/flagon-source.spdx.json"
 
 if [[ -n "${COSIGN_KEY:-}" ]]; then
   cosign sign-blob \
     --yes \
     --tlog-upload=false \
     --key "${COSIGN_KEY}" \
-    --bundle "${out_dir}/teabay-image.spdx.json.bundle" \
-    "${out_dir}/teabay-image.spdx.json"
+    --bundle "${out_dir}/flagon-image.spdx.json.bundle" \
+    "${out_dir}/flagon-image.spdx.json"
   cosign sign-blob \
     --yes \
     --tlog-upload=false \
     --key "${COSIGN_KEY}" \
-    --bundle "${out_dir}/teabay-source.spdx.json.bundle" \
-    "${out_dir}/teabay-source.spdx.json"
+    --bundle "${out_dir}/flagon-source.spdx.json.bundle" \
+    "${out_dir}/flagon-source.spdx.json"
 else
   cat <<'MSG'
 SBOM files were written locally. Set COSIGN_KEY to sign them with cosign:

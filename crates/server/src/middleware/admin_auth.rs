@@ -9,7 +9,7 @@
 //!
 //! * **Rotating HMAC** — `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`. The shared secret
 //!   is provisioned by row in `admin_tokens`. Clients compute `mac = HMAC_SHA256(secret,
-//!   format!("{key_id}:{ts}"))` and include the timestamp so teabay can drop replays after the
+//!   format!("{key_id}:{ts}"))` and include the timestamp so flagon can drop replays after the
 //!   rotation window (default 30 minutes).
 //!
 //! The verification result carries the authentication method and the

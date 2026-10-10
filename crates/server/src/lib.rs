@@ -1,4 +1,4 @@
-//! teabay — Arkret v1 Directory Service reference implementation.
+//! flagon — Arkret v1 Directory Service reference implementation.
 //!
 //! Crate-level entry: re-export the public surface so `main.rs` and tests
 //! can compose the service in one line.

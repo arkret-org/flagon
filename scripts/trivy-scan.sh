@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 #
-# Build both teabay images and run trivy against them. Exits non-zero on
+# Build both flagon images and run trivy against them. Exits non-zero on
 # the first HIGH or CRITICAL finding. Intended to be runnable both
 # locally (operator has `docker` and `trivy` on PATH) and from CI (the
 # `.github/workflows/ci.yml :: container-scan` job invokes equivalent
 # steps directly so it can use the official aquasecurity/trivy-action).
 #
 # Env knobs:
-#   TEABAY_SERVER_IMAGE_REF  default: teabay-server:local
-#   TEABAY_ADMIN_IMAGE_REF   default: teabay-admin:local
+#   TEABAY_SERVER_IMAGE_REF  default: flagon-server:local
+#   TEABAY_ADMIN_IMAGE_REF   default: flagon-admin:local
 #   ARKRET_SDK_CONTEXT      default: ../arkret-rust-sdk
 #   TRIVY_SEVERITY           default: HIGH,CRITICAL
 #   TRIVY_EXIT_CODE          default: 1
 set -euo pipefail
 
-server_image_ref="${TEABAY_SERVER_IMAGE_REF:-teabay-server:local}"
-admin_image_ref="${TEABAY_ADMIN_IMAGE_REF:-teabay-admin:local}"
+server_image_ref="${TEABAY_SERVER_IMAGE_REF:-flagon-server:local}"
+admin_image_ref="${TEABAY_ADMIN_IMAGE_REF:-flagon-admin:local}"
 sdk_context="${ARKRET_SDK_CONTEXT:-../arkret-rust-sdk}"
 severity="${TRIVY_SEVERITY:-HIGH,CRITICAL}"
 exit_code="${TRIVY_EXIT_CODE:-1}"

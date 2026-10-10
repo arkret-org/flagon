@@ -1,4 +1,4 @@
-name: teabay-ci
+name: flagon-ci
 
 on:
   push:
@@ -19,28 +19,28 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: teabay
-          POSTGRES_PASSWORD: teabay
+          POSTGRES_USER: flagon
+          POSTGRES_PASSWORD: flagon
           POSTGRES_DB: teabay_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U teabay -d teabay_ci"
+          --health-cmd "pg_isready -U flagon -d teabay_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      TEABAY_TEST_DATABASE_URL: postgres://teabay:teabay@localhost:5432/teabay_ci
+      TEABAY_TEST_DATABASE_URL: postgres://flagon:flagon@localhost:5432/teabay_ci
       CARGO_INCREMENTAL: "0"
     defaults:
       run:
-        working-directory: teabay
+        working-directory: flagon
 
     steps:
-      - name: Checkout teabay
+      - name: Checkout flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
 
       - name: Checkout Arkret Rust SDK
         uses: actions/checkout@v4
@@ -59,13 +59,13 @@ jobs:
       - name: Check formatting
         run: cargo +nightly fmt --all -- --check
 
-      - name: Check teabay
+      - name: Check flagon
         run: cargo check --locked --all-targets
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Test teabay
+      - name: Test flagon
         run: cargo test --locked --workspace
 
       # The database service starts empty; this test audits its migrated schema
@@ -90,12 +90,12 @@ jobs:
       CARGO_INCREMENTAL: "0"
     defaults:
       run:
-        working-directory: teabay
+        working-directory: flagon
     steps:
-      - name: Checkout teabay
+      - name: Checkout flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
       - name: Checkout Arkret Rust SDK
         uses: actions/checkout@v4
         with:
@@ -116,13 +116,13 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: teabay
+        working-directory: flagon
 
     steps:
-      - name: Checkout teabay
+      - name: Checkout flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
 
       - name: Checkout Arkret Rust SDK
         uses: actions/checkout@v4
@@ -148,13 +148,13 @@ jobs:
     timeout-minutes: 35
     defaults:
       run:
-        working-directory: teabay
+        working-directory: flagon
 
     steps:
-      - name: Checkout teabay
+      - name: Checkout flagon
         uses: actions/checkout@v4
         with:
-          path: teabay
+          path: flagon
 
       - name: Checkout Arkret Rust SDK
         uses: actions/checkout@v4
@@ -167,57 +167,57 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build server image
-        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.server -t teabay-server:ci .
+        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.server -t flagon-server:ci .
 
       - name: Build admin image
-        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.admin -t teabay-admin:ci .
+        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.admin -t flagon-admin:ci .
 
       - name: Verify server runtime and HTTP health probe
         run: |
-          trap 'docker rm --force teabay-ci-server teabay-ci-postgres >/dev/null 2>&1 || true; docker network rm teabay-ci-net >/dev/null 2>&1 || true' EXIT
-          docker network create teabay-ci-net
-          docker run --detach --name teabay-ci-postgres --network teabay-ci-net \
-            --env POSTGRES_USER=teabay --env POSTGRES_PASSWORD=teabay \
+          trap 'docker rm --force flagon-ci-server flagon-ci-postgres >/dev/null 2>&1 || true; docker network rm flagon-ci-net >/dev/null 2>&1 || true' EXIT
+          docker network create flagon-ci-net
+          docker run --detach --name flagon-ci-postgres --network flagon-ci-net \
+            --env POSTGRES_USER=flagon --env POSTGRES_PASSWORD=flagon \
             --env POSTGRES_DB=teabay_ci postgres:16-alpine
           for attempt in $(seq 1 30); do
-            if docker exec teabay-ci-postgres pg_isready --username=teabay; then break; fi
+            if docker exec flagon-ci-postgres pg_isready --username=flagon; then break; fi
             sleep 1
           done
-          docker run --detach --name teabay-ci-server --network teabay-ci-net \
+          docker run --detach --name flagon-ci-server --network flagon-ci-net \
             --health-interval=1s --health-start-period=1s \
-            --env DATABASE_URL=postgres://teabay:teabay@teabay-ci-postgres:5432/teabay_ci \
-            --env TEABAY_SERVICE_DID=did:web:teabay.example \
+            --env DATABASE_URL=postgres://flagon:flagon@flagon-ci-postgres:5432/teabay_ci \
+            --env TEABAY_SERVICE_DID=did:web:flagon.example \
             --env TEABAY_SERVICE_METHOD_HISTORY_HEAD=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
             --env TEABAY_SERVICE_VERSION_ID=1-ci-version \
-            --env TEABAY_ADMIN_CSRF_TOKEN=ci-csrf-token teabay-server:ci
+            --env TEABAY_ADMIN_CSRF_TOKEN=ci-csrf-token flagon-server:ci
           healthy=false
           for attempt in $(seq 1 30); do
-            if [ "$(docker inspect --format '{{.State.Health.Status}}' teabay-ci-server)" = healthy ]; then
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' flagon-ci-server)" = healthy ]; then
               healthy=true
               break
             fi
             sleep 1
           done
-          docker logs teabay-ci-server
+          docker logs flagon-ci-server
           test "$healthy" = true
 
       - name: Verify admin runtime and SPA fallback
         run: |
-          trap 'docker rm --force teabay-ci-admin >/dev/null 2>&1 || true' EXIT
-          docker run --detach --name teabay-ci-admin teabay-admin:ci
+          trap 'docker rm --force flagon-ci-admin >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name flagon-ci-admin flagon-admin:ci
           for attempt in $(seq 1 30); do
-            if docker exec teabay-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health; then break; fi
+            if docker exec flagon-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health; then break; fi
             sleep 1
           done
-          docker exec teabay-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health
-          docker exec teabay-ci-admin wget --quiet --output-document=/tmp/root.html http://127.0.0.1:8080/
-          docker exec teabay-ci-admin wget --quiet --output-document=/tmp/fallback.html http://127.0.0.1:8080/ci-deep-route
-          docker exec teabay-ci-admin cmp /tmp/root.html /tmp/fallback.html
+          docker exec flagon-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health
+          docker exec flagon-ci-admin wget --quiet --output-document=/tmp/root.html http://127.0.0.1:8080/
+          docker exec flagon-ci-admin wget --quiet --output-document=/tmp/fallback.html http://127.0.0.1:8080/ci-deep-route
+          docker exec flagon-ci-admin cmp /tmp/root.html /tmp/fallback.html
 
       - name: Scan server image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: teabay-server:ci
+          image-ref: flagon-server:ci
           scan-type: image
           format: table
           exit-code: "1"
@@ -228,7 +228,7 @@ jobs:
       - name: Scan admin image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: teabay-admin:ci
+          image-ref: flagon-admin:ci
           scan-type: image
           format: table
           exit-code: "1"

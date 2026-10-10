@@ -1,4 +1,4 @@
-# teabay
+# flagon
 
 Arkret v1 Directory Service for public Realm discovery. The service is
 deliberately read-only: it advertises the read-only Directory profile and the

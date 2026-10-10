@@ -34,7 +34,7 @@ async fn run() -> anyhow::Result<()> {
     let metrics_server = Server::new(metrics_acceptor);
     let metrics_handle = metrics_server.handle();
     let _metrics_task = tokio::spawn(metrics_server.serve(metrics_service(state.clone())));
-    info!(bind = %config.metrics_bind, "teabay metrics listener starting");
+    info!(bind = %config.metrics_bind, "flagon metrics listener starting");
 
     let acceptor = TcpListener::new(config.bind.to_string()).bind().await;
     info!(
@@ -42,7 +42,7 @@ async fn run() -> anyhow::Result<()> {
         public_base_url = %config.public_base_url,
         service_id = %config.service_id,
         development_mode = config.development_mode,
-        "teabay starting"
+        "flagon starting"
     );
 
     let server = Server::new(acceptor);
@@ -53,7 +53,7 @@ async fn run() -> anyhow::Result<()> {
         metrics_handle.stop_graceful(None);
     });
     server.serve(service(state)).await;
-    info!("teabay stopped");
+    info!("flagon stopped");
     Ok(())
 }
 

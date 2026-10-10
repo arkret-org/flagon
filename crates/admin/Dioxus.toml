@@ -3,5 +3,5 @@ name = "admin"
 default_platform = "web"
 
 [web.app]
-title = "teabay admin"
+title = "flagon admin"
 base_path = "/"

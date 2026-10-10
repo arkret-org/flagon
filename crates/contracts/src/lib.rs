@@ -1,4 +1,4 @@
-//! Shared audit-only operator-admin HTTP contracts for teabay.
+//! Shared audit-only operator-admin HTTP contracts for flagon.
 
 pub use arkret_sdk::{DidCoreId, DirectoryResourceKind};
 use serde::{Deserialize, Serialize};

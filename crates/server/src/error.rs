@@ -1,4 +1,4 @@
-//! Wire-form error codes for teabay.
+//! Wire-form error codes for flagon.
 //!
 //! The read-only query and admin faces use canonical Arkret codes.
 

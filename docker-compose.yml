@@ -1,4 +1,4 @@
-# teabay Directory Service — local development stack.
+# flagon Directory Service — local development stack.
 #
 # Bring up the full stack (postgres + server + admin SPA) with:
 #
@@ -14,20 +14,20 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: teabay
-      POSTGRES_PASSWORD: teabay
-      POSTGRES_DB: teabay
+      POSTGRES_USER: flagon
+      POSTGRES_PASSWORD: flagon
+      POSTGRES_DB: flagon
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U teabay -d teabay"]
+      test: ["CMD-SHELL", "pg_isready -U flagon -d flagon"]
       interval: 2s
       timeout: 5s
       retries: 30
     volumes:
-      - teabay-postgres:/var/lib/postgresql/data
+      - flagon-postgres:/var/lib/postgresql/data
 
-  teabay-server:
+  flagon-server:
     build:
       context: .
       dockerfile: Dockerfile.server
@@ -38,7 +38,7 @@ services:
         condition: service_healthy
     environment:
       TEABAY_BIND: 0.0.0.0:7781
-      DATABASE_URL: postgres://teabay:teabay@postgres:5432/teabay
+      DATABASE_URL: postgres://flagon:flagon@postgres:5432/flagon
       # P2E.6 — db connection pool tunables; the defaults below mirror
       # what AppConfig falls back to when these envs are unset.
       TEABAY_DB_POOL_MAX_SIZE: "32"
@@ -53,17 +53,17 @@ services:
       - "7781:7781"
     restart: unless-stopped
 
-  teabay-admin:
+  flagon-admin:
     build:
       context: .
       dockerfile: Dockerfile.admin
       additional_contexts:
         arkret-rust-sdk: ../arkret-rust-sdk
     depends_on:
-      - teabay-server
+      - flagon-server
     ports:
       - "8780:8080"
     restart: unless-stopped
 
 volumes:
-  teabay-postgres:
+  flagon-postgres:

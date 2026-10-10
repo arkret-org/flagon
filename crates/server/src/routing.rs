@@ -154,7 +154,7 @@ async fn health(depot: &mut Depot, res: &mut Response) {
     };
     res.render(Json(json!({
         "ok": true,
-        "service": "teabay",
+        "service": "flagon",
         "hardening": hardening,
     })));
 }
@@ -167,7 +167,7 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
             res.status_code(StatusCode::SERVICE_UNAVAILABLE);
             res.render(Json(json!({
                 "ok": false,
-                "service": "teabay",
+                "service": "flagon",
                 "database": { "ok": false, "error": "state_not_injected" },
             })));
             return;
@@ -181,7 +181,7 @@ async fn readyz(depot: &mut Depot, res: &mut Response) {
     }
     res.render(Json(json!({
         "ok": ok,
-        "service": "teabay",
+        "service": "flagon",
         "database": match database {
             Ok(()) => json!({ "ok": true }),
             Err(error) => json!({ "ok": false, "error": error }),
@@ -195,7 +195,7 @@ async fn metrics(depot: &mut Depot, res: &mut Response) {
         Ok(state) => state,
         Err(_) => {
             res.status_code(StatusCode::SERVICE_UNAVAILABLE);
-            res.render(Text::Plain("teabay metrics state not injected\n"));
+            res.render(Text::Plain("flagon metrics state not injected\n"));
             return;
         }
     };
@@ -372,7 +372,7 @@ async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
         }
     };
     let spec = serde_norway::to_string(&doc.0).unwrap_or_else(|error| {
-        tracing::error!(%error, "failed to render teabay OpenAPI yaml");
+        tracing::error!(%error, "failed to render flagon OpenAPI yaml");
         "{}\n".to_owned()
     });
     res.headers_mut().insert(
@@ -421,9 +421,9 @@ fn cors_handler_for_origin(origin: String) -> CorsHandler {
         .into_handler()
 }
 
-/// Build the OpenAPI document for teabay's Directory Service surface.
+/// Build the OpenAPI document for flagon's Directory Service surface.
 pub fn openapi(router: &Router) -> serde_json::Value {
-    let mut doc = OpenApi::new("teabay", env!("CARGO_PKG_VERSION"))
+    let mut doc = OpenApi::new("flagon", env!("CARGO_PKG_VERSION"))
         .add_extension("x-arkret-service-kind", json!("directory_service"))
         .add_extension("x-arkret-artifact-first", json!(true))
         .merge_router(router);
@@ -448,7 +448,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/health",
             PathItemType::Get,
-            "org.arkret.teabay.health",
+            "org.arkret.flagon.health",
             "health",
             "Health check",
             "Process liveness probe.",
@@ -456,7 +456,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/readyz",
             PathItemType::Get,
-            "org.arkret.teabay.readyz",
+            "org.arkret.flagon.readyz",
             "health",
             "Readiness check",
             "PostgreSQL and background-worker readiness probe.",
@@ -464,7 +464,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/audit",
             PathItemType::Get,
-            "org.arkret.teabay.admin.audit_feed",
+            "org.arkret.flagon.admin.audit_feed",
             "admin",
             "List Audit Events",
             "Return the append-only directory audit feed for operators.",
@@ -472,7 +472,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
         (
             "/_teabay/admin/audit/verify",
             PathItemType::Get,
-            "org.arkret.teabay.admin.audit_chain_verify",
+            "org.arkret.flagon.admin.audit_chain_verify",
             "admin",
             "Verify Audit Chain",
             "Walk the append-only audit chain and recompute chained SHA-256 digests.",
