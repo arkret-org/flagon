@@ -147,6 +147,48 @@ jobs:
       - name: Build admin image
         run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.admin -t teabay-admin:ci .
 
+      - name: Verify server runtime and HTTP health probe
+        run: |
+          trap 'docker rm --force teabay-ci-server teabay-ci-postgres >/dev/null 2>&1 || true; docker network rm teabay-ci-net >/dev/null 2>&1 || true' EXIT
+          docker network create teabay-ci-net
+          docker run --detach --name teabay-ci-postgres --network teabay-ci-net \
+            --env POSTGRES_USER=teabay --env POSTGRES_PASSWORD=teabay \
+            --env POSTGRES_DB=teabay_ci postgres:16-alpine
+          for attempt in $(seq 1 30); do
+            if docker exec teabay-ci-postgres pg_isready --username=teabay; then break; fi
+            sleep 1
+          done
+          docker run --detach --name teabay-ci-server --network teabay-ci-net \
+            --health-interval=1s --health-start-period=1s \
+            --env DATABASE_URL=postgres://teabay:teabay@teabay-ci-postgres:5432/teabay_ci \
+            --env TEABAY_SERVICE_DID=did:web:teabay.example \
+            --env TEABAY_SERVICE_METHOD_HISTORY_HEAD=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+            --env TEABAY_SERVICE_VERSION_ID=1-ci-version \
+            --env TEABAY_ADMIN_CSRF_TOKEN=ci-csrf-token teabay-server:ci
+          healthy=false
+          for attempt in $(seq 1 30); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' teabay-ci-server)" = healthy ]; then
+              healthy=true
+              break
+            fi
+            sleep 1
+          done
+          docker logs teabay-ci-server
+          test "$healthy" = true
+
+      - name: Verify admin runtime and SPA fallback
+        run: |
+          trap 'docker rm --force teabay-ci-admin >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name teabay-ci-admin teabay-admin:ci
+          for attempt in $(seq 1 30); do
+            if docker exec teabay-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health; then break; fi
+            sleep 1
+          done
+          docker exec teabay-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health
+          docker exec teabay-ci-admin wget --quiet --output-document=/tmp/root.html http://127.0.0.1:8080/
+          docker exec teabay-ci-admin wget --quiet --output-document=/tmp/fallback.html http://127.0.0.1:8080/ci-deep-route
+          docker exec teabay-ci-admin cmp /tmp/root.html /tmp/fallback.html
+
       - name: Scan server image
         uses: aquasecurity/trivy-action@v0.36.0
         with:

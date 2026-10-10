@@ -11,7 +11,9 @@
 # can deploy / scale the front-end independently of the server
 # (canary releases, CDN fronting, etc.).
 
-FROM --platform=$BUILDPLATFORM rust:bookworm AS builder
+FROM --platform=$BUILDPLATFORM rust:trixie AS builder
+
+ARG BUILDARCH
 
 WORKDIR /workspace
 
@@ -27,9 +29,21 @@ WORKDIR /workspace/teabay
 # wasm32 target + dx (dioxus-cli) for the static SPA build.
 RUN rustup target add wasm32-unknown-unknown
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    cargo install dioxus-cli@0.7.9 --locked
+# Use the matching official CLI release and verify its published checksum.
+# Compiling the CLI from source previously occupied most of the CI job window.
+RUN case "$BUILDARCH" in \
+        amd64) dx_arch=x86_64 ;; \
+        arm64) dx_arch=aarch64 ;; \
+        *) echo "Unsupported Dioxus CLI build architecture: $BUILDARCH"; exit 1 ;; \
+    esac && \
+    dx_url="https://github.com/DioxusLabs/dioxus/releases/download/v0.7.10/dx-${dx_arch}-unknown-linux-gnu" && \
+    curl --fail --location --retry 5 "$dx_url.tar.gz" --output /tmp/dx.tar.gz && \
+    curl --fail --location --retry 5 "$dx_url.sha256" --output /tmp/dx.sha256 && \
+    dx_hash="$(awk '$2 ~ /\.tar\.gz$/ {print $1}' /tmp/dx.sha256)" && \
+    echo "$dx_hash  /tmp/dx.tar.gz" | sha256sum --check - && \
+    tar -xzf /tmp/dx.tar.gz -C /usr/local/bin dx && \
+    rm /tmp/dx.tar.gz /tmp/dx.sha256 && \
+    dx --version
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
@@ -48,7 +62,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     mkdir -p /workspace/dist && \
     cp -r "$dist_dir"/* /workspace/dist/
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:stable-alpine AS runtime
+
+RUN apk upgrade --no-cache
 
 # nginx by default runs as root only for the master process; the
 # worker process drops to `nginx` user. Override the conf so the
