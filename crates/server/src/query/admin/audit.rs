@@ -3,10 +3,10 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
+use flagon_contracts::{AuditEnvelope, AuditEvent};
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
-use teabay_contracts::{AuditEnvelope, AuditEvent};
 
 use super::{parse_since, require_admin};
 use crate::audit::{AuditEventKind, DirectoryResourceKindDb};
@@ -165,7 +165,7 @@ impl TryFrom<AuditDbRow> for AuditEvent {
                 .map_err(|error| error.to_string())?,
             authenticated_credential_id: row
                 .authenticated_credential_id
-                .map(teabay_contracts::AuthenticatedCredentialId::new)
+                .map(flagon_contracts::AuthenticatedCredentialId::new)
                 .transpose()?,
             asserted_operator_localpart: row.asserted_operator_localpart,
             authentication_method: row.authentication_method,

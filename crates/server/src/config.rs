@@ -63,7 +63,7 @@ fn read_config_environment(path: &Path) -> anyhow::Result<Vec<(String, String)>>
         })?;
         if !is_allowed_config_key(&key) {
             anyhow::bail!(
-                "config {} contains unsupported key {key}; expected TEABAY_*, DATABASE_URL, or RUST_LOG",
+                "config {} contains unsupported key {key}; expected FLAGON_*, DATABASE_URL, or RUST_LOG",
                 path.display()
             );
         }
@@ -73,7 +73,7 @@ fn read_config_environment(path: &Path) -> anyhow::Result<Vec<(String, String)>>
 }
 
 fn is_allowed_config_key(key: &str) -> bool {
-    key.starts_with("TEABAY_") || matches!(key, "DATABASE_URL" | "RUST_LOG")
+    key.starts_with("FLAGON_") || matches!(key, "DATABASE_URL" | "RUST_LOG")
 }
 
 fn relevant_environment() -> Vec<(String, String)> {
@@ -116,7 +116,7 @@ pub struct AppConfig {
     /// DID-URL verification-method construction.
     pub service_did: Did,
     /// Operator-verified current resolution commitment published by
-    /// `ServiceDescribe`. Teabay never manufactures history heads or version
+    /// `ServiceDescribe`. Flagon never manufactures history heads or version
     /// identifiers from the DID text.
     pub service_resolution: ResolutionCommitment,
     /// Typed trust domain advertised in `/directory/describe`.
@@ -126,7 +126,7 @@ pub struct AppConfig {
     /// C.10.10 — require browser callers to mint an X-CSRF-Token header
     /// matching this configured value on every state-changing admin
     /// call. Required in production mode (startup fails closed without
-    /// it); optional only when `TEABAY_DEVELOPMENT_MODE=true`. When set,
+    /// it); optional only when `FLAGON_DEVELOPMENT_MODE=true`. When set,
     /// Set-Cookie is also emitted with `SameSite=Strict` so cookie-bearing
     /// strands are additionally CSRF-hardened.
     pub admin_csrf_token: Option<String>,
@@ -136,18 +136,18 @@ pub struct AppConfig {
     /// `HMAC_SHA256(secret, format!("{key_id}:{timestamp}"))` and
     /// flagon accepts the proof when `now - timestamp <=
     /// admin_token_rotation_window`. Env:
-    /// `TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS` (default 1800).
+    /// `FLAGON_ADMIN_TOKEN_ROTATION_WINDOW_SECS` (default 1800).
     pub admin_token_rotation_window: std::time::Duration,
     pub development_mode: bool,
 
     /// Query-face rate limit (per IP, per 60s window). Applies to every
     /// `ak.directory.search_*` / `ak.directory.resolve_*` endpoint. 0
-    /// means disabled. Env: `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`.
+    /// means disabled. Env: `FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN`.
     pub query_max_queries_per_ip_per_min: u32,
     /// Per-`resource_id` resolve rate limit. Cools off enumeration
     /// attempts against a single resource without affecting general
     /// search traffic. 0 means disabled. Env:
-    /// `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`.
+    /// `FLAGON_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`.
     pub query_max_resolves_per_resource_per_min: u32,
 
     /// P2E.6 — diesel + r2d2 connection pool tunables. Operators surface
@@ -157,7 +157,7 @@ pub struct AppConfig {
     /// P5 — list of IPs that are allowed to inject `X-Forwarded-For`
     /// (or equivalent) when the rate-limiter resolves a client address.
     /// When unset, the rate-limiter trusts `req.remote_addr()` only.
-    /// Env: `TEABAY_TRUSTED_PROXY` (comma-separated IPs).
+    /// Env: `FLAGON_TRUSTED_PROXY` (comma-separated IPs).
     pub trusted_proxy: Option<Vec<IpAddr>>,
 }
 
@@ -168,12 +168,12 @@ pub struct AppConfig {
 pub struct DbPoolConfig {
     /// Hard ceiling on concurrent Postgres connections this flagon
     /// instance will open, including admin queries.
-    /// Default: 16. Env: `TEABAY_DB_POOL_MAX_SIZE`.
+    /// Default: 16. Env: `FLAGON_DB_POOL_MAX_SIZE`.
     pub max_size: u32,
     /// How long `pool.get()` waits for an available connection before
     /// returning a `Timeout` error. Tune this together with the
     /// query rate limit so a burst can't tarpit the request thread.
-    /// Default: 5 s. Env: `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`.
+    /// Default: 5 s. Env: `FLAGON_DB_POOL_CONNECTION_TIMEOUT_SECS`.
     pub connection_timeout: Duration,
 }
 
@@ -189,30 +189,30 @@ impl Default for DbPoolConfig {
 impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         let bind = arg_value("--bind")
-            .or_else(|| std::env::var("TEABAY_BIND").ok())
+            .or_else(|| std::env::var("FLAGON_BIND").ok())
             .unwrap_or_else(|| "0.0.0.0:7781".to_string());
         let bind: SocketAddr = bind
             .parse()
-            .map_err(|e| anyhow::anyhow!("invalid TEABAY_BIND={bind}: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("invalid FLAGON_BIND={bind}: {e}"))?;
         let metrics_bind =
-            std::env::var("TEABAY_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9095".to_string());
+            std::env::var("FLAGON_METRICS_BIND").unwrap_or_else(|_| "127.0.0.1:9095".to_string());
         let metrics_bind: SocketAddr = metrics_bind
             .parse()
-            .map_err(|e| anyhow::anyhow!("invalid TEABAY_METRICS_BIND={metrics_bind}: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("invalid FLAGON_METRICS_BIND={metrics_bind}: {e}"))?;
 
         let public_base_url =
-            std::env::var("TEABAY_PUBLIC_BASE_URL").unwrap_or_else(|_| format!("http://{bind}"));
+            std::env::var("FLAGON_PUBLIC_BASE_URL").unwrap_or_else(|_| format!("http://{bind}"));
 
         // The configured identity is the current resolvable DID. Business
         // DTOs and persistence keys use only its adapter-projected core id.
-        let service_did_raw = required_non_empty_env("TEABAY_SERVICE_DID")?;
+        let service_did_raw = required_non_empty_env("FLAGON_SERVICE_DID")?;
         let service_did = Did::new(service_did_raw.clone())
-            .map_err(|error| anyhow::anyhow!("TEABAY_SERVICE_DID is not a valid DID: {error}"))?;
+            .map_err(|error| anyhow::anyhow!("FLAGON_SERVICE_DID is not a valid DID: {error}"))?;
         let service_id = project_did_to_core_id(&service_did).map_err(|error| {
-            anyhow::anyhow!("TEABAY_SERVICE_DID has no active method adapter: {error}")
+            anyhow::anyhow!("FLAGON_SERVICE_DID has no active method adapter: {error}")
         })?;
-        let method_history_head = required_non_empty_env("TEABAY_SERVICE_METHOD_HISTORY_HEAD")?;
-        let version_id = required_non_empty_env("TEABAY_SERVICE_VERSION_ID")?;
+        let method_history_head = required_non_empty_env("FLAGON_SERVICE_METHOD_HISTORY_HEAD")?;
+        let version_id = required_non_empty_env("FLAGON_SERVICE_VERSION_ID")?;
         let service_resolution = ResolutionCommitment {
             did: service_did.clone(),
             method_history_head,
@@ -220,38 +220,38 @@ impl AppConfig {
         };
 
         // Required trust domain on ServiceDescribe. Operators
-        // SHOULD set TEABAY_TRUST_DOMAIN explicitly; the fallback only
+        // SHOULD set FLAGON_TRUST_DOMAIN explicitly; the fallback only
         // exists so the in-process conformance harness keeps booting.
-        let trust_domain = std::env::var("TEABAY_TRUST_DOMAIN")
+        let trust_domain = std::env::var("FLAGON_TRUST_DOMAIN")
             .unwrap_or_else(|_| "ak:trust_domain:local.test".to_owned());
         if arkret_sdk::TrustDomainId::new(trust_domain.clone()).is_err() {
             anyhow::bail!(
-                "TEABAY_TRUST_DOMAIN={trust_domain} is not a valid `ak:trust_domain:` identifier"
+                "FLAGON_TRUST_DOMAIN={trust_domain} is not a valid `ak:trust_domain:` identifier"
             );
         }
 
         let database_url = std::env::var("DATABASE_URL")
             .map_err(|_| anyhow::anyhow!("DATABASE_URL is required"))?;
 
-        let cors_allow_origin = std::env::var("TEABAY_CORS_ALLOW_ORIGIN").ok();
-        let development_mode = read_bool("TEABAY_DEVELOPMENT_MODE", false)?;
+        let cors_allow_origin = std::env::var("FLAGON_CORS_ALLOW_ORIGIN").ok();
+        let development_mode = read_bool("FLAGON_DEVELOPMENT_MODE", false)?;
         let admin_token = if development_mode {
-            std::env::var("TEABAY_ADMIN_TOKEN")
+            std::env::var("FLAGON_ADMIN_TOKEN")
                 .ok()
                 .filter(|token| !token.trim().is_empty())
         } else {
-            if std::env::var("TEABAY_ADMIN_TOKEN")
+            if std::env::var("FLAGON_ADMIN_TOKEN")
                 .ok()
                 .is_some_and(|token| !token.trim().is_empty())
             {
                 tracing::warn!(
-                    "TEABAY_ADMIN_TOKEN is ignored when TEABAY_DEVELOPMENT_MODE=false; \
+                    "FLAGON_ADMIN_TOKEN is ignored when FLAGON_DEVELOPMENT_MODE=false; \
                      provision rotating HMAC admin credentials in admin_tokens instead"
                 );
             }
             None
         };
-        let admin_csrf_token = std::env::var("TEABAY_ADMIN_CSRF_TOKEN")
+        let admin_csrf_token = std::env::var("FLAGON_ADMIN_CSRF_TOKEN")
             .ok()
             .filter(|token| !token.trim().is_empty());
 
@@ -261,12 +261,12 @@ impl AppConfig {
         // See docs/deployment.md hardening checklist.
         if !development_mode && admin_csrf_token.is_none() {
             anyhow::bail!(
-                "TEABAY_ADMIN_CSRF_TOKEN is required in production mode \
-                 (TEABAY_DEVELOPMENT_MODE=false)"
+                "FLAGON_ADMIN_CSRF_TOKEN is required in production mode \
+                 (FLAGON_DEVELOPMENT_MODE=false)"
             );
         }
         let admin_token_rotation_window_secs =
-            read_u64("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", 1_800)?;
+            read_u64("FLAGON_ADMIN_TOKEN_ROTATION_WINDOW_SECS", 1_800)?;
         let admin_token_rotation_window =
             Duration::from_secs(admin_token_rotation_window_secs.max(60));
 
@@ -274,22 +274,22 @@ impl AppConfig {
         // realistic browser dashboard happy while breaking obvious
         // enumeration sweeps. Set to 0 to disable.
         let query_max_queries_per_ip_per_min =
-            read_u64("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 600)? as u32;
+            read_u64("FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 600)? as u32;
         let query_max_resolves_per_resource_per_min =
-            read_u64("TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", 120)? as u32;
+            read_u64("FLAGON_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", 120)? as u32;
 
         // P2E.6 — db pool tunables.
         let defaults = DbPoolConfig::default();
-        let pool_max = read_u64("TEABAY_DB_POOL_MAX_SIZE", defaults.max_size as u64)? as u32;
+        let pool_max = read_u64("FLAGON_DB_POOL_MAX_SIZE", defaults.max_size as u64)? as u32;
         if pool_max == 0 {
-            anyhow::bail!("TEABAY_DB_POOL_MAX_SIZE must be > 0");
+            anyhow::bail!("FLAGON_DB_POOL_MAX_SIZE must be > 0");
         }
         let pool_connection_timeout_secs = read_u64(
-            "TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS",
+            "FLAGON_DB_POOL_CONNECTION_TIMEOUT_SECS",
             defaults.connection_timeout.as_secs(),
         )?;
         if pool_connection_timeout_secs == 0 {
-            anyhow::bail!("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS must be > 0");
+            anyhow::bail!("FLAGON_DB_POOL_CONNECTION_TIMEOUT_SECS must be > 0");
         }
         let db_pool = DbPoolConfig {
             max_size: pool_max,
@@ -297,7 +297,7 @@ impl AppConfig {
         };
 
         // P5 — trusted proxy allowlist for the rate-limiter.
-        let trusted_proxy = parse_trusted_proxy(std::env::var("TEABAY_TRUSTED_PROXY").ok())?;
+        let trusted_proxy = parse_trusted_proxy(std::env::var("FLAGON_TRUSTED_PROXY").ok())?;
 
         Ok(Self {
             bind,
@@ -321,7 +321,7 @@ impl AppConfig {
     }
 }
 
-/// Parse `TEABAY_TRUSTED_PROXY` into a list of IPs that the
+/// Parse `FLAGON_TRUSTED_PROXY` into a list of IPs that the
 /// rate-limiter trusts as the source of `X-Forwarded-For`. Empty /
 /// unset returns `Ok(None)` which means "trust only the direct
 /// `remote_addr`".
@@ -333,7 +333,7 @@ fn parse_trusted_proxy(value: Option<String>) -> anyhow::Result<Option<Vec<IpAdd
     for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
         let ip: IpAddr = part
             .parse()
-            .map_err(|e| anyhow::anyhow!("invalid TEABAY_TRUSTED_PROXY entry `{part}`: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("invalid FLAGON_TRUSTED_PROXY entry `{part}`: {e}"))?;
         out.push(ip);
     }
     if out.is_empty() {
@@ -422,22 +422,22 @@ mod tests {
     fn operator_configuration_rejects_invalid_posture_and_values() -> anyhow::Result<()> {
         let mut env = Environment(Vec::new());
         for (key, value) in [
-            ("TEABAY_BIND", "127.0.0.1:7781"),
-            ("TEABAY_METRICS_BIND", "127.0.0.1:9095"),
-            ("TEABAY_SERVICE_DID", "did:web:directory.test"),
-            ("TEABAY_SERVICE_METHOD_HISTORY_HEAD", "verified-head"),
-            ("TEABAY_SERVICE_VERSION_ID", "verified-version"),
+            ("FLAGON_BIND", "127.0.0.1:7781"),
+            ("FLAGON_METRICS_BIND", "127.0.0.1:9095"),
+            ("FLAGON_SERVICE_DID", "did:web:directory.test"),
+            ("FLAGON_SERVICE_METHOD_HISTORY_HEAD", "verified-head"),
+            ("FLAGON_SERVICE_VERSION_ID", "verified-version"),
             ("DATABASE_URL", "postgres://localhost/unused"),
-            ("TEABAY_TRUST_DOMAIN", "ak:trust_domain:local.test"),
-            ("TEABAY_DEVELOPMENT_MODE", "false"),
-            ("TEABAY_ADMIN_CSRF_TOKEN", "csrf-proof"),
-            ("TEABAY_ADMIN_TOKEN", "development-only-secret"),
-            ("TEABAY_ADMIN_TOKEN_ROTATION_WINDOW_SECS", "1"),
-            ("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", "100"),
-            ("TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", "20"),
-            ("TEABAY_DB_POOL_MAX_SIZE", "2"),
-            ("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS", "1"),
-            ("TEABAY_TRUSTED_PROXY", "127.0.0.1, ::1"),
+            ("FLAGON_TRUST_DOMAIN", "ak:trust_domain:local.test"),
+            ("FLAGON_DEVELOPMENT_MODE", "false"),
+            ("FLAGON_ADMIN_CSRF_TOKEN", "csrf-proof"),
+            ("FLAGON_ADMIN_TOKEN", "development-only-secret"),
+            ("FLAGON_ADMIN_TOKEN_ROTATION_WINDOW_SECS", "1"),
+            ("FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN", "100"),
+            ("FLAGON_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN", "20"),
+            ("FLAGON_DB_POOL_MAX_SIZE", "2"),
+            ("FLAGON_DB_POOL_CONNECTION_TIMEOUT_SECS", "1"),
+            ("FLAGON_TRUSTED_PROXY", "127.0.0.1, ::1"),
         ] {
             env.set(key, value);
         }
@@ -446,18 +446,18 @@ mod tests {
         assert_eq!(good.admin_token_rotation_window, Duration::from_secs(60));
         assert_eq!(good.trusted_proxy.as_ref().unwrap().len(), 2);
         for (key, invalid, restore) in [
-            ("TEABAY_BIND", "invalid", "127.0.0.1:7781"),
-            ("TEABAY_METRICS_BIND", "invalid", "127.0.0.1:9095"),
-            ("TEABAY_SERVICE_DID", "invalid", "did:web:directory.test"),
-            ("TEABAY_SERVICE_METHOD_HISTORY_HEAD", " ", "verified-head"),
-            ("TEABAY_TRUST_DOMAIN", "bad", "ak:trust_domain:local.test"),
-            ("TEABAY_DEVELOPMENT_MODE", "maybe", "false"),
-            ("TEABAY_ADMIN_CSRF_TOKEN", "", "csrf-proof"),
-            ("TEABAY_DB_POOL_MAX_SIZE", "0", "2"),
-            ("TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS", "0", "1"),
-            ("TEABAY_TRUSTED_PROXY", "localhost", "127.0.0.1, ::1"),
+            ("FLAGON_BIND", "invalid", "127.0.0.1:7781"),
+            ("FLAGON_METRICS_BIND", "invalid", "127.0.0.1:9095"),
+            ("FLAGON_SERVICE_DID", "invalid", "did:web:directory.test"),
+            ("FLAGON_SERVICE_METHOD_HISTORY_HEAD", " ", "verified-head"),
+            ("FLAGON_TRUST_DOMAIN", "bad", "ak:trust_domain:local.test"),
+            ("FLAGON_DEVELOPMENT_MODE", "maybe", "false"),
+            ("FLAGON_ADMIN_CSRF_TOKEN", "", "csrf-proof"),
+            ("FLAGON_DB_POOL_MAX_SIZE", "0", "2"),
+            ("FLAGON_DB_POOL_CONNECTION_TIMEOUT_SECS", "0", "1"),
+            ("FLAGON_TRUSTED_PROXY", "localhost", "127.0.0.1, ::1"),
             (
-                "TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN",
+                "FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN",
                 "not-an-integer",
                 "100",
             ),
@@ -487,7 +487,7 @@ mod tests {
             std::env::temp_dir().join(format!("flagon-config-test-{}.env", std::process::id()));
         std::fs::write(
             &path,
-            "TEABAY_BIND=127.0.0.1:0\nDATABASE_URL=postgres://localhost/unused\nRUST_LOG=info\n",
+            "FLAGON_BIND=127.0.0.1:0\nDATABASE_URL=postgres://localhost/unused\nRUST_LOG=info\n",
         )?;
         assert_eq!(read_config_environment(&path)?.len(), 3);
         std::fs::write(&path, "UNSUPPORTED_SECRET=not-used\n")?;
@@ -498,15 +498,15 @@ mod tests {
         assert!(parse_trusted_proxy(None)?.is_none());
         assert!(parse_trusted_proxy(Some(" , ".into()))?.is_none());
         for boolean in ["true", "YES", "on", "1"] {
-            env.set("TEABAY_DEVELOPMENT_MODE", boolean);
-            assert!(read_bool("TEABAY_DEVELOPMENT_MODE", false)?);
+            env.set("FLAGON_DEVELOPMENT_MODE", boolean);
+            assert!(read_bool("FLAGON_DEVELOPMENT_MODE", false)?);
         }
         for boolean in ["false", "OFF", "0", ""] {
-            env.set("TEABAY_DEVELOPMENT_MODE", boolean);
-            assert!(!read_bool("TEABAY_DEVELOPMENT_MODE", true)?);
+            env.set("FLAGON_DEVELOPMENT_MODE", boolean);
+            assert!(!read_bool("FLAGON_DEVELOPMENT_MODE", true)?);
         }
-        env.set("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", "");
-        assert_eq!(read_u64("TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 42)?, 42);
+        env.set("FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN", "");
+        assert_eq!(read_u64("FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN", 42)?, 42);
         Ok(())
     }
 }

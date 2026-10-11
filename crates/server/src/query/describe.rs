@@ -61,7 +61,7 @@ pub async fn describe(depot: &mut Depot, res: &mut Response) {
 pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue, String> {
     let service_id = cfg.service_id.clone();
     let trust_domain = TrustDomainId::new(cfg.trust_domain.clone())
-        .map_err(|err| format!("TEABAY_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
+        .map_err(|err| format!("FLAGON_TRUST_DOMAIN is not a valid ak:trust_domain: {err}"))?;
 
     let development_mode = cfg.development_mode;
 
@@ -82,20 +82,20 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
 
     // `auth_metadata` advertises the admin HMAC surface. The read-only
     // service has no protocol ingest transport; static bearer
-    // auth is development-only. Admin descriptors ride in `x_teabay_*` extension keys
+    // auth is development-only. Admin descriptors ride in `x_flagon_*` extension keys
     // (`auth_metadata` is `additionalProperties: true`).
     let mut auth_metadata = AuthMetadata::minimal();
     auth_metadata
         .extra
         .insert(
-            "x_teabay_admin".to_owned(),
+            "x_flagon_admin".to_owned(),
             json!({
                 "kind": "rotating_hmac",
                 "required": true,
                 "development_static_bearer": cfg.development_mode && cfg.admin_token.is_some(),
             }),
         )
-        .expect("x_teabay_admin is a valid extension key");
+        .expect("x_flagon_admin is a valid extension key");
 
     let limits = ServerLimits {
         extensions: BTreeMap::from([(
@@ -109,14 +109,14 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // resource-authored projections. Receivers MUST treat a missing
     // value as `untrusted`; we declare `none` explicitly
     // via the strongly typed (closed) `PlaintextVisibility`. The
-    // directory-scope note rides in an `x_teabay_*` extension key since
+    // directory-scope note rides in an `x_flagon_*` extension key since
     // the object is `additionalProperties: false` apart from `x_*`.
     let mut plaintext_visibility = PlaintextVisibility::none();
     plaintext_visibility.max_visibility = Some(arkret_sdk::PlaintextMaxVisibility::None);
     plaintext_visibility
         .extra
         .insert(
-            "x_teabay_scope".to_owned(),
+            "x_flagon_scope".to_owned(),
             JsonValue::String("public_realm_metadata_only".to_owned()),
         )
         .map_err(|error| format!("invalid plaintext visibility extension: {error}"))?;
@@ -260,7 +260,7 @@ mod tests {
             value["transport_bindings"][0]["base_url"],
             "http://directory.test"
         );
-        assert!(value.get("x_teabay_accepted_resource_kinds").is_none());
+        assert!(value.get("x_flagon_accepted_resource_kinds").is_none());
         assert_eq!(
             value["supported_profiles"],
             json!(["ak.profile.directory_service.v1"])
@@ -272,7 +272,7 @@ mod tests {
                 "ak.operation_bundle.directory_service.public_read.v1"
             ])
         );
-        assert!(value.get("x_teabay_limitations").is_none());
+        assert!(value.get("x_flagon_limitations").is_none());
     }
 
     /// `validate` fails closed when development mode is set
@@ -338,11 +338,11 @@ mod tests {
         );
     }
 
-    /// TEABAY-01 regression — the describe response MUST conform to the
+    /// FLAGON-01 regression — the describe response MUST conform to the
     /// `service-describe.schema.json` top-level shape: `additionalProperties:
     /// false` apart from the `^x_[a-z][a-z0-9_]{0,63}$` extension pattern.
     /// So every top-level key is either one of the canonical ServiceDescribe
-    /// properties or a namespaced `x_teabay_*` extension. A top-level
+    /// properties or a namespaced `x_flagon_*` extension. A top-level
     /// `rate_limit` key MUST NOT appear; the policy is carried by
     /// `rate_limit_policy`.
     #[test]
@@ -394,7 +394,7 @@ mod tests {
                 assert!(
                     ok,
                     "top-level key `{key}` is neither a canonical ServiceDescribe \
-                     property nor an `x_teabay_*` extension; ServiceDescribe is \
+                     property nor an `x_flagon_*` extension; ServiceDescribe is \
                      additionalProperties:false apart from `^x_[a-z][a-z0-9_]{{0,63}}$`"
                 );
             }

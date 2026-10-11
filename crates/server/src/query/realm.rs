@@ -311,8 +311,8 @@ mod tests {
     async fn fresh_schema_has_only_empty_public_realm_index() -> anyhow::Result<()> {
         // A dedicated empty database is required: this assertion audits the
         // entire public schema and must never share a runtime database.
-        let database_url = std::env::var("TEABAY_TEST_DATABASE_URL").map_err(|_| {
-            anyhow::anyhow!("set TEABAY_TEST_DATABASE_URL to an isolated empty PostgreSQL database")
+        let database_url = std::env::var("FLAGON_TEST_DATABASE_URL").map_err(|_| {
+            anyhow::anyhow!("set FLAGON_TEST_DATABASE_URL to an isolated empty PostgreSQL database")
         })?;
         let db = crate::db::Db::connect(&database_url)?;
         db.run_migrations(&database_url).await?;

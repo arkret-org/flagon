@@ -46,15 +46,15 @@ impl Metrics {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let mut out = String::from(
-            "# HELP teabay_query_latency_seconds Last observed Realm query latency by operation.\n\
-             # TYPE teabay_query_latency_seconds gauge\n",
+            "# HELP flagon_query_latency_seconds Last observed Realm query latency by operation.\n\
+             # TYPE flagon_query_latency_seconds gauge\n",
         );
         for op in QUERY_OPS {
             let stats = rows.get(op).copied().unwrap_or_default();
             out.push_str(&format!(
-                "teabay_query_latency_seconds{{op=\"{op}\"}} {:.6}\n\
-                 teabay_query_latency_seconds_count{{op=\"{op}\"}} {}\n\
-                 teabay_query_latency_seconds_sum{{op=\"{op}\"}} {:.6}\n",
+                "flagon_query_latency_seconds{{op=\"{op}\"}} {:.6}\n\
+                 flagon_query_latency_seconds_count{{op=\"{op}\"}} {}\n\
+                 flagon_query_latency_seconds_sum{{op=\"{op}\"}} {:.6}\n",
                 stats.last_seconds, stats.count, stats.sum_seconds,
             ));
         }
@@ -89,6 +89,6 @@ mod tests {
         assert!(body.contains("op=\"search-realms\""));
         assert!(body.contains("op=\"resolve-realm\""));
         assert!(!body.contains("resolve-handle"));
-        assert!(!body.contains("teabay_ingest_total"));
+        assert!(!body.contains("flagon_ingest_total"));
     }
 }

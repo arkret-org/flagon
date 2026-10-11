@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-image_ref="${TEABAY_IMAGE_REF:-flagon:local}"
-out_dir="${TEABAY_ARTIFACT_DIR:-artifacts}"
+image_ref="${FLAGON_IMAGE_REF:-flagon:local}"
+out_dir="${FLAGON_ARTIFACT_DIR:-artifacts}"
 sdk_context="${ARKRET_SDK_CONTEXT:-../arkret-rust-sdk}"
 
 mkdir -p "${out_dir}"
 
-if [[ "${TEABAY_BUILD_IMAGE:-0}" == "1" ]]; then
+if [[ "${FLAGON_BUILD_IMAGE:-0}" == "1" ]]; then
   docker build \
     --build-context "arkret-rust-sdk=${sdk_context}" \
     -t "${image_ref}" \

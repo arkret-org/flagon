@@ -57,7 +57,7 @@ cd crates/admin
 dx serve --platform web --port 8080
 ```
 
-Use `TEABAY_ADMIN_TOKEN` as the bearer token in the console. The API base is
+Use `FLAGON_ADMIN_TOKEN` as the bearer token in the console. The API base is
 usually `http://localhost:7781` for local development.
 
 ## Validation

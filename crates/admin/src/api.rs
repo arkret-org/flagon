@@ -10,7 +10,7 @@ pub async fn get_admin<T: DeserializeOwned>(
     path: &'static str,
     params: Vec<(&'static str, String)>,
 ) -> Result<T, String> {
-    let url = format!("{}/_teabay/admin/{}", base_url.trim_end_matches('/'), path);
+    let url = format!("{}/_flagon/admin/{}", base_url.trim_end_matches('/'), path);
     let request = with_auth(
         Request::get(&url).query(params.iter().map(|(key, value)| (*key, value.as_str()))),
         &token,

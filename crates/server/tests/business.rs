@@ -241,14 +241,14 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     );
     for path in ["audit", "audit/verify"] {
         checked_json(
-            TestClient::get(format!("https://directory.test/_teabay/admin/{path}"))
+            TestClient::get(format!("https://directory.test/_flagon/admin/{path}"))
                 .send(&service)
                 .await,
             StatusCode::UNAUTHORIZED,
         )
         .await?;
         checked_json(
-            TestClient::get(format!("https://directory.test/_teabay/admin/{path}"))
+            TestClient::get(format!("https://directory.test/_flagon/admin/{path}"))
                 .bearer_auth("wrong")
                 .send(&service)
                 .await,
@@ -257,7 +257,7 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
         .await?;
     }
     let feed = checked_json(
-        TestClient::get("https://directory.test/_teabay/admin/audit?limit=1")
+        TestClient::get("https://directory.test/_flagon/admin/audit?limit=1")
             .bearer_auth("local-test-operator")
             .send(&service)
             .await,
@@ -274,14 +274,14 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
         "unverified-byline"
     );
     checked_json(
-        TestClient::get("https://directory.test/_teabay/admin/audit?since=invalid")
+        TestClient::get("https://directory.test/_flagon/admin/audit?since=invalid")
             .bearer_auth("local-test-operator")
             .send(&service)
             .await,
         StatusCode::BAD_REQUEST,
     )
     .await?;
-    let future = TestClient::get("https://directory.test/_teabay/admin/audit")
+    let future = TestClient::get("https://directory.test/_flagon/admin/audit")
         .query("since", "2099-01-01T00:00:00Z")
         .bearer_auth("local-test-operator")
         .send(&service)
@@ -294,7 +294,7 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     );
     assert_eq!(
         checked_json(
-            TestClient::get("https://directory.test/_teabay/admin/audit/verify")
+            TestClient::get("https://directory.test/_flagon/admin/audit/verify")
                 .bearer_auth("local-test-operator")
                 .send(&service)
                 .await,
@@ -384,7 +384,7 @@ async fn admin_credentials(db: &Db, state: &AppState) -> Result<()> {
         "admin:key-a"
     );
     checked_json(
-        TestClient::get("https://directory.test/_teabay/admin/audit")
+        TestClient::get("https://directory.test/_flagon/admin/audit")
             .bearer_auth(&token)
             .send(&service)
             .await,
@@ -401,7 +401,7 @@ async fn admin_credentials(db: &Db, state: &AppState) -> Result<()> {
         signed_token("key-a", &[9], Utc::now().timestamp()),
     ] {
         checked_json(
-            TestClient::get("https://directory.test/_teabay/admin/audit")
+            TestClient::get("https://directory.test/_flagon/admin/audit")
                 .bearer_auth(bad)
                 .send(&service)
                 .await,
@@ -418,7 +418,7 @@ async fn admin_credentials(db: &Db, state: &AppState) -> Result<()> {
         )
         .await?;
         checked_json(
-            TestClient::get("https://directory.test/_teabay/admin/audit")
+            TestClient::get("https://directory.test/_flagon/admin/audit")
                 .bearer_auth(&token)
                 .send(&service)
                 .await,
@@ -556,7 +556,7 @@ async fn surfaces(state: &AppState) -> Result<()> {
         response
             .take_string()
             .await?
-            .contains("teabay_db_pool_connections")
+            .contains("flagon_db_pool_connections")
     );
     assert_eq!(
         TestClient::get("https://local/unknown")
@@ -639,10 +639,10 @@ async fn query_limits(db: &Db, state: &AppState) -> Result<()> {
 
 #[tokio::test]
 async fn real_directory_and_operator_contracts() -> Result<()> {
-    let base = std::env::var("TEABAY_TEST_DATABASE_URL")?;
+    let base = std::env::var("FLAGON_TEST_DATABASE_URL")?;
     let admin = Db::connect(&base)?;
     let schema = format!(
-        "teabay_http_{}_{}",
+        "flagon_http_{}_{}",
         std::process::id(),
         Utc::now().timestamp_micros()
     );

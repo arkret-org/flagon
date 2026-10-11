@@ -16,23 +16,23 @@ fn config_rejects_missing_resolution_commitment_even_in_development() {
 
     let _guard = ENV_LOCK.lock().expect("env lock");
     unsafe {
-        env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
+        env::set_var("FLAGON_BIND", "127.0.0.1:0");
+        env::set_var("FLAGON_SERVICE_DID", "did:web:directory.test");
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
-        env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
-        env::remove_var("TEABAY_SERVICE_METHOD_HISTORY_HEAD");
-        env::remove_var("TEABAY_SERVICE_VERSION_ID");
+        env::set_var("FLAGON_DEVELOPMENT_MODE", "true");
+        env::remove_var("FLAGON_SERVICE_METHOD_HISTORY_HEAD");
+        env::remove_var("FLAGON_SERVICE_VERSION_ID");
     }
     let missing_head = server::AppConfig::from_env().expect_err("history head must be required");
     assert!(
         missing_head
             .to_string()
-            .contains("TEABAY_SERVICE_METHOD_HISTORY_HEAD is required")
+            .contains("FLAGON_SERVICE_METHOD_HISTORY_HEAD is required")
     );
 
     unsafe {
         env::set_var(
-            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "FLAGON_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
         );
     }
@@ -41,12 +41,12 @@ fn config_rejects_missing_resolution_commitment_even_in_development() {
     assert!(
         missing_version
             .to_string()
-            .contains("TEABAY_SERVICE_VERSION_ID is required")
+            .contains("FLAGON_SERVICE_VERSION_ID is required")
     );
 
     unsafe {
         env::set_var(
-            "TEABAY_SERVICE_VERSION_ID",
+            "FLAGON_SERVICE_VERSION_ID",
             "did-web-document-version-fixture",
         );
     }
@@ -61,18 +61,18 @@ fn config_builds_with_minimal_state() {
     // We don't connect to Postgres here; that needs a separate integration
     // test harness.
     unsafe {
-        env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
+        env::set_var("FLAGON_BIND", "127.0.0.1:0");
+        env::set_var("FLAGON_SERVICE_DID", "did:web:directory.test");
         env::set_var(
-            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "FLAGON_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
         );
         env::set_var(
-            "TEABAY_SERVICE_VERSION_ID",
+            "FLAGON_SERVICE_VERSION_ID",
             "did-web-document-version-fixture",
         );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
-        env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
+        env::set_var("FLAGON_DEVELOPMENT_MODE", "true");
     }
 
     let config = server::AppConfig::from_env().expect("config builds");
@@ -97,19 +97,19 @@ fn hardening_status_shape_matches_cross_service_contract() {
     let _guard = ENV_LOCK.lock().expect("env lock");
 
     unsafe {
-        env::set_var("TEABAY_BIND", "127.0.0.1:0");
-        env::set_var("TEABAY_SERVICE_DID", "did:web:directory.test");
+        env::set_var("FLAGON_BIND", "127.0.0.1:0");
+        env::set_var("FLAGON_SERVICE_DID", "did:web:directory.test");
         env::set_var(
-            "TEABAY_SERVICE_METHOD_HISTORY_HEAD",
+            "FLAGON_SERVICE_METHOD_HISTORY_HEAD",
             "did-web-document-etag-fixture",
         );
         env::set_var(
-            "TEABAY_SERVICE_VERSION_ID",
+            "FLAGON_SERVICE_VERSION_ID",
             "did-web-document-version-fixture",
         );
         env::set_var("DATABASE_URL", "postgres://localhost/__not_used__");
-        env::set_var("TEABAY_DEVELOPMENT_MODE", "true");
-        env::remove_var("TEABAY_ADMIN_TOKEN");
+        env::set_var("FLAGON_DEVELOPMENT_MODE", "true");
+        env::remove_var("FLAGON_ADMIN_TOKEN");
     }
     let config = server::AppConfig::from_env().expect("config builds");
     // The hardening status function is exercised via the `/health`
@@ -122,13 +122,13 @@ fn hardening_status_shape_matches_cross_service_contract() {
     // Now flip to production posture and ensure the config-level
     // signals required by `hardening_status` are present. P5 — CSRF is
     // now required in production mode, so we must also set
-    // TEABAY_ADMIN_CSRF_TOKEN.
+    // FLAGON_ADMIN_CSRF_TOKEN.
     unsafe {
-        env::set_var("TEABAY_DEVELOPMENT_MODE", "false");
+        env::set_var("FLAGON_DEVELOPMENT_MODE", "false");
         // Static admin bearer is development-only; production ignores it.
-        env::set_var("TEABAY_ADMIN_TOKEN", "prod-admin-token-32bytes-or-more");
-        env::set_var("TEABAY_ADMIN_CSRF_TOKEN", "prod-csrf-token-32bytes-or-more");
-        env::set_var("TEABAY_CORS_ALLOW_ORIGIN", "https://app.example.com");
+        env::set_var("FLAGON_ADMIN_TOKEN", "prod-admin-token-32bytes-or-more");
+        env::set_var("FLAGON_ADMIN_CSRF_TOKEN", "prod-csrf-token-32bytes-or-more");
+        env::set_var("FLAGON_CORS_ALLOW_ORIGIN", "https://app.example.com");
     }
     let prod_config = server::AppConfig::from_env().expect("prod config builds");
     assert!(!prod_config.development_mode);

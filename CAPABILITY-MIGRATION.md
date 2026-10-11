@@ -2,7 +2,7 @@
 
 Baseline: `4936e76..c42a26c` (the read-only Directory clean break).
 
-Teabay is now a read-only public Realm Directory. It is not a Realm authority,
+Flagon is now a read-only public Realm Directory. It is not a Realm authority,
 an ingest verifier, or an operator-controlled index writer. This ledger maps the
 former surfaces to either a current production path or an explicit retirement;
 it does not preserve compatibility routes.
@@ -36,7 +36,7 @@ The server has no production route or worker that inserts
 empty, and the Docker isolation test asserts empty search/resolve results. The
 read endpoints are reachable and their projection is tested, but this repository
 does **not** yet prove a positive end-to-end result on a fresh deployment. Do not
-describe Teabay as providing populated public discovery until a formal,
+describe Flagon as providing populated public discovery until a formal,
 non-Directory-authoritative population mechanism and a positive live test exist.
 
 Likewise, current routes do not append audit rows; the audit API verifies and

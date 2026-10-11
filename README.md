@@ -21,7 +21,7 @@ protocol and remain unknown to this service.
   service description and its exact supported profile and operation bundles.
 - `POST /_arkret/find/directory/search-realms` and `resolve-realm`:
   public Realm metadata reads. With a fresh database they return no results.
-- `GET /_teabay/admin/audit` and `audit/verify`: authenticated, read-only
+- `GET /_flagon/admin/audit` and `audit/verify`: authenticated, read-only
   operator audit feed and digest-chain verification.
 - `GET /health`, `/readyz`, and the separate metrics listener `/metrics`.
 - `GET /.well-known/arkret/openapi.{json,yaml}` for the mounted HTTP surface.
@@ -32,8 +32,8 @@ non-Realm query route is mounted.
 ## Local setup
 
 Install Rust and PostgreSQL, copy `.env.example` to `.env`, and set
-`DATABASE_URL`, `TEABAY_SERVICE_DID`, plus operator-verified
-`TEABAY_SERVICE_METHOD_HISTORY_HEAD` and `TEABAY_SERVICE_VERSION_ID`. These
+`DATABASE_URL`, `FLAGON_SERVICE_DID`, plus operator-verified
+`FLAGON_SERVICE_METHOD_HISTORY_HEAD` and `FLAGON_SERVICE_VERSION_ID`. These
 commitments must not be guessed from the DID text. The fresh-install squash
 migration is auto-applied at startup.
 
@@ -44,15 +44,15 @@ cargo run -p server
 For a local PostgreSQL container, set the required service identity variables
 and run `scripts/dev-up.sh`. The Dioxus operator audit console can be started
 from `crates/admin/` with `dx serve --platform web --port 8080`. A static
-`TEABAY_ADMIN_TOKEN` is development-only; production audit access uses an
+`FLAGON_ADMIN_TOKEN` is development-only; production audit access uses an
 active rotating HMAC key from `admin_tokens` and requires the configured admin
 CSRF token.
 
 ## Validation
 
 ```bash
-createdb teabay_test
-export TEABAY_TEST_DATABASE_URL=postgres://localhost/teabay_test
+createdb flagon_test
+export FLAGON_TEST_DATABASE_URL=postgres://localhost/flagon_test
 cargo check --all-targets
 cargo test --workspace
 ```
@@ -60,7 +60,7 @@ cargo test --workspace
 Use a dedicated empty PostgreSQL database, separate from the service runtime.
 The ordinary schema test applies the current migrations and verifies that
 only the empty public Realm index, operator audit, admin credentials, and
-Diesel's migration ledger are present. Missing `TEABAY_TEST_DATABASE_URL` fails
+Diesel's migration ledger are present. Missing `FLAGON_TEST_DATABASE_URL` fails
 explicitly; the test is not skipped and requires no Docker daemon.
 
 ## Implementation
@@ -68,7 +68,7 @@ explicitly; the test is not skipped and requires no Docker daemon.
 `crates/server` contains the Salvo read service, PostgreSQL migration, and
 audit-chain verifier; `crates/contracts` contains only audit admin DTOs;
 `crates/admin` is the audit-only Dioxus console. Prometheus on
-`TEABAY_METRICS_BIND` reports the mounted Realm query operations. The index
+`FLAGON_METRICS_BIND` reports the mounted Realm query operations. The index
 can be populated only through deployment-private maintenance that is not an
 Arkret interoperability surface and is never advertised by ServiceDescribe.
 

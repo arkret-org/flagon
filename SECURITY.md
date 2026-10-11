@@ -5,7 +5,7 @@ publish credentials, private keys, production Realm identifiers, or exploit
 details. Include the affected commit, endpoint, reproduction, expected
 impact, and redacted logs.
 
-Teabay is pre-1.0; security fixes target active `main` unless a release owner
+Flagon is pre-1.0; security fixes target active `main` unless a release owner
 names another supported branch.
 
 The D2 candidate is read-only. `announce` and `withdraw` have no mounted
@@ -19,4 +19,4 @@ Realm query anti-enumeration and rate limits, production admin rotating-HMAC
 authentication, the audit digest chain, database credentials, and strict
 separation between the public index and operator audit data. Production
 should use TLS at the reverse proxy, explicit trusted CORS origins, protected
-secret injection, and `TEABAY_DEVELOPMENT_MODE=false`.
+secret injection, and `FLAGON_DEVELOPMENT_MODE=false`.

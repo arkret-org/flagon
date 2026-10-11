@@ -15,7 +15,7 @@ use crate::query;
 use crate::state::AppState;
 
 #[derive(Clone)]
-pub struct TeabayOpenApiDoc(pub serde_json::Value);
+pub struct FlagonOpenApiDoc(pub serde_json::Value);
 
 pub fn router(state: AppState) -> Router {
     let cors_origin = state.config().cors_allow_origin.clone();
@@ -39,12 +39,12 @@ pub fn router(state: AppState) -> Router {
         .push(admin)
         .push(
             Router::with_path(".well-known/arkret/openapi.json")
-                .hoop(affix_state::inject(TeabayOpenApiDoc(doc.clone())))
+                .hoop(affix_state::inject(FlagonOpenApiDoc(doc.clone())))
                 .get(openapi_json),
         )
         .push(
             Router::with_path(".well-known/arkret/openapi.yaml")
-                .hoop(affix_state::inject(TeabayOpenApiDoc(doc)))
+                .hoop(affix_state::inject(FlagonOpenApiDoc(doc)))
                 .get(openapi_yaml),
         )
         .push(
@@ -72,7 +72,7 @@ pub fn metrics_service(state: AppState) -> Service {
 }
 
 fn admin_router() -> Router {
-    Router::with_path("_teabay/admin")
+    Router::with_path("_flagon/admin")
         .hoop(crate::middleware::AdminAuthHoop)
         .push(Router::with_path("audit").get(query::admin::audit_feed))
         .push(Router::with_path("audit/verify").get(query::admin::audit_chain_verify))
@@ -149,7 +149,7 @@ async fn operation_selector_middleware(
 #[handler]
 async fn health(depot: &mut Depot, res: &mut Response) {
     let hardening = match depot.get_typed::<AppState>() {
-        Ok(state) => teabay_hardening_status(state.config()),
+        Ok(state) => flagon_hardening_status(state.config()),
         Err(_) => default_hardening_status(),
     };
     res.render(Json(json!({
@@ -206,26 +206,26 @@ async fn metrics(depot: &mut Depot, res: &mut Response) {
     // and a separately-tracked counter.
     let pool = state.db().pool_stats();
     body.push_str(
-        "# HELP teabay_db_pool_connections Total connections currently held by the r2d2 pool.\n",
+        "# HELP flagon_db_pool_connections Total connections currently held by the r2d2 pool.\n",
     );
-    body.push_str("# TYPE teabay_db_pool_connections gauge\n");
+    body.push_str("# TYPE flagon_db_pool_connections gauge\n");
     body.push_str(&format!(
-        "teabay_db_pool_connections {}\n",
+        "flagon_db_pool_connections {}\n",
         pool.connections
     ));
-    body.push_str("# HELP teabay_db_pool_idle Idle connections waiting for a checkout.\n");
-    body.push_str("# TYPE teabay_db_pool_idle gauge\n");
-    body.push_str(&format!("teabay_db_pool_idle {}\n", pool.idle));
+    body.push_str("# HELP flagon_db_pool_idle Idle connections waiting for a checkout.\n");
+    body.push_str("# TYPE flagon_db_pool_idle gauge\n");
+    body.push_str(&format!("flagon_db_pool_idle {}\n", pool.idle));
     body.push_str(
-        "# HELP teabay_db_pool_in_use Connections currently checked out (connections - idle).\n",
+        "# HELP flagon_db_pool_in_use Connections currently checked out (connections - idle).\n",
     );
-    body.push_str("# TYPE teabay_db_pool_in_use gauge\n");
-    body.push_str(&format!("teabay_db_pool_in_use {}\n", pool.in_use));
+    body.push_str("# TYPE flagon_db_pool_in_use gauge\n");
+    body.push_str(&format!("flagon_db_pool_in_use {}\n", pool.in_use));
     body.push_str(
-        "# HELP teabay_db_pool_max_size Pool max_size configured at boot (TEABAY_DB_POOL_MAX_SIZE).\n",
+        "# HELP flagon_db_pool_max_size Pool max_size configured at boot (FLAGON_DB_POOL_MAX_SIZE).\n",
     );
-    body.push_str("# TYPE teabay_db_pool_max_size gauge\n");
-    body.push_str(&format!("teabay_db_pool_max_size {}\n", pool.max_size));
+    body.push_str("# TYPE flagon_db_pool_max_size gauge\n");
+    body.push_str(&format!("flagon_db_pool_max_size {}\n", pool.max_size));
     res.headers_mut().insert(
         header::CONTENT_TYPE,
         "text/plain; version=0.0.4; charset=utf-8".parse().unwrap(),
@@ -251,8 +251,8 @@ async fn database_ready(state: &AppState) -> Result<(), String> {
 /// T8.3 — derive a non-sensitive production hardening snapshot from
 /// the live config. Every field is environment-detected (no operator
 /// hand-holding); the JSON shape matches the cross-service contract
-/// soland / starid / coauth / floria all use.
-fn teabay_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value {
+/// coland / starid / coauth / floria all use.
+fn flagon_hardening_status(cfg: &crate::config::AppConfig) -> serde_json::Value {
     let development_mode = cfg.development_mode;
     // TLS is terminated outside this process; a read-only Directory cannot
     // infer the reverse proxy's posture from retired ingest configuration.
@@ -352,7 +352,7 @@ fn default_hardening_status() -> serde_json::Value {
 
 #[handler]
 async fn openapi_json(depot: &mut Depot, res: &mut Response) {
-    let doc = match depot.get_typed::<TeabayOpenApiDoc>() {
+    let doc = match depot.get_typed::<FlagonOpenApiDoc>() {
         Ok(doc) => doc,
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "OpenAPI document not injected");
@@ -364,7 +364,7 @@ async fn openapi_json(depot: &mut Depot, res: &mut Response) {
 
 #[handler]
 async fn openapi_yaml(depot: &mut Depot, res: &mut Response) {
-    let doc = match depot.get_typed::<TeabayOpenApiDoc>() {
+    let doc = match depot.get_typed::<FlagonOpenApiDoc>() {
         Ok(doc) => doc,
         Err(_) => {
             ApiErrorCode::InternalError.render(res, "OpenAPI document not injected");
@@ -427,12 +427,12 @@ pub fn openapi(router: &Router) -> serde_json::Value {
         .add_extension("x-arkret-service-kind", json!("directory_service"))
         .add_extension("x-arkret-artifact-first", json!(true))
         .merge_router(router);
-    register_teabay_schemas(&mut doc);
-    register_teabay_operations(&mut doc);
+    register_flagon_schemas(&mut doc);
+    register_flagon_operations(&mut doc);
     product_openapi_document(&doc)
 }
 
-fn register_teabay_schemas(doc: &mut OpenApi) {
+fn register_flagon_schemas(doc: &mut OpenApi) {
     let schema = DirectoryRealmSearchOutcome::to_schema(&mut doc.components);
     doc.components
         .schemas
@@ -443,7 +443,7 @@ fn product_openapi_document(product_doc: &OpenApi) -> serde_json::Value {
     serde_json::to_value(product_doc).expect("product OpenAPI document must serialize")
 }
 
-fn register_teabay_operations(doc: &mut OpenApi) {
+fn register_flagon_operations(doc: &mut OpenApi) {
     let routes = [
         (
             "/health",
@@ -462,7 +462,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "PostgreSQL and background-worker readiness probe.",
         ),
         (
-            "/_teabay/admin/audit",
+            "/_flagon/admin/audit",
             PathItemType::Get,
             "org.arkret.flagon.admin.audit_feed",
             "admin",
@@ -470,7 +470,7 @@ fn register_teabay_operations(doc: &mut OpenApi) {
             "Return the append-only directory audit feed for operators.",
         ),
         (
-            "/_teabay/admin/audit/verify",
+            "/_flagon/admin/audit/verify",
             PathItemType::Get,
             "org.arkret.flagon.admin.audit_chain_verify",
             "admin",
@@ -630,7 +630,7 @@ mod tests {
         let doc = openapi(&Router::new());
         let yaml = serde_norway::to_string(&doc).expect("OpenAPI serializes");
 
-        assert!(!yaml.contains("/_teabay/handle/probe:"));
+        assert!(!yaml.contains("/_flagon/handle/probe:"));
         assert!(!yaml.contains("/_arkret/find/directory/search-users:"));
         assert!(!yaml.contains("/_arkret/find/directory/private-contact-discovery:"));
         assert!(!yaml.contains("/_arkret/find/directory/announce:"));

@@ -1,13 +1,13 @@
 # Operations
 
 `GET /health` reports process liveness; `GET /readyz` checks PostgreSQL
-readiness. Prometheus metrics are on the separate `TEABAY_METRICS_BIND`
+readiness. Prometheus metrics are on the separate `FLAGON_METRICS_BIND`
 listener (default `127.0.0.1:9095`) at `/metrics`. Only mounted Realm search
 and resolve latency series are emitted. The public index is intentionally
 empty in a fresh installation, so empty search/resolve is expected.
 
-For operator review, use `GET /_teabay/admin/audit` with a valid bearer token
-and `GET /_teabay/admin/audit/verify` to check the append-only digest chain.
+For operator review, use `GET /_flagon/admin/audit` with a valid bearer token
+and `GET /_flagon/admin/audit/verify` to check the append-only digest chain.
 The Dioxus console in `crates/admin` exposes only those two actions. Audit
 data is operational history and never a public discovery index.
 

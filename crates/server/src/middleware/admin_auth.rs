@@ -3,9 +3,9 @@
 //! Two credential forms are accepted, but the static bearer is limited
 //! to development mode:
 //!
-//! * **Development static bearer** — `Authorization: Bearer <TEABAY_ADMIN_TOKEN>`. Existing local
+//! * **Development static bearer** — `Authorization: Bearer <FLAGON_ADMIN_TOKEN>`. Existing local
 //!   operator scripts and the in-process conformance harness continue to work while
-//!   `TEABAY_DEVELOPMENT_MODE=true`; production rejects this long-lived credential shape.
+//!   `FLAGON_DEVELOPMENT_MODE=true`; production rejects this long-lived credential shape.
 //!
 //! * **Rotating HMAC** — `Authorization: Bearer hmac:<key_id>:<ts>:<mac_base64>`. The shared secret
 //!   is provisioned by row in `admin_tokens`. Clients compute `mac = HMAC_SHA256(secret,
@@ -62,13 +62,13 @@ impl AdminCredential {
     /// the key id for HMAC credentials and to a static literal for the
     /// development-only bearer (the static bearer is not pinned to a
     /// single operator identity).
-    pub fn authenticated_credential_id(&self) -> teabay_contracts::AuthenticatedCredentialId {
+    pub fn authenticated_credential_id(&self) -> flagon_contracts::AuthenticatedCredentialId {
         let value = match (self.method, self.key_id.as_deref()) {
             (AdminAuthMethod::RotatingHmac, Some(key_id)) => format!("admin:{key_id}"),
             (AdminAuthMethod::RotatingHmac, None) => "admin:unknown".to_owned(),
             (AdminAuthMethod::StaticBearer, _) => "admin:static-bearer".to_owned(),
         };
-        teabay_contracts::AuthenticatedCredentialId::new(value)
+        flagon_contracts::AuthenticatedCredentialId::new(value)
             .expect("static credential ids are valid")
     }
 }

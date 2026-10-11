@@ -28,7 +28,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Realm resolution DELEGATES** to the existing `resolve_realm` path (`crates/server/src/query/realm.rs::resolve_realm_visible`) so the canonical `realm_id`, `realm_preview`, `via_services`, and the hidden/withdrawn/unknown → blinded `not_found` collapse stay byte-for-byte identical.
 - **Token target binding** (scope-confusion defence): an `lt=invite` address carries an opaque `tok`; the token's embedded `target_descriptor` is compared against the address-derived descriptor via the SDK `verify_token_target` (`sha256:` digest over `realm_id` + `strand_id` + `message_id` + `address_link_kind` only — `via`/`action`/`tok`/`lt` are NOT in the digest). A token minted for object A cannot be replayed onto object B; alias realms are normalized to the canonical `ak:realm:<44-char-token>` before comparison. Any mismatch → the SAME blinded `not_found`.
 - Anti-enumeration: routed through the SAME latency floor + deterministic jitter + 50ms stochastic resolve jitter as `resolve-realm` / `resolve-handle`; unauthorized and nonexistent are byte- and timing-indistinguishable.
-- `/metrics`: `teabay_directory_query_total{op="resolve-target",outcome=...}` with a new `token_reject` outcome (metrics-only split from `not_found`); anti-enum pad histogram for the op. 6-case conformance suite (`tests/resolve_target.rs`): realm classification, invite-token scope-confusion replay reject, unknown keyword fail-closed, strand-missing-`via` fail-closed, invite-without-token reject.
+- `/metrics`: `flagon_directory_query_total{op="resolve-target",outcome=...}` with a new `token_reject` outcome (metrics-only split from `not_found`); anti-enum pad histogram for the op. 6-case conformance suite (`tests/resolve_target.rs`): realm classification, invite-token scope-confusion replay reject, unknown keyword fail-closed, strand-missing-`via` fail-closed, invite-without-token reject.
 - **Deferred `TODO(R3.3.1)`**: the per-object Strand / Message access-gate returns a deterministic `object_preview` placeholder (the enclosing Realm is fully resolved + visibility-gated). Invite tokens now perform target-digest binding, `exp`/`aud` checks, Ed25519 detached-JWS signature verification, and join-policy revocation lookup. Admin SPA "resolve target" diagnostic tab + docs section deferred.
 
 > No version tag, no crates.io / Docker Hub / npm publish — git commit only.
@@ -44,7 +44,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## R3 — Spec sync 2026-05-27 (arkret-spec @ b47ff6ec)
 
 - HDL-1: directory handle resolve enforces NFC + UTS#39 confusable skeleton + script-mixed reject for both query and ingest-announce paths; emits `handle_homograph_forbidden`.
-- WK-1: `POST /_arkret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/arkret/handle` to product-private `GET /_teabay/handle/probe?localpart=<localpart>`.
+- WK-1: `POST /_arkret/find/directory/resolve-handle` stays on the spec Directory surface; the unsigned resolver/index probe moved off `/.well-known/arkret/handle` to product-private `GET /_flagon/handle/probe?localpart=<localpart>`.
 - REC-1: directory recovery-resource-pointer indexing validates against the `recovery-policy` / `recovery-receipt` schemas; not-used path stubbed.
 - SEL-1: directory query filter now accepts the `circle` selector kind (`ak:circle:<event-token>`).
 
@@ -57,7 +57,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `ServiceDescribe.service_id` is now the adapter-projected stable service
   core id and includes the required `service_resolution` commitment. Startup
   requires the current DID, verified method-history head, and method
-  version in every mode; Teabay never manufactures those values.
+  version in every mode; Flagon never manufactures those values.
 - The HTTP route is advertised only through
   `transport_bindings[kind=http_json].base_url`. Directory authorization,
   `via_services`, and member delivery bindings use service core ids; receipt
@@ -69,9 +69,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The existing initial schema now documents `directory_resources.via_services`
   as stable service core ids only. Admission rejects DIDs, URLs, and
   unknown pseudo-authorities before they can be persisted or used for routing.
-- Realm responses omit `join_candidates` while Teabay has only Principal
+- Realm responses omit `join_candidates` while Flagon has only Principal
   Server core ids. A candidate requires a fully verified
-  `ServiceResolutionCarrier`; Teabay does not fabricate one from its own
+  `ServiceResolutionCarrier`; Flagon does not fabricate one from its own
   commitment or derive a route from a target core id.
 
 ### circle-rollout · AKP-0007 enforcement (P2E, arkret-spec `2b0d70d`)
@@ -119,15 +119,15 @@ reduced to the spec preview/stub forms.
   `expires_at` instead of the pull worker's
   `next_revalidation_after` cadence.
 - **Added** Connection-pool tuning surface. New env vars
-  `TEABAY_DB_POOL_MAX_SIZE`, `TEABAY_DB_POOL_MIN_IDLE`,
-  `TEABAY_DB_POOL_CONNECTION_TIMEOUT_SECS`,
-  `TEABAY_DB_POOL_IDLE_TIMEOUT_SECS`; defaults documented in
+  `FLAGON_DB_POOL_MAX_SIZE`, `FLAGON_DB_POOL_MIN_IDLE`,
+  `FLAGON_DB_POOL_CONNECTION_TIMEOUT_SECS`,
+  `FLAGON_DB_POOL_IDLE_TIMEOUT_SECS`; defaults documented in
   `docs/scaling.md`. The Prometheus scrape gains four new gauges
-  (`teabay_db_pool_connections` / `_idle` / `_in_use` / `_max_size`)
+  (`flagon_db_pool_connections` / `_idle` / `_in_use` / `_max_size`)
   sourced directly from the live r2d2 pool — no risk of drift
   between a tracked counter and the actual state.
 - **Added** `docs/scaling.md` walks operators through sizing the pool
-  for a target QPS, the interplay with `TEABAY_RATE_LIMIT_PER_RESOURCE_PER_MIN`,
+  for a target QPS, the interplay with `FLAGON_RATE_LIMIT_PER_RESOURCE_PER_MIN`,
   the Postgres `max_connections` ceiling, and the recommended
   in_use/max_size > 0.8 alert.
 - **Note** Version stays at 0.1.0; no tag, no release this round.
@@ -145,7 +145,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   headers `Source-Trust-Domain` / `Destination-Trust-Domain` /
   `Request-Canonical-Digest` and folds them into the HTTP-message-signature
   transcript. Mismatch rejects as `cross_domain_replay_rejected`.
-- **Added** Federation idempotency cache adopts the soland `historical_only`
+- **Added** Federation idempotency cache adopts the coland `historical_only`
   semantics: post-key-revoke cache hits return the cached body with
   diagnostic `reason_code=historical_only`, with capability re-check, no
   new side effects.
@@ -175,7 +175,7 @@ surface. See [`../_todos.md`](../_todos.md) for the workstream context.
   `historical_only`) so the audit trail captures the full cache key.
 - **T17 — `consent_revoke{scope=any}` directory reachability
   invalidation.** New admin endpoint `POST /api/admin/v1/consent-revoke`
-  (bearer-auth) takes a `consent_revoke` broadcast from soland and
+  (bearer-auth) takes a `consent_revoke` broadcast from coland and
   **soft-deletes** affected `directory_resources` rows via the new
   `reachability_revoked_at` / `reachability_revoked_reason` columns —
   audit-preserving UPDATE, never DELETE. Search face hides revoked rows;

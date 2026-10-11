@@ -15,11 +15,11 @@ use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, RunQueryDsl};
-use serde_json::{Value as JsonValue, json};
-use sha2::{Digest, Sha256};
-use teabay_contracts::{
+use flagon_contracts::{
     AuditChainVerificationFailure, AuditChainVerificationOutcome, AuthenticatedCredentialId,
 };
+use serde_json::{Value as JsonValue, json};
+use sha2::{Digest, Sha256};
 
 use crate::db::Db;
 use crate::schema::directory_audit;
@@ -50,10 +50,10 @@ crate::db_enum::impl_pg_enum!(
     { DirectoryResourceKindDb::Realm => "realm" }
 );
 
-impl From<teabay_contracts::DirectoryResourceKind> for DirectoryResourceKindDb {
-    fn from(value: teabay_contracts::DirectoryResourceKind) -> Self {
+impl From<flagon_contracts::DirectoryResourceKind> for DirectoryResourceKindDb {
+    fn from(value: flagon_contracts::DirectoryResourceKind) -> Self {
         match value {
-            teabay_contracts::DirectoryResourceKind::Realm => Self::Realm,
+            flagon_contracts::DirectoryResourceKind::Realm => Self::Realm,
         }
     }
 }
@@ -72,7 +72,7 @@ pub enum AuditEventKind {
     AdminResourceUpserted,
     AdminResourceDeleted,
     ExpiryPurged,
-    /// soland broadcast a `consent_revoke{scope=any}` and the directory
+    /// coland broadcast a `consent_revoke{scope=any}` and the directory
     /// invalidated the actor's reachability projection.
     ConsentRevokeInvalidation,
     /// A `ak.realm.destroy` anchor was observed; the row was flipped to its

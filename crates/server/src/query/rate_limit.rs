@@ -3,12 +3,12 @@
 //! Runs in front of the public Realm reads and caps per-IP queries and
 //! per-Realm or search-needle probes.
 //!
-//! Both limits are configured via `TEABAY_QUERY_MAX_QUERIES_PER_IP_PER_MIN`
-//! and `TEABAY_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`. A value of `0`
+//! Both limits are configured via `FLAGON_QUERY_MAX_QUERIES_PER_IP_PER_MIN`
+//! and `FLAGON_QUERY_MAX_RESOLVES_PER_RESOURCE_PER_MIN`. A value of `0`
 //! disables that particular check, which is useful for the in-process
 //! conformance harness.
 //!
-//! P5 — IP resolution honours `TEABAY_TRUSTED_PROXY`: when the direct
+//! P5 — IP resolution honours `FLAGON_TRUSTED_PROXY`: when the direct
 //! `remote_addr()` is in the trusted-proxy allowlist we use the leading
 //! `X-Forwarded-For` value; otherwise we ignore the header so a
 //! spoofed value cannot poison the per-IP bucket.
@@ -74,7 +74,7 @@ pub fn enforce_search_needle_rate_limit(
 
 /// Resolve the client IP for rate-limit bucketing. Trusts the leading
 /// `X-Forwarded-For` value only when the direct `remote_addr` is in the
-/// `TEABAY_TRUSTED_PROXY` allowlist.
+/// `FLAGON_TRUSTED_PROXY` allowlist.
 pub(crate) fn resolve_client_ip(req: &Request, state: &AppState) -> String {
     let direct_ip = req.remote_addr().ip();
     let remote = direct_ip

@@ -5,19 +5,19 @@ not enroll any Realm or populate a fresh index. Do not import old
 `directory_resources` rows: their Station authority and opt-in were not
 verified against the current governance contract.
 
-Set `DATABASE_URL`, `TEABAY_SERVICE_DID`, and the operator-verified
-`TEABAY_SERVICE_METHOD_HISTORY_HEAD` and `TEABAY_SERVICE_VERSION_ID`.
-Production should set `TEABAY_TRUST_DOMAIN` explicitly and
-`TEABAY_DEVELOPMENT_MODE=false`. See `.env.example` for the supported
+Set `DATABASE_URL`, `FLAGON_SERVICE_DID`, and the operator-verified
+`FLAGON_SERVICE_METHOD_HISTORY_HEAD` and `FLAGON_SERVICE_VERSION_ID`.
+Production should set `FLAGON_TRUST_DOMAIN` explicitly and
+`FLAGON_DEVELOPMENT_MODE=false`. See `.env.example` for the supported
 listener, CORS, connection-pool, and Realm query-rate-limit knobs. The
 fresh-install squash migration is applied at startup. Treat schema replacement
 as a development clean break, not as a production migration plan; recover an
 existing production database from a reviewed backup and migration procedure.
 
-`/_teabay/admin/audit` and `audit/verify` require admin authentication.
-`TEABAY_ADMIN_TOKEN` is honored only when development mode is true. Production
+`/_flagon/admin/audit` and `audit/verify` require admin authentication.
+`FLAGON_ADMIN_TOKEN` is honored only when development mode is true. Production
 uses an active rotating HMAC credential from `admin_tokens` and requires
-`TEABAY_ADMIN_CSRF_TOKEN` at startup. Serve the API behind TLS and restrict
+`FLAGON_ADMIN_CSRF_TOKEN` at startup. Serve the API behind TLS and restrict
 browser CORS to trusted origins.
 
 Validate the release before exposure:

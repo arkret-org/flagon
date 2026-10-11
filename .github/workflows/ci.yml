@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  TEABAY_TEST_POSTGRES_TAG: 16-alpine
+  FLAGON_TEST_POSTGRES_TAG: 16-alpine
 
 jobs:
   rust:
@@ -21,16 +21,16 @@ jobs:
         env:
           POSTGRES_USER: flagon
           POSTGRES_PASSWORD: flagon
-          POSTGRES_DB: teabay_ci
+          POSTGRES_DB: flagon_ci
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U flagon -d teabay_ci"
+          --health-cmd "pg_isready -U flagon -d flagon_ci"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      TEABAY_TEST_DATABASE_URL: postgres://flagon:flagon@localhost:5432/teabay_ci
+      FLAGON_TEST_DATABASE_URL: postgres://flagon:flagon@localhost:5432/flagon_ci
       CARGO_INCREMENTAL: "0"
     defaults:
       run:
@@ -178,18 +178,18 @@ jobs:
           docker network create flagon-ci-net
           docker run --detach --name flagon-ci-postgres --network flagon-ci-net \
             --env POSTGRES_USER=flagon --env POSTGRES_PASSWORD=flagon \
-            --env POSTGRES_DB=teabay_ci postgres:16-alpine
+            --env POSTGRES_DB=flagon_ci postgres:16-alpine
           for attempt in $(seq 1 30); do
             if docker exec flagon-ci-postgres pg_isready --username=flagon; then break; fi
             sleep 1
           done
           docker run --detach --name flagon-ci-server --network flagon-ci-net \
             --health-interval=1s --health-start-period=1s \
-            --env DATABASE_URL=postgres://flagon:flagon@flagon-ci-postgres:5432/teabay_ci \
-            --env TEABAY_SERVICE_DID=did:web:flagon.example \
-            --env TEABAY_SERVICE_METHOD_HISTORY_HEAD=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
-            --env TEABAY_SERVICE_VERSION_ID=1-ci-version \
-            --env TEABAY_ADMIN_CSRF_TOKEN=ci-csrf-token flagon-server:ci
+            --env DATABASE_URL=postgres://flagon:flagon@flagon-ci-postgres:5432/flagon_ci \
+            --env FLAGON_SERVICE_DID=did:web:flagon.example \
+            --env FLAGON_SERVICE_METHOD_HISTORY_HEAD=sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+            --env FLAGON_SERVICE_VERSION_ID=1-ci-version \
+            --env FLAGON_ADMIN_CSRF_TOKEN=ci-csrf-token flagon-server:ci
           healthy=false
           for attempt in $(seq 1 30); do
             if [ "$(docker inspect --format '{{.State.Health.Status}}' flagon-ci-server)" = healthy ]; then

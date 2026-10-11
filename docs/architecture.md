@@ -1,6 +1,6 @@
 # Read-only Directory architecture
 
-Teabay is a rebuildable public Realm metadata discovery hint. A centrally
+Flagon is a rebuildable public Realm metadata discovery hint. A centrally
 governing Station, not the Directory, is authoritative for Realm governance,
 membership, history, capabilities, and join. Directory results cannot prove
 current governance or opt-in.
