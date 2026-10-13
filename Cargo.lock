@@ -15,10 +15,10 @@ dependencies = [
  "chrono",
  "dioxus",
  "dioxus-free-icons",
+ "flagon-contracts",
  "gloo-net 0.7.0",
  "serde",
  "serde_json",
- "flagon-contracts",
 ]
 
 [[package]]
@@ -5153,6 +5153,7 @@ dependencies = [
  "diesel_migrations",
  "dotenvy",
  "ed25519-dalek",
+ "flagon-contracts",
  "hmac 0.13.0",
  "rand 0.10.2",
  "reqwest 0.13.4",
@@ -5161,7 +5162,6 @@ dependencies = [
  "serde_json",
  "serde_norway",
  "sha2 0.11.0",
- "flagon-contracts",
  "tokio",
  "tracing",
  "tracing-subscriber",

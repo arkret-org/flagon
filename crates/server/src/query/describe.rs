@@ -22,8 +22,8 @@ use crate::config::AppConfig;
 use crate::state::AppState;
 
 pub(crate) const SUPPORTED_OPERATION_BUNDLES: &[&str] = &[
-    "ak.operation_bundle.directory_service.describe.v1",
-    "ak.operation_bundle.directory_service.public_read.v1",
+    arkret_wire::OperationBundleDescriptor::DIRECTORY_SERVICE_DESCRIBE_V1,
+    arkret_wire::OperationBundleDescriptor::DIRECTORY_SERVICE_PUBLIC_READ_V1,
 ];
 pub(crate) fn supports_http_operation(operation: arkret_wire::ServiceOperationId) -> bool {
     SUPPORTED_OPERATION_BUNDLES
@@ -68,7 +68,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     // The current-v1 Directory profile is itself read-only. Advertising it
     // does not imply third-party verification; that stronger evidence belongs
     // exclusively in `verified_profiles`.
-    let supported_profiles = vec!["ak.profile.directory_service.v1".to_owned()];
+    let supported_profiles = vec![arkret_wire::ProfileId::DIRECTORY_SERVICE_V1.to_owned()];
     let supported_operation_bundles = SUPPORTED_OPERATION_BUNDLES
         .iter()
         .copied()

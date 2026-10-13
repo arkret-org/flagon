@@ -480,7 +480,7 @@ fn register_flagon_operations(doc: &mut OpenApi) {
         (
             "/_arkret/describe",
             PathItemType::Get,
-            "ak.server.read.describe.v1",
+            arkret_wire::ServiceOperationId::SERVER_READ_DESCRIBE_V1,
             "directory",
             "Describe Directory Service Role",
             "Expose the role-local Directory Service capability document.",
@@ -488,7 +488,7 @@ fn register_flagon_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/describe",
             PathItemType::Get,
-            "ak.find.directory.read.describe.v1",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_DESCRIBE_V1,
             "directory",
             "Describe Directory Service",
             "Advertise the public Realm metadata index and supported operations.",
@@ -496,7 +496,7 @@ fn register_flagon_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/search-realms",
             PathItemType::Post,
-            "ak.find.directory.read.search_realms.v1",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_SEARCH_REALMS_V1,
             "query",
             "Search Realms",
             "Return unexpired public Realm metadata entries.",
@@ -504,7 +504,7 @@ fn register_flagon_operations(doc: &mut OpenApi) {
         (
             "/_arkret/find/directory/resolve-realm",
             PathItemType::Post,
-            "ak.find.directory.read.resolve_realm.v1",
+            arkret_wire::ServiceOperationId::FIND_DIRECTORY_READ_RESOLVE_REALM_V1,
             "query",
             "Resolve Realm",
             "Resolve an unexpired public Realm metadata entry by Realm ID.",
@@ -568,7 +568,7 @@ mod tests {
         let unknown = TestClient::get("http://local/_arkret/find/directory/describe")
             .add_header(
                 "Arkret-Operation",
-                "ak.find.directory.read.describe.v9",
+                "ak.find.directory.read.unregistered_describe.v1",
                 true,
             )
             .send(&service)
