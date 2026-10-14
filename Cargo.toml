@@ -55,7 +55,7 @@ hmac = "0.13.0"
 rand = "0.10.2"
 rand_09 = { package = "rand", version = "0.9.5" }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
-salvo = { version = "=0.96.0", default-features = false, features = ["affix-state", "cors", "fix-http1-request-uri", "http1", "http2", "matched-path", "oapi", "rfc9457", "server", "server-handle"] }
+salvo = { version = "=1.0.1", default-features = false, features = ["affix-state", "cors", "fix-http1-request-uri", "http1", "http2", "matched-path", "oapi", "rfc9457", "server", "server-handle"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 serde_norway = "0.9"
