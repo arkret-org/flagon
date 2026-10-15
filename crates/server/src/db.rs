@@ -1,9 +1,9 @@
 //! diesel-async + deadpool connection pool, and the boot-time migration runner.
 
-use diesel_async::AsyncPgConnection;
 use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::pooled_connection::deadpool::{Object, Pool};
+use diesel_async::{AsyncPgConnection, SimpleAsyncConnection};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
 use crate::config::DbPoolConfig;
@@ -35,9 +35,16 @@ impl Db {
             .max_size(pool.max_size as usize)
             .timeouts(deadpool::managed::Timeouts {
                 wait: Some(pool.connection_timeout),
-                ..Default::default()
+                create: Some(pool.connection_timeout),
+                recycle: Some(pool.connection_timeout),
             })
             .runtime(deadpool::Runtime::Tokio1)
+            .post_create(diesel_async::pooled_connection::deadpool::Hook::async_fn(|conn: &mut AsyncPgConnection, _| Box::pin(async move {
+                tokio::time::timeout(std::time::Duration::from_secs(5), conn.batch_execute("SET statement_timeout = '30s'; SET lock_timeout = '5s'; SET idle_in_transaction_session_timeout = '60s';"))
+                    .await.map_err(|_| diesel_async::pooled_connection::deadpool::HookError::Message("database session setup timed out".into()))?
+                    .map_err(|error| diesel_async::pooled_connection::deadpool::HookError::Backend(diesel_async::pooled_connection::PoolError::QueryError(error)))?;
+                Ok(())
+            })))
             .build()
             .map_err(|e| anyhow::anyhow!("connect to {database_url}: {e}"))?;
         Ok(Self { pool })
@@ -64,10 +71,16 @@ impl Db {
     }
 
     pub async fn get(&self) -> anyhow::Result<PgPooledConnection> {
-        self.pool
-            .get()
-            .await
-            .map_err(|e| anyhow::anyhow!("acquire pg conn: {e}"))
+        tokio::time::timeout(
+            self.pool
+                .timeouts()
+                .wait
+                .unwrap_or(std::time::Duration::from_secs(5)),
+            self.pool.get(),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("database checkout timed out"))?
+        .map_err(|e| anyhow::anyhow!("acquire pg conn: {e}"))
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -96,4 +109,49 @@ pub struct DbPoolStats {
     pub idle: u32,
     pub in_use: u32,
     pub max_size: u32,
+}
+
+#[cfg(test)]
+mod wait_bound_tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn pool_exhaustion_and_unanswered_handshake_finish() {
+        let url =
+            std::env::var("FLAGON_TEST_DATABASE_URL").expect("isolated test database required");
+        let config = DbPoolConfig {
+            max_size: 1,
+            connection_timeout: Duration::from_millis(200),
+        };
+        let db = Db::connect_with(&url, &config).unwrap();
+        let held = db.get().await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), db.get())
+                .await
+                .unwrap()
+                .is_err()
+        );
+        drop(held);
+        assert!(db.get().await.is_ok());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let blackhole = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let db = Db::connect_with(
+            &format!("postgres://postgres@{address}/test?sslmode=disable"),
+            &config,
+        )
+        .unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), db.get())
+                .await
+                .unwrap()
+                .is_err()
+        );
+        blackhole.abort();
+    }
 }
