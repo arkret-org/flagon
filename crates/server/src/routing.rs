@@ -240,12 +240,16 @@ async fn metrics_not_found(res: &mut Response) {
 }
 
 async fn database_ready(state: &AppState) -> Result<(), String> {
-    let mut conn = state.db().get().await.map_err(|error| error.to_string())?;
-    diesel::sql_query("SELECT 1")
-        .execute(&mut *conn)
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut conn = state.db().get().await.map_err(|error| error.to_string())?;
+        diesel::sql_query("SELECT 1")
+            .execute(&mut *conn)
+            .await
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|_| "database readiness timed out".to_owned())?
 }
 
 /// T8.3 — derive a non-sensitive production hardening snapshot from
