@@ -143,7 +143,6 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         auth_metadata,
         limits,
         plaintext_visibility,
-        privacy_derivation: None,
         verified_profiles,
         interop_surfaces,
         invite_addressing: None,
@@ -307,7 +306,6 @@ mod tests {
             limits: ServerLimits::default(),
             egress_network_policy: None,
             plaintext_visibility: PlaintextVisibility::none(),
-            privacy_derivation: None,
             receive_policy_constraints: None,
             verified_profiles: vec![VerifiedProfileEntry {
                 profile_id: "ak.profile.directory_service.v1".to_owned(),
