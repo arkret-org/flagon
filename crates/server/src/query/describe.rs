@@ -255,6 +255,7 @@ mod tests {
         assert!(value.get("claimed_profiles").is_none());
         assert!(value.get("rate_limits").is_none());
         assert!(value.get("accept_policy_kind").is_none());
+        assert!(value.get("privacy_derivation").is_none());
         assert_eq!(
             value["transport_bindings"][0]["base_url"],
             "http://directory.test"
