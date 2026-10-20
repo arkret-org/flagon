@@ -1,5 +1,6 @@
 [package]
 name = "server"
+default-run = "server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +12,10 @@ readme.workspace = true
 keywords = ["arkret", "directory", "discovery", "salvo", "diesel"]
 categories = ["network-programming", "web-programming::http-server"]
 authors.workspace = true
+
+[[bin]]
+name = "flagon-index"
+path = "src/bin/flagon-index.rs"
 
 [package.metadata.cargo-machete]
 # Enables Diesel SQL traits for identifier types re-exported through arkret-sdk.

@@ -5,7 +5,8 @@ deliberately read-only: it advertises the read-only Directory profile and the
 `ak.operation_bundle.directory_service.public_read.v1` three-operation bundle
 (`describe`, `search_realms`, `resolve_realm`). There is no Directory HTTP-core
 write bundle. The public index starts empty. Older, unverified rows are never
-migrated or exposed.
+migrated or exposed. Use the local `flagon-index` process to confirm and load
+public metadata; see [operations](docs/operations.md).
 
 The Directory is a rebuildable discovery hint, not a source of membership,
 join, history, capability, or current-governance authority. The centrally

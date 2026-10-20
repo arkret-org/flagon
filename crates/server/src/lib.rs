@@ -10,6 +10,8 @@ pub mod config;
 pub mod db;
 mod db_enum;
 pub mod error;
+/// Deployment-local process API; never mounted as an HTTP or Arkret operation.
+pub mod index_maintenance;
 pub mod middleware;
 pub mod observability;
 pub mod query;

@@ -1,6 +1,6 @@
 -- Squashed fresh-install schema for the read-only Realm Directory.
--- The public index starts empty. There is no current write-admission path:
--- legacy source-ref rows must never be imported into this table.
+-- The public index starts empty. Only explicit local maintenance confirms
+-- public metadata; legacy source-ref rows must never be imported.
 
 CREATE TYPE resource_kind AS ENUM ('realm');
 
@@ -28,10 +28,14 @@ CREATE TABLE directory_public_realm_entries (
     public_metadata JSONB NOT NULL,
     indexed_at TIMESTAMPTZ NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
+    confirmed_public_at TIMESTAMPTZ,
+    removed_at TIMESTAMPTZ,
     CONSTRAINT directory_public_realm_metadata_object
         CHECK (jsonb_typeof(public_metadata) = 'object'),
     CONSTRAINT directory_public_realm_expiry_after_index
-        CHECK (expires_at > indexed_at)
+        CHECK (expires_at > indexed_at),
+    CONSTRAINT directory_public_confirmation_before_index
+        CHECK (confirmed_public_at IS NULL OR confirmed_public_at <= indexed_at)
 );
 
 CREATE TABLE admin_tokens (

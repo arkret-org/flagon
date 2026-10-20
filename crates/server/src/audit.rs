@@ -1,9 +1,9 @@
 //! Append-only operator-readable audit log.
 //!
-//! Operational audit history is separate from the public Realm index. In the
-//! The read-only service has no ingest, revalidation, withdrawal, or direct
-//! admin mutation route writes a new row. The historical event vocabulary is
-//! retained only so existing audit rows remain readable and verifiable.
+//! Operational audit history is separate from the public Realm index.
+//! The local index maintenance process appends on the same transaction as
+//! its mutation; HTTP remains audit-read-only. Historical event vocabulary
+//! remains readable and verifiable.
 //!
 //! A.8.5 — every row carries a SHA-256 chained digest computed over the
 //! canonical row plus the previous row's digest, so a tamper of any
@@ -14,7 +14,7 @@
 use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use flagon_contracts::{
     AuditChainVerificationFailure, AuditChainVerificationOutcome, AuthenticatedCredentialId,
 };
@@ -187,53 +187,81 @@ pub async fn record_with_identity(
     detail: JsonValue,
     identity: ActorIdentity<'_>,
 ) -> anyhow::Result<()> {
-    let actor_id = actor_id.map(DidCoreId::new).transpose()?;
     let mut conn = db.get().await?;
     conn.transaction::<_, anyhow::Error, _>(async move |conn| {
-        diesel::sql_query("SELECT pg_advisory_xact_lock(1952805748, 1635018092)")
-            .execute(&mut *conn)
-            .await?;
-        let prev_digest: Option<Vec<u8>> = directory_audit::table
-            .order(directory_audit::audit_id.desc())
-            .select(directory_audit::audit_digest)
-            .first::<Option<Vec<u8>>>(&mut *conn)
-            .await
-            .optional()?
-            .flatten();
+        record_on_connection(
+            conn,
+            kind,
+            resource_kind,
+            resource_id,
+            actor_id,
+            detail,
+            identity,
+        )
+        .await
+    })
+    .await
+}
 
-        let now = Utc::now();
-        let occurred_at = DateTime::<Utc>::from_timestamp_micros(now.timestamp_micros())
-            .ok_or_else(|| anyhow::anyhow!("current audit timestamp is out of range"))?;
-        let row_digest = compute_row_digest(
+/// A shared lock order for local index mutations and their chained audit.
+pub(crate) async fn lock_chain(conn: &mut AsyncPgConnection) -> anyhow::Result<()> {
+    diesel::sql_query("SELECT pg_advisory_xact_lock(1952805748, 1635018092)")
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
+/// Append within the caller's transaction so index state and audit cannot diverge.
+pub(crate) async fn record_on_connection(
+    conn: &mut AsyncPgConnection,
+    kind: AuditEventKind,
+    resource_kind: Option<DirectoryResourceKindDb>,
+    resource_id: Option<&str>,
+    actor_id: Option<&str>,
+    detail: JsonValue,
+    identity: ActorIdentity<'_>,
+) -> anyhow::Result<()> {
+    let actor_id = actor_id.map(DidCoreId::new).transpose()?;
+    lock_chain(conn).await?;
+    let prev_digest: Option<Vec<u8>> = directory_audit::table
+        .order(directory_audit::audit_id.desc())
+        .select(directory_audit::audit_digest)
+        .first::<Option<Vec<u8>>>(&mut *conn)
+        .await
+        .optional()?
+        .flatten();
+
+    let now = Utc::now();
+    let occurred_at = DateTime::<Utc>::from_timestamp_micros(now.timestamp_micros())
+        .ok_or_else(|| anyhow::anyhow!("current audit timestamp is out of range"))?;
+    let row_digest = compute_row_digest(
+        occurred_at,
+        kind,
+        resource_kind,
+        resource_id,
+        actor_id.as_ref().map(DidCoreId::as_str),
+        &detail,
+        &identity,
+        prev_digest.as_deref(),
+    )?;
+
+    diesel::insert_into(directory_audit::table)
+        .values(NewAuditRow {
             occurred_at,
             kind,
             resource_kind,
             resource_id,
-            actor_id.as_ref().map(DidCoreId::as_str),
-            &detail,
-            &identity,
-            prev_digest.as_deref(),
-        )?;
-
-        diesel::insert_into(directory_audit::table)
-            .values(NewAuditRow {
-                occurred_at,
-                kind,
-                resource_kind,
-                resource_id,
-                actor_id: actor_id.as_ref().map(DidCoreId::as_str),
-                detail,
-                authentication_method: identity.authentication_method,
-                authenticated_credential_id: identity.authenticated_credential_id,
-                asserted_operator_localpart: identity.asserted_operator_localpart,
-                prev_digest,
-                audit_digest: Some(row_digest),
-            })
-            .execute(&mut *conn)
-            .await?;
-        Ok(())
-    })
-    .await
+            actor_id: actor_id.as_ref().map(DidCoreId::as_str),
+            detail,
+            authentication_method: identity.authentication_method,
+            authenticated_credential_id: identity.authenticated_credential_id,
+            asserted_operator_localpart: identity.asserted_operator_localpart,
+            prev_digest,
+            audit_digest: Some(row_digest),
+        })
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
 }
 
 pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutcome> {

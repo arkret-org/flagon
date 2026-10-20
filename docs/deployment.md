@@ -28,6 +28,8 @@ cargo test --workspace
 cargo test -p server --lib fresh_schema_has_only_empty_public_realm_index -- --include-ignored --nocapture
 ```
 
-The Docker-backed test checks the exact fresh schema whitelist and that the
+The real-PostgreSQL test checks the exact fresh schema whitelist and that the
 public Realm index is empty. CI runs this test explicitly. Retired
 announce/withdraw operation selectors remain unknown and fail closed.
+
+After starting with the current fresh schema, follow [private index maintenance](operations.md) to populate the index. The maintenance process uses a separately provisioned PostgreSQL role and opens no HTTP listener.

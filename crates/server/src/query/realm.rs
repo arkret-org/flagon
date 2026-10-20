@@ -185,7 +185,7 @@ async fn load_search_rows(
     let rows = diesel::sql_query(
         "SELECT realm_id, public_metadata, indexed_at, expires_at \
          FROM directory_public_realm_entries \
-         WHERE expires_at > now() AND realm_id > $1 \
+         WHERE removed_at IS NULL AND confirmed_public_at IS NOT NULL AND confirmed_public_at <= now() AND expires_at > now() AND realm_id > $1 \
            AND ($2 = '' OR public_metadata->>'display_name' ILIKE '%' || $2 || '%') \
          ORDER BY realm_id LIMIT $3",
     )
@@ -235,7 +235,7 @@ async fn load_realm_row(
     let mut rows: Vec<PublicRealmRow> = diesel::sql_query(
         "SELECT realm_id, public_metadata, indexed_at, expires_at \
          FROM directory_public_realm_entries \
-         WHERE realm_id = $1 AND expires_at > now() LIMIT 1",
+         WHERE realm_id = $1 AND removed_at IS NULL AND confirmed_public_at IS NOT NULL AND confirmed_public_at <= now() AND expires_at > now() LIMIT 1",
     )
     .bind::<Text, _>(realm_id.as_str())
     .load(&mut *conn)

@@ -100,7 +100,7 @@ async fn public_index(db: &Db, state: &AppState) -> Result<()> {
         } else {
             "now() + interval '1 day'"
         };
-        sql(db, &format!("INSERT INTO directory_public_realm_entries VALUES ('{}', '{{\"display_name\":\"{name}\",\"summary\":\"Discovery hint only\"}}', now() - interval '2 days', {timestamp})", realm(index))).await?;
+        sql(db, &format!("INSERT INTO directory_public_realm_entries (realm_id, public_metadata, indexed_at, expires_at, confirmed_public_at) VALUES ('{}', '{{\"display_name\":\"{name}\",\"summary\":\"Discovery hint only\"}}', now() - interval '2 days', {timestamp}, now() - interval '2 days')", realm(index))).await?;
     }
     let page = checked_json(search(&service, json!({"limit": 1})).await, StatusCode::OK).await?;
     assert_eq!(page["realms"].as_array().unwrap().len(), 1);
@@ -173,17 +173,9 @@ async fn public_index(db: &Db, state: &AppState) -> Result<()> {
         .await;
         checked_json(response, StatusCode::BAD_REQUEST).await?;
     }
-    sql(db, &format!("INSERT INTO directory_public_realm_entries VALUES ('{}', '{{\"display_name\":\"Legacy\",\"source_refs\":[]}}', now(), now()+interval '1 day')", realm(6))).await?;
-    checked_json(
-        resolve(&service, &realm(6)).await,
-        StatusCode::INTERNAL_SERVER_ERROR,
-    )
-    .await?;
-    checked_json(
-        search(&service, json!({})).await,
-        StatusCode::INTERNAL_SERVER_ERROR,
-    )
-    .await?;
+    sql(db, &format!("INSERT INTO directory_public_realm_entries (realm_id, public_metadata, indexed_at, expires_at) VALUES ('{}', '{{\"display_name\":\"Legacy\",\"source_refs\":[]}}', now(), now()+interval '1 day')", realm(6))).await?;
+    checked_json(resolve(&service, &realm(6)).await, StatusCode::NOT_FOUND).await?;
+    checked_json(search(&service, json!({})).await, StatusCode::OK).await?;
     sql(
         db,
         &format!(
@@ -660,10 +652,297 @@ async fn real_directory_and_operator_contracts() -> Result<()> {
         admin_credentials(&db, &state).await?;
         surfaces(&state).await?;
         query_limits(&db, &state).await?;
+        private_index_maintenance(&db, &state, &url, &schema).await?;
         Ok::<_, anyhow::Error>(())
     }
     .await;
     drop(db);
     sql(&admin, &format!("DROP SCHEMA {schema} CASCADE")).await?;
     result
+}
+
+fn confirmation(index: u8, name: &str) -> Value {
+    let now =
+        chrono::DateTime::<Utc>::from_timestamp_millis(Utc::now().timestamp_millis()).unwrap();
+    json!({"realm_id":realm(index),"public_metadata":{"display_name":name,"summary":"Non-authoritative public hint"},"discoverability":"public",
+        "confirmed_at":(now-chrono::Duration::seconds(2)).to_rfc3339_opts(chrono::SecondsFormat::Millis,true),
+        "expires_at":(now+chrono::Duration::hours(1)).to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"reason":"operator checked current public state"})
+}
+
+fn index_cli(url: &str, args: &[&str]) -> Result<std::process::Output> {
+    Ok(
+        std::process::Command::new(env!("CARGO_BIN_EXE_flagon-index"))
+            .env("DATABASE_URL", url)
+            .args(args)
+            .output()?,
+    )
+}
+
+fn load_cli(url: &str, input: &Value, confirm: bool) -> Result<std::process::Output> {
+    let path = std::env::temp_dir().join(format!(
+        "flagon-confirm-{}-{}.json",
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    std::fs::write(&path, serde_json::to_vec(input)?)?;
+    let args = if confirm {
+        vec!["load", path.to_str().unwrap(), "--confirm-public"]
+    } else {
+        vec!["load", path.to_str().unwrap()]
+    };
+    let result = index_cli(url, &args);
+    std::fs::remove_file(path)?;
+    result
+}
+
+fn cli_json(output: std::process::Output) -> Result<Value> {
+    anyhow::ensure!(
+        output.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+#[allow(
+    clippy::redundant_field_names,
+    reason = "Diesel QueryableByName generated initializers"
+)]
+mod maintenance_rows {
+    #[derive(diesel::QueryableByName)]
+    pub(super) struct Count {
+        #[diesel(sql_type=diesel::sql_types::BigInt)]
+        pub count: i64,
+    }
+    #[derive(diesel::QueryableByName)]
+    pub(super) struct Identity {
+        #[diesel(sql_type=diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+        pub actor_id: Option<String>,
+        #[diesel(sql_type=diesel::sql_types::Text)]
+        pub authentication_method: String,
+        #[diesel(sql_type=diesel::sql_types::Jsonb)]
+        pub detail: Value,
+    }
+    use serde_json::Value;
+}
+
+async fn index_count(db: &Db, id: &str) -> Result<i64> {
+    let row = diesel::sql_query(
+        "SELECT count(*)::bigint AS count FROM directory_public_realm_entries WHERE realm_id=$1",
+    )
+    .bind::<diesel::sql_types::Text, _>(id)
+    .get_result::<maintenance_rows::Count>(&mut *db.get().await?)
+    .await?;
+    Ok(row.count)
+}
+
+async fn not_found_body(response: Response) -> Result<Value> {
+    let mut value = checked_json(response, StatusCode::NOT_FOUND).await?;
+    // Instance is a fresh per-request identifier, not a discoverability difference.
+    assert!(
+        value["instance"]
+            .as_str()
+            .unwrap()
+            .starts_with("ak:request:")
+    );
+    value["instance"] = json!("request-specific");
+    Ok(value)
+}
+
+async fn private_index_maintenance(
+    db: &Db,
+    state: &AppState,
+    url: &str,
+    schema: &str,
+) -> Result<()> {
+    let service = server::service(state.clone());
+    let first = confirmation(20, "Manual public first");
+    assert!(!load_cli(url, &first, false)?.status.success());
+    assert_eq!(index_count(db, &realm(20)).await?, 0);
+    let loaded = cli_json(load_cli(url, &first, true)?)?;
+    let entry: arkret_sdk::PublicRealmDirectoryEntry = serde_json::from_value(loaded.clone())?;
+    entry.validate()?;
+    assert_eq!(
+        checked_json(resolve(&service, &realm(20)).await, StatusCode::OK).await?,
+        loaded
+    );
+    assert_eq!(loaded.as_object().unwrap().len(), 4);
+    let reopened = server::service(AppState::new(config(url), Db::connect(url)?)?);
+    assert_eq!(
+        checked_json(resolve(&reopened, &realm(20)).await, StatusCode::OK).await?,
+        loaded
+    );
+    assert_eq!(
+        cli_json(load_cli(url, &first, true)?)?,
+        loaded,
+        "retry preserves indexed_at and absolute expiry"
+    );
+    let mut updated = first.clone();
+    updated["confirmed_at"] = json!(
+        (entry.indexed_at - chrono::Duration::seconds(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    );
+    updated["public_metadata"]["display_name"] = json!("Manual public updated");
+    cli_json(load_cli(url, &updated, true)?)?;
+    let rows_before = audit::verify_chain(db).await?.checked_rows;
+    assert!(!load_cli(url, &first, true)?.status.success());
+    let mut conflicting = updated.clone();
+    conflicting["public_metadata"]["display_name"] = json!("conflicting same confirmation");
+    assert!(!load_cli(url, &conflicting, true)?.status.success());
+    for visibility in ["listed", "restricted", "unlisted", "invite_only", "secret"] {
+        let mut input = confirmation(21, "Not public");
+        input["discoverability"] = json!(visibility);
+        assert!(!load_cli(url, &input, true)?.status.success());
+    }
+    for alteration in 0..4 {
+        let mut input = confirmation(21, "Invalid confirmation");
+        match alteration {
+            0 => input["expires_at"] = json!("2000-01-01T00:00:00.000Z"),
+            1 => input["confirmed_at"] = json!("2099-01-01T00:00:00.000Z"),
+            2 => input["public_metadata"]["source_refs"] = json!([]),
+            _ => input["operator_did"] = json!("ak:did_core:web:unverified-claim.test"),
+        }
+        assert!(!load_cli(url, &input, true)?.status.success());
+    }
+    assert_eq!(index_count(db, &realm(21)).await?, 0);
+    assert_eq!(
+        audit::verify_chain(db).await?.checked_rows,
+        rows_before,
+        "invalid/stale inputs have no audit or index effect"
+    );
+    sql(db,&format!("INSERT INTO directory_public_realm_entries(realm_id,public_metadata,indexed_at,expires_at) VALUES('{}','{{\"display_name\":\"Unconfirmed\"}}',now(),now()+interval '1 hour')",realm(22))).await?;
+    let missing = not_found_body(resolve(&service, &realm(99)).await).await?;
+    assert_eq!(
+        not_found_body(resolve(&service, &realm(22)).await).await?,
+        missing
+    );
+    assert!(
+        checked_json(
+            search(&service, json!({"query":"Unconfirmed"})).await,
+            StatusCode::OK
+        )
+        .await?["realms"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let mut short = confirmation(23, "Manual expiring");
+    short["expires_at"] = json!(
+        (Utc::now() + chrono::Duration::seconds(5))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    );
+    cli_json(load_cli(url, &short, true)?)?;
+    checked_json(resolve(&service, &realm(23)).await, StatusCode::OK).await?;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    assert_eq!(
+        not_found_body(resolve(&service, &realm(23)).await).await?,
+        missing
+    );
+    cli_json(index_cli(
+        url,
+        &["remove", &realm(20), "--reason", "public state withdrawn"],
+    )?)?;
+    assert_eq!(
+        not_found_body(resolve(&service, &realm(20)).await).await?,
+        missing
+    );
+    assert!(
+        !load_cli(url, &updated, true)?.status.success(),
+        "late pre-removal input cannot resurrect the row"
+    );
+    updated["confirmed_at"] =
+        json!(Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+    cli_json(load_cli(url, &updated, true)?)?;
+    checked_json(resolve(&service, &realm(20)).await, StatusCode::OK).await?;
+    cli_json(index_cli(
+        url,
+        &["remove", &realm(24), "--reason", "unknown or private Realm"],
+    )?)?;
+    assert_eq!(
+        not_found_body(resolve(&service, &realm(24)).await).await?,
+        missing
+    );
+    let purged = cli_json(index_cli(
+        url,
+        &["purge-expired", "--reason", "expired local entries"],
+    )?)?;
+    assert!(purged["removed"].as_u64().unwrap() >= 2);
+    assert_eq!(
+        index_count(db, &realm(24)).await?,
+        1,
+        "live removal fence survives purge"
+    );
+
+    let role = format!("flagon_maintenance_{}", std::process::id());
+    sql(
+        db,
+        &format!("CREATE ROLE {role} LOGIN PASSWORD '1amTester!'"),
+    )
+    .await?;
+    let role_result=async {
+        sql(db,&format!("GRANT USAGE ON SCHEMA {schema} TO {role}")).await?;
+        sql(db,&format!("GRANT SELECT ON {schema}.directory_public_realm_entries,{schema}.directory_audit TO {role}")).await?;
+        let mut limited=url::Url::parse(url)?; limited.set_username(&role).unwrap(); limited.set_password(Some("1amTester!")).unwrap();
+        let row=confirmation(25,"Role-authorized public");
+        let before=audit::verify_chain(db).await?.checked_rows;
+        assert!(!load_cli(limited.as_str(),&row,true)?.status.success(),"read-only DB role cannot write");
+        sql(db,&format!("GRANT INSERT,UPDATE,DELETE ON {schema}.directory_public_realm_entries TO {role}")).await?;
+        assert!(!load_cli(limited.as_str(),&row,true)?.status.success(),"missing audit privilege rolls back a successful index mutation");
+        assert_eq!(index_count(db,&realm(25)).await?,0);
+        assert_eq!(audit::verify_chain(db).await?.checked_rows,before);
+        assert!(!index_cli(limited.as_str(),&["remove",&realm(20),"--reason","must roll back"])?.status.success());
+        checked_json(resolve(&service,&realm(20)).await,StatusCode::OK).await?;
+        sql(db,&format!("GRANT INSERT ON {schema}.directory_audit TO {role}")).await?;
+        sql(db,&format!("GRANT USAGE ON SEQUENCE {schema}.directory_audit_audit_id_seq TO {role}")).await?;
+        cli_json(load_cli(limited.as_str(),&row,true)?)?;
+        let identity=diesel::sql_query("SELECT actor_id,authentication_method,detail FROM directory_audit ORDER BY audit_id DESC LIMIT 1")
+            .get_result::<maintenance_rows::Identity>(&mut *db.get().await?).await?;
+        assert!(identity.actor_id.is_none());
+        assert_eq!(identity.authentication_method,"postgresql_role");
+        assert_eq!(identity.detail["database_identity"]["role"],role);
+        Ok::<_,anyhow::Error>(())
+    }.await;
+    sql(db, &format!("DROP OWNED BY {role}")).await?;
+    sql(db, &format!("DROP ROLE {role}")).await?;
+    role_result?;
+    let older: server::index_maintenance::PublicIndexConfirmation =
+        serde_json::from_value(confirmation(26, "Manual concurrent older"))?;
+    let mut newer = older.clone();
+    newer.confirmed_at += chrono::Duration::milliseconds(1);
+    newer.public_metadata.display_name = "Manual concurrent newer".into();
+    let (old_result, new_result) = tokio::join!(
+        server::index_maintenance::execute(
+            db,
+            server::index_maintenance::MaintenanceCommand::Load {
+                record: Box::new(older),
+                confirm_public: true
+            }
+        ),
+        server::index_maintenance::execute(
+            db,
+            server::index_maintenance::MaintenanceCommand::Load {
+                record: Box::new(newer),
+                confirm_public: true
+            }
+        )
+    );
+    let _ = old_result;
+    new_result?;
+    assert_eq!(
+        checked_json(resolve(&service, &realm(26)).await, StatusCode::OK).await?["public_metadata"]
+            ["display_name"],
+        "Manual concurrent newer"
+    );
+    let chain = audit::verify_chain(db).await?;
+    assert!(chain.ok);
+    assert!(chain.checked_rows > rows_before);
+    let public = checked_json(
+        search(&service, json!({"query":"Manual"})).await,
+        StatusCode::OK,
+    )
+    .await?;
+    assert!(!public.to_string().contains("confirmed_public_at"));
+    assert!(!public.to_string().contains("database_identity"));
+    assert!(!public.to_string().contains("expires_at\":\"2000"));
+    Ok(())
 }
