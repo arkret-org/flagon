@@ -72,9 +72,6 @@ pub enum AuditEventKind {
     AdminResourceUpserted,
     AdminResourceDeleted,
     ExpiryPurged,
-    /// coland broadcast a `consent_revoke{scope=any}` and the directory
-    /// invalidated the actor's reachability projection.
-    ConsentRevokeInvalidation,
     /// A `ak.realm.destroy` anchor was observed; the row was flipped to its
     /// tombstone projection.
     RealmDestroyed,
@@ -96,7 +93,6 @@ crate::db_enum::impl_pg_enum!(AuditEventKind, crate::schema::sql_types::AuditEve
     AuditEventKind::AdminResourceUpserted => "admin_resource_upserted",
     AuditEventKind::AdminResourceDeleted => "admin_resource_deleted",
     AuditEventKind::ExpiryPurged => "expiry_purged",
-    AuditEventKind::ConsentRevokeInvalidation => "consent_revoke_invalidation",
     AuditEventKind::RealmDestroyed => "realm_destroyed",
     AuditEventKind::IngestHistoricalOnly => "ingest_historical_only",
 });

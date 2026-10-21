@@ -18,7 +18,6 @@ CREATE TYPE audit_event_kind AS ENUM (
     'admin_resource_upserted',
     'admin_resource_deleted',
     'expiry_purged',
-    'consent_revoke_invalidation',
     'realm_destroyed',
     'ingest_historical_only'
 );

@@ -189,6 +189,10 @@ async fn public_index(db: &Db, state: &AppState) -> Result<()> {
 
 async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     let service = server::service(state.clone());
+    let retired = sql(db, "SELECT 'consent_revoke_invalidation'::audit_event_kind")
+        .await
+        .expect_err("retired actor-Consent invalidation must not remain in the public Realm Directory schema");
+    assert!(retired.to_string().contains("invalid input value for enum"));
     let empty = audit::verify_chain(db).await?;
     assert!(empty.ok);
     assert_eq!(empty.checked_rows, 0);
