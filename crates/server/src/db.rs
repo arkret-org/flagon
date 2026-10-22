@@ -126,7 +126,17 @@ mod wait_bound_tests {
             connection_timeout: Duration::from_millis(200),
         };
         let db = Db::connect_with(&url, &config).unwrap();
-        let held = db.get().await.unwrap();
+        // Establish the real session before measuring contention. The cold
+        // handshake is not the exhausted-pool deadline under test.
+        let held = db
+            .pool()
+            .timeout_get(&deadpool::managed::Timeouts {
+                wait: Some(Duration::from_secs(5)),
+                create: Some(Duration::from_secs(5)),
+                recycle: Some(Duration::from_secs(5)),
+            })
+            .await
+            .unwrap();
         assert!(
             tokio::time::timeout(Duration::from_secs(2), db.get())
                 .await
