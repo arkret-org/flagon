@@ -38,6 +38,11 @@ services:
         condition: service_healthy
     environment:
       FLAGON_BIND: 0.0.0.0:7781
+      # Compose does not inherit unrelated host/.env keys into containers.
+      # Require the operator's real current identity rather than placeholders.
+      FLAGON_SERVICE_DID: "${FLAGON_SERVICE_DID:?set the verified current service DID}"
+      FLAGON_SERVICE_METHOD_HISTORY_HEAD: "${FLAGON_SERVICE_METHOD_HISTORY_HEAD:?set the verified current method-history head}"
+      FLAGON_SERVICE_VERSION_ID: "${FLAGON_SERVICE_VERSION_ID:?set the verified current method version id}"
       DATABASE_URL: postgres://flagon:flagon@postgres:5432/flagon
       # P2E.6 — db connection pool tunables; the defaults below mirror
       # what AppConfig falls back to when these envs are unset.
