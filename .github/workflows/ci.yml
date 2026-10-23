@@ -179,10 +179,21 @@ jobs:
           docker run --detach --name flagon-ci-postgres --network flagon-ci-net \
             --env POSTGRES_USER=flagon --env POSTGRES_PASSWORD=flagon \
             --env POSTGRES_DB=flagon_ci postgres:16-alpine
-          for attempt in $(seq 1 30); do
-            if docker exec flagon-ci-postgres pg_isready --username=flagon; then break; fi
+          postgres_ready=false
+          for _ in $(seq 1 30); do
+            if docker exec --env PGPASSWORD=flagon flagon-ci-postgres \
+              psql --host=127.0.0.1 --username=flagon --dbname=flagon_ci \
+              --no-password --set=ON_ERROR_STOP=1 --command='SELECT 1' >/dev/null 2>&1; then
+              postgres_ready=true
+              break
+            fi
             sleep 1
           done
+          if [ "$postgres_ready" != true ]; then
+            docker logs flagon-ci-postgres
+            echo "::error::PostgreSQL never accepted a TCP query against the application database"
+            exit 1
+          fi
           docker run --detach --name flagon-ci-server --network flagon-ci-net \
             --health-interval=1s --health-start-period=1s \
             --env DATABASE_URL=postgres://flagon:flagon@flagon-ci-postgres:5432/flagon_ci \
@@ -191,7 +202,7 @@ jobs:
             --env FLAGON_SERVICE_VERSION_ID=1-ci-version \
             --env FLAGON_ADMIN_CSRF_TOKEN=ci-csrf-token flagon-server:ci
           healthy=false
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if [ "$(docker inspect --format '{{.State.Health.Status}}' flagon-ci-server)" = healthy ]; then
               healthy=true
               break
@@ -199,13 +210,16 @@ jobs:
             sleep 1
           done
           docker logs flagon-ci-server
-          test "$healthy" = true
+          if [ "$healthy" != true ]; then
+            docker logs flagon-ci-postgres
+            exit 1
+          fi
 
       - name: Verify admin runtime and SPA fallback
         run: |
           trap 'docker rm --force flagon-ci-admin >/dev/null 2>&1 || true' EXIT
           docker run --detach --name flagon-ci-admin flagon-admin:ci
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if docker exec flagon-ci-admin wget --quiet --tries=1 --spider http://127.0.0.1:8080/health; then break; fi
             sleep 1
           done
