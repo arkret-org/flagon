@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::RunQueryDsl;
 use flagon_contracts::{AuditEnvelope, AuditEvent};
+use horme::RunQueryDsl;
 use salvo::prelude::*;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -121,7 +121,7 @@ async fn load_audit_rows(
 ) -> anyhow::Result<Vec<AuditDbRow>> {
     use crate::schema::directory_audit::dsl as a;
 
-    let mut conn = state.db().get().await?;
+    let mut conn = state.db().queries();
     let mut query = a::directory_audit.into_boxed();
     if let Some(since) = since {
         query = query.filter(a::occurred_at.gt(since));
@@ -142,7 +142,7 @@ async fn load_audit_rows(
             a::authentication_method,
             a::detail,
         ))
-        .load(&mut *conn)
+        .load(&mut conn)
         .await?;
     Ok(rows)
 }

@@ -8,7 +8,7 @@ use arkret_sdk::{
 use arkret_server::CursorBindingContext;
 use chrono::{DateTime, Utc};
 use diesel::sql_types::{BigInt, Jsonb, Text, Timestamptz};
-use diesel_async::RunQueryDsl;
+use horme::RunQueryDsl;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -181,7 +181,7 @@ async fn load_search_rows(
     needle: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<PublicRealmRow>> {
-    let mut conn = db.get().await?;
+    let mut conn = db.queries();
     let rows = diesel::sql_query(
         "SELECT realm_id, public_metadata, indexed_at, expires_at \
          FROM directory_public_realm_entries \
@@ -192,7 +192,7 @@ async fn load_search_rows(
     .bind::<Text, _>(after)
     .bind::<Text, _>(needle)
     .bind::<BigInt, _>(limit)
-    .load(&mut *conn)
+    .load(&mut conn)
     .await?;
     Ok(rows)
 }
@@ -231,14 +231,14 @@ async fn load_realm_row(
     db: &crate::db::Db,
     realm_id: &RealmId,
 ) -> anyhow::Result<Option<PublicRealmRow>> {
-    let mut conn = db.get().await?;
+    let mut conn = db.queries();
     let mut rows: Vec<PublicRealmRow> = diesel::sql_query(
         "SELECT realm_id, public_metadata, indexed_at, expires_at \
          FROM directory_public_realm_entries \
          WHERE realm_id = $1 AND removed_at IS NULL AND confirmed_public_at IS NOT NULL AND confirmed_public_at <= now() AND expires_at > now() LIMIT 1",
     )
     .bind::<Text, _>(realm_id.as_str())
-    .load(&mut *conn)
+    .load(&mut conn)
     .await?;
     Ok(rows.pop())
 }
@@ -246,7 +246,7 @@ async fn load_realm_row(
 #[cfg(test)]
 mod tests {
     use diesel::sql_types::Bool;
-    use diesel_async::RunQueryDsl;
+    use horme::RunQueryDsl;
     use serde_json::json;
 
     use super::*;
@@ -316,7 +316,7 @@ mod tests {
         })?;
         let db = crate::db::Db::connect(&database_url)?;
         db.run_migrations(&database_url).await?;
-        let mut conn = db.get().await?;
+        let mut conn = db.queries();
         let shape: FreshSchemaShape = diesel::sql_query(
             "SELECT to_regclass('public.directory_public_realm_entries') IS NOT NULL \
                     AS public_index_present, \
@@ -345,7 +345,7 @@ mod tests {
                                       'directory_audit', 'admin_tokens')) \
                     AS only_current_tables_present",
         )
-        .get_result(&mut *conn)
+        .get_result(&mut conn)
         .await?;
         assert!(shape.public_index_present);
         assert!(shape.retired_pcd_absent);

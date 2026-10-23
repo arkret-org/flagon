@@ -1,4 +1,4 @@
-//! diesel-async + deadpool connection pool, and the boot-time migration runner.
+//! Horme query providers, explicit transaction leases, and boot-time migrations.
 
 use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
@@ -10,6 +10,24 @@ use crate::config::DbPoolConfig;
 
 pub type PgPool = Pool<AsyncPgConnection>;
 pub type PgPooledConnection = Object<AsyncPgConnection>;
+pub struct PgDb(horme::Db<PgPool>);
+
+impl horme::GetConnection for PgDb {
+    type Connection = AsyncPgConnection;
+    type Lease<'a> = PgPooledConnection;
+
+    async fn get_mut_conn(&mut self) -> horme::Result<Self::Lease<'_>> {
+        let budget = self
+            .0
+            .pool()
+            .timeouts()
+            .wait
+            .unwrap_or(std::time::Duration::from_secs(5));
+        tokio::time::timeout(budget, self.0.get_mut_conn())
+            .await
+            .map_err(|error| horme::Error::Acquire(Box::new(error)))?
+    }
+}
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
@@ -87,6 +105,11 @@ impl Db {
         &self.pool
     }
 
+    /// Create a query handle without checking out a connection.
+    pub fn queries(&self) -> PgDb {
+        PgDb(horme::Db::new(self.pool.clone()))
+    }
+
     /// P2E.6 — snapshot live deadpool pool stats for the Prometheus
     /// scrape. deadpool's `status()` is cheap so it is safe to call from
     /// the metrics scrape hot path.
@@ -116,6 +139,34 @@ mod wait_bound_tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[tokio::test]
+    async fn query_handles_do_not_pin_single_pool_connection() {
+        use horme::RunQueryDsl;
+        let url =
+            std::env::var("FLAGON_TEST_DATABASE_URL").expect("isolated test database required");
+        let db = Db::connect_with(
+            &url,
+            &DbPoolConfig {
+                max_size: 1,
+                connection_timeout: Duration::from_secs(5),
+            },
+        )
+        .unwrap();
+        let mut first = db.queries();
+        let mut second = db.queries();
+        assert_eq!(db.pool_stats().connections, 0);
+        diesel::sql_query("SELECT 1")
+            .execute(&mut first)
+            .await
+            .unwrap();
+        assert_eq!(db.pool_stats().in_use, 0);
+        diesel::sql_query("SELECT 1")
+            .execute(&mut second)
+            .await
+            .unwrap();
+        assert_eq!(db.pool_stats().in_use, 0);
+    }
 
     #[tokio::test]
     async fn pool_exhaustion_and_unanswered_handshake_finish() {

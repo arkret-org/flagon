@@ -14,10 +14,11 @@
 use arkret_sdk::DidCoreId;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection};
 use flagon_contracts::{
     AuditChainVerificationFailure, AuditChainVerificationOutcome, AuthenticatedCredentialId,
 };
+use horme::{OptionalExtension, RunQueryDsl};
 use serde_json::{Value as JsonValue, json};
 use sha2::{Digest, Sha256};
 
@@ -261,7 +262,7 @@ pub(crate) async fn record_on_connection(
 }
 
 pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutcome> {
-    let mut conn = db.get().await?;
+    let mut conn = db.queries();
     let rows: Vec<AuditChainRow> = directory_audit::table
         .order(directory_audit::audit_id.asc())
         .select((
@@ -278,7 +279,7 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutco
             directory_audit::prev_digest,
             directory_audit::audit_digest,
         ))
-        .load(&mut *conn)
+        .load(&mut conn)
         .await?;
 
     let checked_rows = rows.len() as i64;

@@ -20,8 +20,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::RunQueryDsl;
 use hmac::{Hmac, KeyInit, Mac};
+use horme::{OptionalExtension, RunQueryDsl};
 use salvo::http::header;
 use salvo::prelude::*;
 use sha2::Sha256;
@@ -176,16 +176,12 @@ async fn lookup_admin_secret(state: &AppState, key_id: &str) -> Result<Vec<u8>, 
 
     type AdminTokenRow = (Vec<u8>, Option<DateTime<Utc>>, Option<DateTime<Utc>>);
 
-    let mut conn = state
-        .db()
-        .get()
-        .await
-        .map_err(|_| ApiErrorCode::InternalError)?;
+    let mut conn = state.db().queries();
     let now = Utc::now();
     let row: Option<AdminTokenRow> = t::admin_tokens
         .filter(t::key_id.eq(key_id))
         .select((t::secret, t::expires_at, t::revoked_at))
-        .first(&mut *conn)
+        .first(&mut conn)
         .await
         .optional()
         .map_err(|_| ApiErrorCode::InternalError)?;

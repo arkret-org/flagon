@@ -192,7 +192,16 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     let retired = sql(db, "SELECT 'consent_revoke_invalidation'::audit_event_kind")
         .await
         .expect_err("retired actor-Consent invalidation must not remain in the public Realm Directory schema");
-    assert!(retired.to_string().contains("invalid input value for enum"));
+    assert!(matches!(
+        retired.downcast_ref::<diesel::result::Error>(),
+        Some(diesel::result::Error::DatabaseError(_, _))
+    ));
+    let retired_labels = diesel::sql_query(
+        "SELECT count(*) AS count FROM pg_enum WHERE enumtypid = 'audit_event_kind'::regtype AND enumlabel = 'consent_revoke_invalidation'",
+    )
+    .get_result::<maintenance_rows::Count>(&mut *db.get().await?)
+    .await?;
+    assert_eq!(retired_labels.count, 0);
     let empty = audit::verify_chain(db).await?;
     assert!(empty.ok);
     assert_eq!(empty.checked_rows, 0);

@@ -2,7 +2,7 @@
 //! plus `/health` and OpenAPI metadata.
 
 use arkret_models_discovery::DirectoryRealmSearchOutcome;
-use diesel_async::RunQueryDsl;
+use horme::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
 use salvo::http::{Method, header};
@@ -241,9 +241,9 @@ async fn metrics_not_found(res: &mut Response) {
 
 async fn database_ready(state: &AppState) -> Result<(), String> {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let mut conn = state.db().get().await.map_err(|error| error.to_string())?;
+        let mut conn = state.db().queries();
         diesel::sql_query("SELECT 1")
-            .execute(&mut *conn)
+            .execute(&mut conn)
             .await
             .map(|_| ())
             .map_err(|error| error.to_string())

@@ -22,6 +22,7 @@ path = "src/bin/flagon-index.rs"
 ignored = ["arkret-identifiers"]
 
 [dependencies]
+horme.workspace = true
 arkret-canonical.workspace = true
 arkret-egress-reqwest.workspace = true
 arkret-identifiers = { workspace = true, features = ["diesel"] }
