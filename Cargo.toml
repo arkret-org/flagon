@@ -44,7 +44,8 @@ anyhow = "1.0.104"
 base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 deadpool = { version = "0.13", features = ["rt_tokio_1"] }
-diesel = { version = "2.3.12", features = ["chrono", "postgres", "pq-src", "r2d2", "serde_json"] }
+diesel = { version = "2.3.12", features = ["chrono", "postgres", "r2d2", "serde_json"] }
+pq-sys = { version = "0.7.5", features = ["bundled"] }
 diesel-async = { version = "0.9", features = ["async-connection-wrapper", "deadpool", "postgres"] }
 diesel_migrations = { version = "2.3.2", features = ["postgres"] }
 dioxus = { version = "=0.7.10", default-features = false, features = ["asset", "minimal", "web"] }

@@ -1530,7 +1530,6 @@ dependencies = [
  "diesel_derives",
  "downcast-rs",
  "itoa",
- "pq-src",
  "pq-sys",
  "r2d2",
  "serde_json",
@@ -4027,6 +4026,7 @@ checksum = "574ddd6a267294433f140b02a726b0640c43cf7c6f717084684aaa3b285aba61"
 dependencies = [
  "libc",
  "pkg-config",
+ "pq-src",
  "vcpkg",
 ]
 
@@ -5097,6 +5097,7 @@ dependencies = [
  "flagon-contracts",
  "hmac 0.13.0",
  "horme",
+ "pq-sys",
  "rand 0.10.2",
  "reqwest 0.13.5",
  "salvo",

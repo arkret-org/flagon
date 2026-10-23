@@ -18,10 +18,11 @@ name = "flagon-index"
 path = "src/bin/flagon-index.rs"
 
 [package.metadata.cargo-machete]
-# Enables Diesel SQL traits for identifier types re-exported through arkret-sdk.
-ignored = ["arkret-identifiers"]
+# Identifier SQL traits and bundled libpq are enabled through features only.
+ignored = ["arkret-identifiers", "pq-sys"]
 
 [dependencies]
+pq-sys.workspace = true
 horme.workspace = true
 arkret-canonical.workspace = true
 arkret-egress-reqwest.workspace = true
