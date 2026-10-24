@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use arkret_sdk::{
-    AuthMetadata, DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry,
+    AuthenticationMetadata, DirectoryResourceKind, EgressNetworkPolicy, InteropSurfaceEntry,
     PlaintextVisibility, RateLimitPolicy, ServerLimits, ServiceDescribe, TransportBinding,
     TrustDomainId, VerifiedProfileEntry,
 };
@@ -80,12 +80,12 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
     }];
     let supported_features = Vec::new();
 
-    // `auth_metadata` advertises the admin HMAC surface. The read-only
+    // `authentication_metadata` advertises the admin HMAC surface. The read-only
     // service has no protocol ingest transport; static bearer
     // auth is development-only. Admin descriptors ride in `x_flagon_*` extension keys
-    // (`auth_metadata` is `additionalProperties: true`).
-    let mut auth_metadata = AuthMetadata::minimal();
-    auth_metadata
+    // (`authentication_metadata` is `additionalProperties: true`).
+    let mut authentication_metadata = AuthenticationMetadata::minimal();
+    authentication_metadata
         .extra
         .insert(
             "x_flagon_admin".to_owned(),
@@ -140,7 +140,7 @@ pub(crate) fn build_describe_response_value(cfg: &AppConfig) -> Result<JsonValue
         transport_bindings,
         supported_features,
         calendar_tzdb_versions: Vec::new(),
-        auth_metadata,
+        authentication_metadata,
         limits,
         plaintext_visibility,
         verified_profiles,
@@ -219,7 +219,7 @@ mod tests {
             "supported_operation_bundles",
             "transport_bindings",
             "supported_features",
-            "auth_metadata",
+            "authentication_metadata",
             "limits",
             "plaintext_visibility",
             "verified_profiles",
@@ -303,7 +303,7 @@ mod tests {
             }],
             supported_features: Vec::new(),
             calendar_tzdb_versions: Vec::new(),
-            auth_metadata: AuthMetadata::minimal(),
+            authentication_metadata: AuthenticationMetadata::minimal(),
             limits: ServerLimits::default(),
             egress_network_policy: None,
             plaintext_visibility: PlaintextVisibility::none(),
@@ -318,7 +318,7 @@ mod tests {
                 artifact_ref: "file:///tmp/verified-profiles.json".to_owned(),
                 verifier_id: DidCoreId::new("ak:did_core:web:cotest.example").unwrap(),
                 signature: "eddsa-jcs-b64url:test-signature".to_owned(),
-                timestamp: chrono::Utc::now(),
+                verified_at: chrono::Utc::now(),
                 expires_at: None,
                 extra: Default::default(),
             }],
@@ -357,7 +357,7 @@ mod tests {
             "supported_operation_bundles",
             "transport_bindings",
             "supported_features",
-            "auth_metadata",
+            "authentication_metadata",
             "limits",
             "plaintext_visibility",
             "verified_profiles",

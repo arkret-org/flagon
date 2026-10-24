@@ -8,11 +8,11 @@ pub async fn get_admin<T: DeserializeOwned>(
     base_url: Rc<str>,
     token: Rc<str>,
     path: &'static str,
-    params: Vec<(&'static str, String)>,
+    parameters: Vec<(&'static str, String)>,
 ) -> Result<T, String> {
     let url = format!("{}/_flagon/admin/{}", base_url.trim_end_matches('/'), path);
     let request = with_auth(
-        Request::get(&url).query(params.iter().map(|(key, value)| (*key, value.as_str()))),
+        Request::get(&url).query(parameters.iter().map(|(key, value)| (*key, value.as_str()))),
         &token,
     );
     decode_response(request.send().await.map_err(|error| error.to_string())?).await

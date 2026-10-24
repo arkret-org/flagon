@@ -73,7 +73,7 @@ fn AuditPanel(base_url: String, token: String) -> Element {
     let load_base_url = base_url.clone();
     let load_token = token.clone();
     let load = move |_| {
-        let mut params = vec![(
+        let mut parameters = vec![(
             "limit",
             if limit().trim().is_empty() {
                 "100".to_string()
@@ -82,7 +82,7 @@ fn AuditPanel(base_url: String, token: String) -> Element {
             },
         )];
         if !since().trim().is_empty() {
-            params.push(("since", since()));
+            parameters.push(("since", since()));
         }
         let base_url = load_base_url.clone();
         let token = load_token.clone();
@@ -90,7 +90,7 @@ fn AuditPanel(base_url: String, token: String) -> Element {
         error.set(String::new());
         status.set("Loading audit feed".to_string());
         spawn(async move {
-            match get_admin::<AuditEnvelope>(base_url, token, "audit", params).await {
+            match get_admin::<AuditEnvelope>(base_url, token, "audit", parameters).await {
                 Ok(payload) => {
                     let count = payload.events.len();
                     rows.set(payload.events);

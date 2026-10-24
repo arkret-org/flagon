@@ -1,7 +1,7 @@
 //! Salvo router declaration. All `/_arkret/find/directory/*` endpoints (spec §9)
 //! plus `/health` and OpenAPI metadata.
 
-use arkret_models_discovery::DirectoryRealmSearchOutcome;
+use arkret_models_discovery::DirectoryRealmSearchResponseBody;
 use horme::RunQueryDsl;
 use salvo::affix_state;
 use salvo::cors::{Cors, CorsHandler};
@@ -437,10 +437,10 @@ pub fn openapi(router: &Router) -> serde_json::Value {
 }
 
 fn register_flagon_schemas(doc: &mut OpenApi) {
-    let schema = DirectoryRealmSearchOutcome::to_schema(&mut doc.components);
+    let schema = DirectoryRealmSearchResponseBody::to_schema(&mut doc.components);
     doc.components
         .schemas
-        .insert("DirectoryRealmSearchOutcome", schema);
+        .insert("DirectoryRealmSearchResponseBody", schema);
 }
 
 fn product_openapi_document(product_doc: &OpenApi) -> serde_json::Value {
@@ -641,7 +641,7 @@ mod tests {
         assert!(!yaml.contains("/_arkret/find/directory/withdraw:"));
         assert!(yaml.contains("x-arkret-artifact-first: true"));
         assert!(yaml.contains("ak.find.directory.read.search_realms.v1"));
-        assert!(yaml.contains("DirectoryRealmSearchOutcome"));
+        assert!(yaml.contains("DirectoryRealmSearchResponseBody"));
 
         let operation_pointer = "/paths/~1_arkret~1find~1directory~1search-realms/post";
         assert!(doc.pointer(operation_pointer).is_some());

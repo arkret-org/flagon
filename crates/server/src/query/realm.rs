@@ -2,7 +2,7 @@
 //! membership, join, history, capability or current-authority evidence.
 
 use arkret_sdk::{
-    DirectoryRealmSearchOutcome, DirectoryResolveRealmRequestBody,
+    DirectoryRealmSearchResponseBody, DirectoryResolveRealmRequestBody,
     DirectorySearchRealmsRequestBody, PublicRealmDirectoryEntry, PublicRealmMetadata, RealmId,
 };
 use arkret_server::CursorBindingContext;
@@ -166,7 +166,7 @@ pub async fn search_realms(req: &mut Request, depot: &mut Depot, res: &mut Respo
         Ok(None)
     };
     match next_cursor {
-        Ok(next_cursor) => res.render(Json(DirectoryRealmSearchOutcome {
+        Ok(next_cursor) => res.render(Json(DirectoryRealmSearchResponseBody {
             realms: entries,
             has_more,
             next_cursor,

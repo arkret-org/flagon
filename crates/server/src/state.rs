@@ -64,10 +64,14 @@ impl AppState {
         &self.inner.metrics
     }
 
-    pub fn check_rate_limit(&self, key: impl Into<String>, max_requests: u32) -> RateLimitOutcome {
+    pub fn check_rate_limit(
+        &self,
+        key: impl Into<String>,
+        max_request_count: u32,
+    ) -> RateLimitOutcome {
         self.inner
             .rate_limiter
-            .check(key.into(), max_requests, Duration::from_secs(60))
+            .check(key.into(), max_request_count, Duration::from_secs(60))
     }
 }
 
@@ -84,10 +88,10 @@ struct RateLimiter {
 impl RateLimiter {
     const MAX_BUCKETS: usize = 16_384;
 
-    fn check(&self, key: String, max_requests: u32, window: Duration) -> RateLimitOutcome {
+    fn check(&self, key: String, max_request_count: u32, window: Duration) -> RateLimitOutcome {
         match self.inner.check_with_config(
             key,
-            FixedWindowConfig::new(u64::from(max_requests), window, Self::MAX_BUCKETS),
+            FixedWindowConfig::new(u64::from(max_request_count), window, Self::MAX_BUCKETS),
         ) {
             Ok(()) => RateLimitOutcome::Allowed,
             Err(rejection) => RateLimitOutcome::Limited {
