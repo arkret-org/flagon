@@ -60,7 +60,7 @@ pub struct AuditEvent {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct AuditChainVerificationOutcome {
+pub struct AuditChainVerificationVerdict {
     pub ok: bool,
     pub checked_rows: i64,
     pub chain_rows: i64,

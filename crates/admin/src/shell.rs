@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use crate::api::{compact_json, get_admin};
 use crate::icons::{DatabaseIcon, ListIcon, RefreshIcon, ShieldIcon};
 use crate::model::{
-    AuditChainVerificationOutcome, AuditEnvelope, AuditEvent, BADGE_NEUTRAL, BADGE_WARN,
+    AuditChainVerificationVerdict, AuditEnvelope, AuditEvent, BADGE_NEUTRAL, BADGE_WARN,
 };
 
 #[allow(non_snake_case)]
@@ -59,7 +59,7 @@ fn AuditPanel(base_url: String, token: String) -> Element {
     let mut error = use_signal(String::new);
     let mut since = use_signal(String::new);
     let mut limit = use_signal(|| "100".to_string());
-    let mut verification = use_signal(Option::<AuditChainVerificationOutcome>::default);
+    let mut verification = use_signal(Option::<AuditChainVerificationVerdict>::default);
 
     let rows_view = rows();
     let loading_now = loading();
@@ -113,7 +113,7 @@ fn AuditPanel(base_url: String, token: String) -> Element {
         error.set(String::new());
         status.set("Verifying audit chain".to_string());
         spawn(async move {
-            match get_admin::<AuditChainVerificationOutcome>(
+            match get_admin::<AuditChainVerificationVerdict>(
                 base_url,
                 token,
                 "audit/verify",
@@ -227,7 +227,7 @@ fn AuditRow(item: AuditEvent) -> Element {
 }
 
 #[component]
-fn AuditChainVerificationBox(outcome: AuditChainVerificationOutcome) -> Element {
+fn AuditChainVerificationBox(outcome: AuditChainVerificationVerdict) -> Element {
     let tone = if outcome.ok {
         BADGE_NEUTRAL
     } else {

@@ -16,7 +16,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use flagon_contracts::{
-    AuditChainVerificationFailure, AuditChainVerificationOutcome, AuthenticatedCredentialId,
+    AuditChainVerificationFailure, AuditChainVerificationVerdict, AuthenticatedCredentialId,
 };
 use horme::{OptionalExtension, RunQueryDsl};
 use serde_json::{Value as JsonValue, json};
@@ -261,7 +261,7 @@ pub(crate) async fn record_on_connection(
     Ok(())
 }
 
-pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutcome> {
+pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationVerdict> {
     let mut conn = db.queries();
     let rows: Vec<AuditChainRow> = directory_audit::table
         .order(directory_audit::audit_id.asc())
@@ -381,7 +381,7 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationOutco
         expected_prev = Some(actual_digest.clone());
     }
 
-    Ok(AuditChainVerificationOutcome {
+    Ok(AuditChainVerificationVerdict {
         ok: true,
         checked_rows,
         chain_rows,
@@ -441,8 +441,8 @@ fn chain_failure(
     reason: &str,
     expected: Option<&[u8]>,
     actual: Option<&[u8]>,
-) -> AuditChainVerificationOutcome {
-    AuditChainVerificationOutcome {
+) -> AuditChainVerificationVerdict {
+    AuditChainVerificationVerdict {
         ok: false,
         checked_rows,
         chain_rows,
