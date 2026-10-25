@@ -30,7 +30,7 @@ Prerequisites:
 - `diesel_cli` with Postgres support.
 - A sibling `../arkret-rust-sdk` checkout matching the version required by
   `Cargo.toml`.
-- Local Glory/Sapid checkouts in `../../glory-rs/`, Python 3.11+, and a
+- Locked GitHub main Glory/Sapid dependencies, Python 3.11+, and a
   wasm-bindgen CLI matching Cargo.lock for the admin SPA.
 
 Local service bootstrap:
@@ -107,3 +107,7 @@ flagon: describe the change
 
 Do not commit unrelated dirty files. In particular, do not include `Cargo.lock`
 unless the dependency graph changed as part of the task.
+
+The pinned Git Sapid TextField has no placeholder API. The audit query hint is
+an application CSS overlay on the same associated input, hidden whenever its
+value is nonempty; it does not receive pointer events.

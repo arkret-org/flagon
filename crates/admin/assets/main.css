@@ -429,3 +429,8 @@ tr:last-child td {
 .icon-list { mask-image: url('/icons/list.svg'); -webkit-mask-image: url('/icons/list.svg'); }
 .icon-database { mask-image: url('/icons/database.svg'); -webkit-mask-image: url('/icons/database.svg'); }
 .icon-shield { mask-image: url('/icons/shield.svg'); -webkit-mask-image: url('/icons/shield.svg'); }
+
+/* Git Sapid exposes labels but no TextField placeholder API. */
+.field-input-hint-wrap { position: relative; min-width: 0; width: 100%; }
+.field-input-hint { position: absolute; left: 11px; right: 11px; top: 50%; transform: translateY(-50%); color: #757575; font: inherit; pointer-events: none; white-space: nowrap; overflow: hidden; }
+.field-input-hint.is-hidden { display: none; }

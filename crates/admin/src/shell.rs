@@ -82,12 +82,32 @@ fn field(
         .class(class.to_owned())
         .label(label.to_owned())
         .control(move |context| {
-            sapid::text_field()
-                .field(context)
-                .value(value)
-                .purpose(purpose)
-                .placeholder(placeholder.clone())
-                .on_value_change(move |next| value.revise(|current| *current = next))
+            let placeholder = placeholder.clone();
+            widget(move |scope| {
+                let empty_hint = placeholder.is_empty();
+                let hint_class = scope.bond(move || {
+                    if empty_hint || !value.get().is_empty() {
+                        "field-input-hint is-hidden"
+                    } else {
+                        "field-input-hint"
+                    }
+                    .to_owned()
+                });
+                view()
+                    .class("field-input-hint-wrap")
+                    .fill((
+                        sapid::text_field()
+                            .field(context.clone())
+                            .value(value)
+                            .purpose(purpose)
+                            .on_value_change(move |next| value.revise(|current| *current = next)),
+                        text()
+                            .kind(TextKind::Inline)
+                            .class(hint_class)
+                            .content(placeholder.clone()),
+                    ))
+                    .build(scope)
+            })
         })
 }
 

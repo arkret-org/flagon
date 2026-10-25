@@ -5,8 +5,6 @@
 #
 #   docker build \
 #     --build-context arkret-rust-sdk=../arkret-rust-sdk \
-#     --build-context glory=../../glory-rs/glory \
-#     --build-context sapid=../../glory-rs/sapid \
 #     -f Dockerfile.server -t flagon-server .
 #
 # P2E.4 — split out from the previous monolithic `Dockerfile` so the
@@ -18,11 +16,6 @@ WORKDIR /workspace
 
 # flagon depends on the local Arkret SDK by path.
 COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
-COPY --from=glory Cargo.toml /glory-rs/glory/Cargo.toml
-COPY --from=glory crates /glory-rs/glory/crates
-COPY --from=sapid Cargo.toml README.md /glory-rs/sapid/
-COPY --from=sapid src /glory-rs/sapid/src
-COPY --from=sapid styles /glory-rs/sapid/styles
 COPY . ./flagon
 
 WORKDIR /workspace/flagon

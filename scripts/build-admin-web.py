@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+from ui_dependencies import cargo_metadata, sapid_stylesheet, ui_provenance
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,7 +28,8 @@ def main():
         tempfile.tempdir=str(temporary)
         if Path(env['CARGO_HOME']).resolve().drive.lower()!='d:':
             raise SystemExit('CARGO_HOME must be on D:')
-    metadata=json.loads(subprocess.check_output(['cargo','metadata','--locked','--no-deps','--format-version','1'],cwd=ROOT,env=env,text=True))
+    metadata=cargo_metadata(ROOT, env)
+    provenance=ui_provenance(metadata)
     target=Path(metadata['target_directory']).resolve()
     output=(args.out_dir or target/'web').resolve()
     if os.name=='nt' and any(p.drive.lower()!='d:' for p in [target,output]):
@@ -49,6 +51,7 @@ def main():
         if source.is_dir():shutil.copytree(source,output/source.name,dirs_exist_ok=True)
         else:shutil.copy2(source,output/source.name)
     shutil.copy2(ROOT/'crates/admin/assets/main.css',output/'main.css')
+    (output/'ui-build-info.json').write_text(json.dumps(provenance,indent=2)+'\n',encoding='utf-8')
     print(f'Static audit console: {output}')
 
 if __name__=='__main__':main()

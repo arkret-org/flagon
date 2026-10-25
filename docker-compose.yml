@@ -33,8 +33,6 @@ services:
       dockerfile: Dockerfile.server
       additional_contexts:
         arkret-rust-sdk: ../arkret-rust-sdk
-        glory: ../../glory-rs/glory
-        sapid: ../../glory-rs/sapid
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,8 +64,6 @@ services:
       dockerfile: Dockerfile.admin
       additional_contexts:
         arkret-rust-sdk: ../arkret-rust-sdk
-        glory: ../../glory-rs/glory
-        sapid: ../../glory-rs/sapid
     depends_on:
       - flagon-server
     ports:

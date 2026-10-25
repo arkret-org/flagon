@@ -24,3 +24,5 @@ _*.md
 /node_modules/
 /playwright-report/
 /test-results/
+
+!scripts/ui_dependencies.py

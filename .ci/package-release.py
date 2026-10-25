@@ -12,6 +12,9 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from ui_dependencies import cargo_metadata, ui_provenance, verify_web_provenance
 
 
 def run(*args):
@@ -45,8 +48,8 @@ def main():
     tag = os.environ.get('GITHUB_REF_NAME', 'verification')
     tag = re.sub(r'[^A-Za-z0-9._-]', '-', tag)
     name = f'{project}-{tag}-{args.target}'
-    metadata = json.loads(run('cargo', 'metadata', '--locked', '--no-deps',
-                              '--format-version', '1'))
+    metadata = cargo_metadata(root)
+    ui_sources = ui_provenance(metadata)
     target = Path(metadata['target_directory']).resolve()
     if os.name == 'nt' and (target.drive.lower() != 'd:' or root.resolve().drive.lower() != 'd:'):
         raise SystemExit('Release outputs must be on D:')
@@ -65,6 +68,7 @@ def main():
             source = target / 'web'
             if not (source / 'index.html').is_file() or not list(source.rglob('*.wasm')):
                 raise RuntimeError('The browser bundle must contain index.html and WASM')
+            verify_web_provenance(source, metadata)
             copy(source, stage)
         if args.crates:
             packages = [package for package in metadata['packages']
@@ -85,12 +89,15 @@ def main():
                 if path.is_file():
                     copy(path, stage / path.name)
         repositories = {}
-        # Include sibling path dependencies and the adjacent Savfox workspace.
-        for directory in [root, *root.parent.iterdir(), root.parent.parent / 'savfox-ai' / 'savfox', root.parent.parent / 'glory-rs' / 'glory', root.parent.parent / 'glory-rs' / 'sapid']:
-            if (directory / '.git').exists():
-                repositories[directory.name] = run('git', '-C', str(directory), 'rev-parse', 'HEAD')
+        local_roots = {root, *(Path(package['manifest_path']).parent for package in metadata['packages'] if package.get('source') is None)}
+        for directory in sorted(local_roots):
+            resolved = subprocess.run(['git', '-C', str(directory), 'rev-parse', '--show-toplevel'],
+                                      capture_output=True, text=True)
+            if resolved.returncode == 0:
+                repository = Path(resolved.stdout.strip())
+                repositories[repository.name] = run('git', '-C', str(repository), 'rev-parse', 'HEAD')
         provenance = {'repository': project, 'ref': os.environ.get('GITHUB_REF'),
-                      'target': args.target, 'commits': repositories,
+                      'target': args.target, 'commits': repositories, 'ui_dependencies': ui_sources,
                       'lock_sha256': hashlib.sha256((root / 'Cargo.lock').read_bytes()).hexdigest()}
         (stage / 'build-info.json').write_text(json.dumps(provenance, indent=2) + '\n')
         if 'windows' in args.target:

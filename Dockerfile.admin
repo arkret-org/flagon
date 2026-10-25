@@ -1,8 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Static Glory/Sapid audit console served by nginx.
-# docker build --build-context arkret-rust-sdk=../arkret-rust-sdk \
-#   --build-context glory=../../glory-rs/glory \
-#   --build-context sapid=../../glory-rs/sapid -f Dockerfile.admin .
+# docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.admin .
 FROM --platform=$BUILDPLATFORM rust:trixie AS builder
 RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown
@@ -11,11 +9,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cargo install wasm-bindgen-cli --version 0.2.129 --locked
 WORKDIR /workspace
 COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
-COPY --from=glory Cargo.toml /glory-rs/glory/Cargo.toml
-COPY --from=glory crates /glory-rs/glory/crates
-COPY --from=sapid Cargo.toml README.md /glory-rs/sapid/
-COPY --from=sapid src /glory-rs/sapid/src
-COPY --from=sapid styles /glory-rs/sapid/styles
 COPY . ./flagon
 WORKDIR /workspace/flagon
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

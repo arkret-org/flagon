@@ -195,10 +195,10 @@ jobs:
         run: bash .ci/checkout-ui-dependencies.sh
 
       - name: Build server image
-        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk --build-context glory=../../glory-rs/glory --build-context sapid=../../glory-rs/sapid -f Dockerfile.server -t flagon-server:ci .
+        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.server -t flagon-server:ci .
 
       - name: Build admin image
-        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk --build-context glory=../../glory-rs/glory --build-context sapid=../../glory-rs/sapid -f Dockerfile.admin -t flagon-admin:ci .
+        run: docker build --build-context arkret-rust-sdk=../arkret-rust-sdk -f Dockerfile.admin -t flagon-admin:ci .
 
       - name: Verify server runtime and HTTP health probe
         run: |
