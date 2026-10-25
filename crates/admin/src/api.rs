@@ -56,3 +56,25 @@ fn truncate(value: &str, max: usize) -> String {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn compact_details_bound_unicode_scalars_without_corrupting_text() {
+        let text = compact_json(&serde_json::json!({"reason":"秘密🙂".repeat(100)}));
+        assert_eq!(text.chars().count(), 220);
+        assert!(text.ends_with("..."));
+        assert!(!text.contains('�'));
+        assert_eq!(
+            compact_json(&serde_json::json!({"count":2})),
+            "{\"count\":2}"
+        );
+    }
+    #[test]
+    fn response_excerpt_preserves_short_and_boundary_strings() {
+        assert_eq!(truncate("", 0), "");
+        assert_eq!(truncate("秘密", 2), "秘密");
+        assert_eq!(truncate(&"界".repeat(321), 320).chars().count(), 320);
+    }
+}

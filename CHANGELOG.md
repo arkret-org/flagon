@@ -7,6 +7,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased — current-v1 read-only Directory (2026-09-22)
 
+- Migrated the audit console to local Glory/Sapid, retaining its original
+  controls, table, status/verification layouts and responsive behavior. Static
+  WASM packaging replaces the framework CLI build.
+
 - Clean break from retired PCD/PSI, non-Realm discovery, and direct admin
   resource mutation. The public Realm index starts empty; announce/withdraw,
   their DTOs, governance proof, and announce identifier namespace are retired.

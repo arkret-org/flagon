@@ -55,8 +55,11 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/arkret-rust-sdk
           path: arkret-org/arkret-rust-sdk
-          ref: db0f5b44dec117b6b316690650efd0adb3a0f990
+          ref: 1abbf74976504a00903282f5aa9a5edf3750f291
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
+      - name: Prepare Glory and Sapid sources
+        shell: bash
+        run: bash .ci/checkout-ui-dependencies.sh
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -94,9 +97,49 @@ jobs:
           path: arkret-org/flagon/release-assets/*
           if-no-files-found: error
 
+  admin-web:
+    name: Build audit console (WASM)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: arkret-org/flagon
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: arkret-org/flagon
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository_owner }}/arkret-rust-sdk
+          path: arkret-org/arkret-rust-sdk
+          ref: 1abbf74976504a00903282f5aa9a5edf3750f291
+          token: ${{ secrets.CI_REPO_TOKEN || github.token }}
+      - name: Prepare Glory and Sapid sources
+        run: bash .ci/checkout-ui-dependencies.sh
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: arkret-org/flagon
+          key: release-admin-web
+      - name: Build browser bundle
+        run: |
+          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          python scripts/build-admin-web.py --release
+          python .ci/package-release.py --target wasm32-unknown-unknown --web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-admin-web
+          path: arkret-org/flagon/release-assets/*
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, admin-web]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

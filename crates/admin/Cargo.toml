@@ -6,15 +6,21 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 flagon-contracts.workspace = true
-
-chrono.workspace = true
-dioxus.workspace = true
-dioxus-free-icons.workspace = true
+glory.workspace = true
+sapid.workspace = true
 gloo-net.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+glory = { workspace = true, features = ["web"] }
+wasm-bindgen.workspace = true
+web-sys.workspace = true
 
 [lints]
 workspace = true

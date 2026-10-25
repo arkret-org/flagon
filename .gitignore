@@ -19,3 +19,8 @@ _*.md
 /_*_todos.md
 .codex*
 /release-assets/
+
+# Browser validation dependencies and output.
+/node_modules/
+/playwright-report/
+/test-results/

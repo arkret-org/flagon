@@ -1,0 +1,11 @@
+{
+  "name": "flagon-admin-tests",
+  "private": true,
+  "scripts": {
+    "test:admin": "node scripts/test-admin.cjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "@axe-core/playwright": "4.11.3"
+  }
+}

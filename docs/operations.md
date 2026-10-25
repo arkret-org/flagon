@@ -102,7 +102,7 @@ these privileges and protect the append-only audit table operationally.
 
 For review, use `GET /_flagon/admin/audit` with a valid admin token and
 `GET /_flagon/admin/audit/verify` to check the append-only digest chain. The
-Dioxus console in `crates/admin` exposes only those two reads. These existing HTTP
+Glory/Sapid console in `crates/admin` exposes only those two reads. These existing HTTP
 credentials authorize audit reads only and cannot invoke the maintenance process.
 There is no Directory protocol write admission, allowlist, source callback,
 webhook retry, private-contact/PSI batch, or new notification receipt to operate.

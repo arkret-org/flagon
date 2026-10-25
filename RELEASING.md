@@ -19,3 +19,9 @@ Artifacts contain `flagon` (the server executable) and `flagon-index` for Linux
 x64/ARM64, Windows x64 and macOS ARM64. Configure PostgreSQL and service
 identity as described in README.md. Linux builds target Ubuntu 24.04
 (glibc 2.39 or newer).
+
+The release workflow also builds a static Glory/Sapid WASM audit-console
+archive. Its Cargo target/web directory is produced by scripts/build-admin-web.py
+and packaged with --target wasm32-unknown-unknown --web. UI checkout pins live in
+.ci/checkout-ui-dependencies.sh; the Docker images consume equivalent named
+contexts so their Cargo workspace can resolve the same local paths.

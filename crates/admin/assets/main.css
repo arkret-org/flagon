@@ -15,10 +15,6 @@ body {
   background: #eef3f6;
 }
 
-.dx-toast {
-  display: none !important;
-}
-
 button,
 input,
 select,
@@ -159,6 +155,7 @@ button:disabled {
 
 .panel-title h1 {
   margin: 0;
+  font-weight: 700;
   font-size: 23px;
   line-height: 1.2;
   color: #10202f;
@@ -421,3 +418,14 @@ tr:last-child td {
     justify-content: flex-start;
   }
 }
+
+/* Keep the source layout while using semantic widgets and owned async regions. */
+#app { min-height: 100vh; }
+.app-shell, .workspace, .panel, .reactive-region { min-width: 0; }
+.reactive-region:empty { display: none; }
+.table-wrap { max-width: 100%; min-width: 0; }
+.button-icon { display: inline-block; width: 20px; height: 20px; flex: 0 0 20px; background: currentColor; mask: center / contain no-repeat; -webkit-mask: center / contain no-repeat; }
+.icon-refresh { mask-image: url('/icons/refresh.svg'); -webkit-mask-image: url('/icons/refresh.svg'); }
+.icon-list { mask-image: url('/icons/list.svg'); -webkit-mask-image: url('/icons/list.svg'); }
+.icon-database { mask-image: url('/icons/database.svg'); -webkit-mask-image: url('/icons/database.svg'); }
+.icon-shield { mask-image: url('/icons/shield.svg'); -webkit-mask-image: url('/icons/shield.svg'); }

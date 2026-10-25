@@ -43,8 +43,9 @@ cargo run -p server
 ```
 
 For a local PostgreSQL container, set the required service identity variables
-and run `scripts/dev-up.sh`. The Dioxus operator audit console can be started
-from `crates/admin/` with `dx serve --platform web --port 8080`. A static
+and run `scripts/dev-up.sh`. The Glory/Sapid operator audit console is built with
+`python scripts/build-admin-web.py --release`; see [admin setup](crates/admin/README.md)
+for the static server command. A static
 `FLAGON_ADMIN_TOKEN` is development-only; production audit access uses an
 active rotating HMAC key from `admin_tokens` and requires the configured admin
 CSRF token.
@@ -68,7 +69,7 @@ explicitly; the test is not skipped and requires no Docker daemon.
 
 `crates/server` contains the Salvo read service, PostgreSQL migration, and
 audit-chain verifier; `crates/contracts` contains only audit admin DTOs;
-`crates/admin` is the audit-only Dioxus console. Prometheus on
+`crates/admin` is the audit-only Glory/Sapid console. Prometheus on
 `FLAGON_METRICS_BIND` reports the mounted Realm query operations. The index
 can be populated only through deployment-private maintenance that is not an
 Arkret interoperability surface and is never advertised by ServiceDescribe.

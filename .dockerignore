@@ -9,3 +9,8 @@ target/
 .DS_Store
 
 _*.md
+artifacts/
+node_modules/
+release-assets/
+playwright-report/
+test-results/

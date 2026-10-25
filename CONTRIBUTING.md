@@ -25,12 +25,13 @@ state.
 
 Prerequisites:
 
-- Rust 1.88 or newer.
+- Rust 1.98 or newer.
 - PostgreSQL 14 or newer.
 - `diesel_cli` with Postgres support.
 - A sibling `../arkret-rust-sdk` checkout matching the version required by
   `Cargo.toml`.
-- Dioxus CLI 0.7.9 or newer for the admin SPA.
+- Local Glory/Sapid checkouts in `../../glory-rs/`, Python 3.11+, and a
+  wasm-bindgen CLI matching Cargo.lock for the admin SPA.
 
 Local service bootstrap:
 
@@ -50,12 +51,15 @@ cargo run -p server
 
 ## Admin SPA
 
-The Dioxus admin console lives in `crates/admin/`.
+The Glory/Sapid audit console lives in `crates/admin/`. Build it from the
+repository root:
 
 ```bash
-cd crates/admin
-dx serve --platform web --port 8080
+python scripts/build-admin-web.py --release
 ```
+
+See [admin setup](crates/admin/README.md) for the static server, Windows D:
+build paths, and the browser checks.
 
 Use `FLAGON_ADMIN_TOKEN` as the bearer token in the console. The API base is
 usually `http://localhost:7781` for local development.

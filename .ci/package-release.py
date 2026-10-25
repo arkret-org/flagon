@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage Cargo/Dioxus outputs and create a checksummed release archive."""
+"""Stage Cargo and static browser outputs and create a checksummed release archive."""
 
 import argparse
 import hashlib
@@ -33,18 +33,23 @@ def main():
     parser.add_argument('--target', required=True)
     parser.add_argument('--binary', action='append', default=[])
     parser.add_argument('--resource', action='append', default=[])
-    parser.add_argument('--dx', choices=['web', 'linux', 'windows', 'macos'])
-    parser.add_argument('--app')
+    parser.add_argument('--web', action='store_true')
     parser.add_argument('--crates', action='store_true')
     args = parser.parse_args()
     root = Path.cwd()
+    if os.name == 'nt':
+        temporary = Path('D:/BuildCache/flagon-glory/tmp')
+        temporary.mkdir(parents=True, exist_ok=True)
+        tempfile.tempdir = str(temporary)
     project = root.name
     tag = os.environ.get('GITHUB_REF_NAME', 'verification')
     tag = re.sub(r'[^A-Za-z0-9._-]', '-', tag)
     name = f'{project}-{tag}-{args.target}'
     metadata = json.loads(run('cargo', 'metadata', '--locked', '--no-deps',
                               '--format-version', '1'))
-    target = Path(metadata['target_directory'])
+    target = Path(metadata['target_directory']).resolve()
+    if os.name == 'nt' and (target.drive.lower() != 'd:' or root.resolve().drive.lower() != 'd:'):
+        raise SystemExit('Release outputs must be on D:')
     output = root / 'release-assets'
     output.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='release-') as temporary:
@@ -56,31 +61,11 @@ def main():
             destination = destination or source
             copy(target / args.target / 'release' / (source + suffix),
                  stage / (destination + suffix))
-        if args.dx:
-            if not args.app:
-                parser.error('--dx requires --app')
-            base = target / 'dx' / args.app / 'release' / args.dx
-            if args.dx == 'web':
-                source = base / 'public'
-                if not (source / 'index.html').is_file():
-                    raise FileNotFoundError(source / 'index.html')
-                if not list(source.rglob('*.wasm')):
-                    raise RuntimeError('The web bundle contains no WASM module')
-                copy(source, stage)
-            elif args.dx == 'macos':
-                apps = list(base.glob('*.app'))
-                if len(apps) != 1:
-                    raise RuntimeError(f'Expected one macOS app in {base}, got {apps}')
-                if not (apps[0] / 'Contents' / 'MacOS' / args.app).is_file():
-                    raise FileNotFoundError('The macOS app has no executable')
-                copy(apps[0], stage / apps[0].name)
-            else:
-                source = base / 'app'
-                if not (source / (args.app + suffix)).is_file():
-                    raise FileNotFoundError(source / (args.app + suffix))
-                if not (source / 'assets').is_dir():
-                    raise FileNotFoundError(source / 'assets')
-                copy(source, stage)
+        if args.web:
+            source = target / 'web'
+            if not (source / 'index.html').is_file() or not list(source.rglob('*.wasm')):
+                raise RuntimeError('The browser bundle must contain index.html and WASM')
+            copy(source, stage)
         if args.crates:
             packages = [package for package in metadata['packages']
                         if package['id'] in metadata['workspace_members']
@@ -90,7 +75,7 @@ def main():
             for package in packages:
                 crate = target / 'package' / f"{package['name']}-{package['version']}.crate"
                 copy(crate, stage / crate.name)
-        if not (args.binary or args.dx or args.crates):
+        if not (args.binary or args.web or args.crates):
             parser.error('At least one build output is required')
         for resource in args.resource:
             source, _, destination = resource.partition('=')
@@ -101,7 +86,7 @@ def main():
                     copy(path, stage / path.name)
         repositories = {}
         # Include sibling path dependencies and the adjacent Savfox workspace.
-        for directory in [root, *root.parent.iterdir(), root.parent.parent / 'savfox-ai' / 'savfox']:
+        for directory in [root, *root.parent.iterdir(), root.parent.parent / 'savfox-ai' / 'savfox', root.parent.parent / 'glory-rs' / 'glory', root.parent.parent / 'glory-rs' / 'sapid']:
             if (directory / '.git').exists():
                 repositories[directory.name] = run('git', '-C', str(directory), 'rev-parse', 'HEAD')
         provenance = {'repository': project, 'ref': os.environ.get('GITHUB_REF'),

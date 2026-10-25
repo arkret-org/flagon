@@ -1,66 +1,27 @@
 # syntax=docker/dockerfile:1.7
-#
-# flagon admin SPA image — Dioxus WASM build served by nginx. Build
-# from the arkret root with:
-#
-#   docker build \
-#     --build-context arkret-rust-sdk=../arkret-rust-sdk \
-#     -f Dockerfile.admin -t flagon-admin .
-#
-# P2E.4 — splits the admin SPA out of the server image so operators
-# can deploy / scale the front-end independently of the server
-# (canary releases, CDN fronting, etc.).
-
+# Static Glory/Sapid audit console served by nginx.
+# docker build --build-context arkret-rust-sdk=../arkret-rust-sdk \
+#   --build-context glory=../../glory-rs/glory \
+#   --build-context sapid=../../glory-rs/sapid -f Dockerfile.admin .
 FROM --platform=$BUILDPLATFORM rust:trixie AS builder
-
-ARG BUILDARCH
-
-WORKDIR /workspace
-
-# flagon depends on the local Arkret SDK by path; admin currently
-# does NOT import the SDK directly but we keep the build context
-# stable so a future shared module (e.g. typed wire structs) does not
-# need a separate build wiring.
-COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
-COPY . ./flagon
-
-WORKDIR /workspace/flagon
-
-# wasm32 target + dx (dioxus-cli) for the static SPA build.
+RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown
-
-# Use the matching official CLI release and verify its published checksum.
-# Compiling the CLI from source previously occupied most of the CI job window.
-RUN case "$BUILDARCH" in \
-        amd64) dx_arch=x86_64 ;; \
-        arm64) dx_arch=aarch64 ;; \
-        *) echo "Unsupported Dioxus CLI build architecture: $BUILDARCH"; exit 1 ;; \
-    esac && \
-    dx_url="https://github.com/DioxusLabs/dioxus/releases/download/v0.7.10/dx-${dx_arch}-unknown-linux-gnu" && \
-    curl --fail --location --retry 5 "$dx_url.tar.gz" --output /tmp/dx.tar.gz && \
-    curl --fail --location --retry 5 "$dx_url.sha256" --output /tmp/dx.sha256 && \
-    dx_hash="$(awk '$2 ~ /\.tar\.gz$/ {print $1}' /tmp/dx.sha256)" && \
-    echo "$dx_hash  /tmp/dx.tar.gz" | sha256sum --check - && \
-    tar -xzf /tmp/dx.tar.gz -C /usr/local/bin dx && \
-    rm /tmp/dx.tar.gz /tmp/dx.sha256 && \
-    dx --version
-
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo install wasm-bindgen-cli --version 0.2.129 --locked
+WORKDIR /workspace
+COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
+COPY --from=glory Cargo.toml /glory-rs/glory/Cargo.toml
+COPY --from=glory crates /glory-rs/glory/crates
+COPY --from=sapid Cargo.toml README.md /glory-rs/sapid/
+COPY --from=sapid src /glory-rs/sapid/src
+COPY --from=sapid styles /glory-rs/sapid/styles
+COPY . ./flagon
+WORKDIR /workspace/flagon
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/workspace/flagon/target \
-    build_ok=false && \
-    for i in 1 2 3; do \
-        if dx build -p admin --release --debug-symbols false; then \
-            build_ok=true; \
-            break; \
-        fi; \
-        echo "Retry $i..." && sleep 10; \
-    done && \
-    test "$build_ok" = true && \
-    dist_dir="$(find /workspace/flagon/target/dx -type d -path '*/release/web/public' | head -n 1)" && \
-    test -n "$dist_dir" && \
-    mkdir -p /workspace/dist && \
-    cp -r "$dist_dir"/* /workspace/dist/
+    python3 scripts/build-admin-web.py --release --out-dir /workspace/dist
 
 FROM nginx:stable-alpine AS runtime
 
@@ -83,7 +44,7 @@ RUN printf '%s\n' \
     '    index index.html;' \
     '    server_tokens off;' \
     '    # P5 HIGH — admin SPA security headers. CSP locks script/style' \
-    '    # to self; wasm-unsafe-eval is required for the Dioxus WASM' \
+    '    # to self; wasm-unsafe-eval is required for the Glory WASM' \
     '    # runtime. Frame ancestors are denied so the admin cannot be' \
     '    # embedded in a third-party iframe.' \
     '    add_header Content-Security-Policy "default-src '"'"'self'"'"'; script-src '"'"'self'"'"' '"'"'wasm-unsafe-eval'"'"'; style-src '"'"'self'"'"' '"'"'unsafe-inline'"'"'; img-src '"'"'self'"'"' data: blob:; connect-src '"'"'self'"'"';" always;' \

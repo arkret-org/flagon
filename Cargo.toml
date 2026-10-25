@@ -48,10 +48,13 @@ diesel = { version = "2.3.12", features = ["chrono", "postgres", "r2d2", "serde_
 pq-sys = { version = "0.7.5", features = ["bundled"] }
 diesel-async = { version = "0.9", features = ["async-connection-wrapper", "deadpool", "postgres"] }
 diesel_migrations = { version = "2.3.2", features = ["postgres"] }
-dioxus = { version = "=0.7.10", default-features = false, features = ["asset", "minimal", "web"] }
-dioxus-free-icons = { version = "0.10.0", features = ["lucide"] }
 dotenvy = "0.15.7"
 ed25519-dalek = "3.0.0"
+glory = { path = "../../glory-rs/glory/crates/glory", default-features = false }
+sapid = { path = "../../glory-rs/sapid" }
+wasm-bindgen = "=0.2.129"
+web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "Node", "console"] }
+
 gloo-net = "0.7.0"
 hmac = "0.13.0"
 rand = "0.10.2"
