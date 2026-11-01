@@ -128,7 +128,8 @@ jobs:
           key: release-admin-web
       - name: Build browser bundle
         run: |
-          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          version="$(python3 scripts/build-admin-web.py --print-bindgen-version)"
+          cargo install wasm-bindgen-cli --version "$version" --locked
           python scripts/build-admin-web.py --release
           python .ci/package-release.py --target wasm32-unknown-unknown --web
       - uses: actions/upload-artifact@v4

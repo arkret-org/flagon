@@ -4,13 +4,14 @@
 FROM --platform=$BUILDPLATFORM rust:trixie AS builder
 RUN apt-get update && apt-get install -y python3 && rm -rf /var/lib/apt/lists/*
 RUN rustup target add wasm32-unknown-unknown
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    cargo install wasm-bindgen-cli --version 0.2.129 --locked
 WORKDIR /workspace
 COPY --from=arkret-rust-sdk . ./arkret-rust-sdk
 COPY . ./flagon
 WORKDIR /workspace/flagon
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    version="$(python3 scripts/build-admin-web.py --print-bindgen-version)" && \
+    cargo install wasm-bindgen-cli --version "$version" --locked
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/workspace/flagon/target \

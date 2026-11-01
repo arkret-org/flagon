@@ -117,7 +117,8 @@ jobs:
           rustup target add wasm32-unknown-unknown
       - name: Build audit console
         run: |
-          cargo install wasm-bindgen-cli --version 0.2.129 --locked
+          version="$(python3 scripts/build-admin-web.py --print-bindgen-version)"
+          cargo install wasm-bindgen-cli --version "$version" --locked
           python3 scripts/build-admin-web.py --release
       - uses: actions/setup-node@v4
         with:
