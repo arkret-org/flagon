@@ -50,8 +50,8 @@ diesel-async = { version = "0.9", features = ["async-connection-wrapper", "deadp
 diesel_migrations = { version = "2.3.2", features = ["postgres"] }
 dotenvy = "0.15.7"
 ed25519-dalek = "3.0.0"
-glory = { git = "https://github.com/glory-rs/glory.git", branch = "main", default-features = false }
-sapid = { git = "https://github.com/sapid-ui/sapid.git", branch = "main" }
+glory = { version = ">=0.6.1", git = "https://github.com/glory-rs/glory.git", branch = "main", default-features = false }
+sapid = { version = ">=0.6.1", git = "https://github.com/sapid-ui/sapid.git", branch = "main" }
 wasm-bindgen = "=0.2.130"
 web-sys = { version = "0.3.106", features = ["Window", "Document", "Element", "Node", "console"] }
 
