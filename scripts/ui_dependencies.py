@@ -12,28 +12,7 @@ EXPECTED = {
 
 
 def cargo_environment(root, environment=None):
-    env = dict(os.environ if environment is None else environment)
-    cache = None
-    if os.name == "nt":
-        cache = Path("D:/BuildCache") / (root.name + "-glory")
-    elif env.get("WSL_DISTRO_NAME"):
-        mounts = Path("/proc/mounts").read_text().splitlines()
-        if not any(line.split()[1] == "/mnt/d" and line.split()[0].upper().startswith("D:") for line in mounts):
-            raise RuntimeError("Verify /mnt/d is mounted from D: before resolving Cargo dependencies")
-        cache = Path("/mnt/d/BuildCache") / (root.name + "-glory")
-    if cache:
-        temporary = cache / "tmp"
-        temporary.mkdir(parents=True, exist_ok=True)
-        env.setdefault("CARGO_TARGET_DIR", str(cache / "target"))
-        env.setdefault("CARGO_HOME", str(cache.parent / "cargo"))
-        env["TEMP"] = env["TMP"] = env["TMPDIR"] = str(temporary)
-        for key in ("CARGO_TARGET_DIR", "CARGO_HOME"):
-            path = Path(env[key]).resolve()
-            if os.name == "nt" and path.drive.lower() != "d:":
-                raise RuntimeError(f"{key} must be on D:")
-            if env.get("WSL_DISTRO_NAME") and not path.is_relative_to("/mnt/d"):
-                raise RuntimeError(f"{key} must stay on the verified /mnt/d mount")
-    return env
+    return dict(os.environ if environment is None else environment)
 
 
 def cargo_metadata(root, environment=None):
@@ -41,11 +20,6 @@ def cargo_metadata(root, environment=None):
     metadata = json.loads(subprocess.check_output(
         ["cargo", "metadata", "--locked", "--all-features", "--format-version", "1"],
         cwd=root, env=env, text=True))
-    target = Path(metadata["target_directory"]).resolve()
-    if os.name == "nt" and target.drive.lower() != "d:":
-        raise RuntimeError(f"Cargo target directory must be on D: {target}")
-    if env.get("WSL_DISTRO_NAME") and not target.is_relative_to("/mnt/d"):
-        raise RuntimeError(f"Cargo target directory must stay on the verified /mnt/d mount: {target}")
     return metadata
 
 

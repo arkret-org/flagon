@@ -40,10 +40,6 @@ def main():
     parser.add_argument('--crates', action='store_true')
     args = parser.parse_args()
     root = Path.cwd()
-    if os.name == 'nt':
-        temporary = Path('D:/BuildCache/flagon-glory/tmp')
-        temporary.mkdir(parents=True, exist_ok=True)
-        tempfile.tempdir = str(temporary)
     project = root.name
     tag = os.environ.get('GITHUB_REF_NAME', 'verification')
     tag = re.sub(r'[^A-Za-z0-9._-]', '-', tag)
@@ -51,8 +47,6 @@ def main():
     metadata = cargo_metadata(root)
     ui_sources = ui_provenance(metadata)
     target = Path(metadata['target_directory']).resolve()
-    if os.name == 'nt' and (target.drive.lower() != 'd:' or root.resolve().drive.lower() != 'd:'):
-        raise SystemExit('Release outputs must be on D:')
     output = root / 'release-assets'
     output.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='release-') as temporary:

@@ -4,12 +4,6 @@ const { join, resolve } = require("node:path");
 const http = require("node:http");
 const env = { ...process.env };
 const root = resolve(__dirname, "..");
-if (process.platform === "win32") {
-  env.TEMP = env.TMP = "D:/BuildCache/flagon-glory/tmp";
-  env.PWTEST_CACHE_DIR = "D:/BuildCache/flagon-glory/playwright-cache";
-  for (const path of [env.TEMP, env.PWTEST_CACHE_DIR])
-    mkdirSync(path, { recursive: true });
-}
 const output =
   env.FLAGON_E2E_OUTPUT || join(root, "artifacts/glory-migration/current");
 mkdirSync(output, { recursive: true });

@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 import tomllib
 from ui_dependencies import cargo_metadata, sapid_stylesheet, ui_provenance
 
@@ -43,7 +42,7 @@ def find_bindgen(env, version):
             continue
         if actual == f"wasm-bindgen {version}":
             return candidate
-    raise SystemExit(f"Install wasm-bindgen-cli {version} on D: or set WASM_BINDGEN to a matching CLI")
+    raise SystemExit(f"Install wasm-bindgen-cli {version} or set WASM_BINDGEN to a matching CLI")
 
 
 def main():
@@ -57,22 +56,10 @@ def main():
         print(version)
         return
     env=os.environ.copy()
-    if os.name=='nt':
-        cache=Path('D:/BuildCache/flagon-glory')
-        temporary=cache/'tmp'
-        temporary.mkdir(parents=True,exist_ok=True)
-        env.setdefault('CARGO_HOME','D:/BuildCache/cargo')
-        env.setdefault('CARGO_TARGET_DIR',str(cache/'target'))
-        env['TEMP']=env['TMP']=str(temporary)
-        tempfile.tempdir=str(temporary)
-        if Path(env['CARGO_HOME']).resolve().drive.lower()!='d:':
-            raise SystemExit('CARGO_HOME must be on D:')
     metadata=cargo_metadata(ROOT, env)
     provenance=ui_provenance(metadata)
     target=Path(metadata['target_directory']).resolve()
     output=(args.out_dir or target/'web').resolve()
-    if os.name=='nt' and any(p.drive.lower()!='d:' for p in [target,output]):
-        raise SystemExit('Build and browser output must be on D:')
     bindgen=find_bindgen(env, version)
     command=['cargo','build','--locked','-p','admin','--lib','--target','wasm32-unknown-unknown']
     if args.release:command.append('--release')

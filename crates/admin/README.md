@@ -8,19 +8,15 @@ public Realm index.
 Build from the repository root with the sibling SDK and local UI checkouts:
 
 ```powershell
-New-Item -ItemType Directory -Force D:/BuildCache/flagon-glory/tmp | Out-Null
-$env:TEMP=$env:TMP='D:/BuildCache/flagon-glory/tmp'
-$env:CARGO_HOME='D:/BuildCache/cargo'
-$env:CARGO_TARGET_DIR='D:/BuildCache/flagon-glory/target'
-cargo install wasm-bindgen-cli --version 0.2.129 --locked --root D:/BuildCache/flagon-glory/tools
-$env:WASM_BINDGEN='D:/BuildCache/flagon-glory/tools/bin/wasm-bindgen.exe'
+$bindgenVersion = python scripts/build-admin-web.py --print-bindgen-version
+cargo install wasm-bindgen-cli --version $bindgenVersion --locked
 python scripts/build-admin-web.py --release
-python scripts/serve-admin.py --dir D:/BuildCache/flagon-glory/target/web --port 8080
+$metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+python scripts/serve-admin.py --dir (Join-Path $metadata.target_directory "web") --port 8080
 ```
 
 The wasm-bindgen CLI must match the version locked in Cargo.lock. The build
-script asks Cargo for its target directory and checks Windows output paths
-are on D:. Fresh CI checkouts use .ci/checkout-ui-dependencies.sh; existing UI
+script inherits the calling environment and asks Cargo for its target directory. Fresh CI checkouts use .ci/checkout-ui-dependencies.sh; existing UI
 checkouts are reused.
 
 Point API base at the service (usually http://localhost:7781) and enter its
@@ -29,7 +25,7 @@ states, Unicode detail truncation and successful/failed verification are
 covered by the actual browser tests:
 
 ```powershell
-$env:FLAGON_E2E_WEB_DIR='D:/BuildCache/flagon-glory/target/web'
+$env:FLAGON_E2E_WEB_DIR = Join-Path $metadata.target_directory 'web'
 $env:FLAGON_E2E_CHANNEL='msedge'
 npm ci
 npm run test:admin
