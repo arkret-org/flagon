@@ -1,4 +1,6 @@
 [default]
+# This exact quoted value is an opaque canonical Realm ID, not prose.
+extend-ignore-re = ['"ak:realm:AUwZORI60DxE1STM676ap_m1sIzBcRRCjoewWDPyAjx-"']
 extend-ignore-identifiers-re = [
     # *sigh* this just isn't worth the cost of fixing
     "AttributeID.*Supress.*",
