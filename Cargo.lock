@@ -1765,7 +1765,7 @@ dependencies = [
 [[package]]
 name = "glory"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 dependencies = [
  "glory-core",
  "glory-html",
@@ -1778,7 +1778,7 @@ dependencies = [
 [[package]]
 name = "glory-core"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 dependencies = [
  "glory-render",
 ]
@@ -1786,7 +1786,7 @@ dependencies = [
 [[package]]
 name = "glory-html"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 dependencies = [
  "glory-render",
  "glory-style",
@@ -1795,7 +1795,7 @@ dependencies = [
 [[package]]
 name = "glory-render"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 dependencies = [
  "glory-style",
 ]
@@ -1803,12 +1803,12 @@ dependencies = [
 [[package]]
 name = "glory-style"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 
 [[package]]
 name = "glory-ui"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 dependencies = [
  "glory-core",
  "glory-render",
@@ -1818,7 +1818,7 @@ dependencies = [
 [[package]]
 name = "glory-web"
 version = "0.6.1"
-source = "git+https://github.com/glory-rs/glory.git?branch=main#c988506d40938d50c210d2b8a27a708121449609"
+source = "git+https://github.com/glory-rs/glory.git?branch=main#e6f58e9e881216a1d2e205bfd49bf53c2525775b"
 dependencies = [
  "futures-util",
  "glory-core",
