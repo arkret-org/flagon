@@ -55,8 +55,24 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/arkret-rust-sdk
           path: arkret-org/arkret-rust-sdk
-          ref: 1abbf74976504a00903282f5aa9a5edf3750f291
+          ref: 606676ba0fb7208f87994314c4054779424833e2
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
+      - name: Configure Windows build and cache directories
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $flagonCacheRoot = 'D:/BuildCache/flagon-glory'
+          $flagonCargoHome = 'D:/BuildCache/cargo'
+          $flagonTargetDir = Join-Path $flagonCacheRoot 'target'
+          $flagonTmpDir = Join-Path $flagonCacheRoot 'tmp'
+          foreach ($flagonDirectory in @($flagonCargoHome, $flagonTargetDir, $flagonTmpDir)) {
+            New-Item -ItemType Directory -Force -Path $flagonDirectory | Out-Null
+          }
+          "CARGO_HOME=$flagonCargoHome" >> $env:GITHUB_ENV
+          "CARGO_TARGET_DIR=$flagonTargetDir" >> $env:GITHUB_ENV
+          "TEMP=$flagonTmpDir" >> $env:GITHUB_ENV
+          "TMP=$flagonTmpDir" >> $env:GITHUB_ENV
+          "TMPDIR=$flagonTmpDir" >> $env:GITHUB_ENV
       - name: Prepare Glory and Sapid sources
         shell: bash
         run: bash .ci/checkout-ui-dependencies.sh
@@ -112,7 +128,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/arkret-rust-sdk
           path: arkret-org/arkret-rust-sdk
-          ref: 1abbf74976504a00903282f5aa9a5edf3750f291
+          ref: 606676ba0fb7208f87994314c4054779424833e2
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
       - name: Prepare Glory and Sapid sources
         run: bash .ci/checkout-ui-dependencies.sh
