@@ -5,10 +5,8 @@ import os
 from pathlib import Path
 import subprocess
 
-EXPECTED = {
-    "glory": "https://github.com/glory-rs/glory.git",
-    "sapid": "https://github.com/sapid-ui/sapid.git",
-}
+EXPECTED = {"glory": "0.7.0", "sapid": "0.7.1"}
+REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 
 
 def cargo_environment(root, environment=None):
@@ -31,13 +29,12 @@ def ui_packages(metadata):
             raise RuntimeError(f"Expected one resolved {name} package, found {len(packages)}")
         package = packages[0]
         source = package.get("source") or ""
-        location, separator, revision = source.partition("#")
-        if location != "git+" + expected + "?branch=main" or not separator or len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
-            raise RuntimeError(f"{name} must resolve to the locked GitHub main dependency: {source!r}")
+        if source != REGISTRY or package["version"] != expected:
+            raise RuntimeError(f"{name} must resolve to crates.io release {expected}: {source!r} {package['version']!r}")
         manifest = Path(package["manifest_path"]).resolve()
         if not manifest.is_file():
             raise FileNotFoundError(manifest)
-        result[name] = {"source": source, "revision": revision,
+        result[name] = {"source": source,
                         "manifest_path": str(manifest), "version": package["version"]}
     return result
 
@@ -60,7 +57,7 @@ def verify_web_provenance(directory, metadata):
     recorded = json.loads((directory / "ui-build-info.json").read_text(encoding="utf-8"))
     expected = ui_provenance(metadata)
     for name in EXPECTED:
-        for field in ("source", "revision", "version"):
+        for field in ("source", "version"):
             if recorded.get(name, {}).get(field) != expected[name][field]:
                 raise RuntimeError(f"Web artifact {name} {field} does not match the locked Cargo graph")
     if recorded.get("sapid", {}).get("stylesheet_sha256") != expected["sapid"]["stylesheet_sha256"]:
