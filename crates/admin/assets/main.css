@@ -430,7 +430,7 @@ tr:last-child td {
 .icon-database { mask-image: url('/icons/database.svg'); -webkit-mask-image: url('/icons/database.svg'); }
 .icon-shield { mask-image: url('/icons/shield.svg'); -webkit-mask-image: url('/icons/shield.svg'); }
 
-/* Git Sapid exposes labels but no TextField placeholder API. */
-.field-input-hint-wrap { position: relative; min-width: 0; width: 100%; }
-.field-input-hint { position: absolute; left: 11px; right: 11px; top: 50%; transform: translateY(-50%); color: #757575; font: inherit; pointer-events: none; white-space: nowrap; overflow: hidden; }
-.field-input-hint.is-hidden { display: none; }
+
+.sapid-text-field-editor { width: 100%; min-width: 0; }
+.sapid-password-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.sapid-password-toggle svg path { stroke: currentColor; }
