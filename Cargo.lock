@@ -180,6 +180,7 @@ dependencies = [
  "arkret-canonical",
  "arkret-event-draft",
  "arkret-models-collaboration",
+ "arkret-models-crypto",
  "arkret-models-identity",
  "arkret-wire",
  "chrono",
@@ -399,6 +400,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
