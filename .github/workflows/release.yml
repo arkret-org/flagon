@@ -55,7 +55,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/arkret-rust-sdk
           path: arkret-org/arkret-rust-sdk
-          ref: 606676ba0fb7208f87994314c4054779424833e2
+          ref: fac9f552d1b7f64e9933b8785b0da207e289587b
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
       - name: Prepare Glory and Sapid sources
         shell: bash
@@ -112,7 +112,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/arkret-rust-sdk
           path: arkret-org/arkret-rust-sdk
-          ref: 606676ba0fb7208f87994314c4054779424833e2
+          ref: fac9f552d1b7f64e9933b8785b0da207e289587b
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
       - name: Prepare Glory and Sapid sources
         run: bash .ci/checkout-ui-dependencies.sh
