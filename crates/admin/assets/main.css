@@ -39,7 +39,7 @@ button:disabled {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) minmax(220px, 0.9fr);
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
   gap: 16px;
   align-items: end;
   padding: 18px 24px;
@@ -447,3 +447,23 @@ tr:last-child td {
 .sapid-text-field-editor { width: 100%; min-width: 0; }
 .sapid-password-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .sapid-password-toggle svg path { stroke: currentColor; }
+
+.connection-summary { display: grid; gap: 4px; overflow-wrap: anywhere; }
+.connection-settings { padding: 12px 24px; border-bottom: 1px solid #d5dee5; background: #f8fbfc; }
+.connection-settings > .sapid-collapsible-trigger { display: flex; width: 100%; justify-content: space-between; padding: 8px 0; border: 0; background: transparent; color: #18232f; font: inherit; cursor: pointer; }
+.connection-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; padding: 12px 0; }
+.query-help { margin: 8px 0; font-size: 13px; }
+.query-error { color: #a52720; font-size: 14px; }
+.limit-presets { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.query-context { font-size: 13px; overflow-wrap: anywhere; }
+.audit-detail-cell { display: grid; gap: 8px; min-width: 0; }
+.audit-excerpt { white-space: pre-wrap; overflow-wrap: anywhere; }
+.audit-record-dialog { width: min(920px,calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid #c7d1d9; border-radius: 12px; background: #fff; color: #18232f; box-shadow: 0 24px 72px #18232f33; }
+.audit-record-content { display: grid; gap: 14px; min-width: 0; }
+.audit-json { width: 100%; min-height: min(55dvh,560px); padding: 12px; border: 1px solid #c7d1d9; background: #f8fbfc; color: #18232f; white-space: pre; overflow: auto; resize: vertical; font: 13px/1.6 ui-monospace,monospace; }
+.audit-detail-cell .sapid-dialog-trigger { padding: 7px 10px; border: 1px solid #c7d1d9; border-radius: 6px; background: #fff; color: #185963; font: inherit; cursor: pointer; }
+@media(max-width:700px) { .connection-fields { grid-template-columns: minmax(0,1fr); } .connection-settings { padding: 10px 16px; } .audit-record-dialog { padding: 16px; } }
+
+.brand { grid-template-columns: 36px minmax(0, 1fr); column-gap: 10px; }
+.brand::before { content: ""; grid-column: 1; grid-row: 1 / span 2; width: 36px; height: 36px; background: url("/arkret-logo.svg") center / contain no-repeat; }
+.brand-title, .brand-subtitle { grid-column: 2; }

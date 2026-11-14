@@ -31,6 +31,8 @@ struct AuditState {
     limit: Cage<String>,
     verification: Cage<Option<VerificationSnapshot>>,
     generation: Cage<u64>,
+    connection_open: Cage<bool>,
+    query_snapshot: Cage<Option<String>>,
 }
 
 pub fn app(scope: &Scope) -> impl Widget + use<> {
@@ -45,11 +47,14 @@ pub fn app(scope: &Scope) -> impl Widget + use<> {
         limit: scope.cage("100".to_owned()),
         verification: scope.cage(None),
         generation: scope.cage(0),
+        connection_open: scope.cage(true),
+        query_snapshot: scope.cage(None),
     };
     scope.effect(move || {
         let _ = (state.base_url.get(), state.token.get());
         state.generation.revise(|n| *n = n.wrapping_add(1));
         state.rows.revise(Vec::clear);
+        state.query_snapshot.revise(|value| *value = None);
         state.verification.revise(|v| *v = None);
         state.loading.revise(|v| *v = false);
         state.error.revise(String::clear);
@@ -62,28 +67,49 @@ pub fn app(scope: &Scope) -> impl Widget + use<> {
             view().class("brand").fill((
                 view()
                     .class("brand-title")
-                    .fill(text().content("flagon admin")),
+                    .fill(text().content("Flagon Audit")),
                 view()
                     .class("brand-subtitle")
                     .fill(text().content("audit-only operator console")),
             )),
-            field(
-                "api-base",
-                "API base",
-                "field",
-                state.base_url,
-                Purpose::Text,
-                "",
-            ),
-            field(
-                "token",
-                "Bearer token",
-                "field",
-                state.token,
-                Purpose::Password,
-                "",
-            ),
+            view().class("connection-summary").fill((
+                text().content(scope.bond(move || format!("Service: {}", state.base_url.get()))),
+                text().class("muted").content(scope.bond(move || {
+                    if state.token.get().is_empty() {
+                        "No token entered · credentials stay in memory".to_owned()
+                    } else {
+                        "Token entered · credentials stay in memory".to_owned()
+                    }
+                })),
+            )),
         )),
+        sapid::collapsible("audit-connection")
+            .unstyled()
+            .class("connection-settings")
+            .label("Connection settings")
+            .open(state.connection_open)
+            .on_open_change(move |value| state.connection_open.revise(|current| *current = value))
+            .content_policy(sapid::ContentPolicy::KeepMounted)
+            .content(move || {
+                view().class("connection-fields").fill((
+                    field(
+                        "api-base",
+                        "API base",
+                        "field",
+                        state.base_url,
+                        Purpose::Text,
+                        "",
+                    ),
+                    field(
+                        "token",
+                        "Bearer token",
+                        "field",
+                        state.token,
+                        Purpose::Password,
+                        "",
+                    ),
+                ))
+            }),
         view().class("workspace").fill(audit_panel(scope, state)),
     ))
 }
@@ -125,7 +151,21 @@ fn field(
 
 fn audit_panel(scope: &Scope, state: AuditState) -> impl Widget + use<> {
     let enabled = scope.bond(move || !state.loading.get());
-    let count = scope.bond(move || format!("{} rows", state.rows.with(Vec::len)));
+    let count = scope.bond(move || {
+        if state.query_snapshot.get().is_none() {
+            "Not loaded".to_owned()
+        } else {
+            format!("{} rows", state.rows.with(Vec::len))
+        }
+    });
+    let query_error = scope.bond(move || {
+        audit_query(&state.since.get(), &state.limit.get())
+            .err()
+            .unwrap_or_default()
+    });
+    let can_load = scope.bond(move || {
+        !state.loading.get() && audit_query(&state.since.get(), &state.limit.get()).is_ok()
+    });
     let status_class = scope.bond(move || {
         if state.error.with(String::is_empty) {
             "status-line"
@@ -168,7 +208,7 @@ fn audit_panel(scope: &Scope, state: AuditState) -> impl Widget + use<> {
                     .class("button primary")
                     .label("Load")
                     .left_section(icon("refresh"))
-                    .enabled(enabled)
+                    .enabled(can_load)
                     .on_press(move || {
                         if let Some(scope) = load_scope.upgrade() {
                             load(&scope, state)
@@ -205,6 +245,9 @@ fn audit_panel(scope: &Scope, state: AuditState) -> impl Widget + use<> {
                 "",
             ),
         )),
+        text().class("muted query-help").content("Since is an RFC 3339 timestamp: Z means UTC; explicit offsets are accepted. Leave it empty for all available times. Limit: 1–500 rows."),
+        view().role(Role::Alert).class("query-error").fill(text().content(query_error)),
+        view().class("limit-presets").fill([50,100,250,500].into_iter().map(move |limit| sapid::button().unstyled().class("button").label(limit.to_string()).enabled(enabled).on_press(move || state.limit.revise(|value| *value = limit.to_string()))).collect::<Vec<_>>()),
         view().role(Role::Status).class(status_class).fill((
             text().kind(TextKind::Inline).class(status_icon).content(""),
             text().content(message),
@@ -214,6 +257,7 @@ fn audit_panel(scope: &Scope, state: AuditState) -> impl Widget + use<> {
             None => Box::new(group()),
         }),
         reactive(state.rows, audit_table),
+        reactive(state.query_snapshot, move |snapshot| Box::new(text().class("query-context muted").content(snapshot.unwrap_or_else(|| "No audit query has completed. Choose a connection, then load the log.".to_owned())))),
     ))
 }
 
@@ -221,17 +265,23 @@ fn load(scope: &Scope, state: AuditState) {
     if state.loading.get_untracked() {
         return;
     }
-    let mut parameters = vec![(
-        "limit",
-        if state.limit.with(|value| value.trim().is_empty()) {
-            "100".to_owned()
+    let parameters = match audit_query(&state.since.get_untracked(), &state.limit.get_untracked()) {
+        Ok(value) => value,
+        Err(message) => {
+            state.error.revise(|value| *value = message);
+            return;
+        }
+    };
+    let query = format!(
+        "Results from {} · since {} · limit {}",
+        state.base_url.get_untracked(),
+        if state.since.get_untracked().trim().is_empty() {
+            "all available times".to_owned()
         } else {
-            state.limit.get_untracked()
+            state.since.get_untracked()
         },
-    )];
-    if !state.since.with(|value| value.trim().is_empty()) {
-        parameters.push(("since", state.since.get_untracked()));
-    }
+        state.limit.get_untracked()
+    );
     let base = Rc::from(state.base_url.get_untracked());
     let token = Rc::from(state.token.get_untracked());
     let serial = begin(state, "Loading audit feed");
@@ -242,10 +292,16 @@ fn load(scope: &Scope, state: AuditState) {
         }
         match result {
             Ok(payload) => {
-                state
-                    .status
-                    .revise(|value| *value = format!("{} audit events", payload.events.len()));
+                state.status.revise(|value| {
+                    *value = if payload.events.is_empty() {
+                        "No audit events match this query.".to_owned()
+                    } else {
+                        format!("{} audit events", payload.events.len())
+                    }
+                });
                 state.rows.revise(|value| *value = payload.events);
+                state.query_snapshot.revise(|value| *value = Some(query));
+                state.connection_open.revise(|value| *value = false);
             }
             Err(error) => {
                 state.error.revise(|value| *value = error);
@@ -281,6 +337,7 @@ fn verify(scope: &Scope, state: AuditState) {
         }
         match result {
             Ok(payload) => {
+                state.connection_open.revise(|value| *value = false);
                 state.status.revise(|value| {
                     *value = if payload.ok {
                         format!("Audit chain ok: {} rows", payload.chain_rows)
@@ -318,6 +375,27 @@ fn begin(state: AuditState, message: &str) -> u64 {
     state.error.revise(String::clear);
     state.status.revise(|value| *value = message.to_owned());
     state.generation.get_untracked()
+}
+
+fn audit_query(
+    since: &str,
+    limit: &str,
+) -> std::result::Result<Vec<(&'static str, String)>, String> {
+    let limit = limit
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| "Enter a whole-number limit from 1 to 500.".to_owned())?;
+    if !(1..=500).contains(&limit) {
+        return Err("Limit must be between 1 and 500.".to_owned());
+    }
+    let mut parameters = vec![("limit", limit.to_string())];
+    if !since.trim().is_empty() {
+        chrono::DateTime::parse_from_rfc3339(since.trim()).map_err(|_| {
+            "Since must include a valid date, time and UTC Z or timezone offset.".to_owned()
+        })?;
+        parameters.push(("since", since.trim().to_owned()));
+    }
+    Ok(parameters)
 }
 
 fn reactive<T: Clone + 'static>(source: Cage<T>, render: impl Fn(T) -> View + 'static) -> View {
@@ -360,6 +438,7 @@ fn audit_table(rows: Vec<AuditEvent>) -> View {
         ),
     );
     let body = sapid::table_body().rows(rows.into_iter().map(|item| {
+        let full = serde_json::to_string_pretty(&item).expect("audit response serializes as JSON");
         let resource = item.resource_id.unwrap_or_default();
         let resource_kind = item.resource_kind.unwrap_or_default();
         let actor = item
@@ -387,7 +466,8 @@ fn audit_table(rows: Vec<AuditEvent>) -> View {
                 ))
             }),
             sapid::table_cell("actor").text(actor),
-            sapid::table_cell("detail").class("mono").text(detail),
+            sapid::table_cell("detail")
+                .content(move || audit_detail(item.audit_id, detail.clone(), full.clone())),
         ])
     }));
     Box::new(
@@ -399,6 +479,69 @@ fn audit_table(rows: Vec<AuditEvent>) -> View {
                 .striped(false),
         ),
     )
+}
+
+fn audit_detail(id: i64, summary: String, json: String) -> impl Widget {
+    widget(move |scope| {
+        let open = scope.cage(false);
+        let json = json.clone();
+        view()
+            .class("audit-detail-cell")
+            .fill((
+                text().class("mono audit-excerpt").content(summary.clone()),
+                sapid::dialog(format!("audit-record-{id}"))
+                    .unstyled()
+                    .class("audit-record-dialog")
+                    .label("View full record")
+                    .title(format!("Audit record #{id}"))
+                    .close_label("Close")
+                    .open(open)
+                    .on_open_change(move |value| open.revise(|current| *current = value))
+                    .content(move || audit_record_body(json.clone())),
+            ))
+            .show_in(scope)
+    })
+}
+
+fn audit_record_body(json: String) -> View {
+    let copy: View = if json.len() <= glory::render::MAX_CLIPBOARD_BYTES {
+        Box::new(
+            sapid::copy_button()
+                .unstyled()
+                .class("button")
+                .label("Copy full JSON")
+                .source(json.clone())
+                .failed_label("Copy failed — select JSON below"),
+        )
+    } else {
+        Box::new(text().content("Large record: select the JSON field and use Ctrl+A, Ctrl+C (or your platform's copy command)."))
+    };
+    Box::new(view().class("audit-record-content").fill((
+        text().content("Complete authorized response record. The table summary is shortened; this JSON is not."),
+        copy,
+        sapid::text_field().unstyled().class("audit-json mono").name("Full audit record JSON").multiline(true).readonly(true).value(json),
+    )))
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::audit_query;
+    #[test]
+    fn query_accepts_endpoint_bounds_and_preserves_explicit_timezone() {
+        assert!(audit_query("", "1").is_ok());
+        assert!(
+            audit_query("2026-11-14T10:00:00+08:00", "500")
+                .unwrap()
+                .contains(&("since", "2026-11-14T10:00:00+08:00".to_owned()))
+        );
+    }
+    #[test]
+    fn query_rejects_unbounded_limits_and_ambiguous_time() {
+        for value in ["", "0", "501", "-1", "2.5", "huge"] {
+            assert!(audit_query("", value).is_err());
+        }
+        assert!(audit_query("2026-11-14T10:00:00", "100").is_err());
+    }
 }
 
 fn verification_box(snapshot: VerificationSnapshot) -> View {
