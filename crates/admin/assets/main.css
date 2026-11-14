@@ -387,6 +387,19 @@ tr:last-child td {
   overflow: auto;
 }
 
+.verification-result {
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.verification-result > :first-child {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 @media (max-width: 980px) {
   .topbar {
     grid-template-columns: 1fr;

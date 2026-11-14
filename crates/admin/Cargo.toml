@@ -20,6 +20,7 @@ sapid.workspace = true
 gloo-net.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+chrono = { workspace = true, features = ["wasmbind"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 glory = { workspace = true, features = ["web"] }

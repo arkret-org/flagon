@@ -12,6 +12,13 @@ use crate::model::{
 
 type View = Box<dyn Widget>;
 
+#[derive(Clone)]
+struct VerificationSnapshot {
+    service: String,
+    completed_at: String,
+    verdict: AuditChainVerificationVerdict,
+}
+
 #[derive(Clone, Copy)]
 struct AuditState {
     base_url: Cage<String>,
@@ -22,7 +29,8 @@ struct AuditState {
     error: Cage<String>,
     since: Cage<String>,
     limit: Cage<String>,
-    verification: Cage<Option<AuditChainVerificationVerdict>>,
+    verification: Cage<Option<VerificationSnapshot>>,
+    generation: Cage<u64>,
 }
 
 pub fn app(scope: &Scope) -> impl Widget + use<> {
@@ -36,7 +44,19 @@ pub fn app(scope: &Scope) -> impl Widget + use<> {
         since: scope.cage(String::new()),
         limit: scope.cage("100".to_owned()),
         verification: scope.cage(None),
+        generation: scope.cage(0),
     };
+    scope.effect(move || {
+        let _ = (state.base_url.get(), state.token.get());
+        state.generation.revise(|n| *n = n.wrapping_add(1));
+        state.rows.revise(Vec::clear);
+        state.verification.revise(|v| *v = None);
+        state.loading.revise(|v| *v = false);
+        state.error.revise(String::clear);
+        state.status.revise(|v| {
+            *v = "Connection changed. Load the audit log or verify the full chain.".into()
+        });
+    });
     view().role(Role::Main).class("app-shell").fill((
         view().role(Role::Banner).class("topbar").fill((
             view().class("brand").fill((
@@ -214,9 +234,13 @@ fn load(scope: &Scope, state: AuditState) {
     }
     let base = Rc::from(state.base_url.get_untracked());
     let token = Rc::from(state.token.get_untracked());
-    begin(state, "Loading audit feed");
+    let serial = begin(state, "Loading audit feed");
     if let Err(error) = scope.owner().spawn(async move {
-        match get_admin::<AuditEnvelope>(base, token, "audit", parameters).await {
+        let result = get_admin::<AuditEnvelope>(base, token, "audit", parameters).await;
+        if state.generation.get_untracked() != serial {
+            return;
+        }
+        match result {
             Ok(payload) => {
                 state
                     .status
@@ -243,10 +267,19 @@ fn verify(scope: &Scope, state: AuditState) {
     }
     let base = Rc::from(state.base_url.get_untracked());
     let token = Rc::from(state.token.get_untracked());
-    begin(state, "Verifying audit chain");
+    let service = state
+        .base_url
+        .get_untracked()
+        .trim_end_matches('/')
+        .to_owned();
+    let serial = begin(state, "Verifying full audit chain");
     if let Err(error) = scope.owner().spawn(async move {
-        match get_admin::<AuditChainVerificationVerdict>(base, token, "audit/verify", vec![]).await
-        {
+        let result =
+            get_admin::<AuditChainVerificationVerdict>(base, token, "audit/verify", vec![]).await;
+        if state.generation.get_untracked() != serial {
+            return;
+        }
+        match result {
             Ok(payload) => {
                 state.status.revise(|value| {
                     *value = if payload.ok {
@@ -255,7 +288,14 @@ fn verify(scope: &Scope, state: AuditState) {
                         "Audit chain verification failed".to_owned()
                     }
                 });
-                state.verification.revise(|value| *value = Some(payload));
+                state.verification.revise(|value| {
+                    *value = Some(VerificationSnapshot {
+                        service,
+                        completed_at: chrono::Utc::now()
+                            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                        verdict: payload,
+                    })
+                });
             }
             Err(error) => {
                 state.error.revise(|value| *value = error);
@@ -271,10 +311,13 @@ fn verify(scope: &Scope, state: AuditState) {
     }
 }
 
-fn begin(state: AuditState, message: &str) {
+fn begin(state: AuditState, message: &str) -> u64 {
+    state.generation.revise(|n| *n = n.wrapping_add(1));
+    state.verification.revise(|v| *v = None);
     state.loading.revise(|value| *value = true);
     state.error.revise(String::clear);
     state.status.revise(|value| *value = message.to_owned());
+    state.generation.get_untracked()
 }
 
 fn reactive<T: Clone + 'static>(source: Cage<T>, render: impl Fn(T) -> View + 'static) -> View {
@@ -358,8 +401,14 @@ fn audit_table(rows: Vec<AuditEvent>) -> View {
     )
 }
 
-fn verification_box(outcome: AuditChainVerificationVerdict) -> View {
-    let mut lines: Vec<View> = vec![Box::new(
+fn verification_box(snapshot: VerificationSnapshot) -> View {
+    let outcome = snapshot.verdict;
+    let mut lines: Vec<View> = vec![
+        Box::new(text().kind(TextKind::Heading(2)).content("Full audit chain verification")),
+        Box::new(text().content(format!("Service: {}", snapshot.service))),
+        Box::new(text().content(format!("Completed at (this device, UTC): {}", snapshot.completed_at))),
+        Box::new(text().content("This result covers the service's full audit chain, independently of the list filters. It is a point-in-time result, not continuous monitoring.")),
+        Box::new(
         view().fill(
             sapid::badge()
                 .unstyled()
@@ -390,16 +439,18 @@ fn verification_box(outcome: AuditChainVerificationVerdict) -> View {
         ),
         format!("head_digest: {}", outcome.head_digest.unwrap_or_default()),
     ] {
-        lines.push(Box::new(view().fill(text().content(line))));
+        lines.push(Box::new(view().class("mono").fill(text().content(line))));
     }
     if let Some(failure) = outcome.failure {
-        lines.push(Box::new(view().fill(text().content(format!(
-            "{} at audit_id {} expected={} actual={}",
-            failure.reason,
-            failure.audit_id,
-            failure.expected.as_deref().unwrap_or(""),
-            failure.actual.as_deref().unwrap_or("")
-        )))));
+        lines.push(Box::new(view().class("mono").fill(text().content(
+            format!(
+                "{} at audit_id {} expected={} actual={}",
+                failure.reason,
+                failure.audit_id,
+                failure.expected.as_deref().unwrap_or(""),
+                failure.actual.as_deref().unwrap_or("")
+            ),
+        ))));
     }
-    Box::new(view().class("result-box mono").fill(lines))
+    Box::new(view().class("result-box verification-result").fill(lines))
 }
