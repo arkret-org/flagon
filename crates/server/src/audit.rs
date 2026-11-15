@@ -2,8 +2,7 @@
 //!
 //! Operational audit history is separate from the public Realm index.
 //! The local index maintenance process appends on the same transaction as
-//! its mutation; HTTP remains audit-read-only. Historical event vocabulary
-//! remains readable and verifiable.
+//! its mutation; HTTP remains audit-read-only.
 //!
 //! A.8.5 — every row carries a SHA-256 chained digest computed over the
 //! canonical row plus the previous row's digest, so a tamper of any
@@ -62,40 +61,15 @@ impl From<flagon_contracts::DirectoryResourceKind> for DirectoryResourceKindDb {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, diesel::AsExpression, diesel::FromSqlRow)]
 #[diesel(sql_type = crate::schema::sql_types::AuditEventKind)]
 pub enum AuditEventKind {
-    IngestAccepted,
-    IngestRejected,
-    RevalidationSucceeded,
-    RevalidationFailed,
-    Withdrawal,
-    OperatorTakedown,
-    AllowlistAdded,
-    AllowlistRemoved,
     AdminResourceUpserted,
     AdminResourceDeleted,
     ExpiryPurged,
-    /// A `ak.realm.destroy` anchor was observed; the row was flipped to its
-    /// tombstone projection.
-    RealmDestroyed,
-    /// A federation announce request hit the cache after the underlying
-    /// service key was revoked. We served the cached body with
-    /// `historical_only=true` and skipped side effects.
-    IngestHistoricalOnly,
 }
 
 crate::db_enum::impl_pg_enum!(AuditEventKind, crate::schema::sql_types::AuditEventKind, {
-    AuditEventKind::IngestAccepted => "ingest_accepted",
-    AuditEventKind::IngestRejected => "ingest_rejected",
-    AuditEventKind::RevalidationSucceeded => "revalidation_succeeded",
-    AuditEventKind::RevalidationFailed => "revalidation_failed",
-    AuditEventKind::Withdrawal => "withdrawal",
-    AuditEventKind::OperatorTakedown => "operator_takedown",
-    AuditEventKind::AllowlistAdded => "allowlist_added",
-    AuditEventKind::AllowlistRemoved => "allowlist_removed",
     AuditEventKind::AdminResourceUpserted => "admin_resource_upserted",
     AuditEventKind::AdminResourceDeleted => "admin_resource_deleted",
     AuditEventKind::ExpiryPurged => "expiry_purged",
-    AuditEventKind::RealmDestroyed => "realm_destroyed",
-    AuditEventKind::IngestHistoricalOnly => "ingest_historical_only",
 });
 
 #[derive(Debug, Insertable)]

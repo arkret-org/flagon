@@ -262,10 +262,6 @@ mod tests {
             #[diesel(sql_type = Bool)]
             pub(super) public_index_present: bool,
             #[diesel(sql_type = Bool)]
-            pub(super) retired_pcd_absent: bool,
-            #[diesel(sql_type = Bool)]
-            pub(super) retired_directory_tables_absent: bool,
-            #[diesel(sql_type = Bool)]
             pub(super) only_current_tables_present: bool,
         }
     }
@@ -320,22 +316,6 @@ mod tests {
         let shape: FreshSchemaShape = diesel::sql_query(
             "SELECT to_regclass('public.directory_public_realm_entries') IS NOT NULL \
                     AS public_index_present, \
-                    (to_regclass('public.pcd_key_epochs') IS NULL \
-                     AND to_regclass('public.pcd_index_entries') IS NULL \
-                     AND to_regclass('public.pcd_config_snapshots') IS NULL \
-                     AND to_regclass('public.pcd_quota_windows') IS NULL \
-                     AND to_regclass('public.pcd_batches') IS NULL) \
-                    AS retired_pcd_absent, \
-                    (to_regclass('public.directory_resources') IS NULL \
-                     AND to_regclass('public.ingest_announces') IS NULL \
-                     AND to_regclass('public.withdrawals') IS NULL \
-                     AND to_regclass('public.directory_object_access') IS NULL \
-                     AND to_regclass('public.directory_invite_revocations') IS NULL \
-                     AND to_regclass('public.accept_allowlist') IS NULL \
-                     AND to_regclass('public.pending_takedowns') IS NULL \
-                     AND to_regclass('public.pending_takedown_webhooks') IS NULL \
-                     AND to_regclass('public.verified_realm_organizations') IS NULL) \
-                    AS retired_directory_tables_absent, \
                     NOT EXISTS (SELECT 1 FROM information_schema.tables \
                                 WHERE table_schema = 'public' \
                                   AND table_type = 'BASE TABLE' \
@@ -348,8 +328,6 @@ mod tests {
         .get_result(&mut conn)
         .await?;
         assert!(shape.public_index_present);
-        assert!(shape.retired_pcd_absent);
-        assert!(shape.retired_directory_tables_absent);
         assert!(shape.only_current_tables_present);
         let realm_id =
             RealmId::new("ak:realm:AXXwKm5bWs7Plj3J5iRyqGeeNU99_oZCMnjtWom6sFeR".to_owned())?;
