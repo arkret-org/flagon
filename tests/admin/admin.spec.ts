@@ -72,7 +72,9 @@ test("original-page-layout retains audit controls, rows, verification and failur
     await expect(
       page.getByRole("heading", { name: "Audit log", exact: true }),
     ).toBeVisible();
-    await expect(page.locator(".status-line")).toContainText("Idle");
+    await expect(page.locator(".status-line")).toHaveText(
+      "Connection changed. Load the audit log or verify the full chain.",
+    );
     await capture(page, "idle-" + name);
     await page.getByRole("button", { name: /Load/ }).click();
     await expect(page.getByRole("row")).toHaveCount(3);
@@ -113,10 +115,20 @@ test("current settings and filters reach typed requests without exposing the tok
 }) => {
   const { requests, errors } = await setup(page);
   await page.goto("/");
-  await page.locator(".topbar input").nth(0).fill("http://directory.example/");
-  await page.locator(".topbar input").nth(1).fill("  private-operator-token  ");
-  await page.locator(".toolbar input").nth(0).fill("2026-10-25T00:00:00Z");
-  await page.locator(".toolbar input").nth(1).fill("25");
+  const apiBase = page.getByRole("textbox", { name: "API base", exact: true });
+  const token = page.getByLabel("Bearer token", { exact: true });
+  const connection = page.getByRole("button", {
+    name: "Connection settings",
+    exact: true,
+  });
+  await expect(connection).toBeVisible();
+  if ((await connection.getAttribute("aria-expanded")) === "false") {
+    await connection.click();
+  }
+  await apiBase.fill("http://directory.example/");
+  await token.fill("  private-operator-token  ");
+  await page.getByLabel("Since", { exact: true }).fill("2026-10-25T00:00:00Z");
+  await page.getByLabel("Limit", { exact: true }).fill("25");
   await page.getByRole("button", { name: /Load/ }).click();
   await expect(page.getByRole("row")).toHaveCount(3);
   expect(new URL(requests.at(-1)!.url).origin).toBe("http://directory.example");
@@ -125,10 +137,7 @@ test("current settings and filters reach typed requests without exposing the tok
     "2026-10-25T00:00:00Z",
   );
   expect(requests.at(-1)!.authorization).toBe("Bearer private-operator-token");
-  await expect(page.locator(".topbar input").nth(1)).toHaveAttribute(
-    "type",
-    "password",
-  );
+  await expect(token).toHaveAttribute("type", "password");
   expect(await page.locator("body").innerText()).not.toContain(
     "private-operator-token",
   );
@@ -162,7 +171,7 @@ test("loading fences both actions and retry retains query inputs", async ({
   expect(errors).toEqual([]);
 });
 
-test("empty limits use the original default and Unicode details stay bounded plain text", async ({
+test("invalid limits cannot submit and Unicode details stay bounded plain text", async ({
   page,
 }) => {
   const { errors } = await setup(page);
@@ -174,7 +183,9 @@ test("empty limits use the original default and Unicode details stay bounded pla
         events: [
           {
             ...events[0],
-            detail: { message: "<img src=x onerror=alert(1)>秘密".repeat(60) },
+            detail: {
+              message: "<img src=x onerror=alert(1)>秘密🙂".repeat(60),
+            },
           },
         ],
         next_since: null,
@@ -182,11 +193,24 @@ test("empty limits use the original default and Unicode details stay bounded pla
     });
   });
   await page.goto("/");
-  await page.locator(".toolbar input").nth(1).fill("");
-  await page.getByRole("button", { name: /Load/ }).click();
+  const limit = page.getByLabel("Limit", { exact: true });
+  const load = page.getByRole("button", { name: "Load", exact: true });
+  for (const invalid of ["", "0", "501"]) {
+    await limit.fill(invalid);
+    await expect(load).toBeDisabled();
+    await expect(page.locator(".query-error")).not.toBeEmpty();
+    expect(query).toBe("");
+  }
+  await page.getByRole("button", { name: "100", exact: true }).click();
+  await expect(limit).toHaveValue("100");
+  await expect(load).toBeEnabled();
+  await load.click();
   await expect(page.getByRole("row")).toHaveCount(2);
   expect(new URL(query).searchParams.get("limit")).toBe("100");
-  expect(await page.locator("tbody td").last().innerText()).toHaveLength(220);
+  const excerpt = await page.locator(".audit-excerpt").innerText();
+  expect(Array.from(excerpt)).toHaveLength(220);
+  expect(excerpt).toContain("<img src=x onerror=alert(1)>秘密🙂");
+  expect(excerpt).not.toContain("\uFFFD");
   expect(await page.locator("tbody img").count()).toBe(0);
   expect(errors).toEqual([]);
 });
