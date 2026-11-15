@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/arkret-rust-sdk
-          ref: 819fc97ca2356cd0ed467864babfaca93e0b5494
+          ref: e84ab4be3f1004ef5f48ea2250cd403787c4e706
           path: arkret-rust-sdk
           token: ${{ secrets.CI_REPO_TOKEN || github.token }}
 
