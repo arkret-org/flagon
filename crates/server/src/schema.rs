@@ -29,7 +29,7 @@ diesel::table! {
         authenticated_credential_id -> Nullable<Text>,
         asserted_operator_localpart -> Nullable<Text>,
         prev_digest -> Nullable<Bytea>,
-        audit_digest -> Nullable<Bytea>,
+        audit_digest -> Bytea,
     }
 }
 

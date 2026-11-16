@@ -322,31 +322,42 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
         broken.failure.unwrap().reason,
         "prev_digest does not match previous audit_digest"
     );
-    sql(db, "TRUNCATE directory_audit RESTART IDENTITY").await?;
-    sql(
-        db,
-        "INSERT INTO directory_audit(kind,detail) VALUES('admin_resource_upserted','{}')",
-    )
-    .await?;
-    audit::record(
-        db,
-        AuditEventKind::ExpiryPurged,
-        None,
-        None,
-        None,
-        json!({}),
-    )
-    .await?;
-    assert_eq!(audit::verify_chain(db).await?.chain_rows, 1);
-    sql(
-        db,
-        "INSERT INTO directory_audit(kind,detail) VALUES('expiry_purged','{}')",
-    )
-    .await?;
-    assert_eq!(
-        audit::verify_chain(db).await?.failure.unwrap().reason,
-        "missing audit_digest after chain start"
-    );
+    for has_valid_row in [false, true] {
+        sql(db, "TRUNCATE directory_audit RESTART IDENTITY").await?;
+        if has_valid_row {
+            audit::record(
+                db,
+                AuditEventKind::ExpiryPurged,
+                None,
+                None,
+                None,
+                json!({}),
+            )
+            .await?;
+        }
+        let before = audit::verify_chain(db).await?;
+        assert!(before.ok);
+        assert_eq!(before.checked_rows, if has_valid_row { 1 } else { 0 });
+        assert_eq!(before.chain_rows, before.checked_rows);
+        for statement in [
+            "INSERT INTO directory_audit(kind,detail) VALUES('admin_resource_upserted','{}')",
+            "INSERT INTO directory_audit(kind,detail,audit_digest) VALUES('expiry_purged','{}',NULL)",
+        ] {
+            let error = sql(db, statement).await.unwrap_err();
+            let Some(diesel::result::Error::DatabaseError(kind, info)) =
+                error.downcast_ref::<diesel::result::Error>()
+            else {
+                panic!("missing audit digest failed outside the SQL constraint: {error:#}");
+            };
+            assert_eq!(*kind, diesel::result::DatabaseErrorKind::NotNullViolation);
+            assert_eq!(info.column_name(), Some("audit_digest"));
+            assert_eq!(
+                serde_json::to_value(audit::verify_chain(db).await?)?,
+                serde_json::to_value(&before)?,
+                "rejected unchained row must leave the entire verified chain unchanged"
+            );
+        }
+    }
     sql(db, "TRUNCATE directory_audit RESTART IDENTITY").await?;
     sql(db, "INSERT INTO directory_audit(kind,detail,prev_digest,audit_digest) VALUES('expiry_purged','{}',decode('00','hex'),decode('01','hex'))").await?;
     assert_eq!(

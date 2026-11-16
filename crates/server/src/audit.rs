@@ -90,7 +90,7 @@ struct NewAuditRow<'a> {
     authenticated_credential_id: Option<&'a str>,
     asserted_operator_localpart: Option<&'a str>,
     prev_digest: Option<Vec<u8>>,
-    audit_digest: Option<Vec<u8>>,
+    audit_digest: Vec<u8>,
 }
 
 #[derive(Debug, Queryable)]
@@ -106,7 +106,7 @@ struct AuditChainRow {
     authenticated_credential_id: Option<String>,
     asserted_operator_localpart: Option<String>,
     prev_digest: Option<Vec<u8>>,
-    audit_digest: Option<Vec<u8>>,
+    audit_digest: Vec<u8>,
 }
 
 /// Principal / local credential / asserted localpart split for chained audit.
@@ -145,7 +145,7 @@ pub async fn record(
 }
 
 /// Chained-digest audit write. Reads the previous `audit_digest` from
-/// the most-recent row (NULL on the very first row), computes
+/// the most-recent row (absent only before the first row), computes
 /// `sha256(canonical(row) || prev_digest)`, and inserts. A fixed
 /// PostgreSQL advisory transaction lock serializes concurrent audit writers
 /// before the prev-digest read, so READ COMMITTED cannot fork the chain.
@@ -197,10 +197,9 @@ pub(crate) async fn record_on_connection(
     let prev_digest: Option<Vec<u8>> = directory_audit::table
         .order(directory_audit::audit_id.desc())
         .select(directory_audit::audit_digest)
-        .first::<Option<Vec<u8>>>(&mut *conn)
+        .first::<Vec<u8>>(&mut *conn)
         .await
-        .optional()?
-        .flatten();
+        .optional()?;
 
     let now = Utc::now();
     let occurred_at = DateTime::<Utc>::from_timestamp_micros(now.timestamp_micros())
@@ -228,7 +227,7 @@ pub(crate) async fn record_on_connection(
             authenticated_credential_id: identity.authenticated_credential_id,
             asserted_operator_localpart: identity.asserted_operator_localpart,
             prev_digest,
-            audit_digest: Some(row_digest),
+            audit_digest: row_digest,
         })
         .execute(&mut *conn)
         .await?;
@@ -262,27 +261,9 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationVerdi
     let mut last_audit_id = None;
     let mut expected_prev: Option<Vec<u8>> = None;
     let mut head_digest: Option<Vec<u8>> = None;
-    let mut chain_started = false;
-
     for row in rows {
-        let Some(actual_digest) = row.audit_digest.as_ref() else {
-            if chain_started {
-                return Ok(chain_failure(
-                    checked_rows,
-                    chain_rows,
-                    first_audit_id,
-                    last_audit_id,
-                    head_digest.as_deref(),
-                    row.audit_id,
-                    "missing audit_digest after chain start",
-                    None,
-                    None,
-                ));
-            }
-            continue;
-        };
-
-        if !chain_started {
+        let actual_digest = &row.audit_digest;
+        if first_audit_id.is_none() {
             if row.prev_digest.is_some() {
                 return Ok(chain_failure(
                     checked_rows,
@@ -296,7 +277,6 @@ pub async fn verify_chain(db: &Db) -> anyhow::Result<AuditChainVerificationVerdi
                     row.prev_digest.as_deref(),
                 ));
             }
-            chain_started = true;
             first_audit_id = Some(row.audit_id);
         } else if row.prev_digest.as_deref() != expected_prev.as_deref() {
             return Ok(chain_failure(

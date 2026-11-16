@@ -51,7 +51,7 @@ CREATE TABLE directory_audit (
     authentication_method TEXT,
     detail JSONB NOT NULL DEFAULT '{}'::jsonb,
     prev_digest BYTEA,
-    audit_digest BYTEA
+    audit_digest BYTEA NOT NULL
 );
 
 CREATE INDEX directory_audit_resource_idx
