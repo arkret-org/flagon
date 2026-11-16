@@ -1,6 +1,16 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { events, failed, setup } from "./fixtures";
+import { events, failed, setup, verified } from "./fixtures";
+
+async function openConnectionSettings(page: Page) {
+  const connection = page.getByRole("button", {
+    name: "Connection settings",
+    exact: true,
+  });
+  if ((await connection.getAttribute("aria-expanded")) === "false") {
+    await connection.click();
+  }
+}
 async function capture(page: any, name: string) {
   await page.screenshot({
     path: test.info().outputPath(name + ".png"),
@@ -165,15 +175,179 @@ test("invalid limits cannot submit and Unicode details stay bounded plain text",
   }
   await page.getByRole("button", { name: "100", exact: true }).click();
   await expect(limit).toHaveValue("100");
+  const since = page.getByLabel("Since", { exact: true });
+  await since.fill("2026-11-14T10:00:00");
+  await expect(load).toBeDisabled();
+  expect(query).toBe("");
+  await since.fill("2026-11-14T10:00:00+08:00");
   await expect(load).toBeEnabled();
   await load.click();
   await expect(page.getByRole("row")).toHaveCount(2);
   expect(new URL(query).searchParams.get("limit")).toBe("100");
+  expect(new URL(query).searchParams.get("since")).toBe(
+    "2026-11-14T10:00:00+08:00",
+  );
+  await expect(page.locator(".query-context")).toContainText(
+    "2026-11-14T10:00:00+08:00",
+  );
   const excerpt = await page.locator(".audit-excerpt").innerText();
   expect(Array.from(excerpt)).toHaveLength(220);
   expect(excerpt).toContain("<img src=x onerror=alert(1)>秘密🙂");
   expect(excerpt).not.toContain("\uFFFD");
   expect(await page.locator("tbody img").count()).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test("verification stays with the current connection after a delayed previous response", async ({
+  page,
+}) => {
+  const { errors } = await setup(page);
+  const digestA = "a".repeat(64);
+  const digestB = "b".repeat(64);
+  let delay = false;
+  let held = false;
+  let unavailable = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/_flagon/admin/audit/verify", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (delay && path.startsWith("/service-a/")) {
+      held = true;
+      await gate;
+    }
+    if (unavailable) {
+      return route.fulfill({ status: 503, body: "Try later" });
+    }
+    return route.fulfill({
+      json: {
+        ...verified,
+        head_digest: path.startsWith("/service-b/") ? digestB : digestA,
+      },
+    });
+  });
+  try {
+    await page.goto("/");
+    const base = new URL(page.url()).origin;
+    const address = page.getByLabel("API base", { exact: true });
+    const verify = page.getByRole("button", { name: "Verify", exact: true });
+    const result = page.locator(".result-box");
+    await address.fill(base + "/service-a");
+    await verify.click();
+    await expect(result).toContainText(base + "/service-a");
+    await expect(result).toContainText(digestA);
+    await expect(result).toContainText(/Completed at .*UTC.*\d{4}-\d{2}-\d{2}T/);
+    await expect(result).toContainText("independently of the list filters");
+    await page.getByRole("button", { name: "Load", exact: true }).click();
+    await expect(result).toHaveCount(0);
+    await expect(page.getByRole("row")).toHaveCount(3);
+
+    delay = true;
+    await verify.click();
+    await expect.poll(() => held).toBe(true);
+    await openConnectionSettings(page);
+    await address.fill(base + "/service-b");
+    await expect(page.getByRole("row")).toHaveCount(1);
+    await expect(verify).toBeEnabled();
+    await verify.click();
+    await expect(result).toContainText(digestB);
+    const oldResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+        "/service-a/_flagon/admin/audit/verify",
+    );
+    release();
+    await (await oldResponse).finished();
+    await page.evaluate(
+      () => new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+    );
+    await expect(result).toContainText(base + "/service-b");
+    await expect(result).not.toContainText(digestA);
+
+    await openConnectionSettings(page);
+    const token = "unpersisted-operator-token";
+    await page.getByLabel("Bearer token", { exact: true }).fill(token);
+    await expect(result).toHaveCount(0);
+    unavailable = true;
+    await verify.click();
+    await expect(page.locator(".status-line")).toContainText("HTTP 503");
+    await expect(result).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        (secret) => Object.values(localStorage).some((value) => value.includes(secret)),
+        token,
+      ),
+    ).toBe(false);
+    expect(errors).toEqual([]);
+  } finally {
+    release();
+  }
+});
+
+test("full audit records preserve Unicode, clipboard content and large details", async ({
+  page,
+  context,
+}) => {
+  const { errors } = await setup(page);
+  let detail: Record<string, unknown> = {
+    reason: "完整授权详情 / Unicode — END",
+    nested: { values: [1, 2, "原文"] },
+    long: "long-detail-".repeat(1000),
+  };
+  let unauthorized = false;
+  await page.route("**/_flagon/admin/audit?*", (route) =>
+    unauthorized
+      ? route.fulfill({
+          status: 401,
+          json: { type: "about:blank", title: "Unauthorized", status: 401 },
+        })
+      : route.fulfill({
+          json: { events: [{ ...events[0], detail }], next_since: null },
+        }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  const load = page.getByRole("button", { name: "Load", exact: true });
+  const open = page.getByRole("button", { name: "View full record", exact: true });
+  const field = page.getByRole("textbox", { name: "Full audit record JSON", exact: true });
+  await load.click();
+  await expect(open).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connection settings", exact: true }))
+    .toHaveAttribute("aria-expanded", "false");
+  await open.click();
+  await expect(field).toHaveValue(/完整授权详情/);
+  const original = await field.inputValue();
+  expect(JSON.parse(original)).toEqual({ ...events[0], detail });
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "Copy full JSON", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Copied", exact: true })).toBeVisible();
+  // Windows clipboard text uses CRLF while textarea values use LF.
+  await expect.poll(async () =>
+    (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n"),
+  ).toBe(original);
+  await page.screenshot({ path: test.info().outputPath("full-record-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(open).toBeFocused();
+  await open.click();
+  await expect(field).toHaveValue(original);
+  await page.keyboard.press("Escape");
+  await expect(field).toHaveCount(0);
+
+  detail = { huge: "大记录".repeat(25000), last: "FULL_RECORD_END" };
+  await load.click();
+  await expect(page.locator(".audit-excerpt")).toContainText("大记录");
+  await open.click();
+  await expect(field).toHaveValue(/FULL_RECORD_END/);
+  expect(JSON.parse(await field.inputValue())).toEqual({ ...events[0], detail });
+  await expect(page.getByRole("button", { name: "Copy full JSON", exact: true }))
+    .toHaveCount(0);
+  await expect(page.getByText(/Large record: select/)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(field).toHaveCount(0);
+  unauthorized = true;
+  await load.click();
+  await expect(page.locator(".status-line")).toContainText("HTTP 401");
   expect(errors).toEqual([]);
 });
 
