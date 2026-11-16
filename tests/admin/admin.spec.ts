@@ -1,54 +1,16 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { writeFile } from "node:fs/promises";
 import { events, failed, setup } from "./fixtures";
 async function capture(page: any, name: string) {
   await page.screenshot({
     path: test.info().outputPath(name + ".png"),
     fullPage: true,
   });
-  const metrics = await page.evaluate(() => {
-    const out: any = {
-      viewport: innerWidth,
-      documentWidth: document.documentElement.scrollWidth,
-    };
-    for (const name of [
-      ".topbar",
-      ".brand-title",
-      ".workspace",
-      ".panel-head",
-      "h1",
-      ".toolbar",
-      ".table-wrap",
-      "input",
-      "th",
-      "td",
-    ]) {
-      const el = document.querySelector(name);
-      if (el) {
-        const box = el.getBoundingClientRect(),
-          css = getComputedStyle(el);
-        out[name] = {
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
-          fontSize: css.fontSize,
-          lineHeight: css.lineHeight,
-          fontWeight: css.fontWeight,
-        };
-      }
-    }
-    return out;
-  });
-  await writeFile(
-    test.info().outputPath(name + ".json"),
-    JSON.stringify(metrics, null, 2),
-  );
-  if (!process.env.FLAGON_E2E_BASELINE) {
-    expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewport);
-    expect(metrics.h1.fontWeight).toBe("700");
-  }
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(documentWidth).toBeLessThanOrEqual(viewport!.width);
+  await expect(page.locator("h1")).toHaveCSS("font-weight", "700");
   await expect(page.getByRole("columnheader")).toHaveText([
     "Time",
     "Kind",
@@ -58,7 +20,7 @@ async function capture(page: any, name: string) {
   ]);
 }
 
-test("original-page-layout retains audit controls, rows, verification and failure states", async ({
+test("responsive audit controls retain rows, verification and failure states", async ({
   page,
 }) => {
   test.setTimeout(90000);

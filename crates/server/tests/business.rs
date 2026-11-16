@@ -207,7 +207,7 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     assert_eq!(empty.checked_rows, 0);
     audit::record(
         db,
-        AuditEventKind::IngestRejected,
+        AuditEventKind::AdminResourceUpserted,
         None,
         None,
         None,
@@ -216,7 +216,7 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     .await?;
     audit::record_with_identity(
         db,
-        AuditEventKind::OperatorTakedown,
+        AuditEventKind::AdminResourceDeleted,
         Some(DirectoryResourceKindDb::Realm),
         Some(&realm(2)),
         Some("ak:did_core:web:operator.test"),
@@ -235,7 +235,7 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     assert!(
         audit::record(
             db,
-            AuditEventKind::Withdrawal,
+            AuditEventKind::ExpiryPurged,
             None,
             None,
             Some("not-a-principal"),
@@ -315,7 +315,7 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
             .is_err()
     );
     // A forged append cannot be mistaken for a valid historical chain.
-    sql(db, "INSERT INTO directory_audit(kind,detail,prev_digest,audit_digest) VALUES('withdrawal','{}',decode('00','hex'),decode('01','hex'))").await?;
+    sql(db, "INSERT INTO directory_audit(kind,detail,prev_digest,audit_digest) VALUES('expiry_purged','{}',decode('00','hex'),decode('01','hex'))").await?;
     let broken = audit::verify_chain(db).await?;
     assert!(!broken.ok);
     assert_eq!(
@@ -325,14 +325,22 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
     sql(db, "TRUNCATE directory_audit RESTART IDENTITY").await?;
     sql(
         db,
-        "INSERT INTO directory_audit(kind,detail) VALUES('ingest_rejected','{}')",
+        "INSERT INTO directory_audit(kind,detail) VALUES('admin_resource_upserted','{}')",
     )
     .await?;
-    audit::record(db, AuditEventKind::Withdrawal, None, None, None, json!({})).await?;
+    audit::record(
+        db,
+        AuditEventKind::ExpiryPurged,
+        None,
+        None,
+        None,
+        json!({}),
+    )
+    .await?;
     assert_eq!(audit::verify_chain(db).await?.chain_rows, 1);
     sql(
         db,
-        "INSERT INTO directory_audit(kind,detail) VALUES('withdrawal','{}')",
+        "INSERT INTO directory_audit(kind,detail) VALUES('expiry_purged','{}')",
     )
     .await?;
     assert_eq!(
@@ -340,13 +348,13 @@ async fn operator_audit(db: &Db, state: &AppState) -> Result<()> {
         "missing audit_digest after chain start"
     );
     sql(db, "TRUNCATE directory_audit RESTART IDENTITY").await?;
-    sql(db, "INSERT INTO directory_audit(kind,detail,prev_digest,audit_digest) VALUES('withdrawal','{}',decode('00','hex'),decode('01','hex'))").await?;
+    sql(db, "INSERT INTO directory_audit(kind,detail,prev_digest,audit_digest) VALUES('expiry_purged','{}',decode('00','hex'),decode('01','hex'))").await?;
     assert_eq!(
         audit::verify_chain(db).await?.failure.unwrap().reason,
         "first chained row has non-null prev_digest"
     );
     sql(db, "TRUNCATE directory_audit RESTART IDENTITY").await?;
-    sql(db, "INSERT INTO directory_audit(kind,detail,audit_digest) VALUES('withdrawal','{}',decode('01','hex'))").await?;
+    sql(db, "INSERT INTO directory_audit(kind,detail,audit_digest) VALUES('expiry_purged','{}',decode('01','hex'))").await?;
     assert_eq!(
         audit::verify_chain(db).await?.failure.unwrap().reason,
         "audit_digest does not match recomputed digest"

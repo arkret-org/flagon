@@ -3,7 +3,7 @@
 use arkret_wire::{BindingKind, ServiceOperationId, operation_bundle_descriptor};
 
 #[test]
-fn public_read_bundle_is_exactly_the_routed_directory_surface() {
+fn public_read_bundle_matches_the_documented_directory_surface() {
     let bundle =
         operation_bundle_descriptor("ak.operation_bundle.directory_service.public_read.v1")
             .expect("generated public_read bundle");

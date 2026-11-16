@@ -5,21 +5,10 @@
 CREATE TYPE resource_kind AS ENUM ('realm');
 
 -- Operator audit is operational history, not a public discovery index.
--- Retain the event vocabulary so historical audit rows remain readable.
 CREATE TYPE audit_event_kind AS ENUM (
-    'ingest_accepted',
-    'ingest_rejected',
-    'revalidation_succeeded',
-    'revalidation_failed',
-    'withdrawal',
-    'operator_takedown',
-    'allowlist_added',
-    'allowlist_removed',
     'admin_resource_upserted',
     'admin_resource_deleted',
-    'expiry_purged',
-    'realm_destroyed',
-    'ingest_historical_only'
+    'expiry_purged'
 );
 
 CREATE TABLE directory_public_realm_entries (
