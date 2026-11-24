@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 
-EXPECTED = {"glory": "0.7.0", "sapid": "0.7.1"}
+EXPECTED = {"glory": "0.9.1", "sapid": "0.9.1"}
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 
 
