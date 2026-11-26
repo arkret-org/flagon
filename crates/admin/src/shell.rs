@@ -523,27 +523,6 @@ fn audit_record_body(json: String) -> View {
     )))
 }
 
-#[cfg(test)]
-mod query_tests {
-    use super::audit_query;
-    #[test]
-    fn query_accepts_endpoint_bounds_and_preserves_explicit_timezone() {
-        assert!(audit_query("", "1").is_ok());
-        assert!(
-            audit_query("2026-11-14T10:00:00+08:00", "500")
-                .unwrap()
-                .contains(&("since", "2026-11-14T10:00:00+08:00".to_owned()))
-        );
-    }
-    #[test]
-    fn query_rejects_unbounded_limits_and_ambiguous_time() {
-        for value in ["", "0", "501", "-1", "2.5", "huge"] {
-            assert!(audit_query("", value).is_err());
-        }
-        assert!(audit_query("2026-11-14T10:00:00", "100").is_err());
-    }
-}
-
 fn verification_box(snapshot: VerificationSnapshot) -> View {
     let outcome = snapshot.verdict;
     let mut lines: Vec<View> = vec![
@@ -596,4 +575,25 @@ fn verification_box(snapshot: VerificationSnapshot) -> View {
         ))));
     }
     Box::new(view().class("result-box verification-result").fill(lines))
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::audit_query;
+    #[test]
+    fn query_accepts_endpoint_bounds_and_preserves_explicit_timezone() {
+        assert!(audit_query("", "1").is_ok());
+        assert!(
+            audit_query("2026-11-14T10:00:00+08:00", "500")
+                .unwrap()
+                .contains(&("since", "2026-11-14T10:00:00+08:00".to_owned()))
+        );
+    }
+    #[test]
+    fn query_rejects_unbounded_limits_and_ambiguous_time() {
+        for value in ["", "0", "501", "-1", "2.5", "huge"] {
+            assert!(audit_query("", value).is_err());
+        }
+        assert!(audit_query("2026-11-14T10:00:00", "100").is_err());
+    }
 }
